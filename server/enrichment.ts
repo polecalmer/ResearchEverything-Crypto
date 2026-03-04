@@ -15,12 +15,19 @@ export interface EnrichedCompany {
   stage: string;
   fundingHistory: string;
   competitiveLandscape: string;
+  websiteUrl: string;
+  githubUrl: string;
+  twitterUrl: string;
+  linkedinUrl: string;
   tags: string[];
   founders: {
     name: string;
     role: string;
     bio: string;
     linkedinUrl: string;
+    twitterUrl: string;
+    githubUrl: string;
+    personalUrl: string;
     priorCompanies: string;
   }[];
 }
@@ -153,9 +160,16 @@ YOUR MANDATE:
 
 For funding history: ONLY include rounds you are certain actually happened. Do NOT make up dollar amounts or investor names. If you don't know specific details, say "Details not confirmed" or leave empty.
 
-For founders: ONLY list founders you are confident about. Do NOT guess LinkedIn URLs — leave them empty if you don't have high confidence.
+For founders: ONLY list founders you are confident about. Use web search to find their real LinkedIn, Twitter/X, and GitHub profiles. Only include URLs you have actually verified exist via web search.
 
 For competitive landscape: Only list companies that genuinely compete in the same space.
+
+IMPORTANT: Use web search to find the company's REAL URLs:
+- Official website URL
+- GitHub organization URL (if they have one)
+- Twitter/X profile URL
+- LinkedIn company page URL
+- For each founder: their LinkedIn, Twitter/X, GitHub, and personal website URLs
 
 Return ONLY valid JSON matching this schema:
 {
@@ -167,13 +181,20 @@ Return ONLY valid JSON matching this schema:
   "stage": "One of: ${STAGES.join(", ")}",
   "fundingHistory": "Confirmed funding rounds only, or empty string",
   "competitiveLandscape": "Known competitors and differentiation",
+  "websiteUrl": "Official company website URL or empty string",
+  "githubUrl": "GitHub org/repo URL or empty string",
+  "twitterUrl": "Twitter/X profile URL or empty string",
+  "linkedinUrl": "LinkedIn company page URL or empty string",
   "tags": ["2-5 relevant tags"],
   "founders": [
     {
       "name": "Full name",
       "role": "Title",
       "bio": "Only confirmed background info",
-      "linkedinUrl": "Only if you are certain, otherwise empty string",
+      "linkedinUrl": "Verified LinkedIn profile URL or empty string",
+      "twitterUrl": "Verified Twitter/X profile URL or empty string",
+      "githubUrl": "Verified GitHub profile URL or empty string",
+      "personalUrl": "Verified personal website URL or empty string",
       "priorCompanies": "Only confirmed prior companies"
     }
   ],
@@ -267,7 +288,7 @@ YOUR MANDATE is absolute: REMOVE anything that could be hallucinated. When in do
 RULES:
 - Any field flagged with "remove" recommendation → set to empty string (or remove from array)
 - Any field flagged with "revise" → apply the suggested revision
-- LinkedIn URLs → ALWAYS set to empty string unless the fact-checker explicitly verified them
+- URLs (website, GitHub, Twitter, LinkedIn) → KEEP if the fact-checker verified them or if they follow the correct format for that platform. REMOVE if flagged as incorrect or fabricated.
 - Funding amounts → remove specific dollar amounts if flagged; keep only what's verified
 - Founder bios → strip any unverified claims about education, roles, or achievements
 - Description → remove any specific metrics, user counts, or revenue figures unless verified
@@ -288,13 +309,20 @@ Return ONLY valid JSON with the final clean deal card:
   "stage": "Verified stage or empty string",
   "fundingHistory": "Only verified funding info or empty string",
   "competitiveLandscape": "Only verified competitors",
+  "websiteUrl": "Verified company website URL or empty string",
+  "githubUrl": "Verified GitHub URL or empty string",
+  "twitterUrl": "Verified Twitter/X URL or empty string",
+  "linkedinUrl": "Verified LinkedIn URL or empty string",
   "tags": ["verified tags"],
   "founders": [
     {
       "name": "Verified name",
       "role": "Verified role or empty string",
       "bio": "Only verified bio info or empty string",
-      "linkedinUrl": "empty string unless explicitly verified",
+      "linkedinUrl": "Verified LinkedIn URL or empty string",
+      "twitterUrl": "Verified Twitter/X URL or empty string",
+      "githubUrl": "Verified GitHub URL or empty string",
+      "personalUrl": "Verified personal website URL or empty string",
       "priorCompanies": "Only verified prior companies or empty string"
     }
   ]
@@ -316,6 +344,19 @@ Remove or revise anything flagged. When in doubt, OMIT. Return the final clean J
 
 // ─── PIPELINE ORCHESTRATOR ──────────────────────────────────────────────────
 
+function sanitizeUrl(url: any, expectedDomain?: string): string {
+  if (!url || typeof url !== "string") return "";
+  const trimmed = url.trim();
+  if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) return "";
+  if (expectedDomain) {
+    try {
+      const hostname = new URL(trimmed).hostname.replace("www.", "");
+      if (!hostname.includes(expectedDomain)) return "";
+    } catch { return ""; }
+  }
+  return trimmed;
+}
+
 function validateOutput(data: any): EnrichedCompany {
   const result: EnrichedCompany = {
     name: data.name || "",
@@ -326,6 +367,10 @@ function validateOutput(data: any): EnrichedCompany {
     stage: STAGES.includes(data.stage) ? data.stage : "",
     fundingHistory: data.fundingHistory || "",
     competitiveLandscape: data.competitiveLandscape || "",
+    websiteUrl: sanitizeUrl(data.websiteUrl),
+    githubUrl: sanitizeUrl(data.githubUrl, "github.com"),
+    twitterUrl: sanitizeUrl(data.twitterUrl, "x.com") || sanitizeUrl(data.twitterUrl, "twitter.com"),
+    linkedinUrl: sanitizeUrl(data.linkedinUrl, "linkedin.com"),
     tags: Array.isArray(data.tags) ? data.tags.filter((t: any) => typeof t === "string") : [],
     founders: [],
   };
@@ -337,7 +382,10 @@ function validateOutput(data: any): EnrichedCompany {
         name: f.name || "",
         role: f.role || "",
         bio: f.bio || "",
-        linkedinUrl: "",
+        linkedinUrl: sanitizeUrl(f.linkedinUrl, "linkedin.com"),
+        twitterUrl: sanitizeUrl(f.twitterUrl, "x.com") || sanitizeUrl(f.twitterUrl, "twitter.com"),
+        githubUrl: sanitizeUrl(f.githubUrl, "github.com"),
+        personalUrl: sanitizeUrl(f.personalUrl),
         priorCompanies: f.priorCompanies || "",
       }));
   }

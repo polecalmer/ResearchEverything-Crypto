@@ -13,8 +13,8 @@ A deal pipeline management dashboard for VCs with a companion Chrome extension. 
 
 ## Data Model
 
-- **Companies**: Core deal entities with name, one-liner, description, sector, business model, stage, funding history, competitive landscape, source URL, pipeline stage, and tags
-- **Founders**: Linked to companies with name, role, bio, LinkedIn/Twitter URLs, prior companies
+- **Companies**: Core deal entities with name, one-liner, description, sector, business model, stage, funding history, competitive landscape, source URL, website URL, GitHub URL, Twitter URL, LinkedIn URL, pipeline stage, and tags
+- **Founders**: Linked to companies with name, role, bio, LinkedIn/Twitter/GitHub/personal URLs, prior companies
 - **Notes**: Time-stamped notes attached to companies
 
 ## Pipeline Stages
@@ -67,7 +67,7 @@ When any input is submitted (URL, company name, tweet, founder profile, blog pos
 
 Key files: `server/scraper.ts` (web scraper), `server/enrichment.ts` (pipeline orchestrator)
 
-All agents use Claude Opus 4.6 with web search enabled. The Identifier, Research, and Fact-Checker agents can actively search the internet to find and verify real-time information. LinkedIn URLs are always stripped (commonly hallucinated). The Add Deal page shows real-time SSE progress of each stage (scraper + 4 agents).
+All agents use Claude Opus 4.6 with web search enabled. The Identifier, Research, and Fact-Checker agents can actively search the internet to find and verify real-time information. URLs are domain-validated (linkedin.com, github.com, x.com/twitter.com) via sanitizeUrl() instead of blanket stripping. The Add Deal page shows real-time SSE progress of each stage (scraper + 4 agents). Company detail page shows Links section (Website, GitHub, Twitter/X, LinkedIn) and founder cards show all social links.
 
 Two flows: Quick Capture (one-click enrich + create) and Add Deal page (streaming enrich → review → submit).
 

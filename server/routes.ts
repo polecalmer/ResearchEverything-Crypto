@@ -89,6 +89,10 @@ export async function registerRoutes(
         fundingHistory: enriched.fundingHistory || "",
         competitiveLandscape: enriched.competitiveLandscape || "",
         sourceUrl: isUrl ? input : "",
+        websiteUrl: enriched.websiteUrl || "",
+        githubUrl: enriched.githubUrl || "",
+        twitterUrl: enriched.twitterUrl || "",
+        linkedinUrl: enriched.linkedinUrl || "",
         pipelineStage: pipelineStage,
         tags: enriched.tags || [],
       });
@@ -102,7 +106,9 @@ export async function registerRoutes(
               role: founder.role || "",
               bio: founder.bio || "",
               linkedinUrl: founder.linkedinUrl || "",
-              twitterUrl: "",
+              twitterUrl: founder.twitterUrl || "",
+              githubUrl: founder.githubUrl || "",
+              personalUrl: founder.personalUrl || "",
               priorCompanies: founder.priorCompanies || "",
             });
           }

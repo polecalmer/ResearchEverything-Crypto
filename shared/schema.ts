@@ -34,6 +34,10 @@ export const companies = pgTable("companies", {
   fundingHistory: text("funding_history"),
   competitiveLandscape: text("competitive_landscape"),
   sourceUrl: text("source_url"),
+  websiteUrl: text("website_url"),
+  githubUrl: text("github_url"),
+  twitterUrl: text("twitter_url"),
+  linkedinUrl: text("linkedin_url"),
   pipelineStage: text("pipeline_stage").notNull().default("discovered"),
   tags: text("tags").array().default(sql`'{}'::text[]`),
   imageUrl: text("image_url"),
@@ -48,6 +52,8 @@ export const founders = pgTable("founders", {
   bio: text("bio"),
   linkedinUrl: text("linkedin_url"),
   twitterUrl: text("twitter_url"),
+  githubUrl: text("github_url"),
+  personalUrl: text("personal_url"),
   priorCompanies: text("prior_companies"),
 });
 

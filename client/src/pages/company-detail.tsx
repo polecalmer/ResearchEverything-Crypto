@@ -25,7 +25,9 @@ import {
   Send,
   Trash2,
   ChevronRight,
+  Link2,
 } from "lucide-react";
+import { SiGithub } from "react-icons/si";
 import { useState } from "react";
 import { formatDistanceToNow, format } from "date-fns";
 import {
@@ -94,7 +96,7 @@ function FounderCard({ founder }: { founder: Founder }) {
               href={founder.linkedinUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-muted-foreground"
+              className="text-muted-foreground hover:text-foreground transition-colors"
               data-testid={`link-founder-linkedin-${founder.id}`}
             >
               <Linkedin className="w-3.5 h-3.5" />
@@ -105,10 +107,32 @@ function FounderCard({ founder }: { founder: Founder }) {
               href={founder.twitterUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-muted-foreground"
+              className="text-muted-foreground hover:text-foreground transition-colors"
               data-testid={`link-founder-twitter-${founder.id}`}
             >
               <Twitter className="w-3.5 h-3.5" />
+            </a>
+          )}
+          {founder.githubUrl && (
+            <a
+              href={founder.githubUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              data-testid={`link-founder-github-${founder.id}`}
+            >
+              <SiGithub className="w-3.5 h-3.5" />
+            </a>
+          )}
+          {founder.personalUrl && (
+            <a
+              href={founder.personalUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-muted-foreground hover:text-foreground transition-colors"
+              data-testid={`link-founder-website-${founder.id}`}
+            >
+              <Globe className="w-3.5 h-3.5" />
             </a>
           )}
         </div>
@@ -336,10 +360,66 @@ export default function CompanyDetail() {
             </div>
           )}
 
+          {(company.websiteUrl || company.githubUrl || company.twitterUrl || company.linkedinUrl) && (
+            <div className="mb-6">
+              <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-2">Links</h3>
+              <div className="flex flex-wrap gap-2">
+                {company.websiteUrl && (
+                  <a
+                    href={company.websiteUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent/50 text-sm text-foreground hover:bg-accent transition-colors"
+                    data-testid="link-company-website"
+                  >
+                    <Globe className="w-3.5 h-3.5" />
+                    Website
+                  </a>
+                )}
+                {company.githubUrl && (
+                  <a
+                    href={company.githubUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent/50 text-sm text-foreground hover:bg-accent transition-colors"
+                    data-testid="link-company-github"
+                  >
+                    <SiGithub className="w-3.5 h-3.5" />
+                    GitHub
+                  </a>
+                )}
+                {company.twitterUrl && (
+                  <a
+                    href={company.twitterUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent/50 text-sm text-foreground hover:bg-accent transition-colors"
+                    data-testid="link-company-twitter"
+                  >
+                    <Twitter className="w-3.5 h-3.5" />
+                    Twitter / X
+                  </a>
+                )}
+                {company.linkedinUrl && (
+                  <a
+                    href={company.linkedinUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-accent/50 text-sm text-foreground hover:bg-accent transition-colors"
+                    data-testid="link-company-linkedin"
+                  >
+                    <Linkedin className="w-3.5 h-3.5" />
+                    LinkedIn
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
+
           <div className="space-y-1 mb-6">
             <InfoRow icon={DollarSign} label="Funding History" value={company.fundingHistory} testId="text-funding" />
             <InfoRow icon={Target} label="Competitive Landscape" value={company.competitiveLandscape} testId="text-competitive" />
-            <InfoRow icon={Globe} label="Source" value={company.sourceUrl} testId="text-source" />
+            <InfoRow icon={Link2} label="Source" value={company.sourceUrl} testId="text-source" />
             <InfoRow
               icon={Clock}
               label="Captured"
@@ -426,21 +506,36 @@ export default function CompanyDetail() {
             <TagManager tags={company.tags || []} companyId={company.id} />
           </Card>
 
-          {company.sourceUrl && (
+          {(company.websiteUrl || company.sourceUrl) && (
             <Card className="p-4">
               <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-3">Quick Actions</h3>
               <div className="space-y-2">
-                <a
-                  href={company.sourceUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block"
-                >
-                  <Button variant="secondary" className="w-full justify-start" data-testid="button-visit-source">
-                    <ExternalLink className="w-4 h-4 mr-2" />
-                    Visit Source
-                  </Button>
-                </a>
+                {company.websiteUrl && (
+                  <a
+                    href={company.websiteUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block"
+                  >
+                    <Button variant="secondary" className="w-full justify-start" data-testid="button-visit-website">
+                      <Globe className="w-4 h-4 mr-2" />
+                      Visit Website
+                    </Button>
+                  </a>
+                )}
+                {company.sourceUrl && company.sourceUrl !== company.websiteUrl && (
+                  <a
+                    href={company.sourceUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block"
+                  >
+                    <Button variant="secondary" className="w-full justify-start" data-testid="button-visit-source">
+                      <ExternalLink className="w-4 h-4 mr-2" />
+                      Visit Source
+                    </Button>
+                  </a>
+                )}
               </div>
             </Card>
           )}

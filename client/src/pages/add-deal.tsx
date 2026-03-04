@@ -70,6 +70,10 @@ const addDealSchema = z.object({
   fundingHistory: z.string().optional().default(""),
   competitiveLandscape: z.string().optional().default(""),
   sourceUrl: z.string().optional().default(""),
+  websiteUrl: z.string().optional().default(""),
+  githubUrl: z.string().optional().default(""),
+  twitterUrl: z.string().optional().default(""),
+  linkedinUrl: z.string().optional().default(""),
   pipelineStage: z.string().default("discovered"),
   tags: z.array(z.string()).default([]),
 });
@@ -82,6 +86,8 @@ interface FounderForm {
   bio: string;
   linkedinUrl: string;
   twitterUrl: string;
+  githubUrl: string;
+  personalUrl: string;
   priorCompanies: string;
 }
 
@@ -108,6 +114,10 @@ export default function AddDeal() {
       fundingHistory: "",
       competitiveLandscape: "",
       sourceUrl: "",
+      websiteUrl: "",
+      githubUrl: "",
+      twitterUrl: "",
+      linkedinUrl: "",
       pipelineStage: "discovered",
       tags: [],
     },
@@ -142,6 +152,10 @@ export default function AddDeal() {
       form.setValue("competitiveLandscape", data.competitiveLandscape || "");
       const isUrl = enrichInput.trim().startsWith("http://") || enrichInput.trim().startsWith("https://");
       form.setValue("sourceUrl", isUrl ? enrichInput.trim() : "");
+      form.setValue("websiteUrl", data.websiteUrl || "");
+      form.setValue("githubUrl", data.githubUrl || "");
+      form.setValue("twitterUrl", data.twitterUrl || "");
+      form.setValue("linkedinUrl", data.linkedinUrl || "");
       form.setValue("tags", data.tags || []);
 
       if (data.founders && data.founders.length > 0) {
@@ -150,7 +164,9 @@ export default function AddDeal() {
           role: f.role || "",
           bio: f.bio || "",
           linkedinUrl: f.linkedinUrl || "",
-          twitterUrl: "",
+          twitterUrl: f.twitterUrl || "",
+          githubUrl: f.githubUrl || "",
+          personalUrl: f.personalUrl || "",
           priorCompanies: f.priorCompanies || "",
         })));
       }
@@ -192,7 +208,7 @@ export default function AddDeal() {
   });
 
   const addFounder = () => {
-    setFounders([...founders, { name: "", role: "", bio: "", linkedinUrl: "", twitterUrl: "", priorCompanies: "" }]);
+    setFounders([...founders, { name: "", role: "", bio: "", linkedinUrl: "", twitterUrl: "", githubUrl: "", personalUrl: "", priorCompanies: "" }]);
   };
 
   const removeFounder = (index: number) => {
@@ -431,6 +447,60 @@ export default function AddDeal() {
                   </FormItem>
                 )}
               />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="websiteUrl"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Website</FormLabel>
+                      <FormControl>
+                        <Input placeholder="https://company.com" {...field} data-testid="input-website-url" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="linkedinUrl"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>LinkedIn</FormLabel>
+                      <FormControl>
+                        <Input placeholder="https://linkedin.com/company/..." {...field} data-testid="input-linkedin-url" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="githubUrl"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>GitHub</FormLabel>
+                      <FormControl>
+                        <Input placeholder="https://github.com/..." {...field} data-testid="input-github-url" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="twitterUrl"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Twitter / X</FormLabel>
+                      <FormControl>
+                        <Input placeholder="https://x.com/..." {...field} data-testid="input-twitter-url" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
             </div>
           </Card>
 
@@ -662,6 +732,20 @@ export default function AddDeal() {
                         placeholder="Twitter/X URL"
                         className="h-8 text-sm"
                         data-testid={`input-founder-twitter-${index}`}
+                      />
+                      <Input
+                        value={founder.githubUrl}
+                        onChange={(e) => updateFounder(index, "githubUrl", e.target.value)}
+                        placeholder="GitHub URL"
+                        className="h-8 text-sm"
+                        data-testid={`input-founder-github-${index}`}
+                      />
+                      <Input
+                        value={founder.personalUrl}
+                        onChange={(e) => updateFounder(index, "personalUrl", e.target.value)}
+                        placeholder="Personal website URL"
+                        className="h-8 text-sm"
+                        data-testid={`input-founder-website-${index}`}
                       />
                     </div>
                     <Input
