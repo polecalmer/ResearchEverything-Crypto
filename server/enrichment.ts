@@ -490,6 +490,8 @@ export interface NextStepItem {
   detail: string;
   priority: "high" | "medium" | "low";
   category: "research" | "outreach" | "diligence" | "relationship" | "action";
+  verified?: boolean;
+  verifierNote?: string;
 }
 
 export async function generateNextSteps(context: {
@@ -621,6 +623,7 @@ Respond with a JSON array of objects. Each object has:
 Return ONLY the JSON array, no markdown fencing.`;
 
   try {
+    console.log(`[NextSteps] Stage 1/2: Generating recommendations for ${company.name}...`);
     const response = await anthropic.messages.create({
       model: "claude-opus-4-6",
       max_tokens: 1500,
@@ -629,11 +632,118 @@ Return ONLY the JSON array, no markdown fencing.`;
 
     const text = response.content[0].type === "text" ? response.content[0].text : "";
     const cleaned = text.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
-    const steps = JSON.parse(cleaned) as NextStepItem[];
-    return steps.filter((s) => s.title && s.detail && s.priority && s.category);
+    const rawSteps = JSON.parse(cleaned) as NextStepItem[];
+    const validSteps = rawSteps.filter((s) => s.title && s.detail && s.priority && s.category);
+
+    if (validSteps.length === 0) return [];
+
+    console.log(`[NextSteps] Stage 2/2: Verifying ${validSteps.length} recommendations...`);
+    const verified = await verifyNextSteps(validSteps, {
+      company, founders, notes, filledFields, missingFields, founderSummary, sourceContext,
+    });
+    console.log(`[NextSteps] Pipeline complete. ${verified.length} verified steps.`);
+    return verified;
   } catch (error) {
     console.error("[NextSteps] AI generation failed:", error);
     return [];
+  }
+}
+
+async function verifyNextSteps(
+  steps: NextStepItem[],
+  dealContext: {
+    company: any;
+    founders: any[];
+    notes: any[];
+    filledFields: string[];
+    missingFields: string[];
+    founderSummary: string;
+    sourceContext: string;
+  },
+): Promise<NextStepItem[]> {
+  const { company, founders, notes, filledFields, missingFields, founderSummary, sourceContext } = dealContext;
+
+  const stepsJson = JSON.stringify(steps, null, 2);
+
+  const verifyPrompt = `You are a quality assurance agent reviewing recommended next steps for a VC deal. Your job is to verify each step is factually grounded, actionable, and appropriate given the ACTUAL deal data below. You must catch hallucinations, incorrect assumptions, and steps that contradict the available data.
+
+ACTUAL DEAL DATA (ground truth):
+- Company: ${company.name}
+- Pipeline stage: ${company.pipelineStage}
+- Sector: ${company.sector || "UNKNOWN"}
+- Business model: ${company.businessModel || "UNKNOWN"}
+- Funding stage: ${company.stage || "UNKNOWN"}
+${sourceContext ? `- ${sourceContext}` : "- Source: UNKNOWN"}
+
+- Profile filled fields: ${filledFields.join(", ") || "none"}
+- Profile missing fields: ${missingFields.join(", ") || "none"}
+
+- Description: ${company.description || "NONE"}
+- Funding history: ${company.fundingHistory || "NONE"}
+- Competitive landscape: ${company.competitiveLandscape || "NONE"}
+
+- Founders: ${founderSummary}
+- Notes count: ${notes.length}
+${notes.length > 0 ? `- Recent notes: ${notes.slice(0, 3).map((n: any) => n.content).join(" | ")}` : ""}
+
+- Available links: ${[
+    company.websiteUrl && `Website: ${company.websiteUrl}`,
+    company.githubUrl && `GitHub: ${company.githubUrl}`,
+    company.twitterUrl && `Twitter: ${company.twitterUrl}`,
+    company.linkedinUrl && `LinkedIn: ${company.linkedinUrl}`,
+  ].filter(Boolean).join(", ") || "NONE"}
+
+PROPOSED STEPS TO VERIFY:
+${stepsJson}
+
+For EACH step, check:
+1. FACTUAL ACCURACY: Does it reference real data from the deal? If it mentions a founder name, URL, metric, or claim — is that actually in the data above?
+2. CONTRADICTIONS: Does it suggest doing something that's already done? (e.g., "find the website" when websiteUrl exists, or "identify founders" when founders are on record)
+3. STAGE APPROPRIATENESS: Is this step appropriate for the "${company.pipelineStage}" pipeline stage? Don't suggest outreach at discovery or research at invested.
+4. ACTIONABILITY: Is the step specific enough to act on, or is it vague/generic?
+5. HALLUCINATED DETAILS: Does the step mention URLs, names, numbers, or facts NOT present in the deal data above?
+
+Respond with a JSON array. For each ORIGINAL step, include:
+- All original fields (title, detail, priority, category)
+- "verified": true if the step passes ALL checks, false if it fails any
+- "verifierNote": Brief explanation of what was checked or why it failed (always include this)
+- If a step has minor issues but is salvageable, set verified=true and fix the detail text to remove hallucinated specifics
+- If a step is fundamentally wrong (contradicts data, wrong stage, entirely hallucinated), set verified=false
+
+Return ONLY the JSON array, no markdown fencing.`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: "claude-opus-4-6",
+      max_tokens: 2000,
+      messages: [{ role: "user", content: verifyPrompt }],
+    });
+
+    const text = response.content[0].type === "text" ? response.content[0].text : "";
+    const cleaned = text.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+    const verifiedSteps = JSON.parse(cleaned) as NextStepItem[];
+
+    const passed = verifiedSteps.filter((s) => s.verified !== false);
+    const failed = verifiedSteps.filter((s) => s.verified === false);
+
+    if (failed.length > 0) {
+      console.log(`[NextSteps] Verifier rejected ${failed.length} step(s):`);
+      for (const f of failed) {
+        console.log(`  - "${f.title}": ${f.verifierNote}`);
+      }
+    }
+
+    return passed.map((s) => ({
+      title: s.title,
+      detail: s.detail,
+      priority: s.priority,
+      category: s.category,
+      verified: true,
+      verifierNote: s.verifierNote,
+    }));
+  } catch (error) {
+    console.error("[NextSteps] Verifier failed, returning unverified steps:", error);
+    return steps.map((s) => ({ ...s, verified: false, verifierNote: "Verification unavailable" }));
   }
 }
 

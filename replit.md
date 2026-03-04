@@ -71,6 +71,14 @@ All agents use Claude Opus 4.6 with web search enabled. The Identifier, Research
 
 Two flows: Quick Capture (one-click enrich + create) and Add Deal page (streaming enrich → review → submit).
 
+## AI Next Steps Advisor (2-Stage Pipeline)
+
+Each deal page has a "Recommended Next Steps" section powered by a 2-stage AI pipeline:
+1. **Generator Agent** — Analyzes the full deal context (company data, founders, notes, source URL, pipeline stage, data gaps) and produces 4-6 highly specific, actionable recommendations
+2. **Verifier Agent** — Reviews each step against the actual deal data, checking for factual accuracy, hallucinated details, contradictions (e.g., suggesting "find website" when one exists), and stage appropriateness. Rejects invalid steps and annotates verified ones.
+
+Only verified steps are shown, each with a green shield icon and the verifier's assessment note. Results are cached for 5 minutes and automatically regenerate when the pipeline stage changes.
+
 ## API Endpoints
 
 - `POST /api/enrich` - AI enrichment only (returns enriched data without saving)
@@ -78,7 +86,7 @@ Two flows: Quick Capture (one-click enrich + create) and Add Deal page (streamin
 - `POST /api/companies/enrich-and-create` - AI enrichment + create company + founders in one step
 - `GET/POST /api/companies` - List/create companies
 - `GET/PATCH/DELETE /api/companies/:id` - Read/update/delete company
-- `GET /api/companies/:id/next-steps` - AI-generated context-aware next steps for a deal (uses Claude Opus)
+- `GET /api/companies/:id/next-steps` - AI-generated context-aware next steps with 2-stage pipeline (Generator → Verifier)
 - `GET/POST /api/companies/:id/founders` - List/add founders
 - `GET/POST /api/companies/:id/notes` - List/add notes
 - `DELETE /api/notes/:id` - Delete note

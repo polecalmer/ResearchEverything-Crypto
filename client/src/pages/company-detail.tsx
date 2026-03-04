@@ -31,6 +31,7 @@ import {
   FileText,
   ArrowRight,
   Sparkles,
+  ShieldCheck,
 } from "lucide-react";
 import { SiGithub } from "react-icons/si";
 import { useState } from "react";
@@ -174,6 +175,8 @@ interface NextStepItem {
   detail: string;
   priority: "high" | "medium" | "low";
   category: "research" | "outreach" | "diligence" | "relationship" | "action";
+  verified?: boolean;
+  verifierNote?: string;
 }
 
 const CATEGORY_ICONS: Record<string, any> = {
@@ -264,9 +267,20 @@ function NextStepsAdvisor({
             >
               <div className="flex items-start gap-2">
                 <Icon className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-foreground" />
-                <div className="min-w-0">
-                  <p className="text-xs font-medium leading-tight" data-testid={`next-step-title-${i}`}>{step.title}</p>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-xs font-medium leading-tight" data-testid={`next-step-title-${i}`}>{step.title}</p>
+                    {step.verified && (
+                      <ShieldCheck className="w-3 h-3 text-emerald-500 flex-shrink-0" data-testid={`next-step-verified-${i}`} />
+                    )}
+                  </div>
                   <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug" data-testid={`next-step-detail-${i}`}>{step.detail}</p>
+                  {step.verifierNote && (
+                    <p className="text-[10px] text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1 opacity-70" data-testid={`next-step-verifier-note-${i}`}>
+                      <ShieldCheck className="w-2.5 h-2.5 flex-shrink-0" />
+                      {step.verifierNote}
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
