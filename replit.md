@@ -67,7 +67,7 @@ When any input is submitted (URL, company name, tweet, founder profile, blog pos
 
 Key files: `server/scraper.ts` (web scraper), `server/enrichment.ts` (pipeline orchestrator)
 
-All agents use Claude Sonnet 4.6 for speed. LinkedIn URLs are always stripped (commonly hallucinated). The Add Deal page shows real-time SSE progress of each stage (scraper + 4 agents).
+All agents use Claude Opus 4.6 with web search enabled. The Identifier, Research, and Fact-Checker agents can actively search the internet to find and verify real-time information. LinkedIn URLs are always stripped (commonly hallucinated). The Add Deal page shows real-time SSE progress of each stage (scraper + 4 agents).
 
 Two flows: Quick Capture (one-click enrich + create) and Add Deal page (streaming enrich → review → submit).
 

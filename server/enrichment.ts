@@ -38,16 +38,35 @@ const BUSINESS_MODELS = [
 
 const STAGES = ["Pre-seed", "Seed", "Series A", "Series B", "Growth", "Public"];
 
-async function callAgent(systemPrompt: string, userMessage: string): Promise<string> {
-  const message = await anthropic.messages.create({
-    model: "claude-sonnet-4-6",
-    max_tokens: 8192,
+async function callAgent(systemPrompt: string, userMessage: string, useWebSearch: boolean = false): Promise<string> {
+  const options: any = {
+    model: "claude-opus-4-6",
+    max_tokens: 16000,
     system: systemPrompt,
     messages: [{ role: "user", content: userMessage }],
-  });
-  const content = message.content[0];
-  if (content.type !== "text") throw new Error("Unexpected AI response type");
-  return content.text;
+  };
+
+  if (useWebSearch) {
+    options.tools = [
+      {
+        type: "web_search_20250305",
+        name: "web_search",
+        max_uses: 10,
+      },
+    ];
+  }
+
+  const message = await anthropic.messages.create(options);
+
+  let textContent = "";
+  for (const block of message.content) {
+    if (block.type === "text") {
+      textContent += block.text;
+    }
+  }
+
+  if (!textContent) throw new Error("No text content in AI response");
+  return textContent;
 }
 
 function parseJson(text: string): any {
@@ -61,6 +80,8 @@ function parseJson(text: string): any {
 // Figures out WHICH company is being referenced from any input
 
 const IDENTIFIER_SYSTEM = `You are the Identifier Agent in a VC deal intelligence pipeline. Your ONLY job is to figure out which company/startup is being referenced from any piece of input.
+
+YOU HAVE WEB SEARCH ACCESS. If the input is a URL or mentions a company you're not sure about, use web search to look it up and confirm the company identity.
 
 The input could be:
 - A company website URL
@@ -106,7 +127,7 @@ async function runIdentifierAgent(input: string, scrapedContent?: ScrapedContent
       prompt += `Body excerpt: ${sc.bodyText.slice(0, 2000)}\n`;
     }
   }
-  const result = await callAgent(IDENTIFIER_SYSTEM, prompt);
+  const result = await callAgent(IDENTIFIER_SYSTEM, prompt, true);
   return parseJson(result);
 }
 
@@ -115,8 +136,16 @@ async function runIdentifierAgent(input: string, scrapedContent?: ScrapedContent
 
 const RESEARCH_SYSTEM = `You are the Research Agent in a VC deal intelligence pipeline. You receive a confirmed company identity and must produce a comprehensive deal card.
 
+YOU HAVE WEB SEARCH ACCESS. Use it aggressively to find real, current information about the company. Search for:
+- The company's official website
+- Recent news, press releases, funding announcements
+- Crunchbase, PitchBook, or similar profiles
+- Founder backgrounds and LinkedIn profiles
+- Product descriptions and user reviews
+
 YOUR MANDATE:
-- Only include facts you are HIGHLY CONFIDENT about.
+- Use web search to gather REAL facts. Do not rely on guessing.
+- Only include facts you are HIGHLY CONFIDENT about from your web search results or scraped data.
 - For anything you are uncertain about, use empty string or leave it out.
 - NEVER fabricate funding amounts, investor names, dates, or LinkedIn URLs.
 - If you are not sure about a founder's exact role, prior companies, or bio details, leave those fields empty rather than guessing.
@@ -175,7 +204,7 @@ Produce the comprehensive deal card. Remember: accuracy over completeness. Leave
     }
   }
 
-  const result = await callAgent(RESEARCH_SYSTEM, prompt);
+  const result = await callAgent(RESEARCH_SYSTEM, prompt, true);
   return parseJson(result);
 }
 
@@ -183,6 +212,8 @@ Produce the comprehensive deal card. Remember: accuracy over completeness. Leave
 // Cross-checks every claim in the research output
 
 const FACT_CHECKER_SYSTEM = `You are the Fact-Checker Agent in a VC deal intelligence pipeline. You receive a research draft about a company and must rigorously verify every claim.
+
+YOU HAVE WEB SEARCH ACCESS. Use it to independently verify the claims in the research draft. Search for the company, its funding rounds, founders, and competitors to cross-check the information.
 
 YOUR JOB:
 1. Review every field in the draft for factual accuracy.
@@ -220,7 +251,7 @@ DRAFT:
 ${JSON.stringify(researchDraft, null, 2)}
 
 Rigorously verify every claim. Flag anything that looks potentially hallucinated, fabricated, or uncertain. Be especially suspicious of specific numbers, dates, URLs, and investor names.`;
-  const result = await callAgent(FACT_CHECKER_SYSTEM, prompt);
+  const result = await callAgent(FACT_CHECKER_SYSTEM, prompt, true);
   return parseJson(result);
 }
 
