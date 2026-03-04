@@ -7,6 +7,7 @@ A deal pipeline management dashboard for VCs with a companion Chrome extension. 
 - **Frontend:** React + TypeScript + Vite, with shadcn/ui components, TanStack Query, wouter routing
 - **Backend:** Express.js API server with CORS enabled for extension access
 - **Database:** PostgreSQL with Drizzle ORM
+- **AI:** Anthropic Claude claude-opus-4-6 via Replit AI Integrations (no API key needed) for automatic deal enrichment
 - **Extension:** Chrome Manifest V3 extension with context menu, content scripts, and popup
 - **Styling:** Tailwind CSS with Inter font
 
@@ -38,10 +39,10 @@ A deal pipeline management dashboard for VCs with a companion Chrome extension. 
 
 ### Extension Flow
 1. User right-clicks on any webpage -> "Add to Dealflow"
-2. Background script extracts URL, infers company name from hostname
-3. POST to dashboard's `/api/companies` endpoint
+2. Background script sends URL to `/api/companies/enrich-and-create`
+3. AI agent (Claude claude-opus-4-6) researches the company and populates all fields automatically
 4. Content script shows floating confirmation card inline (auto-dismisses after 5s)
-5. Card links to company detail in dashboard for further enrichment
+5. Card links to company detail in dashboard
 
 ## Key Files
 
@@ -49,12 +50,23 @@ A deal pipeline management dashboard for VCs with a companion Chrome extension. 
 - `server/db.ts` - Database connection
 - `server/storage.ts` - CRUD operations (DatabaseStorage)
 - `server/routes.ts` - REST API endpoints
+- `server/enrichment.ts` - AI enrichment service (Claude claude-opus-4-6 via Replit AI Integrations)
+- `server/replit_integrations/` - Anthropic AI integration (auto-configured, do not modify)
 - `client/src/App.tsx` - Root layout with sidebar
 - `client/src/pages/` - All page components
 - `client/src/components/` - Reusable components (sidebar, theme toggle, quick capture)
 
+## AI Enrichment
+
+When a URL or company name is submitted:
+1. Claude claude-opus-4-6 researches the company and returns structured data
+2. Auto-populates: name, one-liner, description, sector, business model, stage, funding history, competitive landscape, tags, and founders
+3. Two flows: Quick Capture (one-click enrich + create) and Add Deal page (enrich → review → submit)
+
 ## API Endpoints
 
+- `POST /api/enrich` - AI enrichment only (returns enriched data without saving)
+- `POST /api/companies/enrich-and-create` - AI enrichment + create company + founders in one step
 - `GET/POST /api/companies` - List/create companies
 - `GET/PATCH/DELETE /api/companies/:id` - Read/update/delete company
 - `GET/POST /api/companies/:id/founders` - List/add founders

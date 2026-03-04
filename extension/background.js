@@ -10,7 +10,6 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId !== "add-to-dealflow") return;
 
   const url = info.linkUrl || info.pageUrl;
-  const selectedText = info.selectionText || "";
 
   const { dashboardUrl } = await chrome.storage.sync.get("dashboardUrl");
   if (!dashboardUrl) {
@@ -34,35 +33,18 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     func: (capturedUrl) => {
       window.postMessage({
         type: "DEALFLOW_SHOW_CARD",
-        data: { loading: true, url: capturedUrl }
+        data: { loading: true, url: capturedUrl, message: "AI Agent is researching this company..." }
       }, "*");
     },
     args: [url]
   });
 
-  let companyName = "";
-  let oneLiner = "";
-  try {
-    const hostname = new URL(url).hostname.replace("www.", "");
-    const parts = hostname.split(".");
-    companyName = parts[0].charAt(0).toUpperCase() + parts[0].slice(1);
-    oneLiner = selectedText || `Captured from ${hostname}`;
-  } catch {
-    companyName = "Unknown";
-    oneLiner = selectedText || "Captured from the web";
-  }
-
   try {
     const apiUrl = dashboardUrl.replace(/\/$/, "");
-    const response = await fetch(`${apiUrl}/api/companies`, {
+    const response = await fetch(`${apiUrl}/api/companies/enrich-and-create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name: companyName,
-        oneLiner: oneLiner,
-        sourceUrl: url,
-        pipelineStage: "discovered"
-      })
+      body: JSON.stringify({ url, pipelineStage: "discovered" })
     });
 
     if (!response.ok) {

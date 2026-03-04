@@ -1,6 +1,6 @@
 import { useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { insertCompanySchema, insertFounderSchema, PIPELINE_STAGES, STAGE_LABELS, type PipelineStage } from "@shared/schema";
+import { insertCompanySchema, PIPELINE_STAGES, STAGE_LABELS, type PipelineStage } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -37,46 +37,24 @@ import {
   Plus,
   Trash2,
   User,
+  Sparkles,
+  Loader2,
+  Link,
 } from "lucide-react";
 import { useState } from "react";
 
 const SECTORS = [
-  "AI / ML",
-  "AI Infra",
-  "Fintech",
-  "DevTools",
-  "Consumer",
-  "Healthcare",
-  "Climate",
-  "Crypto / Web3",
-  "Enterprise SaaS",
-  "Marketplace",
-  "Cybersecurity",
-  "Biotech",
-  "Edtech",
-  "Other",
+  "AI / ML", "AI Infra", "Fintech", "DevTools", "Consumer", "Healthcare",
+  "Climate", "Crypto / Web3", "Enterprise SaaS", "Marketplace",
+  "Cybersecurity", "Biotech", "Edtech", "Other",
 ];
 
 const BUSINESS_MODELS = [
-  "SaaS",
-  "Marketplace",
-  "Infrastructure",
-  "Consumer",
-  "API / Platform",
-  "Hardware",
-  "Services",
-  "Open Source",
-  "Other",
+  "SaaS", "Marketplace", "Infrastructure", "Consumer", "API / Platform",
+  "Hardware", "Services", "Open Source", "Other",
 ];
 
-const STAGES = [
-  "Pre-seed",
-  "Seed",
-  "Series A",
-  "Series B",
-  "Growth",
-  "Public",
-];
+const STAGES = ["Pre-seed", "Seed", "Series A", "Series B", "Growth", "Public"];
 
 const addDealSchema = z.object({
   name: z.string().min(1, "Company name is required"),
@@ -108,6 +86,9 @@ export default function AddDeal() {
   const { toast } = useToast();
   const [founders, setFounders] = useState<FounderForm[]>([]);
   const [tagInput, setTagInput] = useState("");
+  const [enrichUrl, setEnrichUrl] = useState("");
+  const [enrichName, setEnrichName] = useState("");
+  const [isEnriched, setIsEnriched] = useState(false);
 
   const form = useForm<AddDealForm>({
     resolver: zodResolver(addDealSchema),
@@ -123,6 +104,45 @@ export default function AddDeal() {
       sourceUrl: "",
       pipelineStage: "discovered",
       tags: [],
+    },
+  });
+
+  const enrichMutation = useMutation({
+    mutationFn: async () => {
+      const body: Record<string, string> = {};
+      if (enrichUrl.trim()) body.url = enrichUrl.trim();
+      if (enrichName.trim()) body.name = enrichName.trim();
+      const res = await apiRequest("POST", "/api/enrich", body);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      form.setValue("name", data.name || "");
+      form.setValue("oneLiner", data.oneLiner || "");
+      form.setValue("description", data.description || "");
+      form.setValue("sector", data.sector || "");
+      form.setValue("businessModel", data.businessModel || "");
+      form.setValue("stage", data.stage || "");
+      form.setValue("fundingHistory", data.fundingHistory || "");
+      form.setValue("competitiveLandscape", data.competitiveLandscape || "");
+      form.setValue("sourceUrl", enrichUrl.trim());
+      form.setValue("tags", data.tags || []);
+
+      if (data.founders && data.founders.length > 0) {
+        setFounders(data.founders.map((f: any) => ({
+          name: f.name || "",
+          role: f.role || "",
+          bio: f.bio || "",
+          linkedinUrl: f.linkedinUrl || "",
+          twitterUrl: "",
+          priorCompanies: f.priorCompanies || "",
+        })));
+      }
+
+      setIsEnriched(true);
+      toast({ title: "AI enrichment complete", description: "All fields have been populated. Review and submit." });
+    },
+    onError: (error: Error) => {
+      toast({ title: "AI enrichment failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -185,6 +205,11 @@ export default function AddDeal() {
     createMutation.mutate(data);
   };
 
+  const handleEnrich = () => {
+    if (!enrichUrl.trim() && !enrichName.trim()) return;
+    enrichMutation.mutate();
+  };
+
   return (
     <div className="p-6 max-w-3xl mx-auto h-full overflow-y-auto">
       <button
@@ -199,9 +224,87 @@ export default function AddDeal() {
       <div className="mb-6">
         <h2 className="text-xl font-semibold tracking-tight" data-testid="text-page-title">Add New Deal</h2>
         <p className="text-sm text-muted-foreground mt-0.5">
-          Capture a new company for your deal pipeline
+          Let the AI agent research and populate deal fields, or fill them in manually.
         </p>
       </div>
+
+      {!isEnriched && (
+        <Card className="p-5 mb-6 border-primary/20 bg-primary/[0.02]">
+          <h3 className="text-xs uppercase tracking-wider text-primary font-medium mb-4 flex items-center gap-2">
+            <Sparkles className="w-3.5 h-3.5" />
+            AI Auto-Enrichment
+          </h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            Paste a URL or company name and the AI agent will automatically fill in all fields below.
+          </p>
+          <div className="space-y-3">
+            <div className="relative">
+              <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                value={enrichUrl}
+                onChange={(e) => setEnrichUrl(e.target.value)}
+                placeholder="https://company-website.com"
+                className="pl-9"
+                onKeyDown={(e) => e.key === "Enter" && handleEnrich()}
+                disabled={enrichMutation.isPending}
+                data-testid="input-enrich-url"
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="h-px flex-1 bg-border" />
+              <span className="text-xs text-muted-foreground">or</span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+            <Input
+              value={enrichName}
+              onChange={(e) => setEnrichName(e.target.value)}
+              placeholder="Company name (e.g. Stripe, Figma)"
+              onKeyDown={(e) => e.key === "Enter" && handleEnrich()}
+              disabled={enrichMutation.isPending}
+              data-testid="input-enrich-name"
+            />
+
+            {enrichMutation.isPending && (
+              <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/5 border border-primary/10">
+                <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                <div>
+                  <p className="text-sm font-medium">AI Agent is researching...</p>
+                  <p className="text-xs text-muted-foreground">Extracting company info, founders, sector, competitive landscape, and more</p>
+                </div>
+              </div>
+            )}
+
+            <Button
+              type="button"
+              onClick={handleEnrich}
+              disabled={(!enrichUrl.trim() && !enrichName.trim()) || enrichMutation.isPending}
+              className="w-full"
+              data-testid="button-enrich"
+            >
+              {enrichMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                  Enriching...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-1.5" />
+                  Enrich with AI
+                </>
+              )}
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {isEnriched && (
+        <div className="flex items-center gap-2 mb-4 p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+          <Sparkles className="w-4 h-4 text-green-600" />
+          <p className="text-sm text-green-700 dark:text-green-400">
+            AI enrichment complete — review the pre-filled fields below and submit.
+          </p>
+        </div>
+      )}
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
