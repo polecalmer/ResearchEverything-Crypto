@@ -1,22 +1,20 @@
+const DEFAULT_DASHBOARD_URL = "https://workspace.replit.app";
 const dashboardUrlInput = document.getElementById("dashboardUrl");
 const saveBtn = document.getElementById("saveBtn");
 const statusEl = document.getElementById("status");
 const connectionStatusEl = document.getElementById("connectionStatus");
 
 chrome.storage.sync.get("dashboardUrl", (data) => {
-  if (data.dashboardUrl) {
-    dashboardUrlInput.value = data.dashboardUrl;
-    checkConnection(data.dashboardUrl);
-  } else {
-    showDisconnected();
-  }
+  const url = data.dashboardUrl || DEFAULT_DASHBOARD_URL;
+  dashboardUrlInput.value = url;
+  checkConnection(url);
 });
 
 saveBtn.addEventListener("click", async () => {
   let url = dashboardUrlInput.value.trim();
   if (!url) {
-    showStatus("Please enter a URL", "error");
-    return;
+    url = DEFAULT_DASHBOARD_URL;
+    dashboardUrlInput.value = url;
   }
 
   if (!url.startsWith("http")) {
@@ -79,7 +77,7 @@ function showDisconnected() {
   connectionStatusEl.innerHTML = `
     <div class="disconnected">
       <span class="dot"></span>
-      Not connected
+      Not connected — publish your app first, then reload extension
     </div>
   `;
 }

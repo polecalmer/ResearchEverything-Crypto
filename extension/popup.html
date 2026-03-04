@@ -167,6 +167,18 @@
       font-size: 11px;
       font-family: 'SF Mono', 'Fira Code', monospace;
     }
+    details {
+      margin-top: 12px;
+    }
+    details summary {
+      font-size: 11px;
+      color: #6b7280;
+      cursor: pointer;
+      user-select: none;
+    }
+    details .field {
+      margin-top: 10px;
+    }
   </style>
 </head>
 <body>
@@ -178,18 +190,8 @@
     </div>
     <div class="header-text">
       <h1>Dealflow Agent</h1>
-      <p>Deal Intelligence for VCs</p>
+      <p>AI-Powered Deal Intelligence</p>
     </div>
-  </div>
-
-  <div class="content">
-    <div class="field">
-      <label>Dashboard URL</label>
-      <input type="url" id="dashboardUrl" placeholder="https://your-app.replit.app" />
-      <p class="hint">Enter the URL of your Dealflow Agent dashboard</p>
-    </div>
-    <button class="btn" id="saveBtn">Save & Connect</button>
-    <div class="status" id="status"></div>
   </div>
 
   <div id="connectionStatus"></div>
@@ -197,11 +199,24 @@
   <div class="instructions">
     <h3>How to Use</h3>
     <ol>
-      <li>Set your dashboard URL above</li>
       <li>Right-click on any webpage</li>
       <li>Select <code>Add to Dealflow</code></li>
-      <li>The deal is captured instantly</li>
+      <li>4 AI agents research & verify the company</li>
+      <li>Deal appears in your pipeline</li>
     </ol>
+  </div>
+
+  <div class="content">
+    <details>
+      <summary>Advanced: Change dashboard URL</summary>
+      <div class="field">
+        <label>Dashboard URL</label>
+        <input type="url" id="dashboardUrl" placeholder="https://workspace.replit.app" />
+        <p class="hint">Only change this if you've deployed to a custom domain</p>
+      </div>
+      <button class="btn" id="saveBtn">Save & Connect</button>
+      <div class="status" id="status"></div>
+    </details>
   </div>
 
   <script src="popup.js"></script>
