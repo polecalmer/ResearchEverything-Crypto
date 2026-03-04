@@ -1,7 +1,83 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, integer, jsonb } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
+export const PIPELINE_STAGES = [
+  "discovered",
+  "researching",
+  "reaching_out",
+  "in_diligence",
+  "passed",
+  "invested",
+] as const;
+
+export type PipelineStage = typeof PIPELINE_STAGES[number];
+
+export const STAGE_LABELS: Record<PipelineStage, string> = {
+  discovered: "Discovered",
+  researching: "Researching",
+  reaching_out: "Reaching Out",
+  in_diligence: "In Diligence",
+  passed: "Passed",
+  invested: "Invested",
+};
+
+export const companies = pgTable("companies", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  oneLiner: text("one_liner").notNull(),
+  description: text("description"),
+  sector: text("sector"),
+  businessModel: text("business_model"),
+  stage: text("stage"),
+  fundingHistory: text("funding_history"),
+  competitiveLandscape: text("competitive_landscape"),
+  sourceUrl: text("source_url"),
+  pipelineStage: text("pipeline_stage").notNull().default("discovered"),
+  tags: text("tags").array().default(sql`'{}'::text[]`),
+  imageUrl: text("image_url"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const founders = pgTable("founders", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull(),
+  name: text("name").notNull(),
+  role: text("role"),
+  bio: text("bio"),
+  linkedinUrl: text("linkedin_url"),
+  twitterUrl: text("twitter_url"),
+  priorCompanies: text("prior_companies"),
+});
+
+export const notes = pgTable("notes", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertCompanySchema = createInsertSchema(companies).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertFounderSchema = createInsertSchema(founders).omit({
+  id: true,
+});
+
+export const insertNoteSchema = createInsertSchema(notes).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type Company = typeof companies.$inferSelect;
+export type InsertCompany = z.infer<typeof insertCompanySchema>;
+export type Founder = typeof founders.$inferSelect;
+export type InsertFounder = z.infer<typeof insertFounderSchema>;
+export type Note = typeof notes.$inferSelect;
+export type InsertNote = z.infer<typeof insertNoteSchema>;
 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
