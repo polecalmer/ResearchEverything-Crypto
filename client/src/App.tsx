@@ -11,6 +11,7 @@ import Pipeline from "@/pages/pipeline";
 import Companies from "@/pages/companies";
 import CompanyDetail from "@/pages/company-detail";
 import AddDeal from "@/pages/add-deal";
+import ExtensionPage from "@/pages/extension";
 import { QuickCapture } from "@/components/quick-capture";
 
 function Router() {
@@ -20,6 +21,7 @@ function Router() {
       <Route path="/companies" component={Companies} />
       <Route path="/companies/:id" component={CompanyDetail} />
       <Route path="/add" component={AddDeal} />
+      <Route path="/extension" component={ExtensionPage} />
       <Route component={NotFound} />
     </Switch>
   );
