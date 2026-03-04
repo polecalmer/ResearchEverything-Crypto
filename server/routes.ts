@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertCompanySchema, insertFounderSchema, insertNoteSchema, PIPELINE_STAGES } from "@shared/schema";
 import { z } from "zod";
-import { enrichCompanyFromUrl, enrichCompanyFromName } from "./enrichment";
+import { enrichFromInput } from "./enrichment";
 
 const updateCompanySchema = insertCompanySchema.partial().extend({
   pipelineStage: z.enum(PIPELINE_STAGES).optional(),
@@ -11,18 +11,12 @@ const updateCompanySchema = insertCompanySchema.partial().extend({
 });
 
 const enrichRequestSchema = z.object({
-  url: z.string().url().optional(),
-  name: z.string().min(1).optional(),
-}).refine((data) => data.url || data.name, {
-  message: "URL or company name is required",
+  input: z.string().min(1, "Some input is required — a URL, company name, tweet link, founder profile, or any relevant text"),
 });
 
 const enrichAndCreateSchema = z.object({
-  url: z.string().url().optional(),
-  name: z.string().min(1).optional(),
+  input: z.string().min(1, "Some input is required — a URL, company name, tweet link, founder profile, or any relevant text"),
   pipelineStage: z.enum(PIPELINE_STAGES).optional().default("discovered"),
-}).refine((data) => data.url || data.name, {
-  message: "URL or company name is required",
 });
 
 export async function registerRoutes(
@@ -36,10 +30,7 @@ export async function registerRoutes(
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
       }
-      const { url, name } = parsed.data;
-      const enriched = url
-        ? await enrichCompanyFromUrl(url)
-        : await enrichCompanyFromName(name!);
+      const enriched = await enrichFromInput(parsed.data.input);
       res.json(enriched);
     } catch (error: any) {
       console.error("Enrichment error:", error);
@@ -53,14 +44,14 @@ export async function registerRoutes(
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
       }
-      const { url, name: inputName, pipelineStage } = parsed.data;
+      const { input, pipelineStage } = parsed.data;
 
-      const enriched = url
-        ? await enrichCompanyFromUrl(url)
-        : await enrichCompanyFromName(inputName!);
+      const enriched = await enrichFromInput(input);
+
+      const isUrl = input.startsWith("http://") || input.startsWith("https://");
 
       const company = await storage.createCompany({
-        name: enriched.name || inputName || "Unknown Company",
+        name: enriched.name || "Unknown Company",
         oneLiner: enriched.oneLiner || "AI-enriched company",
         description: enriched.description || "",
         sector: enriched.sector || "",
@@ -68,7 +59,7 @@ export async function registerRoutes(
         stage: enriched.stage || "",
         fundingHistory: enriched.fundingHistory || "",
         competitiveLandscape: enriched.competitiveLandscape || "",
-        sourceUrl: url || "",
+        sourceUrl: isUrl ? input : "",
         pipelineStage: pipelineStage,
         tags: enriched.tags || [],
       });

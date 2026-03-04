@@ -28,10 +28,8 @@ import {
 } from "@/components/ui/select";
 import {
   Building2,
-  Globe,
   Briefcase,
   DollarSign,
-  Target,
   Tag,
   ArrowLeft,
   Plus,
@@ -39,7 +37,6 @@ import {
   User,
   Sparkles,
   Loader2,
-  Link,
 } from "lucide-react";
 import { useState } from "react";
 
@@ -86,8 +83,7 @@ export default function AddDeal() {
   const { toast } = useToast();
   const [founders, setFounders] = useState<FounderForm[]>([]);
   const [tagInput, setTagInput] = useState("");
-  const [enrichUrl, setEnrichUrl] = useState("");
-  const [enrichName, setEnrichName] = useState("");
+  const [enrichInput, setEnrichInput] = useState("");
   const [isEnriched, setIsEnriched] = useState(false);
 
   const form = useForm<AddDealForm>({
@@ -109,10 +105,9 @@ export default function AddDeal() {
 
   const enrichMutation = useMutation({
     mutationFn: async () => {
-      const body: Record<string, string> = {};
-      if (enrichUrl.trim()) body.url = enrichUrl.trim();
-      if (enrichName.trim()) body.name = enrichName.trim();
-      const res = await apiRequest("POST", "/api/enrich", body);
+      const res = await apiRequest("POST", "/api/enrich", {
+        input: enrichInput.trim(),
+      });
       return res.json();
     },
     onSuccess: (data) => {
@@ -124,7 +119,8 @@ export default function AddDeal() {
       form.setValue("stage", data.stage || "");
       form.setValue("fundingHistory", data.fundingHistory || "");
       form.setValue("competitiveLandscape", data.competitiveLandscape || "");
-      form.setValue("sourceUrl", enrichUrl.trim());
+      const isUrl = enrichInput.trim().startsWith("http://") || enrichInput.trim().startsWith("https://");
+      form.setValue("sourceUrl", isUrl ? enrichInput.trim() : "");
       form.setValue("tags", data.tags || []);
 
       if (data.founders && data.founders.length > 0) {
@@ -206,7 +202,7 @@ export default function AddDeal() {
   };
 
   const handleEnrich = () => {
-    if (!enrichUrl.trim() && !enrichName.trim()) return;
+    if (!enrichInput.trim()) return;
     enrichMutation.mutate();
   };
 
@@ -235,41 +231,27 @@ export default function AddDeal() {
             AI Auto-Enrichment
           </h3>
           <p className="text-sm text-muted-foreground mb-4">
-            Paste a URL or company name and the AI agent will automatically fill in all fields below.
+            Drop any link or text and the AI agent will identify the company and fill in all fields below.
           </p>
           <div className="space-y-3">
-            <div className="relative">
-              <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-              <Input
-                value={enrichUrl}
-                onChange={(e) => setEnrichUrl(e.target.value)}
-                placeholder="https://company-website.com"
-                className="pl-9"
-                onKeyDown={(e) => e.key === "Enter" && handleEnrich()}
-                disabled={enrichMutation.isPending}
-                data-testid="input-enrich-url"
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="h-px flex-1 bg-border" />
-              <span className="text-xs text-muted-foreground">or</span>
-              <div className="h-px flex-1 bg-border" />
-            </div>
             <Input
-              value={enrichName}
-              onChange={(e) => setEnrichName(e.target.value)}
-              placeholder="Company name (e.g. Stripe, Figma)"
+              value={enrichInput}
+              onChange={(e) => setEnrichInput(e.target.value)}
+              placeholder="Paste a URL, company name, tweet link, founder profile..."
               onKeyDown={(e) => e.key === "Enter" && handleEnrich()}
               disabled={enrichMutation.isPending}
-              data-testid="input-enrich-name"
+              data-testid="input-enrich"
             />
+            <p className="text-[11px] text-muted-foreground">
+              Works with: company websites, tweets, X/LinkedIn profiles, blog posts, Product Hunt, GitHub repos, or plain company names
+            </p>
 
             {enrichMutation.isPending && (
               <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/5 border border-primary/10">
                 <Loader2 className="w-4 h-4 animate-spin text-primary" />
                 <div>
                   <p className="text-sm font-medium">AI Agent is researching...</p>
-                  <p className="text-xs text-muted-foreground">Extracting company info, founders, sector, competitive landscape, and more</p>
+                  <p className="text-xs text-muted-foreground">Identifying the company and extracting deal intelligence</p>
                 </div>
               </div>
             )}
@@ -277,7 +259,7 @@ export default function AddDeal() {
             <Button
               type="button"
               onClick={handleEnrich}
-              disabled={(!enrichUrl.trim() && !enrichName.trim()) || enrichMutation.isPending}
+              disabled={!enrichInput.trim() || enrichMutation.isPending}
               className="w-full"
               data-testid="button-enrich"
             >

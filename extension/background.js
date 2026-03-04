@@ -44,7 +44,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
     const response = await fetch(`${apiUrl}/api/companies/enrich-and-create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url, pipelineStage: "discovered" })
+      body: JSON.stringify({ input: url, pipelineStage: "discovered" })
     });
 
     if (!response.ok) {

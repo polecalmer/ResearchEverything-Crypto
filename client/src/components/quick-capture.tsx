@@ -12,21 +12,19 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Plus, Link, Loader2, Sparkles } from "lucide-react";
+import { Plus, Loader2, Sparkles } from "lucide-react";
 
 export function QuickCapture() {
   const [open, setOpen] = useState(false);
-  const [url, setUrl] = useState("");
-  const [name, setName] = useState("");
+  const [input, setInput] = useState("");
   const { toast } = useToast();
   const [, navigate] = useLocation();
 
   const enrichMutation = useMutation({
     mutationFn: async () => {
-      const body: Record<string, string> = {};
-      if (url.trim()) body.url = url.trim();
-      if (name.trim()) body.name = name.trim();
-      const res = await apiRequest("POST", "/api/companies/enrich-and-create", body);
+      const res = await apiRequest("POST", "/api/companies/enrich-and-create", {
+        input: input.trim(),
+      });
       return res.json();
     },
     onSuccess: (company) => {
@@ -42,12 +40,11 @@ export function QuickCapture() {
 
   const resetAndClose = () => {
     setOpen(false);
-    setUrl("");
-    setName("");
+    setInput("");
   };
 
   const handleSubmit = () => {
-    if (!url.trim() && !name.trim()) return;
+    if (!input.trim()) return;
     enrichMutation.mutate();
   };
 
@@ -70,42 +67,25 @@ export function QuickCapture() {
               AI Quick Capture
             </DialogTitle>
             <DialogDescription>
-              Paste a URL or company name. Our AI agent will automatically research and populate all deal fields.
+              Drop any link or text — a company site, tweet, founder's profile, blog post, or just a name. The AI agent will figure out the company and fill in everything.
             </DialogDescription>
           </DialogHeader>
 
           <div className="space-y-4 pt-2">
             <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Company URL</label>
-              <div className="relative">
-                <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                <Input
-                  value={url}
-                  onChange={(e) => setUrl(e.target.value)}
-                  placeholder="https://example.com"
-                  className="pl-9"
-                  onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
-                  autoFocus
-                  disabled={enrichMutation.isPending}
-                  data-testid="input-capture-url"
-                />
-              </div>
-            </div>
-            <div className="flex items-center gap-3">
-              <div className="h-px flex-1 bg-border" />
-              <span className="text-xs text-muted-foreground">or</span>
-              <div className="h-px flex-1 bg-border" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">Company Name</label>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">URL, name, or any reference</label>
               <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="e.g. Stripe, Figma, Vercel"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="e.g. https://x.com/elonmusk, stripe.com, a blog link..."
                 onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+                autoFocus
                 disabled={enrichMutation.isPending}
-                data-testid="input-capture-name"
+                data-testid="input-capture"
               />
+              <p className="text-[11px] text-muted-foreground mt-1.5">
+                Works with: company websites, tweets, X/LinkedIn profiles, blog posts, Product Hunt, GitHub repos, or plain company names
+              </p>
             </div>
 
             {enrichMutation.isPending && (
@@ -113,14 +93,14 @@ export function QuickCapture() {
                 <Loader2 className="w-4 h-4 animate-spin text-primary" />
                 <div>
                   <p className="text-sm font-medium">AI Agent is researching...</p>
-                  <p className="text-xs text-muted-foreground">Extracting company info, founders, sector, and competitive landscape</p>
+                  <p className="text-xs text-muted-foreground">Identifying the company and extracting deal intelligence</p>
                 </div>
               </div>
             )}
 
             <Button
               onClick={handleSubmit}
-              disabled={(!url.trim() && !name.trim()) || enrichMutation.isPending}
+              disabled={!input.trim() || enrichMutation.isPending}
               className="w-full"
               data-testid="button-capture-submit"
             >
