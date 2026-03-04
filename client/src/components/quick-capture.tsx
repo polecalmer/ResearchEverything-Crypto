@@ -12,16 +12,26 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Plus, Loader2, Sparkles } from "lucide-react";
+import { Plus, Loader2, Sparkles, CheckCircle2, Search, FileSearch, Shield, ShieldCheck } from "lucide-react";
+import type { EnrichmentStage } from "@/lib/enrichment";
+
+const PIPELINE_AGENTS = [
+  { key: "identifier", icon: Search, label: "Identifier" },
+  { key: "researcher", icon: FileSearch, label: "Research" },
+  { key: "fact_checker", icon: Shield, label: "Fact-Check" },
+  { key: "firewall", icon: ShieldCheck, label: "Firewall" },
+] as const;
 
 export function QuickCapture() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
+  const [pipelineStages, setPipelineStages] = useState<EnrichmentStage[]>([]);
   const { toast } = useToast();
   const [, navigate] = useLocation();
 
   const enrichMutation = useMutation({
     mutationFn: async () => {
+      setPipelineStages([]);
       const res = await apiRequest("POST", "/api/companies/enrich-and-create", {
         input: input.trim(),
       });
@@ -41,6 +51,7 @@ export function QuickCapture() {
   const resetAndClose = () => {
     setOpen(false);
     setInput("");
+    setPipelineStages([]);
   };
 
   const handleSubmit = () => {
@@ -67,7 +78,7 @@ export function QuickCapture() {
               AI Quick Capture
             </DialogTitle>
             <DialogDescription>
-              Drop any link or text — a company site, tweet, founder's profile, blog post, or just a name. The AI agent will figure out the company and fill in everything.
+              Drop any link or text. A team of 4 AI agents will identify the company, research it, fact-check, and strip any hallucinations.
             </DialogDescription>
           </DialogHeader>
 
@@ -89,12 +100,22 @@ export function QuickCapture() {
             </div>
 
             {enrichMutation.isPending && (
-              <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/5 border border-primary/10">
-                <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                <div>
-                  <p className="text-sm font-medium">AI Agent is researching...</p>
-                  <p className="text-xs text-muted-foreground">Identifying the company and extracting deal intelligence</p>
+              <div className="space-y-1.5 p-3 rounded-lg bg-primary/5 border border-primary/10" data-testid="quick-pipeline-progress">
+                <p className="text-xs font-medium text-primary mb-2">Agent Pipeline</p>
+                <div className="flex items-center gap-2">
+                  {PIPELINE_AGENTS.map(({ key, icon: Icon, label }) => {
+                    const isActive = false;
+                    return (
+                      <div key={key} className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                        <Loader2 className="w-3 h-3 animate-spin text-primary" />
+                        <span>{label}</span>
+                      </div>
+                    );
+                  })}
                 </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  4 agents are working: identifying → researching → fact-checking → verifying
+                </p>
               </div>
             )}
 
@@ -107,7 +128,7 @@ export function QuickCapture() {
               {enrichMutation.isPending ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                  Enriching with AI...
+                  4 agents working...
                 </>
               ) : (
                 <>

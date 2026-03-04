@@ -37,8 +37,14 @@ import {
   User,
   Sparkles,
   Loader2,
+  CheckCircle2,
+  Search,
+  FileSearch,
+  Shield,
+  ShieldCheck,
 } from "lucide-react";
 import { useState } from "react";
+import { streamEnrichment, getAgentLabel, getAgentDescription, type EnrichmentStage } from "@/lib/enrichment";
 
 const SECTORS = [
   "AI / ML", "AI Infra", "Fintech", "DevTools", "Consumer", "Healthcare",
@@ -85,6 +91,9 @@ export default function AddDeal() {
   const [tagInput, setTagInput] = useState("");
   const [enrichInput, setEnrichInput] = useState("");
   const [isEnriched, setIsEnriched] = useState(false);
+  const [isEnriching, setIsEnriching] = useState(false);
+  const [enrichError, setEnrichError] = useState<string | null>(null);
+  const [pipelineStages, setPipelineStages] = useState<EnrichmentStage[]>([]);
 
   const form = useForm<AddDealForm>({
     resolver: zodResolver(addDealSchema),
@@ -103,14 +112,25 @@ export default function AddDeal() {
     },
   });
 
-  const enrichMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/enrich", {
-        input: enrichInput.trim(),
+  const handleEnrichStream = async () => {
+    if (!enrichInput.trim() || isEnriching) return;
+    setIsEnriching(true);
+    setEnrichError(null);
+    setPipelineStages([]);
+
+    try {
+      const data = await streamEnrichment(enrichInput.trim(), (stage) => {
+        setPipelineStages((prev) => {
+          const existing = prev.findIndex((s) => s.agent === stage.agent);
+          if (existing >= 0) {
+            const updated = [...prev];
+            updated[existing] = stage;
+            return updated;
+          }
+          return [...prev, stage];
+        });
       });
-      return res.json();
-    },
-    onSuccess: (data) => {
+
       form.setValue("name", data.name || "");
       form.setValue("oneLiner", data.oneLiner || "");
       form.setValue("description", data.description || "");
@@ -136,11 +156,13 @@ export default function AddDeal() {
 
       setIsEnriched(true);
       toast({ title: "AI enrichment complete", description: "All fields have been populated. Review and submit." });
-    },
-    onError: (error: Error) => {
+    } catch (error: any) {
+      setEnrichError(error.message);
       toast({ title: "AI enrichment failed", description: error.message, variant: "destructive" });
-    },
-  });
+    } finally {
+      setIsEnriching(false);
+    }
+  };
 
   const createMutation = useMutation({
     mutationFn: async (data: AddDealForm) => {
@@ -202,8 +224,7 @@ export default function AddDeal() {
   };
 
   const handleEnrich = () => {
-    if (!enrichInput.trim()) return;
-    enrichMutation.mutate();
+    handleEnrichStream();
   };
 
   return (
@@ -231,7 +252,7 @@ export default function AddDeal() {
             AI Auto-Enrichment
           </h3>
           <p className="text-sm text-muted-foreground mb-4">
-            Drop any link or text and the AI agent will identify the company and fill in all fields below.
+            Drop any link or text and a team of 4 AI agents will identify, research, fact-check, and verify the company.
           </p>
           <div className="space-y-3">
             <Input
@@ -239,31 +260,79 @@ export default function AddDeal() {
               onChange={(e) => setEnrichInput(e.target.value)}
               placeholder="Paste a URL, company name, tweet link, founder profile..."
               onKeyDown={(e) => e.key === "Enter" && handleEnrich()}
-              disabled={enrichMutation.isPending}
+              disabled={isEnriching}
               data-testid="input-enrich"
             />
             <p className="text-[11px] text-muted-foreground">
               Works with: company websites, tweets, X/LinkedIn profiles, blog posts, Product Hunt, GitHub repos, or plain company names
             </p>
 
-            {enrichMutation.isPending && (
-              <div className="flex items-center gap-3 p-3 rounded-lg bg-primary/5 border border-primary/10">
-                <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                <div>
-                  <p className="text-sm font-medium">AI Agent is researching...</p>
-                  <p className="text-xs text-muted-foreground">Identifying the company and extracting deal intelligence</p>
-                </div>
+            {pipelineStages.length > 0 && (
+              <div className="space-y-2 p-3 rounded-lg bg-primary/5 border border-primary/10" data-testid="pipeline-progress">
+                <p className="text-xs font-medium text-primary mb-2">Agent Pipeline Progress</p>
+                {[
+                  { key: "identifier", icon: Search, label: "Identifier Agent" },
+                  { key: "researcher", icon: FileSearch, label: "Research Agent" },
+                  { key: "fact_checker", icon: Shield, label: "Fact-Checker Agent" },
+                  { key: "firewall", icon: ShieldCheck, label: "Hallucination Firewall" },
+                ].map(({ key, icon: Icon, label }, idx) => {
+                  const stage = pipelineStages.find((s) => s.agent === key);
+                  const isActive = stage?.status === "running";
+                  const isDone = stage?.status === "complete";
+                  const isPending = !stage;
+
+                  return (
+                    <div
+                      key={key}
+                      className={`flex items-center gap-3 p-2 rounded-md transition-colors ${
+                        isActive ? "bg-primary/10" : isDone ? "bg-green-500/5" : ""
+                      }`}
+                      data-testid={`pipeline-stage-${key}`}
+                    >
+                      <div className="w-5 h-5 flex items-center justify-center">
+                        {isActive && <Loader2 className="w-4 h-4 animate-spin text-primary" />}
+                        {isDone && <CheckCircle2 className="w-4 h-4 text-green-600" />}
+                        {isPending && <Icon className="w-4 h-4 text-muted-foreground/40" />}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-xs font-medium ${isPending ? "text-muted-foreground/40" : ""}`}>
+                          {label}
+                        </p>
+                        {isActive && stage?.message && (
+                          <p className="text-[11px] text-muted-foreground">{stage.message}</p>
+                        )}
+                        {isDone && stage?.agent === "identifier" && stage.companyName && (
+                          <p className="text-[11px] text-green-600">
+                            Identified: {stage.companyName} ({stage.confidence} confidence)
+                          </p>
+                        )}
+                        {isDone && stage?.agent === "fact_checker" && (
+                          <p className="text-[11px] text-green-600">
+                            {stage.issuesFound === 0
+                              ? "All claims verified"
+                              : `${stage.issuesFound} issue${stage.issuesFound === 1 ? "" : "s"} flagged and corrected`}
+                          </p>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-muted-foreground/60">{idx + 1}/4</span>
+                    </div>
+                  );
+                })}
               </div>
+            )}
+
+            {enrichError && (
+              <p className="text-sm text-destructive">{enrichError}</p>
             )}
 
             <Button
               type="button"
               onClick={handleEnrich}
-              disabled={!enrichInput.trim() || enrichMutation.isPending}
+              disabled={!enrichInput.trim() || isEnriching}
               className="w-full"
               data-testid="button-enrich"
             >
-              {enrichMutation.isPending ? (
+              {isEnriching ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
                   Enriching...

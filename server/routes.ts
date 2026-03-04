@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertCompanySchema, insertFounderSchema, insertNoteSchema, PIPELINE_STAGES } from "@shared/schema";
 import { z } from "zod";
-import { enrichFromInput } from "./enrichment";
+import { enrichFromInput, enrichFromInputWithProgress } from "./enrichment";
 
 const updateCompanySchema = insertCompanySchema.partial().extend({
   pipelineStage: z.enum(PIPELINE_STAGES).optional(),
@@ -35,6 +35,35 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Enrichment error:", error);
       res.status(500).json({ message: "AI enrichment failed", error: error.message });
+    }
+  });
+
+  app.post("/api/enrich/stream", async (req, res) => {
+    try {
+      const parsed = enrichRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
+      }
+
+      res.setHeader("Content-Type", "text/event-stream");
+      res.setHeader("Cache-Control", "no-cache");
+      res.setHeader("Connection", "keep-alive");
+
+      const sendEvent = (data: any) => {
+        res.write(`data: ${JSON.stringify(data)}\n\n`);
+      };
+
+      const enriched = await enrichFromInputWithProgress(parsed.data.input, sendEvent);
+      sendEvent({ type: "complete", data: enriched });
+      res.end();
+    } catch (error: any) {
+      console.error("Enrichment stream error:", error);
+      if (res.headersSent) {
+        res.write(`data: ${JSON.stringify({ type: "error", message: error.message })}\n\n`);
+        res.end();
+      } else {
+        res.status(500).json({ message: "AI enrichment failed", error: error.message });
+      }
     }
   });
 

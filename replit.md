@@ -56,16 +56,22 @@ A deal pipeline management dashboard for VCs with a companion Chrome extension. 
 - `client/src/pages/` - All page components
 - `client/src/components/` - Reusable components (sidebar, theme toggle, quick capture)
 
-## AI Enrichment
+## AI Enrichment (4-Agent Pipeline)
 
-When a URL or company name is submitted:
-1. Claude claude-opus-4-6 researches the company and returns structured data
-2. Auto-populates: name, one-liner, description, sector, business model, stage, funding history, competitive landscape, tags, and founders
-3. Two flows: Quick Capture (one-click enrich + create) and Add Deal page (enrich → review → submit)
+When any input is submitted (URL, company name, tweet, founder profile, blog post, etc.):
+1. **Identifier Agent** — Determines which company is referenced from any input
+2. **Research Agent** — Builds comprehensive deal card with all fields
+3. **Fact-Checker Agent** — Cross-checks every claim, flags uncertain/hallucinated info
+4. **Hallucination Firewall** — Final pass that strips unverified data, ensures accuracy
+
+All agents use Claude Sonnet 4.6 for speed. LinkedIn URLs are always stripped (commonly hallucinated). The Add Deal page shows real-time SSE progress of each agent stage.
+
+Two flows: Quick Capture (one-click enrich + create) and Add Deal page (streaming enrich → review → submit).
 
 ## API Endpoints
 
 - `POST /api/enrich` - AI enrichment only (returns enriched data without saving)
+- `POST /api/enrich/stream` - AI enrichment with SSE progress events for each agent stage
 - `POST /api/companies/enrich-and-create` - AI enrichment + create company + founders in one step
 - `GET/POST /api/companies` - List/create companies
 - `GET/PATCH/DELETE /api/companies/:id` - Read/update/delete company
