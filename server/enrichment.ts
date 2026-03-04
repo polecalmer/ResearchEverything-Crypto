@@ -1,4 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
+import { scrapeUrl, scrapeMultiple, type ScrapedContent } from "./scraper";
 
 const anthropic = new Anthropic({
   apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
@@ -88,13 +89,24 @@ Return ONLY valid JSON:
   "alternativeCandidates": ["Other possible companies if ambiguous"]
 }`;
 
-async function runIdentifierAgent(input: string): Promise<{
+async function runIdentifierAgent(input: string, scrapedContent?: ScrapedContent[]): Promise<{
   companyName: string;
   domain: string;
   confidence: string;
   reasoning: string;
 }> {
-  const result = await callAgent(IDENTIFIER_SYSTEM, `Identify the company from this input:\n\n${input}`);
+  let prompt = `Identify the company from this input:\n\n${input}`;
+  if (scrapedContent && scrapedContent.length > 0) {
+    prompt += `\n\n--- SCRAPED WEB CONTENT ---\nI fetched the following content from the URLs in the input. Use this REAL data to identify the company:\n`;
+    for (const sc of scrapedContent) {
+      if (!sc.fetchedSuccessfully) continue;
+      prompt += `\n[URL: ${sc.url}]\nTitle: ${sc.title}\nMeta Description: ${sc.metaDescription}\n`;
+      if (sc.linkedWebsite) prompt += `Linked Website Found: ${sc.linkedWebsite}\n`;
+      if (sc.ogData["og:site_name"]) prompt += `Site Name: ${sc.ogData["og:site_name"]}\n`;
+      prompt += `Body excerpt: ${sc.bodyText.slice(0, 2000)}\n`;
+    }
+  }
+  const result = await callAgent(IDENTIFIER_SYSTEM, prompt);
   return parseJson(result);
 }
 
@@ -143,13 +155,26 @@ Return ONLY valid JSON matching this schema:
   }
 }`;
 
-async function runResearchAgent(companyName: string, domain: string, originalInput: string): Promise<any> {
-  const prompt = `Research this company thoroughly:
+async function runResearchAgent(companyName: string, domain: string, originalInput: string, scrapedContent?: ScrapedContent[]): Promise<any> {
+  let prompt = `Research this company thoroughly:
 Company: ${companyName}
 Domain: ${domain || "unknown"}
 Original input that led to identification: ${originalInput}
 
 Produce the comprehensive deal card. Remember: accuracy over completeness. Leave fields empty if unsure.`;
+
+  if (scrapedContent && scrapedContent.length > 0) {
+    prompt += `\n\n--- REAL SCRAPED WEB CONTENT ---\nThe following content was fetched directly from web pages. This is REAL data — use it as your PRIMARY source of truth. Prefer information found here over your training data.\n`;
+    for (const sc of scrapedContent) {
+      if (!sc.fetchedSuccessfully) continue;
+      prompt += `\n[URL: ${sc.url}]\nTitle: ${sc.title}\nMeta Description: ${sc.metaDescription}\n`;
+      if (sc.linkedWebsite) prompt += `Linked Website: ${sc.linkedWebsite}\n`;
+      if (sc.ogData["og:site_name"]) prompt += `Site Name: ${sc.ogData["og:site_name"]}\n`;
+      prompt += `Body text:\n${sc.bodyText.slice(0, 3000)}\n`;
+      if (sc.links.length > 0) prompt += `Outbound links: ${sc.links.slice(0, 15).join(", ")}\n`;
+    }
+  }
+
   const result = await callAgent(RESEARCH_SYSTEM, prompt);
   return parseJson(result);
 }
@@ -291,14 +316,58 @@ function validateOutput(data: any): EnrichedCompany {
 
 type ProgressCallback = (event: any) => void;
 
+function extractUrls(text: string): string[] {
+  const urlPattern = /https?:\/\/[^\s<>"')\]]+/gi;
+  const matches = text.match(urlPattern) || [];
+  return [...new Set(matches)];
+}
+
+async function scrapeInputUrls(input: string, onProgress?: ProgressCallback): Promise<ScrapedContent[]> {
+  const urls = extractUrls(input);
+  if (urls.length === 0) return [];
+
+  const emit = (data: any) => { if (onProgress) onProgress(data); };
+  emit({ type: "stage", agent: "scraper", step: 0, total: 5, message: `Fetching content from ${urls.length} URL(s)...` });
+  console.log(`[Scraper] Fetching ${urls.length} URL(s): ${urls.join(", ")}`);
+
+  const results = await scrapeMultiple(urls);
+  const fetched = results.filter((r) => r.fetchedSuccessfully);
+  console.log(`[Scraper] Successfully fetched ${fetched.length}/${urls.length} URLs`);
+
+  const additionalUrls: string[] = [];
+  for (const sc of fetched) {
+    if (sc.linkedWebsite) {
+      const alreadyScraped = results.some((r) => r.url === sc.linkedWebsite);
+      if (!alreadyScraped && !additionalUrls.includes(sc.linkedWebsite)) {
+        additionalUrls.push(sc.linkedWebsite);
+      }
+    }
+  }
+
+  if (additionalUrls.length > 0) {
+    console.log(`[Scraper] Found linked company website(s), fetching: ${additionalUrls.join(", ")}`);
+    emit({ type: "stage", agent: "scraper", step: 0, total: 5, message: `Found linked website — fetching company page...` });
+    const additional = await scrapeMultiple(additionalUrls);
+    results.push(...additional);
+  }
+
+  const totalFetched = results.filter((r) => r.fetchedSuccessfully).length;
+  emit({ type: "stage_complete", agent: "scraper", step: 0, pagesFetched: totalFetched });
+  console.log(`[Scraper] Total pages fetched: ${totalFetched}`);
+
+  return results;
+}
+
 async function runPipeline(input: string, onProgress?: ProgressCallback): Promise<EnrichedCompany> {
   const emit = (data: any) => {
     if (onProgress) onProgress(data);
   };
 
-  emit({ type: "stage", agent: "identifier", step: 1, total: 4, message: "Identifying company from input..." });
+  const scrapedContent = await scrapeInputUrls(input, onProgress);
+
+  emit({ type: "stage", agent: "identifier", step: 1, total: 5, message: "Identifying company from input..." });
   console.log("[Enrichment] Agent 1/4: Identifier — resolving company from input...");
-  const identity = await runIdentifierAgent(input);
+  const identity = await runIdentifierAgent(input, scrapedContent);
   console.log(`[Enrichment] Identified: "${identity.companyName}" (confidence: ${identity.confidence})`);
   emit({ type: "stage_complete", agent: "identifier", step: 1, companyName: identity.companyName, confidence: identity.confidence });
 
@@ -306,20 +375,29 @@ async function runPipeline(input: string, onProgress?: ProgressCallback): Promis
     throw new Error("Could not confidently identify a company from the provided input. Please try a more specific URL or company name.");
   }
 
-  emit({ type: "stage", agent: "researcher", step: 2, total: 4, message: `Researching ${identity.companyName}...` });
+  if (identity.domain && scrapedContent.every((sc) => !sc.url.includes(identity.domain))) {
+    console.log(`[Scraper] Identifier found domain ${identity.domain} — fetching company website...`);
+    const companySite = await scrapeUrl(`https://${identity.domain}`);
+    if (companySite.fetchedSuccessfully) {
+      scrapedContent.push(companySite);
+      console.log(`[Scraper] Fetched company website: ${identity.domain}`);
+    }
+  }
+
+  emit({ type: "stage", agent: "researcher", step: 2, total: 5, message: `Researching ${identity.companyName}...` });
   console.log("[Enrichment] Agent 2/4: Research — building deal card...");
-  const researchDraft = await runResearchAgent(identity.companyName, identity.domain, input);
+  const researchDraft = await runResearchAgent(identity.companyName, identity.domain, input, scrapedContent);
   console.log("[Enrichment] Research draft complete.");
   emit({ type: "stage_complete", agent: "researcher", step: 2 });
 
-  emit({ type: "stage", agent: "fact_checker", step: 3, total: 4, message: "Fact-checking all claims..." });
+  emit({ type: "stage", agent: "fact_checker", step: 3, total: 5, message: "Fact-checking all claims..." });
   console.log("[Enrichment] Agent 3/4: Fact-Checker — verifying claims...");
   const factCheckReport = await runFactCheckerAgent(identity.companyName, researchDraft);
   const issueCount = factCheckReport.flaggedIssues?.length || 0;
   console.log(`[Enrichment] Fact-check: ${factCheckReport.overallAssessment} (${issueCount} issues flagged)`);
   emit({ type: "stage_complete", agent: "fact_checker", step: 3, issuesFound: issueCount, assessment: factCheckReport.overallAssessment });
 
-  emit({ type: "stage", agent: "firewall", step: 4, total: 4, message: "Applying hallucination firewall..." });
+  emit({ type: "stage", agent: "firewall", step: 4, total: 5, message: "Applying hallucination firewall..." });
   console.log("[Enrichment] Agent 4/4: Hallucination Firewall — producing clean output...");
   const cleanOutput = await runFirewallAgent(researchDraft, factCheckReport);
   console.log("[Enrichment] Pipeline complete. Validated output ready.");

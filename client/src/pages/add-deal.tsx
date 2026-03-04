@@ -42,6 +42,7 @@ import {
   FileSearch,
   Shield,
   ShieldCheck,
+  Globe,
 } from "lucide-react";
 import { useState } from "react";
 import { streamEnrichment, getAgentLabel, getAgentDescription, type EnrichmentStage } from "@/lib/enrichment";
@@ -271,6 +272,7 @@ export default function AddDeal() {
               <div className="space-y-2 p-3 rounded-lg bg-primary/5 border border-primary/10" data-testid="pipeline-progress">
                 <p className="text-xs font-medium text-primary mb-2">Agent Pipeline Progress</p>
                 {[
+                  { key: "scraper", icon: Globe, label: "Web Scraper" },
                   { key: "identifier", icon: Search, label: "Identifier Agent" },
                   { key: "researcher", icon: FileSearch, label: "Research Agent" },
                   { key: "fact_checker", icon: Shield, label: "Fact-Checker Agent" },
@@ -301,6 +303,13 @@ export default function AddDeal() {
                         {isActive && stage?.message && (
                           <p className="text-[11px] text-muted-foreground">{stage.message}</p>
                         )}
+                        {isDone && stage?.agent === "scraper" && (
+                          <p className="text-[11px] text-green-600">
+                            {stage.pagesFetched
+                              ? `Fetched ${stage.pagesFetched} page${stage.pagesFetched === 1 ? "" : "s"}`
+                              : "No URLs to fetch"}
+                          </p>
+                        )}
                         {isDone && stage?.agent === "identifier" && stage.companyName && (
                           <p className="text-[11px] text-green-600">
                             Identified: {stage.companyName} ({stage.confidence} confidence)
@@ -314,7 +323,7 @@ export default function AddDeal() {
                           </p>
                         )}
                       </div>
-                      <span className="text-[10px] text-muted-foreground/60">{idx + 1}/4</span>
+                      <span className="text-[10px] text-muted-foreground/60">{idx + 1}/5</span>
                     </div>
                   );
                 })}

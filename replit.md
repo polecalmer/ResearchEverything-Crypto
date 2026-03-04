@@ -56,15 +56,18 @@ A deal pipeline management dashboard for VCs with a companion Chrome extension. 
 - `client/src/pages/` - All page components
 - `client/src/components/` - Reusable components (sidebar, theme toggle, quick capture)
 
-## AI Enrichment (4-Agent Pipeline)
+## AI Enrichment (5-Stage Pipeline)
 
 When any input is submitted (URL, company name, tweet, founder profile, blog post, etc.):
-1. **Identifier Agent** — Determines which company is referenced from any input
-2. **Research Agent** — Builds comprehensive deal card with all fields
+0. **Web Scraper** — Detects URLs in input, fetches real page content (meta tags, body text, outbound links). If a social profile links to a company website, scrapes that too. Agents receive this real data instead of guessing blind.
+1. **Identifier Agent** — Determines which company is referenced using scraped content + input
+2. **Research Agent** — Builds comprehensive deal card using scraped web content as primary source
 3. **Fact-Checker Agent** — Cross-checks every claim, flags uncertain/hallucinated info
 4. **Hallucination Firewall** — Final pass that strips unverified data, ensures accuracy
 
-All agents use Claude Sonnet 4.6 for speed. LinkedIn URLs are always stripped (commonly hallucinated). The Add Deal page shows real-time SSE progress of each agent stage.
+Key files: `server/scraper.ts` (web scraper), `server/enrichment.ts` (pipeline orchestrator)
+
+All agents use Claude Sonnet 4.6 for speed. LinkedIn URLs are always stripped (commonly hallucinated). The Add Deal page shows real-time SSE progress of each stage (scraper + 4 agents).
 
 Two flows: Quick Capture (one-click enrich + create) and Add Deal page (streaming enrich → review → submit).
 

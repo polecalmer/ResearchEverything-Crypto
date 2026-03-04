@@ -8,9 +8,11 @@ export interface EnrichmentStage {
   confidence?: string;
   issuesFound?: number;
   assessment?: string;
+  pagesFetched?: number;
 }
 
 const AGENT_LABELS: Record<string, string> = {
+  scraper: "Web Scraper",
   identifier: "Identifier Agent",
   researcher: "Research Agent",
   fact_checker: "Fact-Checker Agent",
@@ -18,6 +20,7 @@ const AGENT_LABELS: Record<string, string> = {
 };
 
 const AGENT_DESCRIPTIONS: Record<string, string> = {
+  scraper: "Fetching real content from the URL",
   identifier: "Figuring out which company is referenced",
   researcher: "Building a comprehensive deal card",
   fact_checker: "Cross-checking every claim for accuracy",
@@ -83,13 +86,14 @@ export async function streamEnrichment(
           onStage({
             agent: event.agent,
             step: event.step,
-            total: 4,
+            total: event.total || 5,
             message: "",
             status: "complete",
             companyName: event.companyName,
             confidence: event.confidence,
             issuesFound: event.issuesFound,
             assessment: event.assessment,
+            pagesFetched: event.pagesFetched,
           });
         } else if (event.type === "complete") {
           result = event.data;
