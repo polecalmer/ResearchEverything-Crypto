@@ -29,8 +29,6 @@ import {
   Search,
   Phone,
   FileText,
-  UserPlus,
-  BarChart3,
   ArrowRight,
   Sparkles,
 } from "lucide-react";
@@ -171,306 +169,20 @@ function NoteItem({ note, onDelete }: { note: Note; onDelete: () => void }) {
   );
 }
 
-interface NextStep {
-  icon: any;
+interface NextStepItem {
   title: string;
   detail: string;
   priority: "high" | "medium" | "low";
+  category: "research" | "outreach" | "diligence" | "relationship" | "action";
 }
 
-function detectSourceType(sourceUrl: string | null | undefined): string {
-  if (!sourceUrl) return "unknown";
-  const url = sourceUrl.toLowerCase();
-  if (url.includes("twitter.com") || url.includes("x.com")) return "twitter";
-  if (url.includes("linkedin.com")) return "linkedin";
-  if (url.includes("github.com")) return "github";
-  if (url.includes("techcrunch.com") || url.includes("crunchbase.com") || url.includes("pitchbook.com")) return "press";
-  if (url.includes("producthunt.com")) return "product_hunt";
-  if (url.includes("ycombinator.com") || url.includes("hacker-news")) return "yc";
-  if (url.includes("medium.com") || url.includes("substack.com") || url.includes("blog")) return "blog";
-  return "website";
-}
-
-function getDataCompleteness(company: Company, founders: Founder[]) {
-  const fields = [
-    company.description,
-    company.sector,
-    company.businessModel,
-    company.stage,
-    company.fundingHistory,
-    company.competitiveLandscape,
-    company.websiteUrl,
-  ];
-  const filled = fields.filter((f) => f && f.trim()).length;
-  const hasFounders = founders.length > 0;
-  const hasFounderContact = founders.some((f) => f.linkedinUrl || f.twitterUrl || f.personalUrl);
-  return { filled, total: fields.length, hasFounders, hasFounderContact };
-}
-
-function generateNextSteps(
-  company: Company,
-  founders: Founder[],
-  notes: Note[],
-): NextStep[] {
-  const stage = company.pipelineStage as PipelineStage;
-  const sourceType = detectSourceType(company.sourceUrl);
-  const completeness = getDataCompleteness(company, founders);
-  const steps: NextStep[] = [];
-
-  if (stage === "discovered") {
-    if (completeness.filled < completeness.total - 1) {
-      steps.push({
-        icon: Search,
-        title: "Complete company profile",
-        detail: `Only ${completeness.filled}/${completeness.total} key fields filled. Run enrichment or manually add missing info like ${!company.sector ? "sector" : !company.fundingHistory ? "funding history" : !company.competitiveLandscape ? "competitive landscape" : "details"}.`,
-        priority: "high",
-      });
-    }
-
-    if (!completeness.hasFounders) {
-      steps.push({
-        icon: UserPlus,
-        title: "Identify founding team",
-        detail: "No founders on record. Research the team — founder quality is often the top signal at this stage.",
-        priority: "high",
-      });
-    }
-
-    if (sourceType === "twitter" || sourceType === "blog") {
-      steps.push({
-        icon: Globe,
-        title: "Find the company website",
-        detail: `Deal was sourced from ${sourceType === "twitter" ? "a Twitter/X profile" : "a blog post"}. Locate the official website and product to assess what they've built.`,
-        priority: "high",
-      });
-    }
-
-    if (sourceType === "product_hunt") {
-      steps.push({
-        icon: BarChart3,
-        title: "Check Product Hunt traction",
-        detail: "Review upvotes, comments, and launch metrics. Look for signs of organic demand and community feedback.",
-        priority: "medium",
-      });
-    }
-
-    steps.push({
-      icon: ArrowRight,
-      title: "Move to Researching",
-      detail: "Once you have enough context on the company and team, advance this deal to start deep-dive research.",
-      priority: completeness.filled >= completeness.total - 2 ? "high" : "low",
-    });
-  }
-
-  if (stage === "researching") {
-    if (!company.competitiveLandscape || !company.competitiveLandscape.trim()) {
-      steps.push({
-        icon: Target,
-        title: "Map the competitive landscape",
-        detail: "Identify direct competitors, market positioning, and key differentiators. This is critical for the investment thesis.",
-        priority: "high",
-      });
-    }
-
-    if (!company.fundingHistory || !company.fundingHistory.trim()) {
-      steps.push({
-        icon: DollarSign,
-        title: "Research funding history",
-        detail: "Check Crunchbase, PitchBook, or press releases for prior rounds, investors, and valuations.",
-        priority: "high",
-      });
-    }
-
-    if (completeness.hasFounders && !completeness.hasFounderContact) {
-      steps.push({
-        icon: UserPlus,
-        title: "Find founder contact info",
-        detail: "You have founder names but no contact details. Find their LinkedIn, Twitter, or email for outreach.",
-        priority: "medium",
-      });
-    }
-
-    if (sourceType === "github") {
-      steps.push({
-        icon: BarChart3,
-        title: "Analyze GitHub activity",
-        detail: "Review commit frequency, contributor count, stars/forks, and open issues. Look for engineering velocity signals.",
-        priority: "medium",
-      });
-    }
-
-    steps.push({
-      icon: FileText,
-      title: "Draft initial investment thesis",
-      detail: "Summarize why this deal is interesting: market size, team strength, timing, and unique insight. Add as a note.",
-      priority: notes.length === 0 ? "high" : "medium",
-    });
-
-    steps.push({
-      icon: ArrowRight,
-      title: "Begin outreach",
-      detail: "When research is solid, move to Reaching Out to initiate contact with the founding team.",
-      priority: "medium",
-    });
-  }
-
-  if (stage === "reaching_out") {
-    const hasContactInfo = founders.some(
-      (f) => f.linkedinUrl || f.twitterUrl || f.personalUrl
-    );
-
-    if (!hasContactInfo && founders.length > 0) {
-      steps.push({
-        icon: Search,
-        title: "Find contact channels",
-        detail: `You have ${founders.length} founder(s) on record but no contact info. Check LinkedIn, Twitter, or company website for emails.`,
-        priority: "high",
-      });
-    }
-
-    if (sourceType === "twitter") {
-      steps.push({
-        icon: Twitter,
-        title: "Engage on Twitter first",
-        detail: "Deal originated from Twitter. Consider engaging with their content before cold outreach — warm intros convert better.",
-        priority: "high",
-      });
-    }
-
-    if (sourceType === "linkedin") {
-      steps.push({
-        icon: Linkedin,
-        title: "Send LinkedIn connection request",
-        detail: "Deal sourced from LinkedIn. Send a personalized connection request referencing their work or a mutual connection.",
-        priority: "high",
-      });
-    }
-
-    steps.push({
-      icon: Phone,
-      title: "Schedule intro call",
-      detail: "Aim for a 30-minute introductory call. Prepare 3-5 key questions about vision, traction, and current round details.",
-      priority: "high",
-    });
-
-    if (notes.length === 0) {
-      steps.push({
-        icon: StickyNote,
-        title: "Log outreach attempts",
-        detail: "Track when and how you reached out. Note response times and communication style — these are founder signals.",
-        priority: "medium",
-      });
-    }
-
-    steps.push({
-      icon: ArrowRight,
-      title: "Advance to diligence",
-      detail: "After initial meetings and positive signals, move to In Diligence for formal evaluation.",
-      priority: "low",
-    });
-  }
-
-  if (stage === "in_diligence") {
-    steps.push({
-      icon: FileText,
-      title: "Request pitch deck & financials",
-      detail: "Ask for the latest pitch deck, financial model, cap table, and any data room access.",
-      priority: "high",
-    });
-
-    steps.push({
-      icon: Users,
-      title: "Conduct reference checks",
-      detail: `Check references on ${founders.length > 0 ? founders.map((f) => f.name).join(", ") : "the founders"}. Talk to former colleagues, customers, and other investors.`,
-      priority: "high",
-    });
-
-    steps.push({
-      icon: BarChart3,
-      title: "Validate key metrics",
-      detail: "Verify claimed traction: revenue, growth rate, retention, unit economics. Cross-reference with independent sources.",
-      priority: "high",
-    });
-
-    if (company.sector?.toLowerCase().includes("saas") || company.businessModel?.toLowerCase().includes("saas")) {
-      steps.push({
-        icon: DollarSign,
-        title: "Review SaaS metrics",
-        detail: "Focus on ARR, MRR growth, churn, LTV/CAC ratio, NDR, and payback period. Benchmark against stage-appropriate comps.",
-        priority: "high",
-      });
-    }
-
-    steps.push({
-      icon: FileText,
-      title: "Prepare investment memo",
-      detail: "Draft the formal IC memo covering thesis, risks, terms, and recommendation. Include all diligence findings.",
-      priority: "medium",
-    });
-
-    steps.push({
-      icon: ArrowRight,
-      title: "Make investment decision",
-      detail: "Present to IC and decide: invest (move to Invested) or pass (move to Passed) with documented reasoning.",
-      priority: "low",
-    });
-  }
-
-  if (stage === "passed") {
-    steps.push({
-      icon: StickyNote,
-      title: "Document pass reasoning",
-      detail: "Record why you passed — timing, valuation, market, team concerns. This builds institutional memory for future deals.",
-      priority: notes.length === 0 ? "high" : "low",
-    });
-
-    steps.push({
-      icon: Users,
-      title: "Maintain the relationship",
-      detail: `Keep ${founders.length > 0 ? founders[0].name : "the founder"} in your network. Many great investments come from passed deals that improve over time.`,
-      priority: "medium",
-    });
-
-    steps.push({
-      icon: Clock,
-      title: "Set a revisit reminder",
-      detail: "Consider revisiting in 6-12 months. Add a note with what would need to change for you to reconsider.",
-      priority: "medium",
-    });
-  }
-
-  if (stage === "invested") {
-    steps.push({
-      icon: Users,
-      title: "Schedule board/advisory cadence",
-      detail: "Set up regular check-ins — monthly updates, quarterly reviews, and board prep if applicable.",
-      priority: "high",
-    });
-
-    steps.push({
-      icon: UserPlus,
-      title: "Make portfolio introductions",
-      detail: `Connect ${company.name} with relevant portfolio companies, potential customers, and future investors.`,
-      priority: "high",
-    });
-
-    steps.push({
-      icon: BarChart3,
-      title: "Track key milestones",
-      detail: "Monitor progress against the metrics and milestones discussed during diligence. Log updates as notes.",
-      priority: "medium",
-    });
-
-    steps.push({
-      icon: DollarSign,
-      title: "Plan follow-on strategy",
-      detail: "Define pro-rata and follow-on investment criteria. Know your reserves and triggers for the next round.",
-      priority: "medium",
-    });
-  }
-
-  return steps;
-}
+const CATEGORY_ICONS: Record<string, any> = {
+  research: Search,
+  outreach: Phone,
+  diligence: FileText,
+  relationship: Users,
+  action: ArrowRight,
+};
 
 const PRIORITY_STYLES = {
   high: "border-l-amber-500 bg-amber-500/5",
@@ -479,19 +191,60 @@ const PRIORITY_STYLES = {
 };
 
 function NextStepsAdvisor({
-  company,
-  founders,
-  notes,
+  companyId,
+  pipelineStage,
 }: {
-  company: Company;
-  founders: Founder[];
-  notes: Note[];
+  companyId: string;
+  pipelineStage: string;
 }) {
-  const steps = generateNextSteps(company, founders, notes);
-  const highPriority = steps.filter((s) => s.priority === "high");
   const [showAll, setShowAll] = useState(false);
 
-  const displaySteps = showAll ? steps : highPriority.length > 0 ? highPriority.slice(0, 3) : steps.slice(0, 2);
+  const { data: steps, isLoading, error } = useQuery<NextStepItem[]>({
+    queryKey: ["/api/companies", companyId, "next-steps"],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${companyId}/next-steps`);
+      if (!res.ok) throw new Error("Failed to fetch next steps");
+      return res.json();
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  if (isLoading) {
+    return (
+      <Card className="p-4" data-testid="card-next-steps">
+        <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-3 flex items-center gap-1.5">
+          <Sparkles className="w-3.5 h-3.5 animate-pulse" />
+          Analyzing Deal...
+        </h3>
+        <div className="space-y-2">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="border-l-2 border-l-muted rounded-r-md p-2.5">
+              <Skeleton className="h-3 w-3/4 mb-1.5" />
+              <Skeleton className="h-2.5 w-full" />
+              <Skeleton className="h-2.5 w-2/3 mt-0.5" />
+            </div>
+          ))}
+        </div>
+      </Card>
+    );
+  }
+
+  if (error || !steps || steps.length === 0) {
+    return (
+      <Card className="p-4" data-testid="card-next-steps">
+        <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-3 flex items-center gap-1.5">
+          <Sparkles className="w-3.5 h-3.5" />
+          Recommended Next Steps
+        </h3>
+        <p className="text-[11px] text-muted-foreground text-center py-3">
+          {error ? "Could not generate recommendations." : "No recommendations available."}
+        </p>
+      </Card>
+    );
+  }
+
+  const highPriority = steps.filter((s) => s.priority === "high");
+  const displaySteps = showAll ? steps : highPriority.length > 0 ? highPriority.slice(0, 4) : steps.slice(0, 3);
   const hiddenCount = steps.length - displaySteps.length;
 
   return (
@@ -501,21 +254,24 @@ function NextStepsAdvisor({
         Recommended Next Steps
       </h3>
       <div className="space-y-2">
-        {displaySteps.map((step, i) => (
-          <div
-            key={i}
-            className={`border-l-2 rounded-r-md p-2.5 ${PRIORITY_STYLES[step.priority]}`}
-            data-testid={`next-step-${i}`}
-          >
-            <div className="flex items-start gap-2">
-              <step.icon className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-foreground" />
-              <div className="min-w-0">
-                <p className="text-xs font-medium leading-tight">{step.title}</p>
-                <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug">{step.detail}</p>
+        {displaySteps.map((step, i) => {
+          const Icon = CATEGORY_ICONS[step.category] || Sparkles;
+          return (
+            <div
+              key={i}
+              className={`border-l-2 rounded-r-md p-2.5 ${PRIORITY_STYLES[step.priority]}`}
+              data-testid={`next-step-${i}`}
+            >
+              <div className="flex items-start gap-2">
+                <Icon className="w-3.5 h-3.5 mt-0.5 flex-shrink-0 text-foreground" />
+                <div className="min-w-0">
+                  <p className="text-xs font-medium leading-tight" data-testid={`next-step-title-${i}`}>{step.title}</p>
+                  <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug" data-testid={`next-step-detail-${i}`}>{step.detail}</p>
+                </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
       {hiddenCount > 0 && !showAll && (
         <button
@@ -877,7 +633,7 @@ export default function CompanyDetail() {
             </Select>
           </Card>
 
-          <NextStepsAdvisor company={company} founders={founders} notes={notes} />
+          <NextStepsAdvisor companyId={company.id} pipelineStage={company.pipelineStage} />
 
           <Card className="p-4">
             <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-3">Tags</h3>

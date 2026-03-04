@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertCompanySchema, insertFounderSchema, insertNoteSchema, PIPELINE_STAGES } from "@shared/schema";
 import { z } from "zod";
-import { enrichFromInput, enrichFromInputWithProgress } from "./enrichment";
+import { enrichFromInput, enrichFromInputWithProgress, generateNextSteps } from "./enrichment";
 
 const updateCompanySchema = insertCompanySchema.partial().extend({
   pipelineStage: z.enum(PIPELINE_STAGES).optional(),
@@ -125,6 +125,55 @@ export async function registerRoutes(
   app.get("/api/companies", async (_req, res) => {
     const companies = await storage.getCompanies();
     res.json(companies);
+  });
+
+  app.get("/api/companies/:id/next-steps", async (req, res) => {
+    try {
+      const company = await storage.getCompany(req.params.id);
+      if (!company) {
+        return res.status(404).json({ message: "Company not found" });
+      }
+      const founders = await storage.getFoundersByCompany(req.params.id);
+      const notes = await storage.getNotesByCompany(req.params.id);
+
+      const steps = await generateNextSteps({
+        company: {
+          name: company.name,
+          oneLiner: company.oneLiner,
+          description: company.description,
+          sector: company.sector,
+          businessModel: company.businessModel,
+          stage: company.stage,
+          fundingHistory: company.fundingHistory,
+          competitiveLandscape: company.competitiveLandscape,
+          sourceUrl: company.sourceUrl,
+          websiteUrl: company.websiteUrl,
+          githubUrl: company.githubUrl,
+          twitterUrl: company.twitterUrl,
+          linkedinUrl: company.linkedinUrl,
+          pipelineStage: company.pipelineStage,
+          tags: company.tags,
+        },
+        founders: founders.map((f) => ({
+          name: f.name,
+          role: f.role,
+          linkedinUrl: f.linkedinUrl,
+          twitterUrl: f.twitterUrl,
+          githubUrl: f.githubUrl,
+          personalUrl: f.personalUrl,
+          priorCompanies: f.priorCompanies,
+        })),
+        notes: notes.map((n) => ({
+          content: n.content,
+          createdAt: n.createdAt,
+        })),
+      });
+
+      res.json(steps);
+    } catch (error: any) {
+      console.error("Next steps generation error:", error);
+      res.status(500).json({ message: "Failed to generate next steps", error: error.message });
+    }
   });
 
   app.get("/api/companies/:id", async (req, res) => {

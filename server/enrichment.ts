@@ -485,6 +485,158 @@ async function runPipeline(input: string, onProgress?: ProgressCallback): Promis
   return validateOutput(cleanOutput);
 }
 
+export interface NextStepItem {
+  title: string;
+  detail: string;
+  priority: "high" | "medium" | "low";
+  category: "research" | "outreach" | "diligence" | "relationship" | "action";
+}
+
+export async function generateNextSteps(context: {
+  company: {
+    name: string;
+    oneLiner: string | null;
+    description: string | null;
+    sector: string | null;
+    businessModel: string | null;
+    stage: string | null;
+    fundingHistory: string | null;
+    competitiveLandscape: string | null;
+    sourceUrl: string | null;
+    websiteUrl: string | null;
+    githubUrl: string | null;
+    twitterUrl: string | null;
+    linkedinUrl: string | null;
+    pipelineStage: string;
+    tags: string[] | null;
+  };
+  founders: Array<{
+    name: string;
+    role: string | null;
+    linkedinUrl: string | null;
+    twitterUrl: string | null;
+    githubUrl: string | null;
+    personalUrl: string | null;
+    priorCompanies: string | null;
+  }>;
+  notes: Array<{ content: string; createdAt: Date | string }>;
+}): Promise<NextStepItem[]> {
+  const { company, founders, notes } = context;
+
+  const filledFields: string[] = [];
+  const missingFields: string[] = [];
+  for (const [label, val] of [
+    ["description", company.description],
+    ["sector", company.sector],
+    ["business model", company.businessModel],
+    ["stage", company.stage],
+    ["funding history", company.fundingHistory],
+    ["competitive landscape", company.competitiveLandscape],
+    ["website URL", company.websiteUrl],
+    ["LinkedIn URL", company.linkedinUrl],
+    ["Twitter URL", company.twitterUrl],
+    ["GitHub URL", company.githubUrl],
+  ] as const) {
+    if (val && val.trim()) filledFields.push(label);
+    else missingFields.push(label);
+  }
+
+  const founderSummary = founders.length > 0
+    ? founders.map((f) => {
+        const contacts = [
+          f.linkedinUrl && "LinkedIn",
+          f.twitterUrl && "Twitter",
+          f.githubUrl && "GitHub",
+          f.personalUrl && "personal site",
+        ].filter(Boolean);
+        return `${f.name} (${f.role || "role unknown"})${f.priorCompanies ? `, previously at ${f.priorCompanies}` : ""}${contacts.length > 0 ? `, has: ${contacts.join(", ")}` : ", no contact info on file"}`;
+      }).join("; ")
+    : "No founders on record.";
+
+  const recentNotes = notes.slice(0, 5).map((n) => n.content).join("\n---\n");
+
+  let sourceContext = "";
+  if (company.sourceUrl) {
+    const url = company.sourceUrl.toLowerCase();
+    if (url.includes("twitter.com") || url.includes("x.com")) sourceContext = `Discovered via Twitter/X profile: ${company.sourceUrl}`;
+    else if (url.includes("linkedin.com")) sourceContext = `Discovered via LinkedIn: ${company.sourceUrl}`;
+    else if (url.includes("github.com")) sourceContext = `Discovered via GitHub: ${company.sourceUrl}`;
+    else if (url.includes("producthunt.com")) sourceContext = `Discovered via Product Hunt: ${company.sourceUrl}`;
+    else sourceContext = `Discovered via: ${company.sourceUrl}`;
+  }
+
+  const prompt = `You are a senior VC associate advising a partner on what to do next with a specific deal. Generate 4-6 highly specific, actionable next steps for this deal based on ALL the context below. Every step must reference specific details from this company — names, numbers, claims, URLs, gaps. Never give generic advice.
+
+DEAL CONTEXT:
+- Company: ${company.name}
+- One-liner: ${company.oneLiner || "N/A"}
+- Pipeline stage: ${company.pipelineStage}
+- Sector: ${company.sector || "Unknown"}
+- Business model: ${company.businessModel || "Unknown"}
+- Funding stage: ${company.stage || "Unknown"}
+${sourceContext ? `- ${sourceContext}` : ""}
+- Tags: ${company.tags?.join(", ") || "none"}
+
+PROFILE COMPLETENESS:
+- Filled: ${filledFields.join(", ") || "none"}
+- Missing: ${missingFields.join(", ") || "none — profile is complete"}
+
+DESCRIPTION:
+${company.description || "No description available."}
+
+FUNDING HISTORY:
+${company.fundingHistory || "No funding history on record."}
+
+COMPETITIVE LANDSCAPE:
+${company.competitiveLandscape || "Not mapped yet."}
+
+FOUNDERS:
+${founderSummary}
+
+RECENT NOTES (${notes.length} total):
+${recentNotes || "No notes yet."}
+
+AVAILABLE LINKS:
+${[
+  company.websiteUrl && `Website: ${company.websiteUrl}`,
+  company.githubUrl && `GitHub: ${company.githubUrl}`,
+  company.twitterUrl && `Twitter: ${company.twitterUrl}`,
+  company.linkedinUrl && `LinkedIn: ${company.linkedinUrl}`,
+].filter(Boolean).join("\n") || "No links on file."}
+
+INSTRUCTIONS:
+- Each step must be SPECIFIC to ${company.name} — mention actual founder names, actual claimed metrics, actual competitors, actual URLs
+- If data is missing, say exactly what to look for and where (e.g., "Check ${company.name}'s Crunchbase profile for Series A details" not "Research funding history")
+- If founders have contact info, reference the specific channel (e.g., "DM ${founders[0]?.name || "the founder"} on Twitter at ${founders[0]?.twitterUrl || "their handle"}")
+- Reference the source of discovery in outreach suggestions
+- For diligence stages, reference specific claims from the description that need verification
+- Prioritize: what's the single most impactful thing to do RIGHT NOW given this stage?
+
+Respond with a JSON array of objects. Each object has:
+- "title": short action title (5-8 words, specific to this company)
+- "detail": 1-2 sentences with specific details, names, URLs, metrics from this deal
+- "priority": "high", "medium", or "low"
+- "category": "research", "outreach", "diligence", "relationship", or "action"
+
+Return ONLY the JSON array, no markdown fencing.`;
+
+  try {
+    const response = await anthropic.messages.create({
+      model: "claude-opus-4-6",
+      max_tokens: 1500,
+      messages: [{ role: "user", content: prompt }],
+    });
+
+    const text = response.content[0].type === "text" ? response.content[0].text : "";
+    const cleaned = text.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+    const steps = JSON.parse(cleaned) as NextStepItem[];
+    return steps.filter((s) => s.title && s.detail && s.priority && s.category);
+  } catch (error) {
+    console.error("[NextSteps] AI generation failed:", error);
+    return [];
+  }
+}
+
 export async function enrichFromInput(input: string): Promise<EnrichedCompany> {
   console.log("[Enrichment] Starting 4-agent pipeline...");
   return runPipeline(input);

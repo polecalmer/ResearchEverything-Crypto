@@ -78,6 +78,7 @@ Two flows: Quick Capture (one-click enrich + create) and Add Deal page (streamin
 - `POST /api/companies/enrich-and-create` - AI enrichment + create company + founders in one step
 - `GET/POST /api/companies` - List/create companies
 - `GET/PATCH/DELETE /api/companies/:id` - Read/update/delete company
+- `GET /api/companies/:id/next-steps` - AI-generated context-aware next steps for a deal (uses Claude Opus)
 - `GET/POST /api/companies/:id/founders` - List/add founders
 - `GET/POST /api/companies/:id/notes` - List/add notes
 - `DELETE /api/notes/:id` - Delete note
