@@ -25,7 +25,7 @@ A deal pipeline management dashboard for VCs with a companion Chrome extension. 
 
 - `/` - Pipeline (Kanban board with drag-and-drop)
 - `/companies` - Companies list/grid view with search and filters
-- `/companies/:id` - Company detail with founders, notes, tags, pipeline management
+- `/companies/:id` - Company detail with founders, notes, tags, pipeline management, and dynamic Next Steps advisor
 - `/add` - Add new deal form with founder fields
 - `/extension` - Browser extension setup instructions
 
