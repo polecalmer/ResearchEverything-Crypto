@@ -3,6 +3,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { type Company, PIPELINE_STAGES, STAGE_LABELS, type PipelineStage } from "@shared/schema";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { useLocation } from "wouter";
@@ -14,6 +15,7 @@ import {
   Clock,
   ExternalLink,
   GripVertical,
+  Plus,
 } from "lucide-react";
 import { useState } from "react";
 import { formatDistanceToNow } from "date-fns";
@@ -169,6 +171,7 @@ function PipelineColumn({
 }
 
 export default function Pipeline() {
+  const [, navigate] = useLocation();
   const [searchQuery, setSearchQuery] = useState("");
 
   const { data: companies = [], isLoading } = useQuery<Company[]>({
@@ -221,6 +224,28 @@ export default function Pipeline() {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (companies.length === 0) {
+    return (
+      <div className="p-6 h-full flex flex-col items-center justify-center">
+        <div className="text-center max-w-md">
+          <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
+            <Sparkles className="w-8 h-8 text-primary" />
+          </div>
+          <h2 className="text-xl font-semibold tracking-tight mb-2" data-testid="text-page-title">Your Deal Pipeline</h2>
+          <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
+            Start capturing deals by clicking the <strong>+</strong> button in the bottom-right corner, or use the <strong>Add Deal</strong> page for a full form. Deals you add will appear in your kanban pipeline here.
+          </p>
+          <div className="flex items-center justify-center gap-3 flex-wrap">
+            <Button onClick={() => navigate("/add")} data-testid="button-add-first-deal">
+              <Plus className="w-4 h-4 mr-1.5" />
+              Add Your First Deal
+            </Button>
+          </div>
         </div>
       </div>
     );

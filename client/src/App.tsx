@@ -11,6 +11,7 @@ import Pipeline from "@/pages/pipeline";
 import Companies from "@/pages/companies";
 import CompanyDetail from "@/pages/company-detail";
 import AddDeal from "@/pages/add-deal";
+import { QuickCapture } from "@/components/quick-capture";
 
 function Router() {
   return (
@@ -46,6 +47,7 @@ export default function App() {
               </main>
             </div>
           </div>
+          <QuickCapture />
         </SidebarProvider>
         <Toaster />
       </TooltipProvider>
