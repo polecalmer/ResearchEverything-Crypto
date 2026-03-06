@@ -45,7 +45,7 @@ function TypingDemo() {
   return (
     <div className="font-mono text-sm">
       <span className="text-foreground">{currentInput.slice(0, charIndex)}</span>
-      <span className="inline-block w-[2px] h-[14px] bg-primary animate-pulse ml-[1px] align-middle" />
+      <span className="inline-block w-[2px] h-[14px] bg-foreground animate-pulse ml-[1px] align-middle" />
     </div>
   );
 }
@@ -79,7 +79,7 @@ function DealCardPreview() {
           <span className="text-[10px] text-muted-foreground">3 claims verified, 1 removed</span>
         </div>
         <div className="flex items-center gap-1.5">
-          <Sparkles className="w-3 h-3 text-primary" />
+          <Sparkles className="w-3 h-3 text-foreground" />
           <span className="text-[10px] text-muted-foreground">4 next steps generated</span>
         </div>
       </div>
@@ -117,7 +117,7 @@ export default function LandingPage() {
       <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-b">
         <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Bookmark className="w-5 h-5 text-primary" />
+            <Bookmark className="w-5 h-5 text-foreground" />
             <span className="text-sm font-semibold tracking-tight">BookMark</span>
           </div>
           <div className="flex items-center gap-2">
@@ -135,7 +135,7 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto grid lg:grid-cols-2 gap-16 items-start">
           <div className="space-y-8 pt-8">
             <div>
-              <p className="text-xs font-mono uppercase tracking-widest text-primary mb-4">VC Deal Intelligence</p>
+              <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-4">VC Deal Intelligence</p>
               <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-[1.12] mb-5">
                 Paste a link.<br />
                 <span className="text-muted-foreground">Get a verified</span><br />
@@ -177,7 +177,7 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto">
           <div className="grid lg:grid-cols-[1fr,2fr] gap-16">
             <div>
-              <p className="text-xs font-mono uppercase tracking-widest text-primary mb-3">How it works</p>
+              <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-3">How it works</p>
               <h2 className="text-2xl sm:text-3xl font-bold tracking-tight leading-snug">
                 Three agents.<br />Zero hallucinations.
               </h2>
@@ -207,7 +207,7 @@ export default function LandingPage() {
                 <div key={num} data-testid={`step-${title.toLowerCase()}`}>
                   <div className="flex items-center gap-2 mb-3">
                     <span className="text-[10px] font-mono text-muted-foreground/40">{num}</span>
-                    <Icon className="w-4 h-4 text-primary" />
+                    <Icon className="w-4 h-4 text-foreground" />
                   </div>
                   <h3 className="text-sm font-semibold mb-2">{title}</h3>
                   <p className="text-sm text-muted-foreground leading-relaxed">{body}</p>
@@ -222,7 +222,7 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto">
           <div className="grid lg:grid-cols-[1fr,2fr] gap-16">
             <div>
-              <p className="text-xs font-mono uppercase tracking-widest text-primary mb-3">What you get</p>
+              <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-3">What you get</p>
               <h2 className="text-2xl sm:text-3xl font-bold tracking-tight leading-snug">
                 Everything a deal memo needs. Nothing it doesn't.
               </h2>
