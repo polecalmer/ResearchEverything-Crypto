@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { LayoutDashboard, Building2, Plus, Chrome, BarChart3, Zap, LogOut, User } from "lucide-react";
+import { LayoutDashboard, Building2, Plus, Chrome, BarChart3, Bookmark, LogOut, User } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -35,7 +35,7 @@ export function AppSidebar() {
         <Link href="/">
           <div className="flex items-center gap-2 cursor-pointer">
             <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
-              <Zap className="w-4 h-4 text-primary-foreground" />
+              <Bookmark className="w-4 h-4 text-primary-foreground" />
             </div>
             <div>
               <h1 className="text-sm font-semibold tracking-tight" data-testid="text-app-title">BookMark</h1>

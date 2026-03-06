@@ -4,7 +4,7 @@ import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
-import { Zap, ArrowRight, Loader2, ShieldCheck, Search, FileSearch, Sparkles } from "lucide-react";
+import { Bookmark, ArrowRight, Loader2, ShieldCheck, Search, FileSearch, Sparkles } from "lucide-react";
 
 export default function AuthPage() {
   const [isLogin, setIsLogin] = useState(true);
@@ -33,7 +33,7 @@ export default function AuthPage() {
           <div className="space-y-2">
             <div className="flex items-center gap-2 mb-6">
               <div className="w-9 h-9 rounded-lg bg-primary flex items-center justify-center">
-                <Zap className="w-5 h-5 text-primary-foreground" />
+                <Bookmark className="w-5 h-5 text-primary-foreground" />
               </div>
               <span className="text-lg font-semibold tracking-tight">BookMark</span>
             </div>
