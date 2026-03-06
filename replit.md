@@ -42,6 +42,7 @@ Key files: `server/auth.ts` (auth setup), `client/src/hooks/use-auth.tsx` (AuthP
 - `/companies/:id` - Company detail with founders, notes, tags, pipeline management, and dynamic Next Steps advisor
 - `/add` - Add new deal form with founder fields
 - `/extension` - Browser extension setup instructions
+- `/data` - Pipeline analytics: total sourced, deals by stage/sector/model, investment rate, funnel summary
 
 ## Chrome Extension (`extension/` folder)
 

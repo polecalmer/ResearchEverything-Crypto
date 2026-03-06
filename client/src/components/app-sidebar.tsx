@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { LayoutDashboard, Building2, Plus, Chrome, Zap, LogOut, User } from "lucide-react";
+import { LayoutDashboard, Building2, Plus, Chrome, BarChart3, Zap, LogOut, User } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -20,6 +20,7 @@ const navItems = [
   { title: "Companies", url: "/companies", icon: Building2 },
   { title: "Add Deal", url: "/add", icon: Plus },
   { title: "Extension", url: "/extension", icon: Chrome },
+  { title: "Data", url: "/data", icon: BarChart3 },
 ];
 
 export function AppSidebar() {
