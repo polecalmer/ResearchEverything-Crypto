@@ -72,21 +72,18 @@ function HowItWorksSection() {
       icon: Globe,
       title: "Drop any input",
       description: "Paste a company website, a tweet, a founder's LinkedIn profile, a Product Hunt page, a GitHub repo — or just type a company name.",
-      color: "from-blue-500/10 to-blue-500/5 dark:from-blue-500/20 dark:to-blue-500/10",
     },
     {
       step: "02",
       icon: Search,
       title: "3 AI agents go to work",
       description: "Agent 1 identifies the company. Agent 2 researches deeply with live web search. Agent 3 fact-checks every claim and strips anything unverified.",
-      color: "from-violet-500/10 to-violet-500/5 dark:from-violet-500/20 dark:to-violet-500/10",
     },
     {
       step: "03",
       icon: BarChart3,
       title: "Clean deal card appears",
       description: "A verified deal card with founders, funding, competitive landscape, tags, and AI-generated next steps — all fact-checked and ready for your pipeline.",
-      color: "from-emerald-500/10 to-emerald-500/5 dark:from-emerald-500/20 dark:to-emerald-500/10",
     },
   ];
 
@@ -102,17 +99,17 @@ function HowItWorksSection() {
           </p>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-6">
-          {steps.map(({ step, icon: Icon, title, description, color }) => (
-            <div key={step} className="relative group">
-              <div className={`rounded-xl p-8 bg-gradient-to-b ${color} border transition-all duration-300`}>
-                <div className="text-xs font-mono text-primary/60 mb-4">{step}</div>
-                <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center mb-5">
-                  <Icon className="w-6 h-6 text-primary" />
+        <div className="grid md:grid-cols-3 gap-12 md:gap-8">
+          {steps.map(({ step, icon: Icon, title, description }) => (
+            <div key={step} className="text-center md:text-left">
+              <div className="flex items-center gap-3 mb-4 justify-center md:justify-start">
+                <span className="text-xs font-mono text-primary/40">{step}</span>
+                <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center">
+                  <Icon className="w-5 h-5 text-primary" />
                 </div>
-                <h3 className="text-xl font-semibold mb-3">{title}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">{description}</p>
               </div>
+              <h3 className="text-lg font-semibold mb-2">{title}</h3>
+              <p className="text-sm text-muted-foreground leading-relaxed">{description}</p>
             </div>
           ))}
         </div>
@@ -167,13 +164,13 @@ function FeaturesSection() {
           </p>
         </div>
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-x-8 gap-y-10">
           {features.map(({ icon: Icon, title, description }) => (
-            <div key={title} className="p-6 rounded-xl border bg-card/50 hover:bg-card transition-colors">
-              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center mb-4">
-                <Icon className="w-5 h-5 text-primary" />
+            <div key={title}>
+              <div className="w-9 h-9 rounded-lg bg-primary/10 flex items-center justify-center mb-3">
+                <Icon className="w-4.5 h-4.5 text-primary" />
               </div>
-              <h3 className="text-base font-semibold mb-2">{title}</h3>
+              <h3 className="text-sm font-semibold mb-1.5">{title}</h3>
               <p className="text-sm text-muted-foreground leading-relaxed">{description}</p>
             </div>
           ))}
@@ -192,14 +189,14 @@ function StatsSection() {
   ];
 
   return (
-    <section className="py-20 px-6 border-t bg-gradient-to-b from-transparent to-primary/[0.02] dark:to-primary/[0.04]">
+    <section className="py-20 px-6 border-t">
       <div className="max-w-5xl mx-auto">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-8">
           {stats.map(({ value, label, icon: Icon }) => (
-            <div key={label} className="text-center space-y-2">
-              <Icon className="w-5 h-5 text-primary mx-auto mb-1" />
+            <div key={label} className="text-center space-y-1.5">
+              <Icon className="w-4 h-4 text-primary mx-auto mb-1" />
               <div className="text-3xl sm:text-4xl font-bold tracking-tight">{value}</div>
-              <div className="text-sm text-muted-foreground">{label}</div>
+              <div className="text-xs text-muted-foreground">{label}</div>
             </div>
           ))}
         </div>
@@ -211,7 +208,7 @@ function StatsSection() {
 function CTASection() {
   return (
     <section className="py-24 px-6 border-t">
-      <div className="max-w-3xl mx-auto text-center space-y-8">
+      <div className="max-w-3xl mx-auto text-center space-y-6">
         <h2 className="text-3xl sm:text-4xl font-bold tracking-tight">
           Your deal pipeline, supercharged
         </h2>
@@ -233,19 +230,19 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-background">
       <nav className="fixed top-0 left-0 right-0 z-50 border-b bg-background/80 backdrop-blur-lg">
-        <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
+        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
-              <Zap className="w-4 h-4 text-primary-foreground" />
+            <div className="w-7 h-7 rounded-md bg-primary flex items-center justify-center">
+              <Zap className="w-3.5 h-3.5 text-primary-foreground" />
             </div>
-            <span className="text-base font-semibold tracking-tight">BookMark</span>
+            <span className="text-sm font-semibold tracking-tight">BookMark</span>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
             <Link href="/auth">
-              <Button variant="ghost" size="sm" data-testid="button-nav-login">Sign in</Button>
+              <Button variant="ghost" size="sm" className="text-xs h-8" data-testid="button-nav-login">Sign in</Button>
             </Link>
             <Link href="/auth">
-              <Button size="sm" data-testid="button-nav-signup">Get started</Button>
+              <Button size="sm" className="text-xs h-8" data-testid="button-nav-signup">Get started</Button>
             </Link>
           </div>
         </div>
@@ -257,13 +254,13 @@ export default function LandingPage() {
       <StatsSection />
       <CTASection />
 
-      <footer className="border-t py-8 px-6">
+      <footer className="border-t py-6 px-6">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Zap className="w-3.5 h-3.5" />
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <Zap className="w-3 h-3" />
             <span>BookMark</span>
           </div>
-          <p className="text-xs text-muted-foreground">AI-powered deal intelligence for VCs</p>
+          <p className="text-[10px] text-muted-foreground/50">AI-powered deal intelligence for VCs</p>
         </div>
       </footer>
     </div>

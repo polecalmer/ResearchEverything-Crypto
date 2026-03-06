@@ -1,10 +1,9 @@
 import { useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { insertCompanySchema, PIPELINE_STAGES, STAGE_LABELS, type PipelineStage } from "@shared/schema";
+import { PIPELINE_STAGES, STAGE_LABELS } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
@@ -44,7 +43,7 @@ import {
   Globe,
 } from "lucide-react";
 import { useState } from "react";
-import { streamEnrichment, getAgentLabel, getAgentDescription, type EnrichmentStage } from "@/lib/enrichment";
+import { streamEnrichment, type EnrichmentStage } from "@/lib/enrichment";
 
 const SECTORS = [
   "AI / ML", "AI Infra", "Fintech", "DevTools", "Consumer", "Healthcare",
@@ -239,10 +238,6 @@ export default function AddDeal() {
     createMutation.mutate(data);
   };
 
-  const handleEnrich = () => {
-    handleEnrichStream();
-  };
-
   return (
     <div className="p-6 max-w-3xl mx-auto h-full overflow-y-auto">
       <button
@@ -254,16 +249,16 @@ export default function AddDeal() {
         Back to Pipeline
       </button>
 
-      <div className="mb-6">
-        <h2 className="text-xl font-semibold tracking-tight" data-testid="text-page-title">Add New Deal</h2>
-        <p className="text-sm text-muted-foreground mt-0.5">
+      <div className="mb-8">
+        <h2 className="text-lg font-semibold tracking-tight" data-testid="text-page-title">Add New Deal</h2>
+        <p className="text-xs text-muted-foreground mt-0.5">
           Let the AI agent research and populate deal fields, or fill them in manually.
         </p>
       </div>
 
       {!isEnriched && (
-        <Card className="p-5 mb-6 border-primary/20 bg-primary/[0.02]">
-          <h3 className="text-xs uppercase tracking-wider text-primary font-medium mb-4 flex items-center gap-2">
+        <div className="mb-8 pb-8 border-b">
+          <h3 className="text-xs uppercase tracking-wider text-primary font-medium mb-3 flex items-center gap-2">
             <Sparkles className="w-3.5 h-3.5" />
             AI Auto-Enrichment
           </h3>
@@ -275,7 +270,7 @@ export default function AddDeal() {
               value={enrichInput}
               onChange={(e) => setEnrichInput(e.target.value)}
               placeholder="Paste a URL, company name, tweet link, founder profile..."
-              onKeyDown={(e) => e.key === "Enter" && handleEnrich()}
+              onKeyDown={(e) => e.key === "Enter" && handleEnrichStream()}
               disabled={isEnriching}
               data-testid="input-enrich"
             />
@@ -284,8 +279,8 @@ export default function AddDeal() {
             </p>
 
             {pipelineStages.length > 0 && (
-              <div className="space-y-2 p-3 rounded-lg bg-primary/5 border border-primary/10" data-testid="pipeline-progress">
-                <p className="text-xs font-medium text-primary mb-2">Agent Pipeline Progress</p>
+              <div className="space-y-1.5 py-3" data-testid="pipeline-progress">
+                <p className="text-xs font-medium text-muted-foreground mb-2">Agent Pipeline</p>
                 {[
                   { key: "scraper", icon: Globe, label: "Web Scraper" },
                   { key: "identifier", icon: Search, label: "Identifier Agent" },
@@ -300,44 +295,44 @@ export default function AddDeal() {
                   return (
                     <div
                       key={key}
-                      className={`flex items-center gap-3 p-2 rounded-md transition-colors ${
-                        isActive ? "bg-primary/10" : isDone ? "bg-green-500/5" : ""
+                      className={`flex items-center gap-3 py-2 px-3 rounded-md transition-colors ${
+                        isActive ? "bg-primary/5" : ""
                       }`}
                       data-testid={`pipeline-stage-${key}`}
                     >
                       <div className="w-5 h-5 flex items-center justify-center">
                         {isActive && <Loader2 className="w-4 h-4 animate-spin text-primary" />}
                         {isDone && <CheckCircle2 className="w-4 h-4 text-green-600" />}
-                        {isPending && <Icon className="w-4 h-4 text-muted-foreground/40" />}
+                        {isPending && <Icon className="w-4 h-4 text-muted-foreground/30" />}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className={`text-xs font-medium ${isPending ? "text-muted-foreground/40" : ""}`}>
+                        <p className={`text-xs font-medium ${isPending ? "text-muted-foreground/30" : ""}`}>
                           {label}
                         </p>
                         {isActive && stage?.message && (
                           <p className="text-[11px] text-muted-foreground">{stage.message}</p>
                         )}
                         {isDone && stage?.agent === "scraper" && (
-                          <p className="text-[11px] text-green-600">
+                          <p className="text-[11px] text-green-600/70">
                             {stage.pagesFetched
                               ? `Fetched ${stage.pagesFetched} page${stage.pagesFetched === 1 ? "" : "s"}`
                               : "No URLs to fetch"}
                           </p>
                         )}
                         {isDone && stage?.agent === "identifier" && stage.companyName && (
-                          <p className="text-[11px] text-green-600">
+                          <p className="text-[11px] text-green-600/70">
                             Identified: {stage.companyName} ({stage.confidence} confidence)
                           </p>
                         )}
                         {isDone && stage?.agent === "verify_clean" && (
-                          <p className="text-[11px] text-green-600">
+                          <p className="text-[11px] text-green-600/70">
                             {stage.issuesFound === 0
                               ? "All claims verified — output clean"
                               : `${stage.issuesFound} issue${stage.issuesFound === 1 ? "" : "s"} found and cleaned`}
                           </p>
                         )}
                       </div>
-                      <span className="text-[10px] text-muted-foreground/60">{idx + 1}/4</span>
+                      <span className="text-[10px] text-muted-foreground/40 tabular-nums">{idx + 1}/4</span>
                     </div>
                   );
                 })}
@@ -350,7 +345,7 @@ export default function AddDeal() {
 
             <Button
               type="button"
-              onClick={handleEnrich}
+              onClick={handleEnrichStream}
               disabled={!enrichInput.trim() || isEnriching}
               className="w-full"
               data-testid="button-enrich"
@@ -368,21 +363,19 @@ export default function AddDeal() {
               )}
             </Button>
           </div>
-        </Card>
+        </div>
       )}
 
       {isEnriched && (
-        <div className="flex items-center gap-2 mb-4 p-3 rounded-lg bg-green-500/10 border border-green-500/20">
-          <Sparkles className="w-4 h-4 text-green-600" />
-          <p className="text-sm text-green-700 dark:text-green-400">
-            AI enrichment complete — review the pre-filled fields below and submit.
-          </p>
+        <div className="flex items-center gap-2 mb-6 text-sm text-green-700 dark:text-green-400">
+          <CheckCircle2 className="w-4 h-4" />
+          AI enrichment complete — review the pre-filled fields below and submit.
         </div>
       )}
 
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-          <Card className="p-5">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
+          <div>
             <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-4 flex items-center gap-2">
               <Building2 className="w-3.5 h-3.5" />
               Company Info
@@ -500,9 +493,9 @@ export default function AddDeal() {
                 />
               </div>
             </div>
-          </Card>
+          </div>
 
-          <Card className="p-5">
+          <div className="border-t pt-8">
             <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-4 flex items-center gap-2">
               <Briefcase className="w-3.5 h-3.5" />
               Classification
@@ -597,9 +590,9 @@ export default function AddDeal() {
                 )}
               />
             </div>
-          </Card>
+          </div>
 
-          <Card className="p-5">
+          <div className="border-t pt-8">
             <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-4 flex items-center gap-2">
               <DollarSign className="w-3.5 h-3.5" />
               Market Context
@@ -642,9 +635,9 @@ export default function AddDeal() {
                 )}
               />
             </div>
-          </Card>
+          </div>
 
-          <Card className="p-5">
+          <div className="border-t pt-8">
             <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-4 flex items-center gap-2">
               <Tag className="w-3.5 h-3.5" />
               Tags
@@ -669,9 +662,9 @@ export default function AddDeal() {
                 Add
               </Button>
             </div>
-          </Card>
+          </div>
 
-          <Card className="p-5">
+          <div className="border-t pt-8">
             <div className="flex items-center justify-between gap-2 mb-4">
               <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-medium flex items-center gap-2">
                 <User className="w-3.5 h-3.5" />
@@ -764,9 +757,9 @@ export default function AddDeal() {
                 ))}
               </div>
             )}
-          </Card>
+          </div>
 
-          <div className="flex justify-end gap-3 pb-8">
+          <div className="flex justify-end gap-3 pb-8 border-t pt-8">
             <Button type="button" variant="secondary" onClick={() => navigate("/")} data-testid="button-cancel">
               Cancel
             </Button>
