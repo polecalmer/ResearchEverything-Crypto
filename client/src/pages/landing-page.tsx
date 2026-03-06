@@ -268,41 +268,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="py-20 px-6 border-t">
-        <div className="max-w-4xl mx-auto">
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 text-center">
-            {[
-              { value: "3", label: "AI agents per deal" },
-              { value: "100%", label: "Claims fact-checked" },
-              { value: "<60s", label: "Input to deal card" },
-              { value: "0", label: "Hallucinations tolerated" },
-            ].map(({ value, label }) => (
-              <div key={label}>
-                <p className="text-2xl sm:text-3xl font-bold tracking-tight font-mono">{value}</p>
-                <p className="text-[11px] text-muted-foreground mt-1">{label}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="py-24 px-6 border-t">
-        <div className="max-w-2xl mx-auto text-center space-y-6">
-          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight">
-            Stop researching. Start deciding.
-          </h2>
-          <p className="text-muted-foreground max-w-md mx-auto">
-            Let AI agents do the sourcing legwork. You focus on what matters — making investment calls.
-          </p>
-          <a href="/auth">
-            <Button size="lg" className="h-11 px-8 gap-2 text-sm mt-2" data-testid="button-cta-bottom">
-              Get started
-              <ArrowRight className="w-4 h-4" />
-            </Button>
-          </a>
-        </div>
-      </section>
-
       <footer className="border-t py-6 px-6">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
