@@ -11,6 +11,7 @@ export interface EnrichedCompany {
   oneLiner: string;
   description: string;
   sector: string;
+  subSector: string;
   businessModel: string;
   stage: string;
   fundingHistory: string;
@@ -189,6 +190,7 @@ Return ONLY valid JSON matching this schema:
   "oneLiner": "What they do in one sentence",
   "description": "2-3 paragraph description",
   "sector": "One of: ${SECTORS.join(", ")}",
+  "subSector": "Specific niche within the sector. For Crypto/Web3: use one of Prediction Markets, Perpetuals/Derivatives, DEX, Lending/Borrowing, Stablecoins, NFT/Gaming, Infrastructure/L1/L2, Bridges, Oracles, DePIN, RWA, DAO Tooling, Wallet, Analytics, MEV, Restaking, Social, Privacy, Payments, or other specific niche. For other sectors: use a specific sub-category (e.g., 'LLM Ops' for AI/ML, 'Neobank' for Fintech). Empty string if unclear.",
   "businessModel": "One of: ${BUSINESS_MODELS.join(", ")}",
   "stage": "One of: ${STAGES.join(", ")}",
   "fundingHistory": "Confirmed funding rounds only, or empty string",
@@ -278,6 +280,7 @@ Return ONLY valid JSON with the final clean deal card:
   "oneLiner": "One sentence",
   "description": "Clean description with unverified claims removed",
   "sector": "Verified sector or empty string",
+  "subSector": "Verified sub-sector niche or empty string",
   "businessModel": "Verified model or empty string",
   "stage": "Verified stage or empty string",
   "fundingHistory": "Only verified funding info or empty string",
@@ -390,6 +393,7 @@ function validateOutput(data: any): EnrichedCompany {
     oneLiner: data.oneLiner || "",
     description: data.description || "",
     sector: SECTORS.includes(data.sector) ? data.sector : "",
+    subSector: typeof data.subSector === "string" ? data.subSector : "",
     businessModel: BUSINESS_MODELS.includes(data.businessModel) ? data.businessModel : "",
     stage: STAGES.includes(data.stage) ? data.stage : "",
     fundingHistory: data.fundingHistory || "",

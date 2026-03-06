@@ -56,7 +56,7 @@ function CompanyRow({ company }: { company: Company }) {
         <div className="flex items-center gap-1.5 flex-wrap">
           {company.sector && (
             <span className="text-[10px] text-muted-foreground bg-accent rounded px-1.5 py-0.5">
-              {company.sector}
+              {company.sector}{company.subSector ? ` · ${company.subSector}` : ""}
             </span>
           )}
           {company.stage && (

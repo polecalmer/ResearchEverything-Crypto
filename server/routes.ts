@@ -102,6 +102,7 @@ export async function registerRoutes(
         oneLiner: enriched.oneLiner || "AI-enriched company",
         description: enriched.description || "",
         sector: enriched.sector || "",
+        subSector: enriched.subSector || "",
         businessModel: enriched.businessModel || "",
         stage: enriched.stage || "",
         fundingHistory: enriched.fundingHistory || "",

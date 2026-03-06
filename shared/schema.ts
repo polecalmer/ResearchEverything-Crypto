@@ -30,6 +30,7 @@ export const companies = pgTable("companies", {
   oneLiner: text("one_liner").notNull(),
   description: text("description"),
   sector: text("sector"),
+  subSector: text("sub_sector"),
   businessModel: text("business_model"),
   stage: text("stage"),
   fundingHistory: text("funding_history"),

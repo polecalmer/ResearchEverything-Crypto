@@ -62,7 +62,7 @@ function CompanyRow({ company }: { company: Company }) {
       </div>
       <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
         {company.sector && (
-          <span className="text-[10px] text-muted-foreground bg-accent rounded px-1.5 py-0.5">{company.sector}</span>
+          <span className="text-[10px] text-muted-foreground bg-accent rounded px-1.5 py-0.5">{company.sector}{company.subSector ? ` · ${company.subSector}` : ""}</span>
         )}
         {company.stage && (
           <span className="text-[10px] text-muted-foreground bg-accent rounded px-1.5 py-0.5">{company.stage}</span>
@@ -108,7 +108,7 @@ function CompanyGridItem({ company }: { company: Company }) {
       <div className="flex items-center justify-between gap-1 flex-wrap">
         <div className="flex items-center gap-1 flex-wrap">
           {company.sector && (
-            <span className="text-[10px] text-muted-foreground bg-accent rounded px-1.5 py-0.5">{company.sector}</span>
+            <span className="text-[10px] text-muted-foreground bg-accent rounded px-1.5 py-0.5">{company.sector}{company.subSector ? ` · ${company.subSector}` : ""}</span>
           )}
           {company.stage && (
             <span className="text-[10px] text-muted-foreground bg-accent rounded px-1.5 py-0.5">{company.stage}</span>

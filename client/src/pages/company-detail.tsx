@@ -459,7 +459,7 @@ export default function CompanyDetail() {
               <p className="text-sm text-muted-foreground mt-0.5" data-testid="text-company-oneliner">{company.oneLiner}</p>
               <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                 {company.sector && (
-                  <span className="text-[10px] text-muted-foreground bg-accent rounded px-1.5 py-0.5">{company.sector}</span>
+                  <span className="text-[10px] text-muted-foreground bg-accent rounded px-1.5 py-0.5">{company.sector}{company.subSector ? ` · ${company.subSector}` : ""}</span>
                 )}
                 {company.stage && (
                   <span className="text-[10px] text-muted-foreground bg-accent rounded px-1.5 py-0.5">{company.stage}</span>
