@@ -1,13 +1,25 @@
 import {
+  type User, type InsertUser,
   type Company, type InsertCompany,
   type Founder, type InsertFounder,
   type Note, type InsertNote,
-  companies, founders, notes,
+  users, companies, founders, notes,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull } from "drizzle-orm";
+import { pool } from "./db";
+import connectPgSimple from "connect-pg-simple";
+import session from "express-session";
+
+const PgStore = connectPgSimple(session);
 
 export interface IStorage {
+  sessionStore: session.Store;
+
+  getUser(id: string): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+
   getCompanies(userId: string): Promise<Company[]>;
   getCompany(id: string, userId?: string): Promise<Company | undefined>;
   createCompany(company: InsertCompany): Promise<Company>;
@@ -25,6 +37,30 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  sessionStore: session.Store;
+
+  constructor() {
+    this.sessionStore = new PgStore({
+      pool,
+      createTableIfMissing: true,
+    });
+  }
+
+  async getUser(id: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const [user] = await db.insert(users).values(insertUser).returning();
+    return user;
+  }
+
   async getCompanies(userId: string): Promise<Company[]> {
     return db.select().from(companies).where(eq(companies.userId, userId)).orderBy(desc(companies.createdAt));
   }

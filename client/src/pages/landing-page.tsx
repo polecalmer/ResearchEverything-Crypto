@@ -33,7 +33,7 @@ function HeroSection() {
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
-            <a href="/api/login">
+            <a href="/auth">
               <Button size="lg" className="text-base px-8 h-12 gap-2" data-testid="button-cta-start">
                 Start for free
                 <ArrowRight className="w-4 h-4" />
@@ -214,7 +214,7 @@ function CTASection() {
         <p className="text-lg text-muted-foreground max-w-xl mx-auto">
           Stop spending hours on manual research. Let AI agents do the heavy lifting while you focus on making investment decisions.
         </p>
-        <a href="/api/login">
+        <a href="/auth">
           <Button size="lg" className="text-base px-10 h-12 gap-2" data-testid="button-cta-bottom">
             Get started
             <ArrowRight className="w-4 h-4" />
@@ -237,10 +237,10 @@ export default function LandingPage() {
             <span className="text-sm font-semibold tracking-tight">BookMark</span>
           </div>
           <div className="flex items-center gap-2">
-            <a href="/api/login">
+            <a href="/auth">
               <Button variant="ghost" size="sm" className="text-xs h-8" data-testid="button-nav-login">Sign in</Button>
             </a>
-            <a href="/api/login">
+            <a href="/auth">
               <Button size="sm" className="text-xs h-8" data-testid="button-nav-signup">Get started</Button>
             </a>
           </div>

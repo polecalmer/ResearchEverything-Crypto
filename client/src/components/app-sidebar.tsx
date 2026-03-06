@@ -27,9 +27,7 @@ export function AppSidebar() {
   const [location] = useLocation();
   const { user, logout, isLoggingOut } = useAuth();
 
-  const displayName = user?.firstName
-    ? `${user.firstName}${user.lastName ? ` ${user.lastName}` : ""}`
-    : user?.email || "User";
+  const displayName = user?.username || "User";
 
   return (
     <Sidebar>
@@ -73,17 +71,9 @@ export function AppSidebar() {
         {user && (
           <div className="flex items-center justify-between gap-2 px-2">
             <div className="flex items-center gap-2 min-w-0">
-              {user.profileImageUrl ? (
-                <img
-                  src={user.profileImageUrl}
-                  alt={displayName}
-                  className="w-7 h-7 rounded-full shrink-0 object-cover"
-                />
-              ) : (
-                <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                  <User className="w-3.5 h-3.5 text-primary" />
-                </div>
-              )}
+              <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                <User className="w-3.5 h-3.5 text-primary" />
+              </div>
               <span className="text-sm font-medium truncate" data-testid="text-username">{displayName}</span>
             </div>
             <Button

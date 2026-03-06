@@ -13,20 +13,20 @@ A deal pipeline management dashboard for VCs with a companion Chrome extension. 
 
 ## Authentication
 
-Replit Auth (OpenID Connect) — supports Google, GitHub, Apple, X, and email/password login.
-- `GET /api/login` — redirects to Replit OIDC auth page
-- `GET /api/callback` — OIDC callback
-- `GET /api/logout` — logout + end OIDC session
-- `GET /api/auth/user` — current authenticated user
-- All `/api/companies`, `/api/enrich`, `/api/founders`, `/api/notes` routes protected with `isAuthenticated` middleware
-- Companies scoped to users via `userId` column (set to `req.user.claims.sub`)
+Username/password auth with passport-local, express-session, scrypt password hashing. Sessions stored in PostgreSQL via connect-pg-simple.
+- `POST /api/register` — create account
+- `POST /api/login` — sign in
+- `POST /api/logout` — sign out
+- `GET /api/user` — current user (401 if not authenticated)
+- All `/api/companies`, `/api/enrich`, `/api/founders`, `/api/notes` routes protected with `requireAuth` middleware
+- Companies scoped to users via `userId` column
 - Orphaned companies (no userId) are auto-assigned to the first user who logs in
 
-Key files: `server/replit_integrations/auth/` (auth module), `client/src/hooks/use-auth.tsx` (useAuth hook)
+Key files: `server/auth.ts` (auth setup + routes), `client/src/hooks/use-auth.tsx` (useAuth hook)
 
 ## Data Model
 
-- **Users**: id, email, firstName, lastName, profileImageUrl, createdAt, updatedAt (Replit Auth managed)
+- **Users**: id, username, password (scrypt hashed)
 - **Companies**: Core deal entities with userId, name, one-liner, description, sector, business model, stage, funding history, competitive landscape, source URL, website URL, GitHub URL, Twitter URL, LinkedIn URL, pipeline stage, and tags
 - **Founders**: Linked to companies with name, role, bio, LinkedIn/Twitter/GitHub/personal URLs, prior companies
 - **Notes**: Time-stamped notes attached to companies

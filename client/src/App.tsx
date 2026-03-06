@@ -15,6 +15,7 @@ import AddDeal from "@/pages/add-deal";
 import ExtensionPage from "@/pages/extension";
 import DataPage from "@/pages/data";
 import LandingPage from "@/pages/landing-page";
+import AuthPage from "@/pages/auth-page";
 import { QuickCapture } from "@/components/quick-capture";
 import { Loader2 } from "lucide-react";
 
@@ -33,6 +34,7 @@ function AppRouter() {
     return (
       <Switch>
         <Route path="/" component={LandingPage} />
+        <Route path="/auth" component={AuthPage} />
         <Route>
           <Redirect to="/" />
         </Route>
