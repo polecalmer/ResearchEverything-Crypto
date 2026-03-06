@@ -135,7 +135,6 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto grid lg:grid-cols-2 gap-16 items-start">
           <div className="space-y-8 pt-8">
             <div>
-              <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-4">VC Deal Intelligence</p>
               <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-[1.12] mb-5">
                 Paste a Link.<br />
                 <span className="text-muted-foreground">Retain Your Context.</span><br />
@@ -274,7 +273,7 @@ export default function LandingPage() {
             <Bookmark className="w-3 h-3" />
             <span>BookMark</span>
           </div>
-          <p className="text-[10px] text-muted-foreground/40 font-mono">Deal intelligence for VCs</p>
+          <p className="text-[10px] text-muted-foreground/40 font-mono">BookMark</p>
         </div>
       </footer>
     </div>
