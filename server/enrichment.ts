@@ -242,7 +242,7 @@ VERIFICATION FOCUS — pay EXTRA attention to:
 - Funding amounts and dates (commonly hallucinated)
 - Investor names (commonly hallucinated)
 - Founder bios and prior companies (commonly embellished)
-- LinkedIn/Twitter URLs (almost always hallucinated — verify format and existence)
+- LinkedIn/Twitter/GitHub URLs for FOUNDERS — these are THE MOST commonly hallucinated fields. You MUST use web search to verify each founder's social profile actually exists at that URL. If you cannot confirm a URL exists via search, SET IT TO EMPTY STRING. Do NOT guess profile handles.
 - Company stage (often guessed incorrectly)
 - Specific metrics or user numbers (commonly fabricated)
 
@@ -317,12 +317,42 @@ function sanitizeUrl(url: any, expectedDomain?: string): string {
   if (!url || typeof url !== "string") return "";
   const trimmed = url.trim();
   if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) return "";
-  if (expectedDomain) {
-    try {
-      const hostname = new URL(trimmed).hostname.replace("www.", "");
-      if (!hostname.includes(expectedDomain)) return "";
-    } catch { return ""; }
-  }
+  try {
+    const parsed = new URL(trimmed);
+    const hostname = parsed.hostname.replace("www.", "");
+    if (expectedDomain && !hostname.includes(expectedDomain)) return "";
+    if (hostname.includes("example.com") || hostname.includes("placeholder")) return "";
+  } catch { return ""; }
+  return trimmed;
+}
+
+function sanitizeFounderUrl(url: any, platform: string): string {
+  if (!url || typeof url !== "string") return "";
+  const trimmed = url.trim();
+  if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) return "";
+
+  try {
+    const parsed = new URL(trimmed);
+    const hostname = parsed.hostname.replace("www.", "").toLowerCase();
+    const path = parsed.pathname;
+
+    if (platform === "linkedin") {
+      if (!hostname.includes("linkedin.com")) return "";
+      if (!path.startsWith("/in/") && !path.startsWith("/pub/")) return "";
+      const handle = path.split("/")[2];
+      if (!handle || handle.length < 2) return "";
+    } else if (platform === "twitter") {
+      if (!hostname.includes("twitter.com") && !hostname.includes("x.com")) return "";
+      const handle = path.split("/")[1];
+      if (!handle || handle.length < 1 || handle.startsWith("search") || handle.startsWith("home") || handle.startsWith("intent")) return "";
+    } else if (platform === "github") {
+      if (!hostname.includes("github.com")) return "";
+      const handle = path.split("/")[1];
+      if (!handle || handle.length < 1 || handle === "search" || handle === "explore" || handle === "topics") return "";
+    }
+
+    if (hostname.includes("example.com") || hostname.includes("placeholder")) return "";
+  } catch { return ""; }
   return trimmed;
 }
 
@@ -351,9 +381,9 @@ function validateOutput(data: any): EnrichedCompany {
         name: f.name || "",
         role: f.role || "",
         bio: f.bio || "",
-        linkedinUrl: sanitizeUrl(f.linkedinUrl, "linkedin.com"),
-        twitterUrl: sanitizeUrl(f.twitterUrl, "x.com") || sanitizeUrl(f.twitterUrl, "twitter.com"),
-        githubUrl: sanitizeUrl(f.githubUrl, "github.com"),
+        linkedinUrl: sanitizeFounderUrl(f.linkedinUrl, "linkedin"),
+        twitterUrl: sanitizeFounderUrl(f.twitterUrl, "twitter"),
+        githubUrl: sanitizeFounderUrl(f.githubUrl, "github"),
         personalUrl: sanitizeUrl(f.personalUrl),
         priorCompanies: f.priorCompanies || "",
       }));
