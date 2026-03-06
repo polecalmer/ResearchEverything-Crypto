@@ -95,7 +95,6 @@ export default function AddDeal() {
   const [founders, setFounders] = useState<FounderForm[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [enrichInput, setEnrichInput] = useState("");
-  const [isEnriched, setIsEnriched] = useState(false);
   const [isEnriching, setIsEnriching] = useState(false);
   const [enrichError, setEnrichError] = useState<string | null>(null);
   const [pipelineStages, setPipelineStages] = useState<EnrichmentStage[]>([]);
@@ -140,37 +139,51 @@ export default function AddDeal() {
         });
       });
 
-      form.setValue("name", data.name || "");
-      form.setValue("oneLiner", data.oneLiner || "");
-      form.setValue("description", data.description || "");
-      form.setValue("sector", data.sector || "");
-      form.setValue("businessModel", data.businessModel || "");
-      form.setValue("stage", data.stage || "");
-      form.setValue("fundingHistory", data.fundingHistory || "");
-      form.setValue("competitiveLandscape", data.competitiveLandscape || "");
       const isUrl = enrichInput.trim().startsWith("http://") || enrichInput.trim().startsWith("https://");
-      form.setValue("sourceUrl", isUrl ? enrichInput.trim() : "");
-      form.setValue("websiteUrl", data.websiteUrl || "");
-      form.setValue("githubUrl", data.githubUrl || "");
-      form.setValue("twitterUrl", data.twitterUrl || "");
-      form.setValue("linkedinUrl", data.linkedinUrl || "");
-      form.setValue("tags", data.tags || []);
+      const enrichedData: AddDealForm = {
+        name: data.name || "",
+        oneLiner: data.oneLiner || "",
+        description: data.description || "",
+        sector: data.sector || "",
+        businessModel: data.businessModel || "",
+        stage: data.stage || "",
+        fundingHistory: data.fundingHistory || "",
+        competitiveLandscape: data.competitiveLandscape || "",
+        sourceUrl: isUrl ? enrichInput.trim() : "",
+        websiteUrl: data.websiteUrl || "",
+        githubUrl: data.githubUrl || "",
+        twitterUrl: data.twitterUrl || "",
+        linkedinUrl: data.linkedinUrl || "",
+        pipelineStage: "discovered",
+        tags: data.tags || [],
+      };
 
-      if (data.founders && data.founders.length > 0) {
-        setFounders(data.founders.map((f: any) => ({
-          name: f.name || "",
-          role: f.role || "",
-          bio: f.bio || "",
-          linkedinUrl: f.linkedinUrl || "",
-          twitterUrl: f.twitterUrl || "",
-          githubUrl: f.githubUrl || "",
-          personalUrl: f.personalUrl || "",
-          priorCompanies: f.priorCompanies || "",
-        })));
+      const enrichedFounders: FounderForm[] = (data.founders || []).map((f: any) => ({
+        name: f.name || "",
+        role: f.role || "",
+        bio: f.bio || "",
+        linkedinUrl: f.linkedinUrl || "",
+        twitterUrl: f.twitterUrl || "",
+        githubUrl: f.githubUrl || "",
+        personalUrl: f.personalUrl || "",
+        priorCompanies: f.priorCompanies || "",
+      }));
+
+      const res = await apiRequest("POST", "/api/companies", enrichedData);
+      const company = await res.json();
+
+      for (const founder of enrichedFounders) {
+        if (founder.name.trim()) {
+          await apiRequest("POST", `/api/companies/${company.id}/founders`, {
+            ...founder,
+            companyId: company.id,
+          });
+        }
       }
 
-      setIsEnriched(true);
-      toast({ title: "AI enrichment complete", description: "All fields have been populated. Review and submit." });
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      toast({ title: `"${company.name}" added successfully` });
+      navigate(`/companies/${company.id}`);
     } catch (error: any) {
       setEnrichError(error.message);
       toast({ title: "AI enrichment failed", description: error.message, variant: "destructive" });
@@ -252,11 +265,10 @@ export default function AddDeal() {
       <div className="mb-8">
         <h2 className="text-lg font-semibold tracking-tight" data-testid="text-page-title">Add New Deal</h2>
         <p className="text-xs text-muted-foreground mt-0.5">
-          Let the AI agent research and populate deal fields, or fill them in manually.
+          Drop any link or text above to auto-add with AI, or fill in the form manually below.
         </p>
       </div>
 
-      {!isEnriched && (
         <div className="mb-8 pb-8 border-b">
           <h3 className="text-xs uppercase tracking-wider text-foreground font-medium mb-3 flex items-center gap-2">
             <Sparkles className="w-3.5 h-3.5" />
@@ -358,20 +370,12 @@ export default function AddDeal() {
               ) : (
                 <>
                   <Sparkles className="w-4 h-4 mr-1.5" />
-                  Enrich with AI
+                  Add &amp; Enrich with AI
                 </>
               )}
             </Button>
           </div>
         </div>
-      )}
-
-      {isEnriched && (
-        <div className="flex items-center gap-2 mb-6 text-sm text-green-700 dark:text-green-400">
-          <CheckCircle2 className="w-4 h-4" />
-          AI enrichment complete — review the pre-filled fields below and submit.
-        </div>
-      )}
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
