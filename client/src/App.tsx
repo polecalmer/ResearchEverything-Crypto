@@ -1,4 +1,4 @@
-import { Switch, Route, Redirect, useLocation } from "wouter";
+import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
-import { AuthProvider, useAuth } from "@/hooks/use-auth";
+import { useAuth } from "@/hooks/use-auth";
 import NotFound from "@/pages/not-found";
 import Pipeline from "@/pages/pipeline";
 import Companies from "@/pages/companies";
@@ -15,27 +15,8 @@ import AddDeal from "@/pages/add-deal";
 import ExtensionPage from "@/pages/extension";
 import DataPage from "@/pages/data";
 import LandingPage from "@/pages/landing-page";
-import AuthPage from "@/pages/auth-page";
 import { QuickCapture } from "@/components/quick-capture";
 import { Loader2 } from "lucide-react";
-
-function ProtectedRoute({ component: Component }: { component: React.ComponentType<any> }) {
-  const { user, isLoading } = useAuth();
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-full">
-        <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <Redirect to="/auth" />;
-  }
-
-  return <Component />;
-}
 
 function AppRouter() {
   const { user, isLoading } = useAuth();
@@ -52,9 +33,8 @@ function AppRouter() {
     return (
       <Switch>
         <Route path="/" component={LandingPage} />
-        <Route path="/auth" component={AuthPage} />
         <Route>
-          <Redirect to="/auth" />
+          <Redirect to="/" />
         </Route>
       </Switch>
     );
@@ -86,9 +66,6 @@ function AuthenticatedApp() {
               <Route path="/add" component={AddDeal} />
               <Route path="/extension" component={ExtensionPage} />
               <Route path="/data" component={DataPage} />
-              <Route path="/auth">
-                <Redirect to="/" />
-              </Route>
               <Route component={NotFound} />
             </Switch>
           </main>
@@ -103,9 +80,7 @@ export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <AuthProvider>
-          <AppRouter />
-        </AuthProvider>
+        <AppRouter />
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>

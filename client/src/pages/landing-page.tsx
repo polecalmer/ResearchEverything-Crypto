@@ -1,4 +1,3 @@
-import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import {
   Zap, ArrowRight, Search, FileSearch, ShieldCheck, Sparkles,
@@ -34,12 +33,12 @@ function HeroSection() {
           </p>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4 pt-4">
-            <Link href="/auth">
+            <a href="/api/login">
               <Button size="lg" className="text-base px-8 h-12 gap-2" data-testid="button-cta-start">
                 Start for free
                 <ArrowRight className="w-4 h-4" />
               </Button>
-            </Link>
+            </a>
             <a href="#how-it-works">
               <Button variant="outline" size="lg" className="text-base px-8 h-12" data-testid="button-cta-how">
                 See how it works
@@ -215,12 +214,12 @@ function CTASection() {
         <p className="text-lg text-muted-foreground max-w-xl mx-auto">
           Stop spending hours on manual research. Let AI agents do the heavy lifting while you focus on making investment decisions.
         </p>
-        <Link href="/auth">
+        <a href="/api/login">
           <Button size="lg" className="text-base px-10 h-12 gap-2" data-testid="button-cta-bottom">
             Get started
             <ArrowRight className="w-4 h-4" />
           </Button>
-        </Link>
+        </a>
       </div>
     </section>
   );
@@ -238,12 +237,12 @@ export default function LandingPage() {
             <span className="text-sm font-semibold tracking-tight">BookMark</span>
           </div>
           <div className="flex items-center gap-2">
-            <Link href="/auth">
+            <a href="/api/login">
               <Button variant="ghost" size="sm" className="text-xs h-8" data-testid="button-nav-login">Sign in</Button>
-            </Link>
-            <Link href="/auth">
+            </a>
+            <a href="/api/login">
               <Button size="sm" className="text-xs h-8" data-testid="button-nav-signup">Get started</Button>
-            </Link>
+            </a>
           </div>
         </div>
       </nav>

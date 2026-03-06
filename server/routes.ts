@@ -4,7 +4,7 @@ import { storage } from "./storage";
 import { insertCompanySchema, insertFounderSchema, insertNoteSchema, PIPELINE_STAGES } from "@shared/schema";
 import { z } from "zod";
 import { enrichFromInput, enrichFromInputWithProgress, generateNextSteps } from "./enrichment";
-import { requireAuth } from "./auth";
+import { isAuthenticated } from "./replit_integrations/auth";
 
 const updateCompanySchema = insertCompanySchema.partial().extend({
   pipelineStage: z.enum(PIPELINE_STAGES).optional(),
@@ -20,12 +20,16 @@ const enrichAndCreateSchema = z.object({
   pipelineStage: z.enum(PIPELINE_STAGES).optional().default("discovered"),
 });
 
+function getUserId(req: any): string {
+  return req.user?.claims?.sub;
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
 
-  app.post("/api/enrich", requireAuth, async (req, res) => {
+  app.post("/api/enrich", isAuthenticated, async (req, res) => {
     try {
       const parsed = enrichRequestSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -39,7 +43,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/enrich/stream", requireAuth, async (req, res) => {
+  app.post("/api/enrich/stream", isAuthenticated, async (req, res) => {
     try {
       const parsed = enrichRequestSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -68,14 +72,14 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/enrich-and-create", requireAuth, async (req, res) => {
+  app.post("/api/companies/enrich-and-create", isAuthenticated, async (req, res) => {
     try {
       const parsed = enrichAndCreateSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
       }
       const { input, pipelineStage } = parsed.data;
-      const userId = req.user!.id;
+      const userId = getUserId(req);
 
       const enriched = await enrichFromInput(input);
 
@@ -125,21 +129,21 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies", requireAuth, async (req, res) => {
-    const userId = req.user!.id;
+  app.get("/api/companies", isAuthenticated, async (req, res) => {
+    const userId = getUserId(req);
     const companies = await storage.getCompanies(userId);
     res.json(companies);
   });
 
-  app.get("/api/companies/:id/next-steps", requireAuth, async (req, res) => {
+  app.get("/api/companies/:id/next-steps", isAuthenticated, async (req, res) => {
     try {
-      const userId = req.user!.id;
+      const userId = getUserId(req);
       const company = await storage.getCompany(req.params.id, userId);
       if (!company) {
         return res.status(404).json({ message: "Company not found" });
       }
-      const founders = await storage.getFoundersByCompany(req.params.id);
-      const notes = await storage.getNotesByCompany(req.params.id);
+      const companyFounders = await storage.getFoundersByCompany(req.params.id);
+      const companyNotes = await storage.getNotesByCompany(req.params.id);
 
       const steps = await generateNextSteps({
         company: {
@@ -159,7 +163,7 @@ export async function registerRoutes(
           pipelineStage: company.pipelineStage,
           tags: company.tags,
         },
-        founders: founders.map((f) => ({
+        founders: companyFounders.map((f) => ({
           name: f.name,
           role: f.role,
           linkedinUrl: f.linkedinUrl,
@@ -168,7 +172,7 @@ export async function registerRoutes(
           personalUrl: f.personalUrl,
           priorCompanies: f.priorCompanies,
         })),
-        notes: notes.map((n) => ({
+        notes: companyNotes.map((n) => ({
           content: n.content,
           createdAt: n.createdAt,
         })),
@@ -181,8 +185,8 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/companies/:id", requireAuth, async (req, res) => {
-    const userId = req.user!.id;
+  app.get("/api/companies/:id", isAuthenticated, async (req, res) => {
+    const userId = getUserId(req);
     const company = await storage.getCompany(req.params.id, userId);
     if (!company) {
       return res.status(404).json({ message: "Company not found" });
@@ -190,22 +194,22 @@ export async function registerRoutes(
     res.json(company);
   });
 
-  app.post("/api/companies", requireAuth, async (req, res) => {
+  app.post("/api/companies", isAuthenticated, async (req, res) => {
     const parsed = insertCompanySchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ message: "Invalid data", errors: parsed.error.errors });
     }
-    const userId = req.user!.id;
+    const userId = getUserId(req);
     const company = await storage.createCompany({ ...parsed.data, userId } as any);
     res.status(201).json(company);
   });
 
-  app.patch("/api/companies/:id", requireAuth, async (req, res) => {
+  app.patch("/api/companies/:id", isAuthenticated, async (req, res) => {
     const parsed = updateCompanySchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ message: "Invalid data", errors: parsed.error.errors });
     }
-    const userId = req.user!.id;
+    const userId = getUserId(req);
     const company = await storage.updateCompany(req.params.id, parsed.data, userId);
     if (!company) {
       return res.status(404).json({ message: "Company not found" });
@@ -213,14 +217,14 @@ export async function registerRoutes(
     res.json(company);
   });
 
-  app.delete("/api/companies/:id", requireAuth, async (req, res) => {
-    const userId = req.user!.id;
+  app.delete("/api/companies/:id", isAuthenticated, async (req, res) => {
+    const userId = getUserId(req);
     await storage.deleteCompany(req.params.id, userId);
     res.status(204).end();
   });
 
-  app.get("/api/companies/:id/founders", requireAuth, async (req, res) => {
-    const userId = req.user!.id;
+  app.get("/api/companies/:id/founders", isAuthenticated, async (req, res) => {
+    const userId = getUserId(req);
     const company = await storage.getCompany(req.params.id, userId);
     if (!company) {
       return res.status(404).json({ message: "Company not found" });
@@ -229,8 +233,8 @@ export async function registerRoutes(
     res.json(foundersList);
   });
 
-  app.post("/api/companies/:id/founders", requireAuth, async (req, res) => {
-    const userId = req.user!.id;
+  app.post("/api/companies/:id/founders", isAuthenticated, async (req, res) => {
+    const userId = getUserId(req);
     const company = await storage.getCompany(req.params.id, userId);
     if (!company) {
       return res.status(404).json({ message: "Company not found" });
@@ -246,8 +250,8 @@ export async function registerRoutes(
     res.status(201).json(founder);
   });
 
-  app.get("/api/companies/:id/notes", requireAuth, async (req, res) => {
-    const userId = req.user!.id;
+  app.get("/api/companies/:id/notes", isAuthenticated, async (req, res) => {
+    const userId = getUserId(req);
     const company = await storage.getCompany(req.params.id, userId);
     if (!company) {
       return res.status(404).json({ message: "Company not found" });
@@ -256,8 +260,8 @@ export async function registerRoutes(
     res.json(notesList);
   });
 
-  app.post("/api/companies/:id/notes", requireAuth, async (req, res) => {
-    const userId = req.user!.id;
+  app.post("/api/companies/:id/notes", isAuthenticated, async (req, res) => {
+    const userId = getUserId(req);
     const company = await storage.getCompany(req.params.id, userId);
     if (!company) {
       return res.status(404).json({ message: "Company not found" });
@@ -273,7 +277,7 @@ export async function registerRoutes(
     res.status(201).json(note);
   });
 
-  app.delete("/api/notes/:id", requireAuth, async (req, res) => {
+  app.delete("/api/notes/:id", isAuthenticated, async (req, res) => {
     await storage.deleteNote(req.params.id);
     res.status(204).end();
   });
