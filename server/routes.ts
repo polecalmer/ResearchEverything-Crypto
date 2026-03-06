@@ -81,6 +81,22 @@ export async function registerRoutes(
 
       const isUrl = input.startsWith("http://") || input.startsWith("https://");
 
+      let websiteUrl = enriched.websiteUrl || "";
+      if (!websiteUrl && isUrl) {
+        try {
+          const hostname = new URL(input).hostname.replace("www.", "").toLowerCase();
+          const socialDomains = [
+            "twitter.com", "x.com", "linkedin.com", "github.com",
+            "facebook.com", "instagram.com", "tiktok.com", "youtube.com",
+            "reddit.com", "medium.com", "substack.com",
+            "producthunt.com", "crunchbase.com", "pitchbook.com",
+          ];
+          if (!socialDomains.some(d => hostname.includes(d))) {
+            websiteUrl = input;
+          }
+        } catch {}
+      }
+
       const company = await storage.createCompany({
         name: enriched.name || "Unknown Company",
         oneLiner: enriched.oneLiner || "AI-enriched company",
@@ -91,7 +107,7 @@ export async function registerRoutes(
         fundingHistory: enriched.fundingHistory || "",
         competitiveLandscape: enriched.competitiveLandscape || "",
         sourceUrl: isUrl ? input : "",
-        websiteUrl: enriched.websiteUrl || "",
+        websiteUrl,
         githubUrl: enriched.githubUrl || "",
         twitterUrl: enriched.twitterUrl || "",
         linkedinUrl: enriched.linkedinUrl || "",

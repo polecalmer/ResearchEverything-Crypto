@@ -139,7 +139,25 @@ export default function AddDeal() {
         });
       });
 
-      const isUrl = enrichInput.trim().startsWith("http://") || enrichInput.trim().startsWith("https://");
+      const inputUrl = enrichInput.trim();
+      const isUrl = inputUrl.startsWith("http://") || inputUrl.startsWith("https://");
+
+      let websiteUrl = data.websiteUrl || "";
+      if (!websiteUrl && isUrl) {
+        try {
+          const hostname = new URL(inputUrl).hostname.replace("www.", "").toLowerCase();
+          const socialDomains = [
+            "twitter.com", "x.com", "linkedin.com", "github.com",
+            "facebook.com", "instagram.com", "tiktok.com", "youtube.com",
+            "reddit.com", "medium.com", "substack.com",
+            "producthunt.com", "crunchbase.com", "pitchbook.com",
+          ];
+          if (!socialDomains.some(d => hostname.includes(d))) {
+            websiteUrl = inputUrl;
+          }
+        } catch {}
+      }
+
       const enrichedData: AddDealForm = {
         name: data.name || "",
         oneLiner: data.oneLiner || "",
@@ -149,8 +167,8 @@ export default function AddDeal() {
         stage: data.stage || "",
         fundingHistory: data.fundingHistory || "",
         competitiveLandscape: data.competitiveLandscape || "",
-        sourceUrl: isUrl ? enrichInput.trim() : "",
-        websiteUrl: data.websiteUrl || "",
+        sourceUrl: isUrl ? inputUrl : "",
+        websiteUrl,
         githubUrl: data.githubUrl || "",
         twitterUrl: data.twitterUrl || "",
         linkedinUrl: data.linkedinUrl || "",

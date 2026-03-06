@@ -356,6 +356,22 @@ function sanitizeFounderUrl(url: any, platform: string): string {
   return trimmed;
 }
 
+function sanitizeWebsiteUrl(url: any): string {
+  const sanitized = sanitizeUrl(url);
+  if (!sanitized) return "";
+  try {
+    const hostname = new URL(sanitized).hostname.replace("www.", "").toLowerCase();
+    const socialDomains = [
+      "twitter.com", "x.com", "linkedin.com", "github.com",
+      "facebook.com", "instagram.com", "tiktok.com", "youtube.com",
+      "reddit.com", "medium.com", "substack.com",
+      "producthunt.com", "crunchbase.com", "pitchbook.com",
+    ];
+    if (socialDomains.some(d => hostname.includes(d))) return "";
+  } catch { return ""; }
+  return sanitized;
+}
+
 function validateOutput(data: any): EnrichedCompany {
   const result: EnrichedCompany = {
     name: data.name || "",
@@ -366,7 +382,7 @@ function validateOutput(data: any): EnrichedCompany {
     stage: STAGES.includes(data.stage) ? data.stage : "",
     fundingHistory: data.fundingHistory || "",
     competitiveLandscape: data.competitiveLandscape || "",
-    websiteUrl: sanitizeUrl(data.websiteUrl),
+    websiteUrl: sanitizeWebsiteUrl(data.websiteUrl),
     githubUrl: sanitizeUrl(data.githubUrl, "github.com"),
     twitterUrl: sanitizeUrl(data.twitterUrl, "x.com") || sanitizeUrl(data.twitterUrl, "twitter.com"),
     linkedinUrl: sanitizeUrl(data.linkedinUrl, "linkedin.com"),

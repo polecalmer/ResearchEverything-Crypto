@@ -79,7 +79,7 @@ function FounderItem({ founder }: { founder: Founder }) {
           )}
         </div>
         {founder.bio && (
-          <p className="text-xs text-muted-foreground line-clamp-2 mb-1.5">{founder.bio}</p>
+          <p className="text-xs text-muted-foreground mb-1.5 leading-relaxed">{founder.bio}</p>
         )}
         {founder.priorCompanies && (
           <p className="text-xs text-muted-foreground mb-1.5">
