@@ -160,7 +160,19 @@ YOUR MANDATE:
 
 For funding history: ONLY include rounds you are certain actually happened. Do NOT make up dollar amounts or investor names. If you don't know specific details, say "Details not confirmed" or leave empty.
 
-For founders: ONLY list founders you are confident about. Use web search to find their real LinkedIn, Twitter/X, and GitHub profiles. Only include URLs you have actually verified exist via web search.
+For founders AND key team members:
+- Include founders/co-founders AND key executives (CTO, VP Eng, Head of Product, etc.) — up to 5 people total.
+- Use "Founder", "Co-founder", "Co-founder & CTO", "CTO", "VP Engineering", etc. as role values.
+- Search the web for EACH person individually to build rich bios. Do NOT just summarize their LinkedIn headline.
+- Write bios from an INVESTOR's perspective — what makes this person uniquely qualified? Include:
+  - Domain expertise and why it's relevant to this company
+  - Notable achievements, exits, or companies built/scaled
+  - Technical depth (papers published, open source contributions, patents)
+  - Education ONLY if from a notable program or directly relevant
+  - Industry recognition, speaking engagements, or thought leadership
+  - Years of experience in the relevant domain
+- Bio should be 3-5 sentences, narrative style, NOT a bullet-point LinkedIn summary.
+- For priorCompanies: include role context, e.g. "Stripe (Engineering Lead), Google (Senior SWE), YC W19"
 
 For competitive landscape: Only list companies that genuinely compete in the same space.
 
@@ -169,7 +181,7 @@ IMPORTANT: Use web search to find the company's REAL URLs:
 - GitHub organization URL (if they have one)
 - Twitter/X profile URL
 - LinkedIn company page URL
-- For each founder: their LinkedIn, Twitter/X, GitHub, and personal website URLs
+- For each founder/team member: their LinkedIn, Twitter/X, GitHub, and personal website URLs
 
 Return ONLY valid JSON matching this schema:
 {
@@ -189,13 +201,13 @@ Return ONLY valid JSON matching this schema:
   "founders": [
     {
       "name": "Full name",
-      "role": "Title",
-      "bio": "Only confirmed background info",
+      "role": "Title (Founder, Co-founder, CTO, VP Eng, etc.)",
+      "bio": "3-5 sentence investor-perspective narrative bio — NOT a LinkedIn summary",
       "linkedinUrl": "Verified LinkedIn profile URL or empty string",
       "twitterUrl": "Verified Twitter/X profile URL or empty string",
       "githubUrl": "Verified GitHub profile URL or empty string",
       "personalUrl": "Verified personal website URL or empty string",
-      "priorCompanies": "Only confirmed prior companies"
+      "priorCompanies": "Companies with role context, e.g. 'Stripe (Eng Lead), Google (Sr SWE)'"
     }
   ],
   "confidenceNotes": {
@@ -241,8 +253,8 @@ YOU HAVE WEB SEARCH ACCESS. Use it to independently verify claims. Search for th
 VERIFICATION FOCUS — pay EXTRA attention to:
 - Funding amounts and dates (commonly hallucinated)
 - Investor names (commonly hallucinated)
-- Founder bios and prior companies (commonly embellished)
-- LinkedIn/Twitter/GitHub URLs for FOUNDERS — these are THE MOST commonly hallucinated fields. You MUST use web search to verify each founder's social profile actually exists at that URL. If you cannot confirm a URL exists via search, SET IT TO EMPTY STRING. Do NOT guess profile handles.
+- Founder AND key team member bios and prior companies (commonly embellished)
+- LinkedIn/Twitter/GitHub URLs for ALL team members — these are THE MOST commonly hallucinated fields. You MUST use web search to verify each person's social profile actually exists at that URL. If you cannot confirm a URL exists via search, SET IT TO EMPTY STRING. Do NOT guess profile handles.
 - Company stage (often guessed incorrectly)
 - Specific metrics or user numbers (commonly fabricated)
 
@@ -250,7 +262,7 @@ CLEANING RULES — your output must be squeaky clean:
 - REMOVE any claim you cannot verify — set to empty string or remove from array
 - URLs (website, GitHub, Twitter, LinkedIn) → KEEP only if verified or follows correct platform format. REMOVE if fabricated.
 - Funding amounts → remove specific dollar amounts unless verified; keep only what's confirmed
-- Founder bios → strip any unverified claims about education, roles, or achievements
+- Founder/team member bios → strip any unverified claims about education, roles, or achievements. Keep the narrative style — do NOT reduce to LinkedIn-style summaries.
 - Description → remove any specific metrics, user counts, or revenue figures unless verified
 - Do NOT add any new information — only keep, remove, or correct existing content
 - When in doubt, OMIT
