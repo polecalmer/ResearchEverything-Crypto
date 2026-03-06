@@ -6,18 +6,25 @@ import {
   users, companies, founders, notes,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
+import { pool } from "./db";
+import connectPgSimple from "connect-pg-simple";
+import session from "express-session";
+
+const PgStore = connectPgSimple(session);
 
 export interface IStorage {
+  sessionStore: session.Store;
+
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
 
-  getCompanies(): Promise<Company[]>;
-  getCompany(id: string): Promise<Company | undefined>;
+  getCompanies(userId: string): Promise<Company[]>;
+  getCompany(id: string, userId?: string): Promise<Company | undefined>;
   createCompany(company: InsertCompany): Promise<Company>;
-  updateCompany(id: string, data: Partial<InsertCompany>): Promise<Company | undefined>;
-  deleteCompany(id: string): Promise<void>;
+  updateCompany(id: string, data: Partial<InsertCompany>, userId?: string): Promise<Company | undefined>;
+  deleteCompany(id: string, userId?: string): Promise<void>;
 
   getFoundersByCompany(companyId: string): Promise<Founder[]>;
   createFounder(founder: InsertFounder): Promise<Founder>;
@@ -28,6 +35,15 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  sessionStore: session.Store;
+
+  constructor() {
+    this.sessionStore = new PgStore({
+      pool,
+      createTableIfMissing: true,
+    });
+  }
+
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user;
@@ -43,12 +59,14 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async getCompanies(): Promise<Company[]> {
-    return db.select().from(companies).orderBy(desc(companies.createdAt));
+  async getCompanies(userId: string): Promise<Company[]> {
+    return db.select().from(companies).where(eq(companies.userId, userId)).orderBy(desc(companies.createdAt));
   }
 
-  async getCompany(id: string): Promise<Company | undefined> {
-    const [company] = await db.select().from(companies).where(eq(companies.id, id));
+  async getCompany(id: string, userId?: string): Promise<Company | undefined> {
+    const conditions = [eq(companies.id, id)];
+    if (userId) conditions.push(eq(companies.userId, userId));
+    const [company] = await db.select().from(companies).where(and(...conditions));
     return company;
   }
 
@@ -57,12 +75,18 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async updateCompany(id: string, data: Partial<InsertCompany>): Promise<Company | undefined> {
-    const [updated] = await db.update(companies).set(data).where(eq(companies.id, id)).returning();
+  async updateCompany(id: string, data: Partial<InsertCompany>, userId?: string): Promise<Company | undefined> {
+    const conditions = [eq(companies.id, id)];
+    if (userId) conditions.push(eq(companies.userId, userId));
+    const [updated] = await db.update(companies).set(data).where(and(...conditions)).returning();
     return updated;
   }
 
-  async deleteCompany(id: string): Promise<void> {
+  async deleteCompany(id: string, userId?: string): Promise<void> {
+    const conditions = [eq(companies.id, id)];
+    if (userId) conditions.push(eq(companies.userId, userId));
+    const [company] = await db.select().from(companies).where(and(...conditions));
+    if (!company) return;
     await db.delete(notes).where(eq(notes.companyId, id));
     await db.delete(founders).where(eq(founders.companyId, id));
     await db.delete(companies).where(eq(companies.id, id));

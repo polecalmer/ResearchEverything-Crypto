@@ -25,6 +25,7 @@ export const STAGE_LABELS: Record<PipelineStage, string> = {
 
 export const companies = pgTable("companies", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id"),
   name: text("name").notNull(),
   oneLiner: text("one_liner").notNull(),
   description: text("description"),
@@ -66,6 +67,7 @@ export const notes = pgTable("notes", {
 
 export const insertCompanySchema = createInsertSchema(companies).omit({
   id: true,
+  userId: true,
   createdAt: true,
 });
 

@@ -11,9 +11,22 @@ A deal pipeline management dashboard for VCs with a companion Chrome extension. 
 - **Extension:** Chrome Manifest V3 extension with context menu, content scripts, and popup
 - **Styling:** Tailwind CSS with Inter font
 
+## Authentication
+
+Multi-user auth with passport-local, express-session, scrypt password hashing. Sessions stored in PostgreSQL via connect-pg-simple.
+- `POST /api/register` — create account
+- `POST /api/login` — sign in
+- `POST /api/logout` — sign out
+- `GET /api/user` — current user (401 if not authenticated)
+- All `/api/companies`, `/api/enrich`, `/api/founders`, `/api/notes` routes are protected with `requireAuth` middleware
+- Companies are scoped to users via `userId` column
+
+Key files: `server/auth.ts` (auth setup), `client/src/hooks/use-auth.tsx` (AuthProvider + useAuth hook)
+
 ## Data Model
 
-- **Companies**: Core deal entities with name, one-liner, description, sector, business model, stage, funding history, competitive landscape, source URL, website URL, GitHub URL, Twitter URL, LinkedIn URL, pipeline stage, and tags
+- **Users**: id, username, password (scrypt hashed)
+- **Companies**: Core deal entities with userId, name, one-liner, description, sector, business model, stage, funding history, competitive landscape, source URL, website URL, GitHub URL, Twitter URL, LinkedIn URL, pipeline stage, and tags
 - **Founders**: Linked to companies with name, role, bio, LinkedIn/Twitter/GitHub/personal URLs, prior companies
 - **Notes**: Time-stamped notes attached to companies
 
@@ -23,7 +36,8 @@ A deal pipeline management dashboard for VCs with a companion Chrome extension. 
 
 ## Pages
 
-- `/` - Pipeline (Kanban board with drag-and-drop)
+- `/` - Landing page (unauthenticated) / Pipeline dashboard (authenticated)
+- `/auth` - Login/register page
 - `/companies` - Companies list/grid view with search and filters
 - `/companies/:id` - Company detail with founders, notes, tags, pipeline management, and dynamic Next Steps advisor
 - `/add` - Add new deal form with founder fields

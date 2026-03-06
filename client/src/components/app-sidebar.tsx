@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { LayoutDashboard, Building2, Plus, Tag, Zap, Chrome } from "lucide-react";
+import { LayoutDashboard, Building2, Plus, Chrome, Zap, LogOut, User } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -12,6 +12,8 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
+import { useAuth } from "@/hooks/use-auth";
+import { Button } from "@/components/ui/button";
 
 const navItems = [
   { title: "Pipeline", url: "/", icon: LayoutDashboard },
@@ -22,6 +24,7 @@ const navItems = [
 
 export function AppSidebar() {
   const [location] = useLocation();
+  const { user, logoutMutation } = useAuth();
 
   return (
     <Sidebar>
@@ -61,11 +64,27 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-      <SidebarFooter className="p-4">
-        <div className="flex items-center gap-2">
-          <Tag className="w-3 h-3 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">v1.0 MVP</span>
-        </div>
+      <SidebarFooter className="p-3 space-y-2">
+        {user && (
+          <div className="flex items-center justify-between gap-2 px-2">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="w-7 h-7 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                <User className="w-3.5 h-3.5 text-primary" />
+              </div>
+              <span className="text-sm font-medium truncate" data-testid="text-username">{user.username}</span>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 shrink-0"
+              onClick={() => logoutMutation.mutate()}
+              disabled={logoutMutation.isPending}
+              data-testid="button-logout"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        )}
       </SidebarFooter>
     </Sidebar>
   );
