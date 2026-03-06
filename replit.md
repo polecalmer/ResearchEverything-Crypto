@@ -1,4 +1,4 @@
-# Dealflow Agent
+# BookMark
 
 A deal pipeline management dashboard for VCs with a companion Chrome extension. Turn any link into structured deal intelligence with right-click capture and lightweight pipeline management.
 

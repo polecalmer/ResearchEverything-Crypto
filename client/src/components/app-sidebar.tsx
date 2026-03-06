@@ -35,7 +35,7 @@ export function AppSidebar() {
               <Zap className="w-4 h-4 text-primary-foreground" />
             </div>
             <div>
-              <h1 className="text-sm font-semibold tracking-tight" data-testid="text-app-title">Dealflow Agent</h1>
+              <h1 className="text-sm font-semibold tracking-tight" data-testid="text-app-title">BookMark</h1>
               <p className="text-xs text-muted-foreground">Deal Intelligence</p>
             </div>
           </div>

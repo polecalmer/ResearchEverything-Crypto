@@ -238,7 +238,7 @@ export default function LandingPage() {
             <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
               <Zap className="w-4 h-4 text-primary-foreground" />
             </div>
-            <span className="text-base font-semibold tracking-tight">Dealflow Agent</span>
+            <span className="text-base font-semibold tracking-tight">BookMark</span>
           </div>
           <div className="flex items-center gap-3">
             <Link href="/auth">
@@ -261,7 +261,7 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Zap className="w-3.5 h-3.5" />
-            <span>Dealflow Agent</span>
+            <span>BookMark</span>
           </div>
           <p className="text-xs text-muted-foreground">AI-powered deal intelligence for VCs</p>
         </div>

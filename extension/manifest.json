@@ -1,6 +1,6 @@
 {
   "manifest_version": 3,
-  "name": "Dealflow Agent",
+  "name": "BookMark",
   "description": "Right-click any link to add it to your deal pipeline. AI-powered deal intelligence for VCs.",
   "version": "1.0.0",
   "permissions": [

@@ -16,8 +16,8 @@ const steps = [
   },
   {
     icon: MousePointerClick,
-    title: 'Right-Click "Add to Dealflow"',
-    description: "Right-click on any webpage, link, or selected text and choose \"Add to Dealflow\" from the context menu.",
+    title: 'Right-Click "Add to BookMark"',
+    description: "Right-click on any webpage, link, or selected text and choose \"Add to BookMark\" from the context menu.",
   },
   {
     icon: CheckCircle2,
@@ -50,8 +50,8 @@ export default function ExtensionPage() {
           <div className="flex-1 min-w-[200px]">
             <h3 className="text-sm font-semibold mb-2">Right-Click to Capture</h3>
             <p className="text-sm text-muted-foreground leading-relaxed mb-4">
-              The Dealflow Agent Chrome extension adds a right-click context menu to every webpage.
-              See a company you're interested in? Right-click and select "Add to Dealflow" - the deal
+              The BookMark Chrome extension adds a right-click context menu to every webpage.
+              See a company you're interested in? Right-click and select "Add to BookMark" - the deal
               is captured instantly with the page URL, and a floating card confirms it without
               leaving the page.
             </p>
