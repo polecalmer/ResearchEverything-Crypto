@@ -1,7 +1,6 @@
-import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Download, Chrome, MousePointerClick, Zap, Settings, ArrowRight, CheckCircle2 } from "lucide-react";
+import { Download, Chrome, MousePointerClick, Settings, ArrowRight, CheckCircle2, Bookmark } from "lucide-react";
 
 const steps = [
   {
@@ -32,7 +31,7 @@ export default function ExtensionPage() {
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-3">
           <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center">
-            <Zap className="w-6 h-6 text-primary-foreground" />
+            <Bookmark className="w-6 h-6 text-primary-foreground" />
           </div>
           <div>
             <h2 className="text-xl font-semibold tracking-tight" data-testid="text-page-title">
@@ -45,7 +44,7 @@ export default function ExtensionPage() {
         </div>
       </div>
 
-      <Card className="p-6 mb-6">
+      <div className="pb-6 mb-6 border-b">
         <div className="flex items-start gap-4 flex-wrap">
           <div className="flex-1 min-w-[200px]">
             <h3 className="text-sm font-semibold mb-2">Right-Click to Capture</h3>
@@ -68,7 +67,7 @@ export default function ExtensionPage() {
             </div>
           </div>
         </div>
-      </Card>
+      </div>
 
       <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-4">
         Setup Instructions
@@ -81,8 +80,8 @@ export default function ExtensionPage() {
             className="flex items-start gap-4 p-4 rounded-lg bg-accent/30"
             data-testid={`step-${index + 1}`}
           >
-            <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0 mt-0.5">
-              <span className="text-xs font-bold text-primary">{index + 1}</span>
+            <div className="w-8 h-8 rounded-full bg-accent flex items-center justify-center flex-shrink-0 mt-0.5">
+              <span className="text-xs font-bold text-foreground">{index + 1}</span>
             </div>
             <div className="min-w-0">
               <h4 className="text-sm font-medium mb-1">{step.title}</h4>
@@ -92,7 +91,7 @@ export default function ExtensionPage() {
         ))}
       </div>
 
-      <Card className="p-5">
+      <div className="border-t pt-6">
         <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-3">
           Loading the Extension in Chrome
         </h3>
@@ -103,7 +102,7 @@ export default function ExtensionPage() {
           <li>Click the extension icon in your toolbar and enter your dashboard URL</li>
           <li>Right-click on any page to start capturing deals</li>
         </ol>
-      </Card>
+      </div>
 
       <div className="mt-6 pb-8">
         <p className="text-xs text-muted-foreground text-center">

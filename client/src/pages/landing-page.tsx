@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import {
   ArrowRight, ShieldCheck, Sparkles, Globe, Search, Bookmark,
-  ArrowUpRight, Layers, Eye, Zap,
+  ArrowUpRight, Layers, Eye,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 

@@ -258,7 +258,7 @@ export default function AddDeal() {
 
       {!isEnriched && (
         <div className="mb-8 pb-8 border-b">
-          <h3 className="text-xs uppercase tracking-wider text-primary font-medium mb-3 flex items-center gap-2">
+          <h3 className="text-xs uppercase tracking-wider text-foreground font-medium mb-3 flex items-center gap-2">
             <Sparkles className="w-3.5 h-3.5" />
             AI Auto-Enrichment
           </h3>
@@ -296,12 +296,12 @@ export default function AddDeal() {
                     <div
                       key={key}
                       className={`flex items-center gap-3 py-2 px-3 rounded-md transition-colors ${
-                        isActive ? "bg-primary/5" : ""
+                        isActive ? "bg-accent/50" : ""
                       }`}
                       data-testid={`pipeline-stage-${key}`}
                     >
                       <div className="w-5 h-5 flex items-center justify-center">
-                        {isActive && <Loader2 className="w-4 h-4 animate-spin text-primary" />}
+                        {isActive && <Loader2 className="w-4 h-4 animate-spin text-foreground" />}
                         {isDone && <CheckCircle2 className="w-4 h-4 text-green-600" />}
                         {isPending && <Icon className="w-4 h-4 text-muted-foreground/30" />}
                       </div>

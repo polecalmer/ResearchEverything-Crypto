@@ -206,8 +206,8 @@ export default function Pipeline() {
     return (
       <div className="p-6 h-full flex flex-col items-center justify-center">
         <div className="text-center max-w-md">
-          <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
-            <Sparkles className="w-7 h-7 text-primary" />
+          <div className="w-14 h-14 rounded-2xl bg-accent flex items-center justify-center mx-auto mb-4">
+            <Sparkles className="w-7 h-7 text-foreground" />
           </div>
           <h2 className="text-xl font-semibold tracking-tight mb-2" data-testid="text-page-title">Your Deal Pipeline</h2>
           <p className="text-sm text-muted-foreground mb-6 leading-relaxed">

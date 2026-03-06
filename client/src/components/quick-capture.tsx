@@ -73,7 +73,7 @@ export function QuickCapture() {
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-primary" />
+              <Sparkles className="w-4 h-4 text-foreground" />
               AI Quick Capture
             </DialogTitle>
             <DialogDescription>
@@ -99,14 +99,14 @@ export function QuickCapture() {
             </div>
 
             {enrichMutation.isPending && (
-              <div className="space-y-1.5 p-3 rounded-lg bg-primary/5 border border-primary/10" data-testid="quick-pipeline-progress">
-                <p className="text-xs font-medium text-primary mb-2">Agent Pipeline</p>
+              <div className="space-y-1.5 p-3 rounded-lg bg-accent/50 border border-border" data-testid="quick-pipeline-progress">
+                <p className="text-xs font-medium text-foreground mb-2">Agent Pipeline</p>
                 <div className="flex items-center gap-2">
                   {PIPELINE_AGENTS.map(({ key, icon: Icon, label }) => {
                     const isActive = false;
                     return (
                       <div key={key} className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                        <Loader2 className="w-3 h-3 animate-spin text-primary" />
+                        <Loader2 className="w-3 h-3 animate-spin text-foreground" />
                         <span>{label}</span>
                       </div>
                     );

@@ -88,13 +88,13 @@ export default function AuthPage() {
               data-testid="button-toggle-auth"
             >
               {isLogin ? "Don't have an account? " : "Already have an account? "}
-              <span className="text-primary font-medium">{isLogin ? "Sign up" : "Sign in"}</span>
+              <span className="text-foreground font-medium underline underline-offset-2">{isLogin ? "Sign up" : "Sign in"}</span>
             </button>
           </div>
         </div>
       </div>
 
-      <div className="hidden lg:flex items-center justify-center bg-gradient-to-br from-primary/5 via-primary/10 to-primary/5 dark:from-primary/10 dark:via-primary/20 dark:to-primary/5 p-12 border-l">
+      <div className="hidden lg:flex items-center justify-center bg-accent/50 p-12 border-l">
         <div className="max-w-md space-y-8">
           <div className="space-y-4">
             <h2 className="text-3xl font-bold tracking-tight">
@@ -113,8 +113,8 @@ export default function AuthPage() {
               { icon: Sparkles, title: "Smart next steps", desc: "AI-generated actions verified by QA agent" },
             ].map(({ icon: Icon, title, desc }) => (
               <div key={title} className="flex items-start gap-3 p-3 rounded-lg bg-background/50 dark:bg-background/30">
-                <div className="w-8 h-8 rounded-md bg-primary/10 flex items-center justify-center shrink-0 mt-0.5">
-                  <Icon className="w-4 h-4 text-primary" />
+                <div className="w-8 h-8 rounded-md bg-background flex items-center justify-center shrink-0 mt-0.5">
+                  <Icon className="w-4 h-4 text-foreground" />
                 </div>
                 <div>
                   <p className="text-sm font-medium">{title}</p>
