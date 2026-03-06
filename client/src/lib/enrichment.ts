@@ -15,16 +15,14 @@ const AGENT_LABELS: Record<string, string> = {
   scraper: "Web Scraper",
   identifier: "Identifier Agent",
   researcher: "Research Agent",
-  fact_checker: "Fact-Checker Agent",
-  firewall: "Hallucination Firewall",
+  verify_clean: "Verify & Clean Agent",
 };
 
 const AGENT_DESCRIPTIONS: Record<string, string> = {
   scraper: "Fetching real content from the URL",
   identifier: "Figuring out which company is referenced",
   researcher: "Building a comprehensive deal card",
-  fact_checker: "Cross-checking every claim for accuracy",
-  firewall: "Stripping unverified information",
+  verify_clean: "Fact-checking claims and stripping unverified data",
 };
 
 export function getAgentLabel(agent: string): string {
@@ -86,7 +84,7 @@ export async function streamEnrichment(
           onStage({
             agent: event.agent,
             step: event.step,
-            total: event.total || 5,
+            total: event.total || 4,
             message: "",
             status: "complete",
             companyName: event.companyName,

@@ -229,70 +229,31 @@ Produce the comprehensive deal card. Remember: accuracy over completeness. Leave
   return parseJson(result);
 }
 
-// ─── AGENT 3: FACT-CHECKER ──────────────────────────────────────────────────
-// Cross-checks every claim in the research output
+// ─── AGENT 3: VERIFY & CLEAN ────────────────────────────────────────────────
+// Combined fact-checker + hallucination firewall in a single pass
 
-const FACT_CHECKER_SYSTEM = `You are the Fact-Checker Agent in a VC deal intelligence pipeline. You receive a research draft about a company and must rigorously verify every claim.
+const VERIFY_AND_CLEAN_SYSTEM = `You are the Verify & Clean Agent — the final quality gate in a VC deal intelligence pipeline. You receive a research draft about a company and must:
+1. VERIFY: Rigorously fact-check every claim in the draft
+2. CLEAN: Produce the final deal card with all unverified/hallucinated content removed
 
-YOU HAVE WEB SEARCH ACCESS. Use it to independently verify the claims in the research draft. Search for the company, its funding rounds, founders, and competitors to cross-check the information.
+YOU HAVE WEB SEARCH ACCESS. Use it to independently verify claims. Search for the company, its funding rounds, founders, and competitors to cross-check the information.
 
-YOUR JOB:
-1. Review every field in the draft for factual accuracy.
-2. For each claim, assess whether it's VERIFIABLE or POTENTIALLY HALLUCINATED.
-3. Flag specific concerns — wrong dates, made-up funding rounds, incorrect founder info, fabricated URLs, etc.
-4. Pay EXTRA attention to:
-   - Funding amounts and dates (commonly hallucinated)
-   - Investor names (commonly hallucinated)  
-   - Founder bios and prior companies (commonly embellished)
-   - LinkedIn/Twitter URLs (almost always hallucinated — flag unless obviously correct format)
-   - Company stage (often guessed incorrectly)
-   - Specific metrics or user numbers (commonly fabricated)
+VERIFICATION FOCUS — pay EXTRA attention to:
+- Funding amounts and dates (commonly hallucinated)
+- Investor names (commonly hallucinated)
+- Founder bios and prior companies (commonly embellished)
+- LinkedIn/Twitter URLs (almost always hallucinated — verify format and existence)
+- Company stage (often guessed incorrectly)
+- Specific metrics or user numbers (commonly fabricated)
 
-Return ONLY valid JSON:
-{
-  "overallAssessment": "clean" | "concerns" | "major_issues",
-  "verifiedFields": ["list of field names that appear factually accurate"],
-  "flaggedIssues": [
-    {
-      "field": "field name",
-      "claim": "the specific claim being questioned",
-      "concern": "why this might be inaccurate",
-      "recommendation": "remove" | "revise" | "keep_with_caveat"
-    }
-  ],
-  "suggestedRevisions": {
-    "fieldName": "corrected value or empty string to clear it"
-  }
-}`;
-
-async function runFactCheckerAgent(companyName: string, researchDraft: any): Promise<any> {
-  const prompt = `Fact-check this research draft about "${companyName}".
-
-DRAFT:
-${JSON.stringify(researchDraft, null, 2)}
-
-Rigorously verify every claim. Flag anything that looks potentially hallucinated, fabricated, or uncertain. Be especially suspicious of specific numbers, dates, URLs, and investor names.`;
-  const result = await callAgent(FACT_CHECKER_SYSTEM, prompt, true);
-  return parseJson(result);
-}
-
-// ─── AGENT 4: HALLUCINATION FIREWALL ────────────────────────────────────────
-// Final pass that produces the clean, verified output
-
-const FIREWALL_SYSTEM = `You are the Hallucination Firewall — the final quality gate in a VC deal intelligence pipeline. You receive:
-1. The original research draft
-2. The fact-checker's report with flagged issues
-
-YOUR MANDATE is absolute: REMOVE anything that could be hallucinated. When in doubt, OMIT.
-
-RULES:
-- Any field flagged with "remove" recommendation → set to empty string (or remove from array)
-- Any field flagged with "revise" → apply the suggested revision
-- URLs (website, GitHub, Twitter, LinkedIn) → KEEP if the fact-checker verified them or if they follow the correct format for that platform. REMOVE if flagged as incorrect or fabricated.
-- Funding amounts → remove specific dollar amounts if flagged; keep only what's verified
+CLEANING RULES — your output must be squeaky clean:
+- REMOVE any claim you cannot verify — set to empty string or remove from array
+- URLs (website, GitHub, Twitter, LinkedIn) → KEEP only if verified or follows correct platform format. REMOVE if fabricated.
+- Funding amounts → remove specific dollar amounts unless verified; keep only what's confirmed
 - Founder bios → strip any unverified claims about education, roles, or achievements
 - Description → remove any specific metrics, user counts, or revenue figures unless verified
-- Do NOT add any new information — only remove or revise existing content
+- Do NOT add any new information — only keep, remove, or correct existing content
+- When in doubt, OMIT
 
 For sector, businessModel, stage: use EXACTLY one of these values or empty string:
 Sectors: ${SECTORS.join(", ")}
@@ -325,21 +286,29 @@ Return ONLY valid JSON with the final clean deal card:
       "personalUrl": "Verified personal website URL or empty string",
       "priorCompanies": "Only verified prior companies or empty string"
     }
-  ]
+  ],
+  "verificationSummary": {
+    "overallAssessment": "clean" | "concerns" | "major_issues",
+    "issuesFound": 0,
+    "removed": ["list of fields/claims that were removed"],
+    "revised": ["list of fields/claims that were corrected"]
+  }
 }`;
 
-async function runFirewallAgent(researchDraft: any, factCheckReport: any): Promise<EnrichedCompany> {
-  const prompt = `Apply the hallucination firewall to produce a clean, verified deal card.
+async function runVerifyAndCleanAgent(companyName: string, researchDraft: any): Promise<{ cleaned: EnrichedCompany; issuesFound: number; assessment: string }> {
+  const prompt = `Verify and clean this research draft about "${companyName}".
 
 RESEARCH DRAFT:
 ${JSON.stringify(researchDraft, null, 2)}
 
-FACT-CHECKER REPORT:
-${JSON.stringify(factCheckReport, null, 2)}
-
-Remove or revise anything flagged. When in doubt, OMIT. Return the final clean JSON.`;
-  const result = await callAgent(FIREWALL_SYSTEM, prompt);
-  return parseJson(result);
+Step 1: Use web search to independently verify the key claims — funding, founders, URLs, metrics.
+Step 2: Produce the final clean deal card JSON with all unverified or hallucinated content stripped out. When in doubt, OMIT.`;
+  const result = await callAgent(VERIFY_AND_CLEAN_SYSTEM, prompt, true);
+  const parsed = parseJson(result);
+  const summary = parsed.verificationSummary || {};
+  const issuesFound = (summary.removed?.length || 0) + (summary.revised?.length || 0);
+  const assessment = summary.overallAssessment || "clean";
+  return { cleaned: parsed, issuesFound, assessment };
 }
 
 // ─── PIPELINE ORCHESTRATOR ──────────────────────────────────────────────────
@@ -406,7 +375,7 @@ async function scrapeInputUrls(input: string, onProgress?: ProgressCallback): Pr
   if (urls.length === 0) return [];
 
   const emit = (data: any) => { if (onProgress) onProgress(data); };
-  emit({ type: "stage", agent: "scraper", step: 0, total: 5, message: `Fetching content from ${urls.length} URL(s)...` });
+  emit({ type: "stage", agent: "scraper", step: 0, total: 4, message: `Fetching content from ${urls.length} URL(s)...` });
   console.log(`[Scraper] Fetching ${urls.length} URL(s): ${urls.join(", ")}`);
 
   const results = await scrapeMultiple(urls);
@@ -425,7 +394,7 @@ async function scrapeInputUrls(input: string, onProgress?: ProgressCallback): Pr
 
   if (additionalUrls.length > 0) {
     console.log(`[Scraper] Found linked company website(s), fetching: ${additionalUrls.join(", ")}`);
-    emit({ type: "stage", agent: "scraper", step: 0, total: 5, message: `Found linked website — fetching company page...` });
+    emit({ type: "stage", agent: "scraper", step: 0, total: 4, message: `Found linked website — fetching company page...` });
     const additional = await scrapeMultiple(additionalUrls);
     results.push(...additional);
   }
@@ -444,8 +413,8 @@ async function runPipeline(input: string, onProgress?: ProgressCallback): Promis
 
   const scrapedContent = await scrapeInputUrls(input, onProgress);
 
-  emit({ type: "stage", agent: "identifier", step: 1, total: 5, message: "Identifying company from input..." });
-  console.log("[Enrichment] Agent 1/4: Identifier — resolving company from input...");
+  emit({ type: "stage", agent: "identifier", step: 1, total: 4, message: "Identifying company from input..." });
+  console.log("[Enrichment] Agent 1/3: Identifier — resolving company from input...");
   const identity = await runIdentifierAgent(input, scrapedContent);
   console.log(`[Enrichment] Identified: "${identity.companyName}" (confidence: ${identity.confidence})`);
   emit({ type: "stage_complete", agent: "identifier", step: 1, companyName: identity.companyName, confidence: identity.confidence });
@@ -463,26 +432,20 @@ async function runPipeline(input: string, onProgress?: ProgressCallback): Promis
     }
   }
 
-  emit({ type: "stage", agent: "researcher", step: 2, total: 5, message: `Researching ${identity.companyName}...` });
-  console.log("[Enrichment] Agent 2/4: Research — building deal card...");
+  emit({ type: "stage", agent: "researcher", step: 2, total: 4, message: `Researching ${identity.companyName}...` });
+  console.log("[Enrichment] Agent 2/3: Research — building deal card...");
   const researchDraft = await runResearchAgent(identity.companyName, identity.domain, input, scrapedContent);
   console.log("[Enrichment] Research draft complete.");
   emit({ type: "stage_complete", agent: "researcher", step: 2 });
 
-  emit({ type: "stage", agent: "fact_checker", step: 3, total: 5, message: "Fact-checking all claims..." });
-  console.log("[Enrichment] Agent 3/4: Fact-Checker — verifying claims...");
-  const factCheckReport = await runFactCheckerAgent(identity.companyName, researchDraft);
-  const issueCount = factCheckReport.flaggedIssues?.length || 0;
-  console.log(`[Enrichment] Fact-check: ${factCheckReport.overallAssessment} (${issueCount} issues flagged)`);
-  emit({ type: "stage_complete", agent: "fact_checker", step: 3, issuesFound: issueCount, assessment: factCheckReport.overallAssessment });
+  emit({ type: "stage", agent: "verify_clean", step: 3, total: 4, message: "Verifying claims & cleaning output..." });
+  console.log("[Enrichment] Agent 3/3: Verify & Clean — fact-checking and producing clean output...");
+  const { cleaned, issuesFound, assessment } = await runVerifyAndCleanAgent(identity.companyName, researchDraft);
+  console.log(`[Enrichment] Verify & Clean: ${assessment} (${issuesFound} issues found)`);
+  emit({ type: "stage_complete", agent: "verify_clean", step: 3, issuesFound, assessment });
 
-  emit({ type: "stage", agent: "firewall", step: 4, total: 5, message: "Applying hallucination firewall..." });
-  console.log("[Enrichment] Agent 4/4: Hallucination Firewall — producing clean output...");
-  const cleanOutput = await runFirewallAgent(researchDraft, factCheckReport);
   console.log("[Enrichment] Pipeline complete. Validated output ready.");
-  emit({ type: "stage_complete", agent: "firewall", step: 4 });
-
-  return validateOutput(cleanOutput);
+  return validateOutput(cleaned);
 }
 
 export interface NextStepItem {
@@ -748,11 +711,11 @@ Return ONLY the JSON array, no markdown fencing.`;
 }
 
 export async function enrichFromInput(input: string): Promise<EnrichedCompany> {
-  console.log("[Enrichment] Starting 4-agent pipeline...");
+  console.log("[Enrichment] Starting 3-agent pipeline...");
   return runPipeline(input);
 }
 
 export async function enrichFromInputWithProgress(input: string, onProgress: ProgressCallback): Promise<EnrichedCompany> {
-  console.log("[Enrichment] Starting 4-agent pipeline (with progress)...");
+  console.log("[Enrichment] Starting 3-agent pipeline (with progress)...");
   return runPipeline(input, onProgress);
 }

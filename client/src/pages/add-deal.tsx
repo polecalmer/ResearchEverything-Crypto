@@ -40,7 +40,6 @@ import {
   CheckCircle2,
   Search,
   FileSearch,
-  Shield,
   ShieldCheck,
   Globe,
 } from "lucide-react";
@@ -269,7 +268,7 @@ export default function AddDeal() {
             AI Auto-Enrichment
           </h3>
           <p className="text-sm text-muted-foreground mb-4">
-            Drop any link or text and a team of 4 AI agents will identify, research, fact-check, and verify the company.
+            Drop any link or text and a team of 3 AI agents will identify, research, then verify and clean the output.
           </p>
           <div className="space-y-3">
             <Input
@@ -291,8 +290,7 @@ export default function AddDeal() {
                   { key: "scraper", icon: Globe, label: "Web Scraper" },
                   { key: "identifier", icon: Search, label: "Identifier Agent" },
                   { key: "researcher", icon: FileSearch, label: "Research Agent" },
-                  { key: "fact_checker", icon: Shield, label: "Fact-Checker Agent" },
-                  { key: "firewall", icon: ShieldCheck, label: "Hallucination Firewall" },
+                  { key: "verify_clean", icon: ShieldCheck, label: "Verify & Clean Agent" },
                 ].map(({ key, icon: Icon, label }, idx) => {
                   const stage = pipelineStages.find((s) => s.agent === key);
                   const isActive = stage?.status === "running";
@@ -331,15 +329,15 @@ export default function AddDeal() {
                             Identified: {stage.companyName} ({stage.confidence} confidence)
                           </p>
                         )}
-                        {isDone && stage?.agent === "fact_checker" && (
+                        {isDone && stage?.agent === "verify_clean" && (
                           <p className="text-[11px] text-green-600">
                             {stage.issuesFound === 0
-                              ? "All claims verified"
-                              : `${stage.issuesFound} issue${stage.issuesFound === 1 ? "" : "s"} flagged and corrected`}
+                              ? "All claims verified — output clean"
+                              : `${stage.issuesFound} issue${stage.issuesFound === 1 ? "" : "s"} found and cleaned`}
                           </p>
                         )}
                       </div>
-                      <span className="text-[10px] text-muted-foreground/60">{idx + 1}/5</span>
+                      <span className="text-[10px] text-muted-foreground/60">{idx + 1}/4</span>
                     </div>
                   );
                 })}

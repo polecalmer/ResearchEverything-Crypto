@@ -79,6 +79,15 @@ Each deal page has a "Recommended Next Steps" section powered by a 2-stage AI pi
 
 Only verified steps are shown, each with a green shield icon and the verifier's assessment note. Results are cached for 5 minutes and automatically regenerate when the pipeline stage changes.
 
+## Enrichment Pipeline (3 Agents)
+
+The enrichment pipeline uses 3 AI agents (down from 4 — Fact-Checker and Firewall were merged into a single Verify & Clean agent):
+1. **Identifier Agent** — Resolves company identity from any input (URL, tweet, profile, etc.) with web search
+2. **Research Agent** — Deep research to build comprehensive deal card with web search
+3. **Verify & Clean Agent** — Combined fact-checking + hallucination firewall in one pass with web search; verifies claims and strips unverified content
+
+Pipeline stages in frontend: Scraper → Identifier → Research → Verify & Clean (total: 4 steps including scraper)
+
 ## API Endpoints
 
 - `POST /api/enrich` - AI enrichment only (returns enriched data without saving)

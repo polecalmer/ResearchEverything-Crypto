@@ -12,14 +12,13 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Plus, Loader2, Sparkles, CheckCircle2, Search, FileSearch, Shield, ShieldCheck } from "lucide-react";
+import { Plus, Loader2, Sparkles, CheckCircle2, Search, FileSearch, ShieldCheck } from "lucide-react";
 import type { EnrichmentStage } from "@/lib/enrichment";
 
 const PIPELINE_AGENTS = [
   { key: "identifier", icon: Search, label: "Identifier" },
   { key: "researcher", icon: FileSearch, label: "Research" },
-  { key: "fact_checker", icon: Shield, label: "Fact-Check" },
-  { key: "firewall", icon: ShieldCheck, label: "Firewall" },
+  { key: "verify_clean", icon: ShieldCheck, label: "Verify & Clean" },
 ] as const;
 
 export function QuickCapture() {
@@ -78,7 +77,7 @@ export function QuickCapture() {
               AI Quick Capture
             </DialogTitle>
             <DialogDescription>
-              Drop any link or text. A team of 4 AI agents will identify the company, research it, fact-check, and strip any hallucinations.
+              Drop any link or text. A team of 3 AI agents will identify the company, research it, then verify and clean the output.
             </DialogDescription>
           </DialogHeader>
 
@@ -114,7 +113,7 @@ export function QuickCapture() {
                   })}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">
-                  4 agents are working: identifying → researching → fact-checking → verifying
+                  3 agents are working: identifying → researching → verifying & cleaning
                 </p>
               </div>
             )}
@@ -128,7 +127,7 @@ export function QuickCapture() {
               {enrichMutation.isPending ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                  4 agents working...
+                  3 agents working...
                 </>
               ) : (
                 <>
