@@ -137,12 +137,12 @@ export default function LandingPage() {
             <div>
               <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-4">VC Deal Intelligence</p>
               <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-[1.12] mb-5">
-                Paste a link.<br />
-                <span className="text-muted-foreground">Get a verified</span><br />
-                deal card.
+                Paste a Link.<br />
+                <span className="text-muted-foreground">Retain Your Context.</span><br />
+                Kickstart Your Diligence.
               </h1>
               <p className="text-base text-muted-foreground leading-relaxed max-w-md">
-                Three AI agents research any company from any input — then a hallucination firewall strips every unverified claim before it reaches your pipeline.
+                Watch it evolve — all in one place. No more useless bookmarks and dead links.
               </p>
             </div>
 
