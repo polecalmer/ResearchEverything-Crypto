@@ -94,6 +94,9 @@ export const users = pgTable("users", {
   password: text("password").notNull(),
   credits: integer("credits").notNull().default(0),
   stripeCustomerId: text("stripe_customer_id"),
+  subscriptionStatus: text("subscription_status"),
+  subscriptionId: text("subscription_id"),
+  subscriptionPeriodEnd: timestamp("subscription_period_end"),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({

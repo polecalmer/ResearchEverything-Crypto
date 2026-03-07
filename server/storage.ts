@@ -38,6 +38,7 @@ export interface IStorage {
   createNote(note: InsertNote): Promise<Note>;
   deleteNote(id: string): Promise<void>;
 
+  updateSubscription(userId: string, data: { subscriptionStatus: string; subscriptionId: string; subscriptionPeriodEnd: Date | null }): Promise<void>;
   claimOrphanedCompanies(userId: string): Promise<number>;
 }
 
@@ -151,6 +152,14 @@ export class DatabaseStorage implements IStorage {
 
   async deleteNote(id: string): Promise<void> {
     await db.delete(notes).where(eq(notes.id, id));
+  }
+
+  async updateSubscription(userId: string, data: { subscriptionStatus: string; subscriptionId: string; subscriptionPeriodEnd: Date | null }): Promise<void> {
+    await db.update(users).set({
+      subscriptionStatus: data.subscriptionStatus,
+      subscriptionId: data.subscriptionId,
+      subscriptionPeriodEnd: data.subscriptionPeriodEnd,
+    }).where(eq(users.id, userId));
   }
 
   async claimOrphanedCompanies(userId: string): Promise<number> {

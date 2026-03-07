@@ -43,7 +43,9 @@ export async function registerRoutes(
           p.metadata as product_metadata,
           pr.id as price_id,
           pr.unit_amount,
-          pr.currency
+          pr.currency,
+          pr.recurring->>'interval' as recurring_interval,
+          pr.type as price_type
         FROM stripe.products p
         JOIN stripe.prices pr ON pr.product = p.id AND pr.active = true
         WHERE p.active = true
@@ -56,9 +58,30 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/subscription", requireAuth, async (req, res) => {
+    const user = await storage.getUser(req.user!.id);
+    if (!user) return res.status(401).json({ message: "User not found" });
+
+    let cancelAtPeriodEnd = false;
+    if (user.subscriptionId && user.subscriptionStatus === "active") {
+      try {
+        const stripe = await getUncachableStripeClient();
+        const sub = await stripe.subscriptions.retrieve(user.subscriptionId);
+        cancelAtPeriodEnd = sub.cancel_at_period_end;
+      } catch {}
+    }
+
+    res.json({
+      subscriptionStatus: user.subscriptionStatus,
+      subscriptionId: user.subscriptionId,
+      subscriptionPeriodEnd: user.subscriptionPeriodEnd,
+      cancelAtPeriodEnd,
+    });
+  });
+
   app.post("/api/credits/checkout", requireAuth, async (req, res) => {
     try {
-      const { priceId } = req.body;
+      const { priceId, mode } = req.body;
       if (!priceId) {
         return res.status(400).json({ message: "priceId is required" });
       }
@@ -76,14 +99,25 @@ export async function registerRoutes(
         customerId = customer.id;
       }
 
+      const price = await stripe.prices.retrieve(priceId);
+      const isRecurring = price.type === "recurring";
+      const isSubscription = isRecurring;
+
+      if (mode === "subscription" && !isRecurring) {
+        return res.status(400).json({ message: "This price does not support subscriptions" });
+      }
+      if (mode === "payment" && isRecurring) {
+        return res.status(400).json({ message: "This price requires a subscription" });
+      }
+
       const baseUrl = `${req.protocol}://${req.get("host")}`;
       const session = await stripe.checkout.sessions.create({
         customer: customerId,
         payment_method_types: ["card"],
         line_items: [{ price: priceId, quantity: 1 }],
-        mode: "payment",
-        success_url: `${baseUrl}/add?credits=success`,
-        cancel_url: `${baseUrl}/add?credits=cancelled`,
+        mode: isSubscription ? "subscription" : "payment",
+        success_url: `${baseUrl}/credits?checkout=success`,
+        cancel_url: `${baseUrl}/credits?checkout=cancelled`,
         metadata: { userId: user.id },
       });
 
@@ -94,8 +128,23 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/credits/fulfill", requireAuth, async (req, res) => {
-    res.status(405).json({ message: "Credits are fulfilled via webhook" });
+  app.post("/api/subscription/cancel", requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.user!.id);
+      if (!user || !user.subscriptionId) {
+        return res.status(400).json({ message: "No active subscription" });
+      }
+
+      const stripe = await getUncachableStripeClient();
+      await stripe.subscriptions.update(user.subscriptionId, {
+        cancel_at_period_end: true,
+      });
+
+      res.json({ message: "Subscription will cancel at end of billing period" });
+    } catch (error: any) {
+      console.error("Cancel subscription error:", error);
+      res.status(500).json({ message: "Failed to cancel subscription" });
+    }
   });
 
   app.post("/api/enrich", requireAuth, async (req, res) => {

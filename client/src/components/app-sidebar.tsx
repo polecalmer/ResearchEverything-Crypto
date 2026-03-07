@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { LayoutDashboard, Building2, Plus, Chrome, BarChart3, Bookmark, LogOut, User, Coins } from "lucide-react";
+import { LayoutDashboard, Building2, Plus, Chrome, BarChart3, Bookmark, LogOut, User, CreditCard } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -20,7 +20,7 @@ const navItems = [
   { title: "Pipeline", url: "/", icon: LayoutDashboard },
   { title: "Companies", url: "/companies", icon: Building2 },
   { title: "Add Deal", url: "/add", icon: Plus },
-  { title: "Buy Credits", url: "/credits", icon: Coins },
+  { title: "Billing", url: "/credits", icon: CreditCard },
   { title: "Extension", url: "/extension", icon: Chrome },
   { title: "Data", url: "/data", icon: BarChart3 },
 ];

@@ -106,13 +106,16 @@ Pipeline stages in frontend: Scraper → Identifier → Research → Verify & Cl
 
 ## Credits & Payments (Stripe)
 
-- Users need credits to enrich deals. Each enrichment costs 1 credit.
-- Credit packs: 10 credits ($3.00), 50 credits ($12.00)
-- Stripe Checkout for one-time payments, webhook fulfills credits automatically
+- **Subscription model**: $20/mo (Monthly) or $150/yr (Annual), each includes 33 enrichment credits per billing period
+- **Credit packs**: 10 credits ($3.00), 50 credits ($12.00) — buy extra any time
+- Stripe Checkout for both subscriptions and one-time payments
+- Webhook handles: `checkout.session.completed` (initial sub + credit purchases), `invoice.paid` (subscription renewals), `customer.subscription.updated/deleted` (status changes)
 - Credits stored on user record, deducted atomically via SQL `credits > 0` check
+- User fields: `credits`, `stripeCustomerId`, `subscriptionStatus`, `subscriptionId`, `subscriptionPeriodEnd`
 - Key files: `server/stripeClient.ts`, `server/webhookHandlers.ts`, `server/seed-credits.ts`, `client/src/pages/credits.tsx`
-- Stripe products have `metadata.credits` field to determine how many credits to add
-- `/credits` page shows balance and purchase options
+- Subscription products have `metadata.credits_per_period`, credit products have `metadata.credits`
+- `/credits` page (Billing) shows subscription status, subscribe/cancel options, and extra credit packs
+- Landing page has Pricing section with Monthly/Annual plans and credit pack info
 
 ## API Endpoints
 
@@ -120,8 +123,10 @@ Pipeline stages in frontend: Scraper → Identifier → Research → Verify & Cl
 - `POST /api/enrich/stream` - AI enrichment with SSE progress events (requires 1 credit)
 - `POST /api/companies/enrich-and-create` - AI enrichment + create company + founders (requires 1 credit)
 - `GET /api/credits` - Get current credit balance
-- `GET /api/credits/products` - List available credit packs from Stripe
-- `POST /api/credits/checkout` - Create Stripe Checkout session for credit purchase
+- `GET /api/credits/products` - List all products (subscriptions + credit packs) from Stripe
+- `POST /api/credits/checkout` - Create Stripe Checkout session (supports mode: "payment" or "subscription")
+- `GET /api/subscription` - Get current subscription status
+- `POST /api/subscription/cancel` - Cancel subscription at end of billing period
 - `GET/POST /api/companies` - List/create companies
 - `GET/PATCH/DELETE /api/companies/:id` - Read/update/delete company
 - `GET /api/companies/:id/next-steps` - AI-generated context-aware next steps with 2-stage pipeline (Generator → Verifier)

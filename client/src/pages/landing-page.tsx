@@ -1,7 +1,7 @@
 import { Button } from "@/components/ui/button";
 import {
   ArrowRight, ShieldCheck, Sparkles, Globe, Search, Bookmark,
-  ArrowUpRight, Layers, Eye,
+  ArrowUpRight, Layers, Eye, Check,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 
@@ -121,6 +121,9 @@ export default function LandingPage() {
             <span className="text-sm font-semibold tracking-tight">BookMark</span>
           </div>
           <div className="flex items-center gap-2">
+            <a href="#pricing">
+              <Button variant="ghost" size="sm" className="text-xs h-8" data-testid="button-nav-pricing">Pricing</Button>
+            </a>
             <a href="/auth">
               <Button variant="ghost" size="sm" className="text-xs h-8" data-testid="button-nav-login">Sign in</Button>
             </a>
@@ -263,6 +266,90 @@ export default function LandingPage() {
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="pricing" className="py-24 px-6 border-t">
+        <div className="max-w-6xl mx-auto">
+          <div className="grid lg:grid-cols-[1fr,2fr] gap-16">
+            <div>
+              <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-3">Pricing</p>
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight leading-snug">
+                Simple pricing.<br />No surprises.
+              </h2>
+              <p className="text-sm text-muted-foreground mt-3 leading-relaxed">
+                Subscribe for monthly credits, or buy packs when you need them.
+              </p>
+            </div>
+
+            <div className="grid sm:grid-cols-2 gap-6 items-start">
+              <div className="rounded-lg border p-6 space-y-5" data-testid="pricing-monthly">
+                <div>
+                  <h3 className="text-sm font-semibold mb-1">Monthly</h3>
+                  <p className="text-3xl font-bold tabular-nums">$20<span className="text-sm font-normal text-muted-foreground">/mo</span></p>
+                </div>
+                <div className="space-y-2.5">
+                  {[
+                    "33 enrichment credits included",
+                    "AI agent team (Identify, Research, Verify)",
+                    "Hallucination firewall on every deal",
+                    "Pipeline management + analytics",
+                    "Chrome extension",
+                    "Buy extra credits any time",
+                  ].map((item) => (
+                    <div key={item} className="flex items-start gap-2">
+                      <Check className="w-3.5 h-3.5 mt-0.5 text-muted-foreground shrink-0" />
+                      <span className="text-sm text-muted-foreground">{item}</span>
+                    </div>
+                  ))}
+                </div>
+                <a href="/auth">
+                  <Button className="w-full mt-2" data-testid="button-pricing-monthly">Get started</Button>
+                </a>
+              </div>
+
+              <div className="rounded-lg border border-foreground/20 bg-accent/30 p-6 space-y-5 relative" data-testid="pricing-annual">
+                <span className="absolute -top-2.5 left-4 text-[10px] font-medium bg-foreground text-background px-2 py-0.5 rounded">Save $90/yr</span>
+                <div>
+                  <h3 className="text-sm font-semibold mb-1">Annual</h3>
+                  <p className="text-3xl font-bold tabular-nums">$150<span className="text-sm font-normal text-muted-foreground">/yr</span></p>
+                  <p className="text-xs text-muted-foreground mt-0.5">$12.50/mo · 33 credits/mo</p>
+                </div>
+                <div className="space-y-2.5">
+                  {[
+                    "Everything in Monthly",
+                    "Save $90 per year",
+                    "Same 33 credits every month",
+                    "Priority for new features",
+                  ].map((item) => (
+                    <div key={item} className="flex items-start gap-2">
+                      <Check className="w-3.5 h-3.5 mt-0.5 text-muted-foreground shrink-0" />
+                      <span className="text-sm text-muted-foreground">{item}</span>
+                    </div>
+                  ))}
+                </div>
+                <a href="/auth">
+                  <Button className="w-full mt-2" data-testid="button-pricing-annual">Get started</Button>
+                </a>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-12 pt-8 border-t">
+            <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-4">Need more credits?</p>
+            <div className="flex flex-wrap gap-6">
+              <div className="flex items-baseline gap-2">
+                <span className="text-sm font-semibold">10 credits</span>
+                <span className="text-sm text-muted-foreground">$3</span>
+              </div>
+              <div className="flex items-baseline gap-2">
+                <span className="text-sm font-semibold">50 credits</span>
+                <span className="text-sm text-muted-foreground">$12</span>
+                <span className="text-[10px] font-medium bg-foreground text-background px-1.5 py-0.5 rounded">Best Value</span>
+              </div>
+            </div>
+            <p className="text-xs text-muted-foreground mt-2">Credits never expire. Buy extra packs any time from your dashboard.</p>
           </div>
         </div>
       </section>
