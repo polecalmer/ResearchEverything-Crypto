@@ -6,7 +6,7 @@ import {
   users, companies, founders, notes,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, isNull } from "drizzle-orm";
+import { eq, desc, and, isNull, sql } from "drizzle-orm";
 import { pool } from "./db";
 import connectPgSimple from "connect-pg-simple";
 import session from "express-session";
@@ -19,6 +19,11 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  getUserCredits(userId: string): Promise<number>;
+  deductCredit(userId: string): Promise<boolean>;
+  addCredits(userId: string, amount: number): Promise<number>;
+  updateStripeCustomerId(userId: string, customerId: string): Promise<void>;
+  getUserByStripeCustomerId(customerId: string): Promise<User | undefined>;
 
   getCompanies(userId: string): Promise<Company[]>;
   getCompany(id: string, userId?: string): Promise<Company | undefined>;
@@ -58,6 +63,38 @@ export class DatabaseStorage implements IStorage {
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const [user] = await db.insert(users).values(insertUser).returning();
+    return user;
+  }
+
+  async getUserCredits(userId: string): Promise<number> {
+    const [user] = await db.select({ credits: users.credits }).from(users).where(eq(users.id, userId));
+    return user?.credits ?? 0;
+  }
+
+  async deductCredit(userId: string): Promise<boolean> {
+    const result = await db
+      .update(users)
+      .set({ credits: sql`${users.credits} - 1` })
+      .where(and(eq(users.id, userId), sql`${users.credits} > 0`))
+      .returning();
+    return result.length > 0;
+  }
+
+  async addCredits(userId: string, amount: number): Promise<number> {
+    const [updated] = await db
+      .update(users)
+      .set({ credits: sql`${users.credits} + ${amount}` })
+      .where(eq(users.id, userId))
+      .returning();
+    return updated?.credits ?? 0;
+  }
+
+  async updateStripeCustomerId(userId: string, customerId: string): Promise<void> {
+    await db.update(users).set({ stripeCustomerId: customerId }).where(eq(users.id, userId));
+  }
+
+  async getUserByStripeCustomerId(customerId: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.stripeCustomerId, customerId));
     return user;
   }
 

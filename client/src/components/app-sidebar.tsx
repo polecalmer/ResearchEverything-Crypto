@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { LayoutDashboard, Building2, Plus, Chrome, BarChart3, Bookmark, LogOut, User } from "lucide-react";
+import { LayoutDashboard, Building2, Plus, Chrome, BarChart3, Bookmark, LogOut, User, Coins } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -13,12 +13,14 @@ import {
   SidebarFooter,
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/hooks/use-auth";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 
 const navItems = [
   { title: "Pipeline", url: "/", icon: LayoutDashboard },
   { title: "Companies", url: "/companies", icon: Building2 },
   { title: "Add Deal", url: "/add", icon: Plus },
+  { title: "Buy Credits", url: "/credits", icon: Coins },
   { title: "Extension", url: "/extension", icon: Chrome },
   { title: "Data", url: "/data", icon: BarChart3 },
 ];
@@ -27,7 +29,13 @@ export function AppSidebar() {
   const [location] = useLocation();
   const { user, logout, isLoggingOut } = useAuth();
 
+  const { data: creditsData } = useQuery<{ credits: number }>({
+    queryKey: ["/api/credits"],
+    enabled: !!user,
+  });
+
   const displayName = user?.username || "User";
+  const credits = creditsData?.credits ?? (user as any)?.credits ?? 0;
 
   return (
     <Sidebar>
@@ -69,24 +77,32 @@ export function AppSidebar() {
       </SidebarContent>
       <SidebarFooter className="p-3 space-y-2">
         {user && (
-          <div className="flex items-center justify-between gap-2 px-2">
-            <div className="flex items-center gap-2 min-w-0">
-              <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shrink-0">
-                <User className="w-3.5 h-3.5 text-muted-foreground" />
+          <>
+            <Link href="/credits">
+              <div className="flex items-center justify-between px-3 py-2 rounded-md bg-accent/50 cursor-pointer hover:bg-accent transition-colors" data-testid="link-credits">
+                <span className="text-xs font-medium text-muted-foreground">Credits</span>
+                <span className="text-sm font-semibold tabular-nums" data-testid="text-credits">{credits}</span>
               </div>
-              <span className="text-sm font-medium truncate" data-testid="text-username">{displayName}</span>
+            </Link>
+            <div className="flex items-center justify-between gap-2 px-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <div className="w-7 h-7 rounded-full bg-accent flex items-center justify-center shrink-0">
+                  <User className="w-3.5 h-3.5 text-muted-foreground" />
+                </div>
+                <span className="text-sm font-medium truncate" data-testid="text-username">{displayName}</span>
+              </div>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7 shrink-0"
+                onClick={() => logout()}
+                disabled={isLoggingOut}
+                data-testid="button-logout"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </Button>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 shrink-0"
-              onClick={() => logout()}
-              disabled={isLoggingOut}
-              data-testid="button-logout"
-            >
-              <LogOut className="w-3.5 h-3.5" />
-            </Button>
-          </div>
+          </>
         )}
       </SidebarFooter>
     </Sidebar>

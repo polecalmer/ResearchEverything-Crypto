@@ -26,7 +26,7 @@ Key files: `server/auth.ts` (auth setup + routes), `client/src/hooks/use-auth.ts
 
 ## Data Model
 
-- **Users**: id, username, password (scrypt hashed)
+- **Users**: id, username, password (scrypt hashed), credits (integer, default 0), stripeCustomerId
 - **Companies**: Core deal entities with userId, name, one-liner, description, sector, business model, stage, funding history, competitive landscape, source URL, website URL, GitHub URL, Twitter URL, LinkedIn URL, pipeline stage, and tags
 - **Founders**: Linked to companies with name, role, bio, LinkedIn/Twitter/GitHub/personal URLs, prior companies
 - **Notes**: Time-stamped notes attached to companies
@@ -104,11 +104,24 @@ The enrichment pipeline uses 3 AI agents (down from 4 — Fact-Checker and Firew
 
 Pipeline stages in frontend: Scraper → Identifier → Research → Verify & Clean (total: 4 steps including scraper)
 
+## Credits & Payments (Stripe)
+
+- Users need credits to enrich deals. Each enrichment costs 1 credit.
+- Credit packs: 10 credits ($3.00), 50 credits ($12.00)
+- Stripe Checkout for one-time payments, webhook fulfills credits automatically
+- Credits stored on user record, deducted atomically via SQL `credits > 0` check
+- Key files: `server/stripeClient.ts`, `server/webhookHandlers.ts`, `server/seed-credits.ts`, `client/src/pages/credits.tsx`
+- Stripe products have `metadata.credits` field to determine how many credits to add
+- `/credits` page shows balance and purchase options
+
 ## API Endpoints
 
-- `POST /api/enrich` - AI enrichment only (returns enriched data without saving)
-- `POST /api/enrich/stream` - AI enrichment with SSE progress events for each agent stage
-- `POST /api/companies/enrich-and-create` - AI enrichment + create company + founders in one step
+- `POST /api/enrich` - AI enrichment only (requires 1 credit, returns enriched data without saving)
+- `POST /api/enrich/stream` - AI enrichment with SSE progress events (requires 1 credit)
+- `POST /api/companies/enrich-and-create` - AI enrichment + create company + founders (requires 1 credit)
+- `GET /api/credits` - Get current credit balance
+- `GET /api/credits/products` - List available credit packs from Stripe
+- `POST /api/credits/checkout` - Create Stripe Checkout session for credit purchase
 - `GET/POST /api/companies` - List/create companies
 - `GET/PATCH/DELETE /api/companies/:id` - Read/update/delete company
 - `GET /api/companies/:id/next-steps` - AI-generated context-aware next steps with 2-stage pipeline (Generator → Verifier)

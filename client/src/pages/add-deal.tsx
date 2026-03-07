@@ -202,11 +202,18 @@ export default function AddDeal() {
       }
 
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/credits"] });
       toast({ title: `"${company.name}" added successfully` });
       navigate(`/companies/${company.id}`);
     } catch (error: any) {
+      const isCreditsError = error.message?.toLowerCase().includes("insufficient credits");
       setEnrichError(error.message);
-      toast({ title: "AI enrichment failed", description: error.message, variant: "destructive" });
+      if (isCreditsError) {
+        toast({ title: "No credits remaining", description: "Purchase credits to continue enriching deals.", variant: "destructive" });
+      } else {
+        toast({ title: "AI enrichment failed", description: error.message, variant: "destructive" });
+      }
+      queryClient.invalidateQueries({ queryKey: ["/api/credits"] });
     } finally {
       setIsEnriching(false);
     }
@@ -372,7 +379,12 @@ export default function AddDeal() {
             )}
 
             {enrichError && (
-              <p className="text-sm text-destructive">{enrichError}</p>
+              <div className="text-sm text-destructive">
+                <p>{enrichError}</p>
+                {enrichError.toLowerCase().includes("insufficient credits") && (
+                  <a href="/credits" className="underline text-foreground mt-1 inline-block">Buy credits to continue</a>
+                )}
+              </div>
             )}
 
             <Button

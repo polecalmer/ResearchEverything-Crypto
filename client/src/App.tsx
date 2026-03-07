@@ -14,6 +14,7 @@ import CompanyDetail from "@/pages/company-detail";
 import AddDeal from "@/pages/add-deal";
 import ExtensionPage from "@/pages/extension";
 import DataPage from "@/pages/data";
+import CreditsPage from "@/pages/credits";
 import LandingPage from "@/pages/landing-page";
 import AuthPage from "@/pages/auth-page";
 import { QuickCapture } from "@/components/quick-capture";
@@ -67,6 +68,7 @@ function AuthenticatedApp() {
               <Route path="/companies/:id" component={CompanyDetail} />
               <Route path="/add" component={AddDeal} />
               <Route path="/extension" component={ExtensionPage} />
+              <Route path="/credits" component={CreditsPage} />
               <Route path="/data" component={DataPage} />
               <Route component={NotFound} />
             </Switch>

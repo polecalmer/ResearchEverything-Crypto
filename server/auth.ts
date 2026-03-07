@@ -129,7 +129,7 @@ export function setupAuth(app: Express): void {
   app.get("/api/user", (req, res) => {
     if (!req.isAuthenticated()) return res.status(401).json({ message: "Not authenticated" });
     const user = req.user!;
-    res.json({ id: user.id, username: user.username });
+    res.json({ id: user.id, username: user.username, credits: (user as any).credits ?? 0 });
   });
 }
 

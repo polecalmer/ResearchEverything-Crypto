@@ -92,6 +92,8 @@ export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
+  credits: integer("credits").notNull().default(0),
+  stripeCustomerId: text("stripe_customer_id"),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({

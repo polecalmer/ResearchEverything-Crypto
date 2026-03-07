@@ -5,6 +5,9 @@ import { insertCompanySchema, insertFounderSchema, insertNoteSchema, PIPELINE_ST
 import { z } from "zod";
 import { enrichFromInput, enrichFromInputWithProgress, generateNextSteps } from "./enrichment";
 import { requireAuth } from "./auth";
+import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 
 const updateCompanySchema = insertCompanySchema.partial().extend({
   pipelineStage: z.enum(PIPELINE_STAGES).optional(),
@@ -25,12 +28,89 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
 
+  app.get("/api/credits", requireAuth, async (req, res) => {
+    const credits = await storage.getUserCredits(req.user!.id);
+    res.json({ credits });
+  });
+
+  app.get("/api/credits/products", requireAuth, async (req, res) => {
+    try {
+      const result = await db.execute(sql`
+        SELECT 
+          p.id as product_id,
+          p.name as product_name,
+          p.description as product_description,
+          p.metadata as product_metadata,
+          pr.id as price_id,
+          pr.unit_amount,
+          pr.currency
+        FROM stripe.products p
+        JOIN stripe.prices pr ON pr.product = p.id AND pr.active = true
+        WHERE p.active = true
+        ORDER BY pr.unit_amount ASC
+      `);
+      res.json(result.rows);
+    } catch (error: any) {
+      console.error("Error fetching credit products:", error);
+      res.status(500).json({ message: "Failed to fetch products" });
+    }
+  });
+
+  app.post("/api/credits/checkout", requireAuth, async (req, res) => {
+    try {
+      const { priceId } = req.body;
+      if (!priceId) {
+        return res.status(400).json({ message: "priceId is required" });
+      }
+
+      const stripe = await getUncachableStripeClient();
+      const user = await storage.getUser(req.user!.id);
+      if (!user) return res.status(401).json({ message: "User not found" });
+
+      let customerId = user.stripeCustomerId;
+      if (!customerId) {
+        const customer = await stripe.customers.create({
+          metadata: { userId: user.id, username: user.username },
+        });
+        await storage.updateStripeCustomerId(user.id, customer.id);
+        customerId = customer.id;
+      }
+
+      const baseUrl = `${req.protocol}://${req.get("host")}`;
+      const session = await stripe.checkout.sessions.create({
+        customer: customerId,
+        payment_method_types: ["card"],
+        line_items: [{ price: priceId, quantity: 1 }],
+        mode: "payment",
+        success_url: `${baseUrl}/add?credits=success`,
+        cancel_url: `${baseUrl}/add?credits=cancelled`,
+        metadata: { userId: user.id },
+      });
+
+      res.json({ url: session.url });
+    } catch (error: any) {
+      console.error("Checkout error:", error);
+      res.status(500).json({ message: "Failed to create checkout session" });
+    }
+  });
+
+  app.post("/api/credits/fulfill", requireAuth, async (req, res) => {
+    res.status(405).json({ message: "Credits are fulfilled via webhook" });
+  });
+
   app.post("/api/enrich", requireAuth, async (req, res) => {
     try {
       const parsed = enrichRequestSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
       }
+
+      const userId = req.user!.id;
+      const deducted = await storage.deductCredit(userId);
+      if (!deducted) {
+        return res.status(402).json({ message: "Insufficient credits. Please purchase more credits to continue." });
+      }
+
       const enriched = await enrichFromInput(parsed.data.input);
       res.json(enriched);
     } catch (error: any) {
@@ -44,6 +124,12 @@ export async function registerRoutes(
       const parsed = enrichRequestSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
+      }
+
+      const userId = req.user!.id;
+      const deducted = await storage.deductCredit(userId);
+      if (!deducted) {
+        return res.status(402).json({ message: "Insufficient credits. Please purchase more credits to continue." });
       }
 
       res.setHeader("Content-Type", "text/event-stream");
@@ -76,6 +162,11 @@ export async function registerRoutes(
       }
       const { input, pipelineStage } = parsed.data;
       const userId = req.user!.id;
+
+      const deducted = await storage.deductCredit(userId);
+      if (!deducted) {
+        return res.status(402).json({ message: "Insufficient credits. Please purchase more credits to continue." });
+      }
 
       const enriched = await enrichFromInput(input);
 
