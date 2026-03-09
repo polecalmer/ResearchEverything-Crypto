@@ -117,6 +117,16 @@ Pipeline stages in frontend: Scraper → Identifier → Research → Verify & Cl
 - `/credits` page (Billing) shows subscription status, subscribe/cancel options, and extra credit packs
 - Landing page has Pricing section with Monthly/Annual plans and credit pack info
 
+## Deep Research Reports
+
+- "Generate Deep Research Report" button on each company detail page
+- Uses Claude Opus 4.6 with extensive web search (up to 20 searches) to produce investment-grade markdown reports
+- Reports follow a structured format: Executive Summary, Product Overview, Business Model, Team & Backers, Token/Equity Economics, Competitive Landscape, Key Metrics, Risk Analysis, Investment Considerations, Conclusion
+- Reports are stored in the `reports` table and linked to companies
+- Report viewer page at `/reports/:id` with markdown rendering and .md download
+- Generation is async — the API returns immediately with a reportId, then the agent runs in the background
+- Key files: `server/enrichment.ts` (generateDeepResearch function), `client/src/pages/report-viewer.tsx`, `client/src/pages/company-detail.tsx` (DeepResearchSection)
+
 ## API Endpoints
 
 - `POST /api/enrich` - AI enrichment only (requires 1 credit, returns enriched data without saving)
@@ -127,6 +137,9 @@ Pipeline stages in frontend: Scraper → Identifier → Research → Verify & Cl
 - `POST /api/credits/checkout` - Create Stripe Checkout session (supports mode: "payment" or "subscription")
 - `GET /api/subscription` - Get current subscription status
 - `POST /api/subscription/cancel` - Cancel subscription at end of billing period
+- `GET /api/companies/:id/reports` - List reports for a company
+- `POST /api/companies/:id/reports/generate` - Start deep research report generation (async)
+- `GET /api/reports/:id` - Get a specific report
 - `GET/POST /api/companies` - List/create companies
 - `GET/PATCH/DELETE /api/companies/:id` - Read/update/delete company
 - `GET /api/companies/:id/next-steps` - AI-generated context-aware next steps with 2-stage pipeline (Generator → Verifier)

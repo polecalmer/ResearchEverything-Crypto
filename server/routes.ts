@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertCompanySchema, insertFounderSchema, insertNoteSchema, PIPELINE_STAGES } from "@shared/schema";
 import { z } from "zod";
-import { enrichFromInput, enrichFromInputWithProgress, generateNextSteps } from "./enrichment";
+import { enrichFromInput, enrichFromInputWithProgress, generateNextSteps, generateDeepResearch } from "./enrichment";
 import { requireAuth } from "./auth";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { db } from "./db";
@@ -433,6 +433,59 @@ export async function registerRoutes(
   app.delete("/api/notes/:id", requireAuth, async (req, res) => {
     await storage.deleteNote(req.params.id);
     res.status(204).end();
+  });
+
+  app.get("/api/companies/:id/reports", requireAuth, async (req, res) => {
+    const reports = await storage.getReportsByCompany(req.params.id, req.user!.id);
+    res.json(reports);
+  });
+
+  app.post("/api/companies/:id/reports/generate", requireAuth, async (req, res) => {
+    try {
+      const company = await storage.getCompany(req.params.id, req.user!.id);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+
+      const founders = await storage.getFoundersByCompany(company.id);
+      const notes = await storage.getNotesByCompany(company.id);
+
+      const report = await storage.createReport({
+        companyId: company.id,
+        userId: req.user!.id,
+        title: `${company.name} — Deep Research Report`,
+        content: "",
+        status: "generating",
+      });
+
+      res.json({ reportId: report.id, status: "generating" });
+
+      generateDeepResearch(
+        company,
+        founders,
+        notes,
+        (stage, detail) => {
+          console.log(`[DeepResearch] ${company.name}: ${stage} — ${detail}`);
+        },
+      ).then(async (content) => {
+        await storage.updateReport(report.id, { content, status: "complete" });
+        console.log(`[DeepResearch] Report complete for ${company.name} (${report.id})`);
+      }).catch(async (error) => {
+        console.error(`[DeepResearch] Failed for ${company.name}:`, error);
+        await storage.updateReport(report.id, {
+          content: `# Report Generation Failed\n\nAn error occurred while generating the deep research report.\n\nError: ${error.message}`,
+          status: "failed",
+        });
+      });
+    } catch (error: any) {
+      console.error("Report generation error:", error);
+      res.status(500).json({ message: "Failed to start report generation" });
+    }
+  });
+
+  app.get("/api/reports/:id", requireAuth, async (req, res) => {
+    const report = await storage.getReport(req.params.id);
+    if (!report) return res.status(404).json({ message: "Report not found" });
+    if (report.userId !== req.user!.id) return res.status(403).json({ message: "Not authorized" });
+    res.json(report);
   });
 
   return httpServer;

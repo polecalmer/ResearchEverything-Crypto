@@ -29,10 +29,12 @@ import {
   ArrowRight,
   Sparkles,
   ShieldCheck,
+  Loader2,
 } from "lucide-react";
 import { SiGithub } from "react-icons/si";
 import { useState } from "react";
 import { formatDistanceToNow, format } from "date-fns";
+import type { Report } from "@shared/schema";
 import {
   Select,
   SelectContent,
@@ -271,6 +273,86 @@ function NextStepsAdvisor({
           Show less
         </button>
       )}
+    </div>
+  );
+}
+
+function DeepResearchSection({ companyId, companyName }: { companyId: string; companyName: string }) {
+  const { toast } = useToast();
+  const [, navigate] = useLocation();
+
+  const { data: reports = [], isLoading } = useQuery<Report[]>({
+    queryKey: ["/api/companies", companyId, "reports"],
+  });
+
+  const generateMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/companies/${companyId}/reports/generate`);
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "reports"] });
+      navigate(`/reports/${data.reportId}`);
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to generate report", description: error.message, variant: "destructive" });
+    },
+  });
+
+  return (
+    <div className="mb-6">
+      <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-3">
+        Deep Research
+      </h3>
+
+      {reports.length > 0 && (
+        <div className="space-y-2 mb-4">
+          {reports.map((report) => (
+            <a
+              key={report.id}
+              href={`/reports/${report.id}`}
+              onClick={(e) => { e.preventDefault(); navigate(`/reports/${report.id}`); }}
+              className="flex items-center justify-between p-3 rounded-lg border hover:bg-accent/50 transition-colors cursor-pointer group"
+              data-testid={`link-report-${report.id}`}
+            >
+              <div className="flex items-center gap-2.5 min-w-0">
+                <FileText className="w-4 h-4 text-muted-foreground shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{report.title}</p>
+                  <p className="text-[10px] text-muted-foreground">
+                    {report.status === "generating" ? "Generating..." : format(new Date(report.createdAt), "MMM d, yyyy")}
+                  </p>
+                </div>
+              </div>
+              {report.status === "generating" ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground shrink-0" />
+              ) : (
+                <ChevronRight className="w-3.5 h-3.5 text-muted-foreground/40 group-hover:text-foreground transition-colors shrink-0" />
+              )}
+            </a>
+          ))}
+        </div>
+      )}
+
+      <Button
+        variant="outline"
+        className="w-full gap-2 text-xs"
+        onClick={() => generateMutation.mutate()}
+        disabled={generateMutation.isPending}
+        data-testid="button-generate-report"
+      >
+        {generateMutation.isPending ? (
+          <>
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            Starting research...
+          </>
+        ) : (
+          <>
+            <FileText className="w-3.5 h-3.5" />
+            Generate Deep Research Report
+          </>
+        )}
+      </Button>
     </div>
   );
 }
@@ -564,6 +646,8 @@ export default function CompanyDetail() {
               <p className="text-xs text-muted-foreground/40 text-center py-4">No notes yet</p>
             )}
           </div>
+
+          <DeepResearchSection companyId={company.id} companyName={company.name} />
         </div>
 
         <div className="lg:w-64 flex-shrink-0 space-y-6">

@@ -15,6 +15,7 @@ import AddDeal from "@/pages/add-deal";
 import ExtensionPage from "@/pages/extension";
 import DataPage from "@/pages/data";
 import CreditsPage from "@/pages/credits";
+import ReportViewer from "@/pages/report-viewer";
 import LandingPage from "@/pages/landing-page";
 import AuthPage from "@/pages/auth-page";
 import { QuickCapture } from "@/components/quick-capture";
@@ -66,6 +67,7 @@ function AuthenticatedApp() {
               <Route path="/" component={Pipeline} />
               <Route path="/companies" component={Companies} />
               <Route path="/companies/:id" component={CompanyDetail} />
+              <Route path="/reports/:id" component={ReportViewer} />
               <Route path="/add" component={AddDeal} />
               <Route path="/extension" component={ExtensionPage} />
               <Route path="/credits" component={CreditsPage} />

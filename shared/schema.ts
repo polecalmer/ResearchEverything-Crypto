@@ -66,6 +66,16 @@ export const notes = pgTable("notes", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const reports = pgTable("reports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  title: text("title").notNull(),
+  content: text("content").notNull(),
+  status: text("status").notNull().default("generating"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const insertCompanySchema = createInsertSchema(companies).omit({
   id: true,
   userId: true,
@@ -87,6 +97,7 @@ export type Founder = typeof founders.$inferSelect;
 export type InsertFounder = z.infer<typeof insertFounderSchema>;
 export type Note = typeof notes.$inferSelect;
 export type InsertNote = z.infer<typeof insertNoteSchema>;
+export type Report = typeof reports.$inferSelect;
 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

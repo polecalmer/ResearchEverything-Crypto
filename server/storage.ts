@@ -3,7 +3,8 @@ import {
   type Company, type InsertCompany,
   type Founder, type InsertFounder,
   type Note, type InsertNote,
-  users, companies, founders, notes,
+  type Report,
+  users, companies, founders, notes, reports,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, sql } from "drizzle-orm";
@@ -39,6 +40,12 @@ export interface IStorage {
   deleteNote(id: string): Promise<void>;
 
   updateSubscription(userId: string, data: { subscriptionStatus: string; subscriptionId: string; subscriptionPeriodEnd: Date | null }): Promise<void>;
+
+  createReport(data: { companyId: string; userId: string; title: string; content: string; status: string }): Promise<Report>;
+  updateReport(id: string, data: { content?: string; status?: string }): Promise<Report | undefined>;
+  getReport(id: string): Promise<Report | undefined>;
+  getReportsByCompany(companyId: string, userId: string): Promise<Report[]>;
+
   claimOrphanedCompanies(userId: string): Promise<number>;
 }
 
@@ -160,6 +167,25 @@ export class DatabaseStorage implements IStorage {
       subscriptionId: data.subscriptionId,
       subscriptionPeriodEnd: data.subscriptionPeriodEnd,
     }).where(eq(users.id, userId));
+  }
+
+  async createReport(data: { companyId: string; userId: string; title: string; content: string; status: string }): Promise<Report> {
+    const [report] = await db.insert(reports).values(data).returning();
+    return report;
+  }
+
+  async updateReport(id: string, data: { content?: string; status?: string }): Promise<Report | undefined> {
+    const [updated] = await db.update(reports).set(data).where(eq(reports.id, id)).returning();
+    return updated;
+  }
+
+  async getReport(id: string): Promise<Report | undefined> {
+    const [report] = await db.select().from(reports).where(eq(reports.id, id));
+    return report;
+  }
+
+  async getReportsByCompany(companyId: string, userId: string): Promise<Report[]> {
+    return db.select().from(reports).where(and(eq(reports.companyId, companyId), eq(reports.userId, userId))).orderBy(desc(reports.createdAt));
   }
 
   async claimOrphanedCompanies(userId: string): Promise<number> {

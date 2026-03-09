@@ -772,6 +772,169 @@ Return ONLY the JSON array, no markdown fencing.`;
   }
 }
 
+const DEEP_RESEARCH_SYSTEM = `You are a Deep Research Agent producing investment-grade research reports for venture capital investors. You have web search access and must use it extensively.
+
+Your goal: Take all known information about a company/project (deal card data, founder info, notes) and conduct deep, independent research to produce a comprehensive Markdown research document.
+
+## Research Process
+
+Run 5–8 sequential web searches, each targeting a different angle:
+1. Fetch the company's website directly for primary source content
+2. Broad discovery — category, who's talking about it, press coverage
+3. Team/founders — background, credibility, track record, prior exits
+4. Product mechanics — pricing, features, technical architecture
+5. Third-party coverage — reviews, community sentiment, analyst takes
+6. Business model deep dive — revenue, unit economics, growth metrics
+7. Competitive landscape — direct and indirect competitors, market sizing
+8. Recent developments — latest news, partnerships, hiring signals
+
+## Report Structure (Markdown)
+
+Produce a well-structured Markdown document with these sections:
+
+# [Company Name] — Deep Research Report
+
+## Executive Summary
+- What it is (one paragraph)
+- Why it matters / core thesis (one paragraph)
+- Key numbers and upcoming catalysts (one paragraph)
+
+## Product Overview
+- Core product mechanics (how does it actually work)
+- Asset universe / scope / target market
+- UX, tooling, and technical architecture
+- What's live vs. roadmap vs. vaporware
+
+## Business Model & Economics
+- Revenue streams (be specific — not just "fees")
+- Unit economics if available
+- Growth trajectory and key metrics
+- Structural advantages or disadvantages
+
+## Team & Backers
+- Founders and key hires (background, credibility, track record)
+- Investors and backers (nature of backing — equity? advisory? strategic?)
+- Hiring signals and team growth
+- Community and build-in-public signals
+
+## Token/Equity Economics (if applicable)
+- Capital structure, valuation, cap table insights
+- For crypto: token parameters, FDV, allocation, value flow
+- Vesting schedules if known
+
+## Competitive Landscape
+- Direct competitors (name them, compare honestly)
+- Indirect competitors and substitutes
+- Defensibility and moat analysis
+- Market sizing reality check
+
+## Key Metrics & Traction
+Use markdown tables for hard numbers. Include context for what numbers mean relative to industry.
+
+## Risk Analysis
+- Platform/dependency risk
+- Regulatory risk
+- Team execution risk
+- Market/timing risk
+- Financial/dilution risk
+
+## Investment Considerations
+- Bull case (steelman it — 4-5 specific bullets)
+- Bear case (steelman it equally — 4-5 specific bullets)
+
+## Conclusion
+- Net assessment
+- Key open questions for further diligence
+- What metrics to watch going forward
+- Recommended next steps for the investment team
+
+---
+
+## Critical Rules
+- **Product before token** — understand what it does before analyzing financials
+- **Separate live from roadmap** — clearly flag shipped vs. coming soon
+- **Bull and bear get equal weight** — this is not marketing material
+- **Risk section is mandatory** — every project has risks
+- **Cross-reference claims** — if the company says something, look for independent confirmation
+- **Flag self-reported vs. verified** — note when a number is the company's own claim vs. third-party data
+- **Use tables for data, prose for analysis**
+- **Be specific** — name competitors, cite sources, give numbers
+- **No hallucination** — if you can't find information, say "not publicly available" rather than guessing`;
+
+export type ReportProgressCallback = (stage: string, detail: string) => void;
+
+export async function generateDeepResearch(
+  company: { name: string; oneLiner: string; description?: string | null; sector?: string | null; subSector?: string | null; businessModel?: string | null; stage?: string | null; fundingHistory?: string | null; competitiveLandscape?: string | null; sourceUrl?: string | null; websiteUrl?: string | null; githubUrl?: string | null; twitterUrl?: string | null; linkedinUrl?: string | null; },
+  founders: { name: string; role?: string | null; bio?: string | null; linkedinUrl?: string | null; twitterUrl?: string | null; priorCompanies?: string | null }[],
+  notes: { content: string }[],
+  onProgress?: ReportProgressCallback,
+): Promise<string> {
+  onProgress?.("researching", "Gathering known deal context...");
+
+  const contextParts = [
+    `Company: ${company.name}`,
+    `One-liner: ${company.oneLiner}`,
+    company.description ? `Description: ${company.description}` : null,
+    company.sector ? `Sector: ${company.sector}` : null,
+    company.subSector ? `Sub-sector: ${company.subSector}` : null,
+    company.businessModel ? `Business Model: ${company.businessModel}` : null,
+    company.stage ? `Stage: ${company.stage}` : null,
+    company.fundingHistory ? `Funding History: ${company.fundingHistory}` : null,
+    company.competitiveLandscape ? `Known Competitive Landscape: ${company.competitiveLandscape}` : null,
+    company.websiteUrl ? `Website: ${company.websiteUrl}` : null,
+    company.sourceUrl ? `Source URL: ${company.sourceUrl}` : null,
+    company.githubUrl ? `GitHub: ${company.githubUrl}` : null,
+    company.twitterUrl ? `Twitter: ${company.twitterUrl}` : null,
+    company.linkedinUrl ? `LinkedIn: ${company.linkedinUrl}` : null,
+  ].filter(Boolean).join("\n");
+
+  const founderContext = founders.length > 0
+    ? "\n\nKnown Founders/Team:\n" + founders.map((f) =>
+        [f.name, f.role, f.bio, f.linkedinUrl, f.twitterUrl, f.priorCompanies].filter(Boolean).join(" | ")
+      ).join("\n")
+    : "";
+
+  const notesContext = notes.length > 0
+    ? "\n\nInvestor Notes:\n" + notes.map((n) => `- ${n.content}`).join("\n")
+    : "";
+
+  const userMessage = `Here is everything we currently know about this company from our deal pipeline. Use this as a starting point, then conduct extensive independent research using web search to produce a comprehensive deep research report in Markdown format.
+
+${contextParts}${founderContext}${notesContext}
+
+Produce the full Markdown research document now. Use web search extensively to find information beyond what's provided above. Cross-reference all claims.`;
+
+  onProgress?.("researching", "Running deep web research with AI agent...");
+
+  const response = await anthropic.messages.create({
+    model: "claude-opus-4-6",
+    max_tokens: 16000,
+    system: DEEP_RESEARCH_SYSTEM,
+    messages: [{ role: "user", content: userMessage }],
+    tools: [
+      {
+        type: "web_search_20250305",
+        name: "web_search",
+        max_uses: 20,
+      },
+    ],
+  });
+
+  let reportContent = "";
+  for (const block of response.content) {
+    if (block.type === "text") {
+      reportContent += block.text;
+    }
+  }
+
+  if (!reportContent.trim()) {
+    throw new Error("Deep research agent returned no content");
+  }
+
+  onProgress?.("complete", "Report generated successfully");
+  return reportContent;
+}
+
 export async function enrichFromInput(input: string): Promise<EnrichedCompany> {
   console.log("[Enrichment] Starting 3-agent pipeline...");
   return runPipeline(input);
