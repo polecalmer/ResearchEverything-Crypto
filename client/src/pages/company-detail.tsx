@@ -481,6 +481,22 @@ export default function CompanyDetail() {
     },
   });
 
+  const deleteCompanyMutation = useMutation({
+    mutationFn: async () => {
+      await apiRequest("DELETE", `/api/companies/${params.id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      toast({ title: "Company deleted" });
+      navigate("/companies");
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to delete", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
   if (companyLoading) {
     return (
       <div className="p-6 max-w-4xl mx-auto">
@@ -679,27 +695,64 @@ export default function CompanyDetail() {
             <TagManager tags={company.tags || []} companyId={company.id} />
           </div>
 
-          {(company.websiteUrl || company.sourceUrl) && (
-            <div className="border-t pt-6">
-              <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-2">Quick Actions</h3>
-              <div className="space-y-1.5">
-                {company.websiteUrl && (
-                  <a href={company.websiteUrl} target="_blank" rel="noopener noreferrer" className="block">
-                    <Button variant="ghost" size="sm" className="w-full justify-start h-8 text-xs" data-testid="button-visit-website">
-                      <Globe className="w-3.5 h-3.5 mr-2" /> Visit Website
-                    </Button>
-                  </a>
-                )}
-                {company.sourceUrl && company.sourceUrl !== company.websiteUrl && (
-                  <a href={company.sourceUrl} target="_blank" rel="noopener noreferrer" className="block">
-                    <Button variant="ghost" size="sm" className="w-full justify-start h-8 text-xs" data-testid="button-visit-source">
-                      <ExternalLink className="w-3.5 h-3.5 mr-2" /> Visit Source
-                    </Button>
-                  </a>
-                )}
-              </div>
+          <div className="border-t pt-6">
+            <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-2">Quick Actions</h3>
+            <div className="space-y-1.5">
+              {company.websiteUrl && (
+                <a href={company.websiteUrl} target="_blank" rel="noopener noreferrer" className="block">
+                  <Button variant="ghost" size="sm" className="w-full justify-start h-8 text-xs" data-testid="button-visit-website">
+                    <Globe className="w-3.5 h-3.5 mr-2" /> Visit Website
+                  </Button>
+                </a>
+              )}
+              {company.sourceUrl && company.sourceUrl !== company.websiteUrl && (
+                <a href={company.sourceUrl} target="_blank" rel="noopener noreferrer" className="block">
+                  <Button variant="ghost" size="sm" className="w-full justify-start h-8 text-xs" data-testid="button-visit-source">
+                    <ExternalLink className="w-3.5 h-3.5 mr-2" /> Visit Source
+                  </Button>
+                </a>
+              )}
             </div>
-          )}
+          </div>
+
+          <div className="border-t pt-6">
+            {!showDeleteConfirm ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full justify-start h-8 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                onClick={() => setShowDeleteConfirm(true)}
+                data-testid="button-delete-company"
+              >
+                <Trash2 className="w-3.5 h-3.5 mr-2" /> Delete Company
+              </Button>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-xs text-destructive font-medium">Delete "{company.name}"? This removes all founders, notes, and reports.</p>
+                <div className="flex gap-2">
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="flex-1 h-7 text-xs"
+                    onClick={() => deleteCompanyMutation.mutate()}
+                    disabled={deleteCompanyMutation.isPending}
+                    data-testid="button-confirm-delete"
+                  >
+                    {deleteCompanyMutation.isPending ? "Deleting..." : "Confirm Delete"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={() => setShowDeleteConfirm(false)}
+                    data-testid="button-cancel-delete"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

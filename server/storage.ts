@@ -134,6 +134,7 @@ export class DatabaseStorage implements IStorage {
     if (userId) conditions.push(eq(companies.userId, userId));
     const [company] = await db.select().from(companies).where(and(...conditions));
     if (!company) return;
+    await db.delete(reports).where(eq(reports.companyId, id));
     await db.delete(notes).where(eq(notes.companyId, id));
     await db.delete(founders).where(eq(founders.companyId, id));
     await db.delete(companies).where(eq(companies.id, id));
