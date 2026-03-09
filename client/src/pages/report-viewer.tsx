@@ -26,10 +26,10 @@ function applyInlineFormatting(text: string): string {
   let result = escapeHtml(text);
   result = result.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
   result = result.replace(/\*(.+?)\*/g, "<em>$1</em>");
-  result = result.replace(/`(.+?)`/g, '<code class="px-1 py-0.5 rounded bg-accent text-sm font-mono">$1</code>');
+  result = result.replace(/`(.+?)`/g, '<code class="report-code">$1</code>');
   result = result.replace(/\[(.+?)\]\((.+?)\)/g, (_, linkText, url) => {
     const safeUrl = sanitizeUrl(url);
-    return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="underline text-foreground">${linkText}</a>`;
+    return `<a href="${safeUrl}" target="_blank" rel="noopener noreferrer" class="report-link">${linkText}</a>`;
   });
   return result;
 }
@@ -41,75 +41,80 @@ function renderMarkdown(md: string): string {
   let inList = false;
   let listType: "ul" | "ol" = "ul";
   let headerDone = false;
+  let tableRowIndex = 0;
 
   for (let i = 0; i < lines.length; i++) {
     const raw = lines[i];
 
     if (raw.match(/^#{1,3} /)) {
       if (inList) { result.push(listType === "ul" ? "</ul>" : "</ol>"); inList = false; }
-      if (inTable) { result.push("</table></div>"); inTable = false; }
+      if (inTable) { result.push("</tbody></table></div>"); inTable = false; }
       const level = raw.match(/^(#{1,3}) /)![1].length;
       const text = raw.replace(/^#{1,3} /, "");
-      const cls = level === 1 ? "text-2xl font-bold mt-6 mb-4" : level === 2 ? "text-lg font-bold mt-8 mb-3 pb-2 border-b" : "text-base font-semibold mt-6 mb-2";
+      const cls = level === 1 ? "report-h1" : level === 2 ? "report-h2" : "report-h3";
       result.push(`<h${level} class="${cls}">${applyInlineFormatting(text)}</h${level}>`);
       continue;
     }
 
     if (raw.trim() === "---") {
       if (inList) { result.push(listType === "ul" ? "</ul>" : "</ol>"); inList = false; }
-      if (inTable) { result.push("</table></div>"); inTable = false; }
-      result.push('<hr class="my-6 border-border" />');
+      if (inTable) { result.push("</tbody></table></div>"); inTable = false; }
+      result.push('<hr class="report-hr" />');
       continue;
     }
 
     if (raw.startsWith("|") && raw.endsWith("|")) {
       if (inList) { result.push(listType === "ul" ? "</ul>" : "</ol>"); inList = false; }
       if (!inTable) {
-        result.push('<div class="overflow-x-auto my-4"><table class="w-full text-sm border-collapse">');
+        result.push('<div class="report-table-wrap"><table class="report-table">');
         inTable = true;
         headerDone = false;
+        tableRowIndex = 0;
       }
       if (raw.match(/^\|[\s\-:|]+\|$/)) {
         headerDone = true;
+        result.push("</thead><tbody>");
         continue;
       }
       const cells = raw.split("|").filter((_, idx, arr) => idx > 0 && idx < arr.length - 1);
-      const tag = !headerDone ? "th" : "td";
-      const cellClass = !headerDone
-        ? 'class="px-3 py-2 text-left font-medium bg-accent/50 border border-border"'
-        : 'class="px-3 py-2 border border-border"';
-      result.push(`<tr>${cells.map((c) => `<${tag} ${cellClass}>${applyInlineFormatting(c.trim())}</${tag}>`).join("")}</tr>`);
-      if (!headerDone) headerDone = true;
+      if (!headerDone) {
+        const tag = "th";
+        result.push(`<thead><tr class="report-thead-row">${cells.map((c) => `<${tag} class="report-th">${applyInlineFormatting(c.trim())}</${tag}>`).join("")}</tr>`);
+      } else {
+        const rowClass = tableRowIndex % 2 === 1 ? "report-tr-alt" : "report-tr";
+        result.push(`<tr class="${rowClass}">${cells.map((c) => `<td class="report-td">${applyInlineFormatting(c.trim())}</td>`).join("")}</tr>`);
+        tableRowIndex++;
+      }
       continue;
     } else if (inTable) {
-      result.push("</table></div>");
+      result.push("</tbody></table></div>");
       inTable = false;
     }
 
     if (raw.match(/^[-*] /)) {
       if (inList && listType !== "ul") { result.push("</ol>"); inList = false; }
-      if (!inList) { result.push('<ul class="list-disc pl-5 space-y-1 my-2">'); inList = true; listType = "ul"; }
-      result.push(`<li class="text-sm leading-relaxed">${applyInlineFormatting(raw.replace(/^[-*] /, ""))}</li>`);
+      if (!inList) { result.push('<ul class="report-ul">'); inList = true; listType = "ul"; }
+      result.push(`<li class="report-li">${applyInlineFormatting(raw.replace(/^[-*] /, ""))}</li>`);
       continue;
     }
 
     if (raw.match(/^\d+\. /)) {
       if (inList && listType !== "ol") { result.push("</ul>"); inList = false; }
-      if (!inList) { result.push('<ol class="list-decimal pl-5 space-y-1 my-2">'); inList = true; listType = "ol"; }
-      result.push(`<li class="text-sm leading-relaxed">${applyInlineFormatting(raw.replace(/^\d+\. /, ""))}</li>`);
+      if (!inList) { result.push('<ol class="report-ol">'); inList = true; listType = "ol"; }
+      result.push(`<li class="report-li">${applyInlineFormatting(raw.replace(/^\d+\. /, ""))}</li>`);
       continue;
     }
 
     if (inList) { result.push(listType === "ul" ? "</ul>" : "</ol>"); inList = false; }
 
     if (raw.trim() === "") {
-      result.push('<div class="h-3"></div>');
+      result.push('<div class="report-spacer"></div>');
     } else {
-      result.push(`<p class="text-sm leading-relaxed">${applyInlineFormatting(raw)}</p>`);
+      result.push(`<p class="report-p">${applyInlineFormatting(raw)}</p>`);
     }
   }
 
-  if (inTable) result.push("</table></div>");
+  if (inTable) result.push("</tbody></table></div>");
   if (inList) result.push(listType === "ul" ? "</ul>" : "</ol>");
 
   return result.join("\n");
@@ -164,8 +169,8 @@ export default function ReportViewer() {
   const isGenerating = report.status === "generating";
 
   return (
-    <div className="h-full overflow-y-auto">
-      <div className="max-w-3xl mx-auto p-6">
+    <div className="h-full overflow-y-auto bg-white dark:bg-[#1a1a1a]">
+      <div className="max-w-3xl mx-auto px-8 py-6">
         <div className="flex items-center justify-between mb-6">
           <Link href={`/companies/${report.companyId}`}>
             <Button variant="ghost" size="sm" className="gap-1.5 text-xs" data-testid="button-back-to-company">
@@ -195,16 +200,16 @@ export default function ReportViewer() {
             <Loader2 className="w-5 h-5 animate-spin text-muted-foreground mt-2" />
           </div>
         ) : (
-          <article className="prose-bookmark">
-            <div className="mb-6 pb-4 border-b">
-              <p className="text-[10px] font-mono uppercase tracking-widest text-muted-foreground mb-1">Deep Research</p>
-              <h1 className="text-xl font-bold tracking-tight" data-testid="text-report-title">{report.title}</h1>
-              <p className="text-xs text-muted-foreground mt-1">
-                Generated {new Date(report.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
+          <article className="report-article">
+            <div className="report-title-page">
+              <span className="report-category-label">DEEP RESEARCH</span>
+              <h1 className="report-title" data-testid="text-report-title">{report.title}</h1>
+              <p className="report-date">
+                {new Date(report.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
               </p>
             </div>
             <div
-              className="text-foreground"
+              className="report-body"
               dangerouslySetInnerHTML={{ __html: renderMarkdown(report.content) }}
               data-testid="report-content"
             />
