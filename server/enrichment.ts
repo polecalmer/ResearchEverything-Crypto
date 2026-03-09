@@ -904,6 +904,7 @@ export async function generateDeepResearch(
   founders: { name: string; role?: string | null; bio?: string | null; linkedinUrl?: string | null; twitterUrl?: string | null; priorCompanies?: string | null }[],
   notes: { content: string }[],
   onProgress?: ReportProgressCallback,
+  previouslyDeletedCount: number = 0,
 ): Promise<string> {
   onProgress?.("researching", "Gathering known deal context...");
 
@@ -934,9 +935,13 @@ export async function generateDeepResearch(
     ? "\n\nInvestor Notes:\n" + notes.map((n) => `- ${n.content}`).join("\n")
     : "";
 
+  const regenerationContext = previouslyDeletedCount > 0
+    ? `\n\nIMPORTANT: The investor has previously generated and deleted ${previouslyDeletedCount} report${previouslyDeletedCount > 1 ? "s" : ""} on this company because the quality was not satisfactory. This time you MUST produce a significantly better report. Conduct more thorough research (use all available search attempts), dig deeper into each section, find more specific data points and metrics, provide stronger cross-referencing of claims, and deliver more nuanced analysis. The bar is higher — the previous report${previouslyDeletedCount > 1 ? "s were" : " was"} not good enough.`
+    : "";
+
   const userMessage = `Here is everything we currently know about this company from our deal pipeline. Use this as a starting point, then conduct extensive independent research using web search to produce a comprehensive deep research report in Markdown format.
 
-${contextParts}${founderContext}${notesContext}
+${contextParts}${founderContext}${notesContext}${regenerationContext}
 
 Produce the full Markdown research document now. Use web search extensively to find information beyond what's provided above. Cross-reference all claims.`;
 

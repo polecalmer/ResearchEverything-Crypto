@@ -465,6 +465,7 @@ export async function registerRoutes(
         (stage, detail) => {
           console.log(`[DeepResearch] ${company.name}: ${stage} — ${detail}`);
         },
+        company.deletedReportCount || 0,
       ).then(async (content) => {
         await storage.updateReport(report.id, { content, status: "complete" });
         console.log(`[DeepResearch] Report complete for ${company.name} (${report.id})`);
@@ -486,6 +487,12 @@ export async function registerRoutes(
     if (!report) return res.status(404).json({ message: "Report not found" });
     if (report.userId !== req.user!.id) return res.status(403).json({ message: "Not authorized" });
     res.json(report);
+  });
+
+  app.delete("/api/reports/:id", requireAuth, async (req, res) => {
+    const result = await storage.deleteReport(req.params.id, req.user!.id);
+    if (!result) return res.status(404).json({ message: "Report not found" });
+    res.json({ message: "Report deleted", companyId: result.companyId });
   });
 
   return httpServer;

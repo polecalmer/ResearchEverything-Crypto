@@ -189,6 +189,16 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(reports).where(and(eq(reports.companyId, companyId), eq(reports.userId, userId))).orderBy(desc(reports.createdAt));
   }
 
+  async deleteReport(id: string, userId: string): Promise<{ companyId: string } | null> {
+    const [report] = await db.select().from(reports).where(and(eq(reports.id, id), eq(reports.userId, userId)));
+    if (!report) return null;
+    await db.delete(reports).where(eq(reports.id, id));
+    await db.update(companies).set({
+      deletedReportCount: sql`${companies.deletedReportCount} + 1`,
+    }).where(eq(companies.id, report.companyId));
+    return { companyId: report.companyId };
+  }
+
   async claimOrphanedCompanies(userId: string): Promise<number> {
     const orphaned = await db
       .update(companies)

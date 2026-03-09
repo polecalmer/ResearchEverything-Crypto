@@ -1,7 +1,9 @@
-import { useQuery } from "@tanstack/react-query";
-import { useParams, Link } from "wouter";
-import { ArrowLeft, Download, Loader2, FileText, AlertCircle } from "lucide-react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { useParams, Link, useLocation } from "wouter";
+import { ArrowLeft, Download, Loader2, FileText, AlertCircle, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 import type { Report } from "@shared/schema";
 import { useEffect, useState } from "react";
 
@@ -122,7 +124,10 @@ function renderMarkdown(md: string): string {
 
 export default function ReportViewer() {
   const { id } = useParams<{ id: string }>();
+  const [, navigate] = useLocation();
+  const { toast } = useToast();
   const [pollingEnabled, setPollingEnabled] = useState(true);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const { data: report, isLoading, error } = useQuery<Report>({
     queryKey: ["/api/reports", id],
@@ -134,6 +139,22 @@ export default function ReportViewer() {
       setPollingEnabled(false);
     }
   }, [report]);
+
+  const deleteReportMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", `/api/reports/${id}`);
+      return res.json();
+    },
+    onSuccess: (data: { companyId: string }) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", data.companyId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", data.companyId, "reports"] });
+      toast({ title: "Report deleted" });
+      navigate(`/companies/${data.companyId}`);
+    },
+    onError: (error: any) => {
+      toast({ title: "Failed to delete report", description: error.message, variant: "destructive" });
+    },
+  });
 
   const handleDownload = () => {
     if (!report) return;
@@ -179,10 +200,45 @@ export default function ReportViewer() {
             </Button>
           </Link>
           {!isGenerating && report.content && (
-            <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={handleDownload} data-testid="button-download-report">
-              <Download className="w-3.5 h-3.5" />
-              Download .md
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={handleDownload} data-testid="button-download-report">
+                <Download className="w-3.5 h-3.5" />
+                Download .md
+              </Button>
+              {!showDeleteConfirm ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="gap-1.5 text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  data-testid="button-delete-report"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </Button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="destructive"
+                    size="sm"
+                    className="text-xs h-8"
+                    onClick={() => deleteReportMutation.mutate()}
+                    disabled={deleteReportMutation.isPending}
+                    data-testid="button-confirm-delete-report"
+                  >
+                    {deleteReportMutation.isPending ? "Deleting..." : "Delete Report"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-xs h-8"
+                    onClick={() => setShowDeleteConfirm(false)}
+                    data-testid="button-cancel-delete-report"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              )}
+            </div>
           )}
         </div>
 

@@ -43,6 +43,7 @@ export const companies = pgTable("companies", {
   pipelineStage: text("pipeline_stage").notNull().default("discovered"),
   tags: text("tags").array().default(sql`'{}'::text[]`),
   imageUrl: text("image_url"),
+  deletedReportCount: integer("deleted_report_count").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
