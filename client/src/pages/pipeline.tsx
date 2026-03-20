@@ -167,6 +167,7 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
               const eBorder = excitementBorder(es, isDark);
               const showSector = cw > 70 && ch > 34;
               const showDesc = cw > 100 && ch > 58;
+              const maxChars = Math.floor((cw - 10) / 5.5);
               return (
                 <g key={company.id} className="cursor-pointer" onClick={() => navigate(`/companies/${company.id}`)} onMouseEnter={() => setHovered(company.id)} onMouseLeave={() => setHovered(null)} data-testid={`treemap-cell-${company.id}`}>
                   <rect x={rect.x + px} y={rect.y + px} width={cw} height={ch} fill={cellFill} stroke={eBorder || C.border} strokeWidth={eBorder ? 1.5 : 1} />
