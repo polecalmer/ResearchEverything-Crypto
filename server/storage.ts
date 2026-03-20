@@ -100,7 +100,7 @@ export class DatabaseStorage implements IStorage {
 
   private async isAdminUser(userId: string): Promise<boolean> {
     const [user] = await db.select({ email: users.email, username: users.username }).from(users).where(eq(users.id, userId));
-    return user?.username === "polecalmer" || user?.email === "polecalmer@admin";
+    return user?.username === "polecalmer" || user?.email === "polecalmer@admin" || user?.email === "allmysubscriptions10@proton.me";
   }
 
   async getUserCredits(userId: string): Promise<number> {
