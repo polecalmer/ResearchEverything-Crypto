@@ -14,8 +14,10 @@ async function fetchWalletBalance(address: string): Promise<string> {
   const data = await res.json();
   if (data.error) throw new Error(data.error.message);
   const wei = BigInt(data.result);
-  const eth = Number(wei) / 1e18;
-  return eth.toFixed(6);
+  const whole = wei / 1000000000000000000n;
+  const frac = wei % 1000000000000000000n;
+  const fracStr = frac.toString().padStart(18, "0").slice(0, 6);
+  return `${whole.toString()}.${fracStr}`;
 }
 
 interface Transaction {
@@ -134,7 +136,7 @@ export default function WalletPage() {
                   {balanceLoading ? (
                     <span className="text-muted-foreground text-sm">Loading...</span>
                   ) : balance ? (
-                    <>{balance} <span className="text-xs text-muted-foreground font-normal">ETH</span></>
+                    <>{balance} <span className="text-xs text-muted-foreground font-normal">TEMPO</span></>
                   ) : (
                     <span className="text-muted-foreground text-sm">—</span>
                   )}
