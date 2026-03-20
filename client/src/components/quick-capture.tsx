@@ -125,12 +125,12 @@ export function QuickCapture() {
     },
     onSuccess: (company) => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
-      toast({ title: `"${company.name}" added with AI enrichment` });
+      toast({ title: `"${company.name}" added with AI research` });
       resetAndClose();
       navigate(`/companies/${company.id}`);
     },
     onError: (error: Error) => {
-      toast({ title: "Enrichment failed", description: error.message, variant: "destructive" });
+      toast({ title: "Research failed", description: error.message, variant: "destructive" });
     },
   });
 
@@ -233,7 +233,7 @@ export function QuickCapture() {
               ) : (
                 <>
                   <Sparkles className="w-4 h-4 mr-1.5" />
-                  Add &amp; Enrich with AI
+                  Add &amp; Research with AI
                 </>
               )}
             </Button>

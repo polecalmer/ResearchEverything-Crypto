@@ -212,7 +212,7 @@ export default function AddDeal() {
       navigate(`/companies/${company.id}`);
     } catch (error: any) {
       setEnrichError(error.message);
-      toast({ title: "AI enrichment failed", description: error.message, variant: "destructive" });
+      toast({ title: "AI research failed", description: error.message, variant: "destructive" });
     } finally {
       setIsEnriching(false);
     }
@@ -298,7 +298,7 @@ export default function AddDeal() {
         <div className="mb-8 pb-8 border-b">
           <h3 className="text-xs uppercase tracking-wider text-foreground font-medium mb-3 flex items-center gap-2">
             <Sparkles className="w-3.5 h-3.5" />
-            AI Auto-Enrichment
+            AI Auto-Research
           </h3>
           <p className="text-sm text-muted-foreground mb-4">
             Drop any link or text and a team of 3 AI agents will identify, research, then verify and clean the output.
@@ -393,12 +393,12 @@ export default function AddDeal() {
               {isEnriching ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                  Enriching...
+                  Researching...
                 </>
               ) : (
                 <>
                   <Sparkles className="w-4 h-4 mr-1.5" />
-                  Add &amp; Enrich with AI
+                  Add &amp; Research with AI
                 </>
               )}
             </Button>

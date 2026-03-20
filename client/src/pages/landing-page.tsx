@@ -244,7 +244,7 @@ export default function LandingPage() {
                 },
                 {
                   title: "Chrome extension",
-                  body: "Right-click any webpage to add it to your pipeline. The 3-agent system handles enrichment automatically.",
+                  body: "Right-click any webpage to add it to your pipeline. The 3-agent system handles research automatically.",
                 },
                 {
                   title: "Universal input",

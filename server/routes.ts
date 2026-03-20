@@ -234,7 +234,7 @@ export async function registerRoutes(
           await storage.logTransaction({
             userId: req.user!.id,
             type: "enrichment",
-            description: result.result.enriched.name ? `AI enrichment: ${result.result.enriched.name}` : "AI deal enrichment",
+            description: result.result.enriched.name ? `AI research: ${result.result.enriched.name}` : "AI deal research",
             amount: result.result.totalCharge.toFixed(4),
             apiCost: result.result.apiCost.toFixed(4),
             companyName: result.result.enriched.name || undefined,

@@ -77,7 +77,7 @@ interface Transaction {
 }
 
 const TX_TYPE_LABELS: Record<string, string> = {
-  enrichment: "Enrichment",
+  enrichment: "Research",
   next_steps: "Next Steps",
   deep_research: "Deep Research",
 };

@@ -21,7 +21,7 @@ const steps = [
   {
     icon: CheckCircle2,
     title: "Deal Captured Instantly",
-    description: "A floating card confirms the capture. The deal appears in your pipeline immediately, ready for enrichment.",
+    description: "A floating card confirms the capture. The deal appears in your pipeline immediately, ready for AI research.",
   },
 ];
 

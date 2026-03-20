@@ -19,7 +19,7 @@ export const enrichmentPaywall: RequestHandler = (req, res, next) => {
   const amount = Math.max(0.01, estimated).toFixed(2);
   mppx.charge({
     amount,
-    description: `BookMark AI enrichment (est. $${amount})`,
+    description: `BookMark AI research (est. $${amount})`,
   })(req, res, next);
 };
 
