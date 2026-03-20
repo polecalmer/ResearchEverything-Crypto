@@ -180,9 +180,9 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
                     <text x={rect.x + px + 7} y={rect.y + px + (ch < 24 ? ch / 2 + 3.5 : 15)} fill={C.fg} fontSize={cw > 90 ? 11 : cw > 60 ? 10 : 8} fontWeight={500} fontFamily="system-ui, -apple-system, sans-serif" opacity={isH ? 1 : 0.85}>
                       {company.name.length > maxChars + 2 ? company.name.slice(0, maxChars) + "…" : company.name}
                     </text>
-                    {showSector && company.sector && (
+                    {showSector && (company.subSector || company.sector) && (
                       <text x={rect.x + px + 7} y={rect.y + px + 28} fill={C.muted} fontSize={9} fontFamily="ui-monospace, SFMono-Regular, 'SF Mono', monospace" opacity={0.7}>
-                        {company.sector}
+                        {company.subSector || company.sector}
                       </text>
                     )}
                   </g>
