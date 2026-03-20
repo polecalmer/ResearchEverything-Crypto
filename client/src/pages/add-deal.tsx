@@ -43,7 +43,7 @@ import {
   Globe,
 } from "lucide-react";
 import { useState } from "react";
-import { streamEnrichment, type EnrichmentStage } from "@/lib/enrichment";
+import { runEnrichmentPipeline, type EnrichmentStage } from "@/lib/enrichment";
 import { useAuth } from "@/hooks/use-auth";
 
 const SECTORS = [
@@ -130,7 +130,7 @@ export default function AddDeal() {
     setPipelineStages([]);
 
     try {
-      const data = await streamEnrichment(
+      const data = await runEnrichmentPipeline(
         enrichInput.trim(),
         (stage) => {
           setPipelineStages((prev) => {

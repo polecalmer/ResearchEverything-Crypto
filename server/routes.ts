@@ -3,7 +3,13 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertCompanySchema, insertFounderSchema, insertNoteSchema, PIPELINE_STAGES } from "@shared/schema";
 import { z } from "zod";
-import { enrichFromInput, enrichFromInputWithProgress, generateNextSteps, generateDeepResearch, getEstimatedEnrichmentCost, getLastEnrichmentCost, MARKUP_MULTIPLIER, type EnrichmentResult } from "./enrichment";
+import {
+  startEnrichmentSession, advanceEnrichmentSession,
+  startNextStepsSession, advanceNextStepsSession,
+  startDeepResearchSession, completeDeepResearchSession,
+  getEstimatedEnrichmentCost, getLastEnrichmentCost,
+  MARKUP_MULTIPLIER,
+} from "./enrichment";
 import { requireAuth } from "./auth";
 import { enrichmentPaywall, nextStepsPaywall, deepResearchPaywall } from "./mpp";
 import { generateTelegramLinkCode } from "./telegram";
@@ -22,9 +28,13 @@ const enrichRequestSchema = z.object({
   input: z.string().min(1, "Some input is required — a URL, company name, tweet link, founder profile, or any relevant text"),
 });
 
-const enrichAndCreateSchema = z.object({
-  input: z.string().min(1, "Some input is required — a URL, company name, tweet link, founder profile, or any relevant text"),
-  pipelineStage: z.enum(PIPELINE_STAGES).optional().default("discovered"),
+const stepRequestSchema = z.object({
+  sessionId: z.string().min(1),
+  responseText: z.string().min(1),
+  responseUsage: z.object({
+    input_tokens: z.number(),
+    output_tokens: z.number(),
+  }).optional(),
 });
 
 export async function registerRoutes(
@@ -79,51 +89,42 @@ export async function registerRoutes(
           pr.id as price_id,
           pr.unit_amount,
           pr.currency,
-          pr.recurring->>'interval' as recurring_interval,
-          pr.type as price_type
-        FROM stripe.products p
-        JOIN stripe.prices pr ON pr.product = p.id AND pr.active = true
-        WHERE p.active = true
+          pr.type as price_type,
+          pr.recurring_interval,
+          pr.recurring_interval_count
+        FROM stripe_products p
+        JOIN stripe_prices pr ON pr.product_id = p.id
+        WHERE p.active = true AND pr.active = true
         ORDER BY pr.unit_amount ASC
       `);
-      res.json(result.rows);
+      const rows = result.rows || result;
+      const products = rows.map((row: any) => ({
+        productId: row.product_id,
+        name: row.product_name,
+        description: row.product_description,
+        metadata: row.product_metadata,
+        priceId: row.price_id,
+        unitAmount: row.unit_amount,
+        currency: row.currency,
+        priceType: row.price_type,
+        recurringInterval: row.recurring_interval,
+        recurringIntervalCount: row.recurring_interval_count,
+      }));
+      res.json(products);
     } catch (error: any) {
       console.error("Error fetching credit products:", error);
       res.status(500).json({ message: "Failed to fetch products" });
     }
   });
 
-  app.get("/api/subscription", requireAuth, async (req, res) => {
-    const user = await storage.getUser(req.user!.id);
-    if (!user) return res.status(401).json({ message: "User not found" });
-
-    let cancelAtPeriodEnd = false;
-    if (user.subscriptionId && user.subscriptionStatus === "active") {
-      try {
-        const stripe = await getUncachableStripeClient();
-        const sub = await stripe.subscriptions.retrieve(user.subscriptionId);
-        cancelAtPeriodEnd = sub.cancel_at_period_end;
-      } catch {}
-    }
-
-    res.json({
-      subscriptionStatus: user.subscriptionStatus,
-      subscriptionId: user.subscriptionId,
-      subscriptionPeriodEnd: user.subscriptionPeriodEnd,
-      cancelAtPeriodEnd,
-    });
-  });
-
   app.post("/api/credits/checkout", requireAuth, async (req, res) => {
     try {
       const { priceId, mode } = req.body;
-      if (!priceId) {
-        return res.status(400).json({ message: "priceId is required" });
-      }
+      if (!priceId) return res.status(400).json({ message: "priceId required" });
 
       const stripe = await getUncachableStripeClient();
       const user = await storage.getUser(req.user!.id);
-      if (!user) return res.status(401).json({ message: "User not found" });
+      if (!user) return res.status(404).json({ message: "User not found" });
 
       let customerId = user.stripeCustomerId;
       if (!customerId) {
@@ -182,216 +183,73 @@ export async function registerRoutes(
     }
   });
 
-  async function logEnrichmentTransaction(userId: string, result: EnrichmentResult, txHash?: string, status: string = "success") {
-    try {
-      await storage.logTransaction({
-        userId,
-        type: "enrichment",
-        description: result.enriched.name ? `AI enrichment: ${result.enriched.name}` : "AI deal enrichment",
-        amount: result.totalCharge.toFixed(4),
-        apiCost: result.apiCost.toFixed(4),
-        companyName: result.enriched.name || undefined,
-        inputTokens: result.tokenUsage.inputTokens,
-        outputTokens: result.tokenUsage.outputTokens,
-        txHash,
-        status,
-      });
-    } catch (err) {
-      console.error("[Transaction] Failed to log:", err);
-    }
-  }
+  // ─── ENRICHMENT ORCHESTRATION (Session-based) ───────────────────────────
 
-  app.post("/api/enrich", requireAuth, enrichmentPaywall, async (req, res) => {
-    const txHash = req.mppReceipt?.reference;
+  app.post("/api/enrich/prepare", requireAuth, enrichmentPaywall, async (req, res) => {
     try {
       const parsed = enrichRequestSchema.safeParse(req.body);
       if (!parsed.success) {
-        if (txHash) {
-          await storage.logTransaction({ userId: req.user!.id, type: "enrichment", description: "Enrichment failed: invalid request", amount: "0", txHash, status: "failed" }).catch(() => {});
-        }
         return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
       }
 
-      const result = await enrichFromInput(parsed.data.input);
-      await logEnrichmentTransaction(req.user!.id, result, txHash);
-      res.json(result.enriched);
+      const { sessionId, anthropicRequest, progress } = await startEnrichmentSession(parsed.data.input, req.user!.id);
+      res.json({ sessionId, anthropicRequest, progress });
     } catch (error: any) {
-      console.error("Enrichment error:", error);
-      try {
-        await storage.logTransaction({
-          userId: req.user!.id,
-          type: "enrichment",
-          description: `AI enrichment failed: ${error.message}`,
-          amount: "0",
-          txHash,
-          status: "failed",
-        });
-      } catch (logErr) {
-        console.error("[Transaction] Failed to log failed enrichment:", logErr);
-      }
-      res.status(500).json({ message: "AI enrichment failed", error: error.message });
+      console.error("Enrichment prepare error:", error);
+      res.status(500).json({ message: "Failed to prepare enrichment", error: error.message });
     }
   });
 
-  app.post("/api/enrich/stream", requireAuth, enrichmentPaywall, async (req, res) => {
-    const txHash = req.mppReceipt?.reference;
+  app.post("/api/enrich/step", requireAuth, async (req, res) => {
     try {
-      const parsed = enrichRequestSchema.safeParse(req.body);
+      const parsed = stepRequestSchema.safeParse(req.body);
       if (!parsed.success) {
-        if (txHash) {
-          await storage.logTransaction({ userId: req.user!.id, type: "enrichment", description: "Enrichment failed: invalid request", amount: "0", txHash, status: "failed" }).catch(() => {});
-        }
         return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
       }
 
-      res.setHeader("Content-Type", "text/event-stream");
-      res.setHeader("Cache-Control", "no-cache");
-      res.setHeader("Connection", "keep-alive");
+      const { sessionId, responseText, responseUsage } = parsed.data;
+      const result = await advanceEnrichmentSession(sessionId, req.user!.id, responseText, responseUsage);
 
-      const sendEvent = (data: any) => {
-        res.write(`data: ${JSON.stringify(data)}\n\n`);
-      };
-
-      const result = await enrichFromInputWithProgress(parsed.data.input, sendEvent);
-      await logEnrichmentTransaction(req.user!.id, result, txHash);
-      sendEvent({ type: "complete", data: result.enriched });
-      res.end();
-    } catch (error: any) {
-      console.error("Enrichment stream error:", error);
-      try {
-        await storage.logTransaction({
-          userId: req.user!.id,
-          type: "enrichment",
-          description: `AI enrichment failed: ${error.message}`,
-          amount: "0",
-          txHash,
-          status: "failed",
-        });
-      } catch (logErr) {
-        console.error("[Transaction] Failed to log failed enrichment:", logErr);
-      }
-      if (res.headersSent) {
-        res.write(`data: ${JSON.stringify({ type: "error", message: error.message })}\n\n`);
-        res.end();
-      } else {
-        res.status(500).json({ message: "AI enrichment failed", error: error.message });
-      }
-    }
-  });
-
-  app.post("/api/companies/enrich-and-create", requireAuth, enrichmentPaywall, async (req, res) => {
-    const txHash = req.mppReceipt?.reference;
-    try {
-      const parsed = enrichAndCreateSchema.safeParse(req.body);
-      if (!parsed.success) {
-        if (txHash) {
-          await storage.logTransaction({ userId: req.user!.id, type: "enrichment", description: "Enrichment failed: invalid request", amount: "0", txHash, status: "failed" }).catch(() => {});
-        }
-        return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
-      }
-      const { input, pipelineStage } = parsed.data;
-      const userId = req.user!.id;
-
-      const result = await enrichFromInput(input);
-      const enriched = result.enriched;
-      await logEnrichmentTransaction(userId, result, txHash);
-
-      const isUrl = input.startsWith("http://") || input.startsWith("https://");
-
-      let websiteUrl = enriched.websiteUrl || "";
-      if (!websiteUrl && isUrl) {
+      if (result.result) {
         try {
-          const hostname = new URL(input).hostname.replace("www.", "").toLowerCase();
-          const socialDomains = [
-            "twitter.com", "x.com", "linkedin.com", "github.com",
-            "facebook.com", "instagram.com", "tiktok.com", "youtube.com",
-            "reddit.com", "medium.com", "substack.com",
-            "producthunt.com", "crunchbase.com", "pitchbook.com",
-          ];
-          if (!socialDomains.some(d => hostname.includes(d))) {
-            websiteUrl = input;
-          }
-        } catch {}
-      }
-
-      const company = await storage.createCompany({
-        name: enriched.name || "Unknown Company",
-        oneLiner: enriched.oneLiner || "AI-enriched company",
-        description: enriched.description || "",
-        sector: enriched.sector || "",
-        subSector: enriched.subSector || "",
-        businessModel: enriched.businessModel || "",
-        stage: enriched.stage || "",
-        fundingHistory: enriched.fundingHistory || "",
-        competitiveLandscape: enriched.competitiveLandscape || "",
-        sourceUrl: isUrl ? input : "",
-        websiteUrl,
-        githubUrl: enriched.githubUrl || "",
-        twitterUrl: enriched.twitterUrl || "",
-        linkedinUrl: enriched.linkedinUrl || "",
-        pipelineStage: pipelineStage,
-        tags: enriched.tags || [],
-        userId,
-      } as any);
-
-      if (enriched.founders && enriched.founders.length > 0) {
-        for (const founder of enriched.founders) {
-          if (founder.name) {
-            await storage.createFounder({
-              companyId: company.id,
-              name: founder.name,
-              role: founder.role || "",
-              bio: founder.bio || "",
-              linkedinUrl: founder.linkedinUrl || "",
-              twitterUrl: founder.twitterUrl || "",
-              githubUrl: founder.githubUrl || "",
-              personalUrl: founder.personalUrl || "",
-              priorCompanies: founder.priorCompanies || "",
-            });
-          }
+          await storage.logTransaction({
+            userId: req.user!.id,
+            type: "enrichment",
+            description: result.result.enriched.name ? `AI enrichment: ${result.result.enriched.name}` : "AI deal enrichment",
+            amount: result.result.totalCharge.toFixed(4),
+            apiCost: result.result.apiCost.toFixed(4),
+            companyName: result.result.enriched.name || undefined,
+            inputTokens: result.result.tokenUsage.inputTokens,
+            outputTokens: result.result.tokenUsage.outputTokens,
+            status: "success",
+          });
+        } catch (err) {
+          console.error("[Transaction] Failed to log:", err);
         }
       }
 
-      res.status(201).json(company);
+      res.json(result);
     } catch (error: any) {
-      console.error("Enrich-and-create error:", error);
-      try {
-        await storage.logTransaction({
-          userId: req.user!.id,
-          type: "enrichment",
-          description: `AI enrichment failed: ${error.message}`,
-          amount: "0",
-          txHash,
-          status: "failed",
-        });
-      } catch (logErr) {
-        console.error("[Transaction] Failed to log failed enrichment:", logErr);
-      }
-      res.status(500).json({ message: "Failed to create enriched company", error: error.message });
+      console.error("Enrichment step error:", error);
+      res.status(500).json({ message: "Enrichment step failed", error: error.message });
     }
   });
 
-  app.get("/api/companies", requireAuth, async (req, res) => {
-    const userId = req.user!.id;
-    const companies = await storage.getCompanies(userId);
-    res.json(companies);
-  });
+  // ─── NEXT STEPS ORCHESTRATION ───────────────────────────────────────────
 
-  app.get("/api/companies/:id/next-steps", requireAuth, nextStepsPaywall, async (req, res) => {
-    const txHash = req.mppReceipt?.reference;
+  app.post("/api/companies/:id/next-steps/prepare", requireAuth, nextStepsPaywall, async (req, res) => {
     try {
       const userId = req.user!.id;
       const company = await storage.getCompany(req.params.id, userId);
       if (!company) {
-        if (txHash) {
-          await storage.logTransaction({ userId, type: "next_steps", description: "Next steps failed: company not found", amount: "0", txHash, status: "failed" }).catch(() => {});
-        }
         return res.status(404).json({ message: "Company not found" });
       }
       const founders = await storage.getFoundersByCompany(req.params.id);
       const notes = await storage.getNotesByCompany(req.params.id);
 
-      const result = await generateNextSteps({
+      const { sessionId, anthropicRequest } = startNextStepsSession({
+        userId,
+        companyId: req.params.id,
         company: {
           name: company.name,
           oneLiner: company.oneLiner,
@@ -424,40 +282,151 @@ export async function registerRoutes(
         })),
       });
 
-      try {
-        await storage.logTransaction({
-          userId,
-          type: "next_steps",
-          description: `AI next steps: ${company.name}`,
-          amount: result.totalCharge.toFixed(4),
-          apiCost: result.apiCost.toFixed(4),
-          companyName: company.name,
-          inputTokens: result.inputTokens,
-          outputTokens: result.outputTokens,
-          txHash,
-        });
-      } catch (err) {
-        console.error("[Transaction] Failed to log next-steps:", err);
+      res.json({ sessionId, anthropicRequest });
+    } catch (error: any) {
+      console.error("Next steps prepare error:", error);
+      res.status(500).json({ message: "Failed to prepare next steps", error: error.message });
+    }
+  });
+
+  app.post("/api/companies/:id/next-steps/step", requireAuth, async (req, res) => {
+    try {
+      const parsed = stepRequestSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
       }
 
-      res.json(result.steps);
-    } catch (error: any) {
-      console.error("Next steps generation error:", error);
-      const companyName = req.params.id;
-      try {
-        await storage.logTransaction({
-          userId: req.user!.id,
-          type: "next_steps",
-          description: `AI next steps failed: ${error.message}`,
-          amount: "0",
-          txHash,
-          status: "failed",
-        });
-      } catch (logErr) {
-        console.error("[Transaction] Failed to log failed next-steps:", logErr);
+      const userId = req.user!.id;
+      const company = await storage.getCompany(req.params.id, userId);
+      const { sessionId, responseText, responseUsage } = parsed.data;
+      const result = advanceNextStepsSession(sessionId, userId, responseText, responseUsage);
+
+      if (result.result && company) {
+        try {
+          await storage.logTransaction({
+            userId,
+            type: "next_steps",
+            description: `AI next steps: ${company.name}`,
+            amount: result.result.totalCharge.toFixed(4),
+            apiCost: result.result.apiCost.toFixed(4),
+            companyName: company.name,
+            inputTokens: result.result.inputTokens,
+            outputTokens: result.result.outputTokens,
+          });
+        } catch (err) {
+          console.error("[Transaction] Failed to log next-steps:", err);
+        }
       }
-      res.status(500).json({ message: "Failed to generate next steps", error: error.message });
+
+      res.json(result);
+    } catch (error: any) {
+      console.error("Next steps step error:", error);
+      res.status(500).json({ message: "Next steps step failed", error: error.message });
     }
+  });
+
+  // ─── DEEP RESEARCH ORCHESTRATION ────────────────────────────────────────
+
+  app.post("/api/companies/:id/reports/prepare", requireAuth, deepResearchPaywall, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const company = await storage.getCompany(req.params.id, userId);
+      if (!company) {
+        return res.status(404).json({ message: "Company not found" });
+      }
+
+      const founders = await storage.getFoundersByCompany(company.id);
+      const notes = await storage.getNotesByCompany(company.id);
+
+      const report = await storage.createReport({
+        companyId: company.id,
+        userId,
+        title: `${company.name} — Deep Research Report`,
+        content: "",
+        status: "generating",
+      });
+
+      const { sessionId, anthropicRequest } = startDeepResearchSession(
+        userId,
+        company.id,
+        report.id,
+        company,
+        founders,
+        notes,
+        company.deletedReportCount || 0,
+      );
+
+      res.json({ sessionId, anthropicRequest, reportId: report.id });
+    } catch (error: any) {
+      console.error("Report prepare error:", error);
+      res.status(500).json({ message: "Failed to prepare report generation", error: error.message });
+    }
+  });
+
+  app.post("/api/companies/:id/reports/complete", requireAuth, async (req, res) => {
+    try {
+      const parsed = z.object({
+        sessionId: z.string().min(1),
+        reportId: z.string().min(1),
+        responseText: z.string().min(1),
+        responseUsage: z.object({
+          input_tokens: z.number(),
+          output_tokens: z.number(),
+        }).optional(),
+      }).safeParse(req.body);
+
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
+      }
+
+      const userId = req.user!.id;
+      const company = await storage.getCompany(req.params.id, userId);
+      const { sessionId, reportId, responseText, responseUsage } = parsed.data;
+
+      const result = completeDeepResearchSession(sessionId, userId, responseText, responseUsage);
+
+      await storage.updateReport(reportId, { content: result.content, status: "complete" });
+      console.log(`[DeepResearch] Report complete for ${company?.name || req.params.id} (${reportId}). Cost: $${result.apiCost.toFixed(4)}`);
+
+      if (company) {
+        try {
+          await storage.logTransaction({
+            userId,
+            type: "deep_research",
+            description: `Deep research: ${company.name}`,
+            amount: result.totalCharge.toFixed(4),
+            apiCost: result.apiCost.toFixed(4),
+            companyName: company.name,
+            inputTokens: result.inputTokens,
+            outputTokens: result.outputTokens,
+          });
+        } catch (err) {
+          console.error("[Transaction] Failed to log deep-research:", err);
+        }
+      }
+
+      res.json({ complete: true, reportId, apiCost: result.apiCost, totalCharge: result.totalCharge });
+    } catch (error: any) {
+      console.error("Report complete error:", error);
+
+      const reportId = req.body?.reportId;
+      if (reportId) {
+        await storage.updateReport(reportId, {
+          content: `# Report Generation Failed\n\nError: ${error.message}`,
+          status: "failed",
+        }).catch(() => {});
+      }
+
+      res.status(500).json({ message: "Failed to complete report", error: error.message });
+    }
+  });
+
+  // ─── COMPANY CRUD ──────────────────────────────────────────────────────
+
+  app.get("/api/companies", requireAuth, async (req, res) => {
+    const userId = req.user!.id;
+    const companies = await storage.getCompanies(userId);
+    res.json(companies);
   });
 
   app.get("/api/companies/:id", requireAuth, async (req, res) => {
@@ -498,6 +467,8 @@ export async function registerRoutes(
     res.status(204).end();
   });
 
+  // ─── FOUNDERS ──────────────────────────────────────────────────────────
+
   app.get("/api/companies/:id/founders", requireAuth, async (req, res) => {
     const userId = req.user!.id;
     const company = await storage.getCompany(req.params.id, userId);
@@ -524,6 +495,8 @@ export async function registerRoutes(
     const founder = await storage.createFounder(parsed.data);
     res.status(201).json(founder);
   });
+
+  // ─── NOTES ─────────────────────────────────────────────────────────────
 
   app.get("/api/companies/:id/notes", requireAuth, async (req, res) => {
     const userId = req.user!.id;
@@ -558,98 +531,11 @@ export async function registerRoutes(
     res.status(204).end();
   });
 
+  // ─── REPORTS ───────────────────────────────────────────────────────────
+
   app.get("/api/companies/:id/reports", requireAuth, async (req, res) => {
     const reports = await storage.getReportsByCompany(req.params.id, req.user!.id);
     res.json(reports);
-  });
-
-  app.post("/api/companies/:id/reports/generate", requireAuth, deepResearchPaywall, async (req, res) => {
-    const txHash = req.mppReceipt?.reference;
-    const userId = req.user!.id;
-    try {
-      const company = await storage.getCompany(req.params.id, userId);
-      if (!company) {
-        if (txHash) {
-          await storage.logTransaction({ userId, type: "deep_research", description: "Deep research failed: company not found", amount: "0", txHash, status: "failed" }).catch(() => {});
-        }
-        return res.status(404).json({ message: "Company not found" });
-      }
-
-      const founders = await storage.getFoundersByCompany(company.id);
-      const notes = await storage.getNotesByCompany(company.id);
-
-      const report = await storage.createReport({
-        companyId: company.id,
-        userId,
-        title: `${company.name} — Deep Research Report`,
-        content: "",
-        status: "generating",
-      });
-
-      res.json({ reportId: report.id, status: "generating" });
-
-      generateDeepResearch(
-        company,
-        founders,
-        notes,
-        (stage, detail) => {
-          console.log(`[DeepResearch] ${company.name}: ${stage} — ${detail}`);
-        },
-        company.deletedReportCount || 0,
-      ).then(async (result) => {
-        await storage.updateReport(report.id, { content: result.content, status: "complete" });
-        console.log(`[DeepResearch] Report complete for ${company.name} (${report.id}). Cost: $${result.apiCost.toFixed(4)}`);
-        try {
-          await storage.logTransaction({
-            userId,
-            type: "deep_research",
-            description: `Deep research: ${company.name}`,
-            amount: result.totalCharge.toFixed(4),
-            apiCost: result.apiCost.toFixed(4),
-            companyName: company.name,
-            inputTokens: result.inputTokens,
-            outputTokens: result.outputTokens,
-            txHash,
-          });
-        } catch (err) {
-          console.error("[Transaction] Failed to log deep-research:", err);
-        }
-      }).catch(async (error) => {
-        console.error(`[DeepResearch] Failed for ${company.name}:`, error);
-        await storage.updateReport(report.id, {
-          content: `# Report Generation Failed\n\nAn error occurred while generating the deep research report.\n\nError: ${error.message}`,
-          status: "failed",
-        });
-        try {
-          await storage.logTransaction({
-            userId,
-            type: "deep_research",
-            description: `Deep research failed: ${company.name} — ${error.message}`,
-            amount: "0",
-            companyName: company.name,
-            txHash,
-            status: "failed",
-          });
-        } catch (logErr) {
-          console.error("[Transaction] Failed to log failed deep-research:", logErr);
-        }
-      });
-    } catch (error: any) {
-      console.error("Report generation error:", error);
-      try {
-        await storage.logTransaction({
-          userId,
-          type: "deep_research",
-          description: `Deep research failed: ${error.message}`,
-          amount: "0",
-          txHash,
-          status: "failed",
-        });
-      } catch (logErr) {
-        console.error("[Transaction] Failed to log failed deep-research:", logErr);
-      }
-      res.status(500).json({ message: "Failed to start report generation" });
-    }
   });
 
   app.get("/api/reports/:id", requireAuth, async (req, res) => {
@@ -664,6 +550,8 @@ export async function registerRoutes(
     if (!result) return res.status(404).json({ message: "Report not found" });
     res.json({ message: "Report deleted", companyId: result.companyId });
   });
+
+  // ─── ADMIN ─────────────────────────────────────────────────────────────
 
   app.get("/api/admin/analytics", requireAuth, async (req, res) => {
     const isAdmin = await storage.checkIsAdmin(req.user!.id);

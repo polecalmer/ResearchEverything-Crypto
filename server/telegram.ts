@@ -1,6 +1,5 @@
 import { Bot } from "grammy";
 import { storage } from "./storage";
-import { enrichFromInput } from "./enrichment";
 import type { InsertCompany } from "@shared/schema";
 import crypto from "crypto";
 
@@ -42,7 +41,7 @@ export function startTelegramBot() {
       "1. Go to BookMark app → Settings\n" +
       "2. Click 'Generate Telegram Link Code'\n" +
       "3. Send: /link YOUR_CODE\n\n" +
-      "Once linked, just drop any link or company name and I'll enrich it and add it to your pipeline."
+      "Once linked, just drop any link or company name and I'll save it to your pipeline. Use the web app for AI enrichment."
     );
   });
 
@@ -82,7 +81,7 @@ export function startTelegramBot() {
       await storage.linkTelegramChat(user.id, chatId);
       await ctx.reply(
         `Account linked successfully!\n\n` +
-        "Now just drop any link or company name here and I'll enrich it and add it to your deal pipeline.\n\n" +
+        "Now just drop any link or company name here and I'll save it to your pipeline. Use the web app for AI enrichment.\n\n" +
         "Commands:\n" +
         "/status — Check your deal count\n" +
         "/unlink — Disconnect your account"
@@ -158,33 +157,24 @@ export function startTelegramBot() {
         return;
       }
 
-      const enrichResult = await enrichFromInput(text);
-      const enriched = enrichResult.enriched;
-
       const isUrl = text.startsWith("http://") || text.startsWith("https://");
-      let websiteUrl = enriched.websiteUrl || "";
-      if (isUrl && !websiteUrl) {
-        const socialDomains = ["twitter.com", "x.com", "linkedin.com", "github.com", "producthunt.com"];
-        const isSocial = socialDomains.some((d) => text.includes(d));
-        if (!isSocial) websiteUrl = text;
-      }
 
       const companyData: InsertCompany = {
-        name: enriched.name,
-        oneLiner: enriched.oneLiner,
-        description: enriched.description || null,
-        sector: enriched.sector || null,
-        subSector: enriched.subSector || null,
-        businessModel: enriched.businessModel || null,
-        stage: enriched.stage || null,
-        fundingHistory: enriched.fundingHistory || null,
-        competitiveLandscape: enriched.competitiveLandscape || null,
+        name: isUrl ? text : text.slice(0, 100),
+        oneLiner: "Saved via Telegram — enrich in the web app",
+        description: null,
+        sector: null,
+        subSector: null,
+        businessModel: null,
+        stage: null,
+        fundingHistory: null,
+        competitiveLandscape: null,
         pipelineStage: "discovered",
-        tags: enriched.tags || [],
-        websiteUrl: websiteUrl || null,
-        githubUrl: enriched.githubUrl || null,
-        twitterUrl: enriched.twitterUrl || null,
-        linkedinUrl: enriched.linkedinUrl || null,
+        tags: [],
+        websiteUrl: isUrl ? text : null,
+        githubUrl: null,
+        twitterUrl: null,
+        linkedinUrl: null,
         sourceUrl: isUrl ? text : null,
         imageUrl: null,
       };
@@ -194,39 +184,17 @@ export function startTelegramBot() {
         userId: user.id,
       } as any);
 
-      if (enriched.founders && enriched.founders.length > 0) {
-        for (const founder of enriched.founders.slice(0, 5)) {
-          await storage.createFounder({
-            companyId: company.id,
-            name: founder.name,
-            role: founder.role || null,
-            bio: founder.bio || null,
-            linkedinUrl: founder.linkedinUrl || null,
-            twitterUrl: founder.twitterUrl || null,
-            githubUrl: null,
-            personalUrl: null,
-            priorCompanies: founder.priorCompanies || null,
-          });
-        }
-      }
-
-      const founderLine = enriched.founders && enriched.founders.length > 0
-        ? `\nFounders: ${enriched.founders.map((f: any) => f.name).join(", ")}`
-        : "";
-
-      const sectorLine = enriched.sector ? `\nSector: ${enriched.sector}` : "";
-      const stageLine = enriched.stage ? `\nStage: ${enriched.stage}` : "";
+      const founderLine = "";
+      const sectorLine = "";
+      const stageLine = "";
 
       await ctx.api.editMessageText(
         chatId,
         processingMsg.message_id,
-        `Deal added to pipeline!\n\n` +
-        `${enriched.name}\n` +
-        `${enriched.oneLiner}` +
-        sectorLine +
-        stageLine +
-        founderLine +
-        `\n\nAdded to: Discovered`
+        `Deal saved to pipeline!\n\n` +
+        `${company.name}\n` +
+        `Open BookMark in your browser to run AI enrichment on this deal.\n\n` +
+        `Added to: Discovered`
       );
     } catch (error: any) {
       console.error("[Telegram] Enrichment error:", error);

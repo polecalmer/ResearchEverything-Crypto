@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { SiGithub } from "react-icons/si";
 import { useState } from "react";
+import { useAuth } from "@/hooks/use-auth";
 import { format } from "date-fns";
 import type { Report } from "@shared/schema";
 import {
@@ -100,12 +101,13 @@ function SafeLink({ href, children, className, ...props }: React.AnchorHTMLAttri
 
 function NextStepsAdvisor({ companyId, pipelineStage }: { companyId: string; pipelineStage: string }) {
   const [showAll, setShowAll] = useState(false);
+  const { getAccessToken } = useAuth();
+
   const { data: steps, isLoading, error, refetch, isFetched } = useQuery<NextStepItem[]>({
     queryKey: ["/api/companies", companyId, "next-steps", pipelineStage],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/companies/${companyId}/next-steps`);
-      if (!res.ok) throw new Error("Failed to fetch next steps");
-      return res.json();
+      const { runNextStepsPipeline } = await import("@/lib/enrichment");
+      return runNextStepsPipeline(companyId, getAccessToken);
     },
     enabled: false,
     staleTime: 5 * 60 * 1000,
@@ -220,10 +222,12 @@ function DeepResearchSection({ companyId, companyName }: { companyId: string; co
     queryKey: ["/api/companies", companyId, "reports"],
   });
 
+  const { getAccessToken } = useAuth();
+
   const generateMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("POST", `/api/companies/${companyId}/reports/generate`);
-      return res.json();
+      const { runDeepResearchPipeline } = await import("@/lib/enrichment");
+      return runDeepResearchPipeline(companyId, getAccessToken);
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "reports"] });

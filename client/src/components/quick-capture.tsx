@@ -1,8 +1,9 @@
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
+import { useAuth } from "@/hooks/use-auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -13,7 +14,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Plus, Loader2, Sparkles, CheckCircle2, Search, FileSearch, ShieldCheck } from "lucide-react";
-import type { EnrichmentStage } from "@/lib/enrichment";
+import { runEnrichmentPipeline, type EnrichmentStage } from "@/lib/enrichment";
 
 const PIPELINE_AGENTS = [
   { key: "identifier", icon: Search, label: "Identifier" },
@@ -27,14 +28,100 @@ export function QuickCapture() {
   const [pipelineStages, setPipelineStages] = useState<EnrichmentStage[]>([]);
   const { toast } = useToast();
   const [, navigate] = useLocation();
+  const { getAccessToken } = useAuth();
 
   const enrichMutation = useMutation({
     mutationFn: async () => {
       setPipelineStages([]);
-      const res = await apiRequest("POST", "/api/companies/enrich-and-create", {
-        input: input.trim(),
+
+      const enriched = await runEnrichmentPipeline(
+        input.trim(),
+        (stage) => {
+          setPipelineStages((prev) => {
+            const existing = prev.findIndex((s) => s.agent === stage.agent);
+            if (existing >= 0) {
+              const updated = [...prev];
+              updated[existing] = stage;
+              return updated;
+            }
+            return [...prev, stage];
+          });
+        },
+        getAccessToken,
+      );
+
+      const inputUrl = input.trim();
+      const isUrl = inputUrl.startsWith("http://") || inputUrl.startsWith("https://");
+
+      let websiteUrl = enriched.websiteUrl || "";
+      if (!websiteUrl && isUrl) {
+        try {
+          const hostname = new URL(inputUrl).hostname.replace("www.", "").toLowerCase();
+          const socialDomains = [
+            "twitter.com", "x.com", "linkedin.com", "github.com",
+            "facebook.com", "instagram.com", "tiktok.com", "youtube.com",
+            "reddit.com", "medium.com", "substack.com",
+            "producthunt.com", "crunchbase.com", "pitchbook.com",
+          ];
+          if (!socialDomains.some(d => hostname.includes(d))) {
+            websiteUrl = inputUrl;
+          }
+        } catch {}
+      }
+
+      const companyData = {
+        name: enriched.name || "Unknown Company",
+        oneLiner: enriched.oneLiner || "AI-enriched company",
+        description: enriched.description || "",
+        sector: enriched.sector || "",
+        subSector: enriched.subSector || "",
+        businessModel: enriched.businessModel || "",
+        stage: enriched.stage || "",
+        fundingHistory: enriched.fundingHistory || "",
+        competitiveLandscape: enriched.competitiveLandscape || "",
+        sourceUrl: isUrl ? inputUrl : "",
+        websiteUrl,
+        githubUrl: enriched.githubUrl || "",
+        twitterUrl: enriched.twitterUrl || "",
+        linkedinUrl: enriched.linkedinUrl || "",
+        pipelineStage: "discovered",
+        tags: enriched.tags || [],
+      };
+
+      const token = await getAccessToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const createRes = await fetch("/api/companies", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(companyData),
       });
-      return res.json();
+      if (!createRes.ok) throw new Error("Failed to create company");
+      const company = await createRes.json();
+
+      if (enriched.founders && enriched.founders.length > 0) {
+        for (const founder of enriched.founders) {
+          if (founder.name) {
+            await fetch(`/api/companies/${company.id}/founders`, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                name: founder.name,
+                role: founder.role || "",
+                bio: founder.bio || "",
+                linkedinUrl: founder.linkedinUrl || "",
+                twitterUrl: founder.twitterUrl || "",
+                githubUrl: founder.githubUrl || "",
+                personalUrl: founder.personalUrl || "",
+                priorCompanies: founder.priorCompanies || "",
+              }),
+            });
+          }
+        }
+      }
+
+      return company;
     },
     onSuccess: (company) => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
@@ -101,17 +188,31 @@ export function QuickCapture() {
             {enrichMutation.isPending && (
               <div className="space-y-1.5 p-3 rounded-lg bg-accent/50 border border-border" data-testid="quick-pipeline-progress">
                 <p className="text-xs font-medium text-foreground mb-2">Agent Pipeline</p>
-                <div className="flex items-center gap-2">
-                  {PIPELINE_AGENTS.map(({ key, icon: Icon, label }) => {
-                    const isActive = false;
-                    return (
+                {pipelineStages.length > 0 ? (
+                  <div className="space-y-1">
+                    {pipelineStages.map((stage) => (
+                      <div key={stage.agent} className="flex items-center gap-1.5 text-[11px]">
+                        {stage.status === "complete" ? (
+                          <CheckCircle2 className="w-3 h-3 text-green-500" />
+                        ) : (
+                          <Loader2 className="w-3 h-3 animate-spin text-foreground" />
+                        )}
+                        <span className={stage.status === "complete" ? "text-muted-foreground" : "text-foreground"}>
+                          {stage.message || stage.agent}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    {PIPELINE_AGENTS.map(({ key, label }) => (
                       <div key={key} className="flex items-center gap-1 text-[11px] text-muted-foreground">
                         <Loader2 className="w-3 h-3 animate-spin text-foreground" />
                         <span>{label}</span>
                       </div>
-                    );
-                  })}
-                </div>
+                    ))}
+                  </div>
+                )}
                 <p className="text-xs text-muted-foreground mt-1">
                   3 agents are working: identifying → researching → verifying & cleaning
                 </p>

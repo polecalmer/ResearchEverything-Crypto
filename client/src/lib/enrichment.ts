@@ -1,3 +1,5 @@
+import { callAnthropic } from "./anthropic";
+
 export interface EnrichmentStage {
   agent: string;
   step: number;
@@ -33,7 +35,34 @@ export function getAgentDescription(agent: string): string {
   return AGENT_DESCRIPTIONS[agent] || "";
 }
 
-export async function streamEnrichment(
+function emitProgress(events: any[], onStage: (stage: EnrichmentStage) => void) {
+  for (const event of events) {
+    if (event.type === "stage") {
+      onStage({
+        agent: event.agent,
+        step: event.step,
+        total: event.total,
+        message: event.message,
+        status: "running",
+      });
+    } else if (event.type === "stage_complete") {
+      onStage({
+        agent: event.agent,
+        step: event.step,
+        total: event.total || 4,
+        message: "",
+        status: "complete",
+        companyName: event.companyName,
+        confidence: event.confidence,
+        issuesFound: event.issuesFound,
+        assessment: event.assessment,
+        pagesFetched: event.pagesFetched,
+      });
+    }
+  }
+}
+
+export async function runEnrichmentPipeline(
   input: string,
   onStage: (stage: EnrichmentStage) => void,
   getAccessToken?: () => Promise<string | null>,
@@ -44,74 +73,153 @@ export async function streamEnrichment(
     if (token) headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const response = await fetch("/api/enrich/stream", {
+  const prepareRes = await fetch("/api/enrich/prepare", {
     method: "POST",
     headers,
     body: JSON.stringify({ input }),
   });
 
-  if (!response.ok) {
-    const error = await response.json();
+  if (!prepareRes.ok) {
+    const error = await prepareRes.json().catch(() => ({ message: "Enrichment failed" }));
     throw new Error(error.message || "Enrichment failed");
   }
 
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error("No response stream");
+  let { sessionId, anthropicRequest, progress } = await prepareRes.json();
+  emitProgress(progress, onStage);
 
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let result: any = null;
+  const MAX_ENRICHMENT_STEPS = 10;
+  for (let step = 0; step < MAX_ENRICHMENT_STEPS; step++) {
+    const anthropicResponse = await callAnthropic(anthropicRequest);
 
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
+    const stepRes = await fetch("/api/enrich/step", {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        sessionId,
+        responseText: anthropicResponse.text,
+        responseUsage: anthropicResponse.usage,
+      }),
+    });
 
-    buffer += decoder.decode(value, { stream: true });
+    if (!stepRes.ok) {
+      const error = await stepRes.json().catch(() => ({ message: "Enrichment step failed" }));
+      throw new Error(error.message || "Enrichment step failed");
+    }
 
-    const lines = buffer.split("\n");
-    buffer = lines.pop() || "";
+    const stepData = await stepRes.json();
 
-    for (const line of lines) {
-      if (!line.startsWith("data: ")) continue;
-      const jsonStr = line.slice(6).trim();
-      if (!jsonStr) continue;
+    if (stepData.progress) {
+      emitProgress(stepData.progress, onStage);
+    }
 
-      try {
-        const event = JSON.parse(jsonStr);
+    if (stepData.result) {
+      return stepData.result.enriched;
+    }
 
-        if (event.type === "stage") {
-          onStage({
-            agent: event.agent,
-            step: event.step,
-            total: event.total,
-            message: event.message,
-            status: "running",
-          });
-        } else if (event.type === "stage_complete") {
-          onStage({
-            agent: event.agent,
-            step: event.step,
-            total: event.total || 4,
-            message: "",
-            status: "complete",
-            companyName: event.companyName,
-            confidence: event.confidence,
-            issuesFound: event.issuesFound,
-            assessment: event.assessment,
-            pagesFetched: event.pagesFetched,
-          });
-        } else if (event.type === "complete") {
-          result = event.data;
-        } else if (event.type === "error") {
-          throw new Error(event.message);
-        }
-      } catch (e) {
-        if (e instanceof SyntaxError) continue;
-        throw e;
-      }
+    if (stepData.anthropicRequest) {
+      anthropicRequest = stepData.anthropicRequest;
+    } else {
+      throw new Error("Unexpected response from enrichment step");
     }
   }
+  throw new Error("Enrichment pipeline exceeded maximum steps");
+}
 
-  if (!result) throw new Error("Enrichment completed but no data received");
-  return result;
+export async function runNextStepsPipeline(
+  companyId: string,
+  getAccessToken?: () => Promise<string | null>,
+): Promise<any[]> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (getAccessToken) {
+    const token = await getAccessToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const prepareRes = await fetch(`/api/companies/${companyId}/next-steps/prepare`, {
+    method: "POST",
+    headers,
+  });
+
+  if (!prepareRes.ok) {
+    const error = await prepareRes.json().catch(() => ({ message: "Next steps failed" }));
+    throw new Error(error.message || "Next steps failed");
+  }
+
+  let { sessionId, anthropicRequest } = await prepareRes.json();
+
+  const MAX_NEXT_STEPS_ITERATIONS = 5;
+  for (let step = 0; step < MAX_NEXT_STEPS_ITERATIONS; step++) {
+    const anthropicResponse = await callAnthropic(anthropicRequest);
+
+    const stepRes = await fetch(`/api/companies/${companyId}/next-steps/step`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        sessionId,
+        responseText: anthropicResponse.text,
+        responseUsage: anthropicResponse.usage,
+      }),
+    });
+
+    if (!stepRes.ok) {
+      const error = await stepRes.json().catch(() => ({ message: "Next steps step failed" }));
+      throw new Error(error.message || "Next steps step failed");
+    }
+
+    const stepData = await stepRes.json();
+
+    if (stepData.result) {
+      return stepData.result.steps;
+    }
+
+    if (stepData.anthropicRequest) {
+      anthropicRequest = stepData.anthropicRequest;
+    } else {
+      throw new Error("Unexpected response from next steps step");
+    }
+  }
+  throw new Error("Next steps pipeline exceeded maximum steps");
+}
+
+export async function runDeepResearchPipeline(
+  companyId: string,
+  getAccessToken?: () => Promise<string | null>,
+): Promise<{ reportId: string }> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (getAccessToken) {
+    const token = await getAccessToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const prepareRes = await fetch(`/api/companies/${companyId}/reports/prepare`, {
+    method: "POST",
+    headers,
+  });
+
+  if (!prepareRes.ok) {
+    const error = await prepareRes.json().catch(() => ({ message: "Deep research failed" }));
+    throw new Error(error.message || "Deep research failed");
+  }
+
+  const { sessionId, anthropicRequest, reportId } = await prepareRes.json();
+
+  const anthropicResponse = await callAnthropic(anthropicRequest);
+
+  const completeRes = await fetch(`/api/companies/${companyId}/reports/complete`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      sessionId,
+      reportId,
+      responseText: anthropicResponse.text,
+      responseUsage: anthropicResponse.usage,
+    }),
+  });
+
+  if (!completeRes.ok) {
+    const error = await completeRes.json().catch(() => ({ message: "Report completion failed" }));
+    throw new Error(error.message || "Report completion failed");
+  }
+
+  return { reportId };
 }

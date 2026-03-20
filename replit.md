@@ -1,190 +1,72 @@
 # BookMark
 
-A deal pipeline management dashboard for VCs with a companion Chrome extension. Turn any link into structured deal intelligence with right-click capture and lightweight pipeline management.
+## Overview
 
-## Architecture
+BookMark is a deal pipeline management dashboard for venture capitalists (VCs), designed to streamline the process of sourcing, evaluating, and managing potential investments. It combines a web application with a companion Chrome extension to transform any web link into structured deal intelligence. The platform aims to provide VCs with tools for efficient deal flow management, AI-powered enrichment, and comprehensive reporting.
 
-- **Frontend:** React + TypeScript + Vite, with shadcn/ui components, TanStack Query, wouter routing
-- **Backend:** Express.js API server with CORS enabled for extension access
-- **Database:** PostgreSQL with Drizzle ORM
-- **AI:** Anthropic Claude claude-opus-4-6 via Tempo MPP (`anthropic.mpp.tempo.xyz`) — server wallet pays Anthropic in USDC per request, no API key needed
-- **Extension:** Chrome Manifest V3 extension with context menu, content scripts, and popup
-- **Styling:** Tailwind CSS with Inter font, dark-first crypto-native aesthetic inspired by Tempo explorer (near-black backgrounds, subtle borders, monospace for addresses/amounts, green accent for amounts, table-style layouts)
+Key capabilities include:
+- Right-click capture of web links for automatic deal creation and enrichment.
+- Lightweight pipeline management with customizable stages.
+- AI-driven research, fact-checking, and "Next Steps" recommendations.
+- Detailed company profiles including founders, notes, and funding history.
+- Integrated payment system for AI services and platform fees.
+- Deep research report generation for in-depth due diligence.
+- Telegram bot integration for quick deal sourcing.
 
-## Authentication (Privy)
+The vision is to empower VCs with a seamless and intelligent system to manage their deal pipeline, from initial discovery to investment, leveraging AI to reduce manual effort and improve decision-making.
 
-Privy-based auth with embedded Tempo wallets. Users sign in via email or external wallet; an embedded wallet is auto-created on the Tempo chain (chain ID 4217).
-- Frontend: `PrivyProvider` wraps app in `client/src/App.tsx`, `useAuth` hook wraps `usePrivy`
-- Backend: `requireAuth` middleware verifies Privy access tokens via `@privy-io/node`, creates user on first login
-- `GET /api/user` — current user (401 if not authenticated)
-- All API routes protected with `requireAuth` middleware
-- Companies scoped to users via `userId` column
-- Users table: `privyId`, `walletAddress`, `email`, plus legacy `username`/`password` columns
-- Env vars: `PRIVY_APP_ID`, `PRIVY_APP_SECRET` (secrets), `VITE_PRIVY_APP_ID` (shared env)
+## User Preferences
 
-Key files: `server/auth.ts` (Privy token verification), `client/src/hooks/use-auth.tsx` (useAuth hook), `client/src/App.tsx` (PrivyProvider)
+I prefer iterative development with clear communication on progress and any potential roadblocks.
+Ask before making major architectural changes or introducing new dependencies.
+I prefer detailed explanations for complex technical decisions.
+Ensure code is well-documented and follows best practices.
+Focus on user experience and intuitive design.
 
-## Data Model
+## System Architecture
 
-- **Users**: id, username, password, credits, stripeCustomerId, privyId, walletAddress, email
-- **Companies**: Core deal entities with userId, name, one-liner, description, sector, business model, stage, funding history, competitive landscape, source URL, website URL, GitHub URL, Twitter URL, LinkedIn URL, pipeline stage, tags, excitementScore (1-10 nullable), and excitementReason (text nullable)
-- **Founders**: Linked to companies with name, role, bio, LinkedIn/Twitter/GitHub/personal URLs, prior companies
-- **Notes**: Time-stamped notes attached to companies
-- **Transactions**: Payment log — userId, type (enrichment/next_steps/deep_research), description, amount (USDC charged), apiCost, companyName, inputTokens, outputTokens, txHash (on-chain tx reference), status (success/failed), createdAt
+**Frontend:** Developed with React, TypeScript, and Vite. It utilizes `shadcn/ui` for UI components, `TanStack Query` for data fetching, and `wouter` for routing. The styling is managed with Tailwind CSS, featuring a dark-first, crypto-native aesthetic inspired by Tempo explorer.
 
-## Pipeline Stages
+**Backend:** An Express.js API server, configured with CORS to support the Chrome extension. It primarily acts as an orchestrator for AI interactions and manages data persistence.
 
-`Discovered -> Researching -> Reaching Out -> In Diligence -> Passed / Invested`
+**Database:** PostgreSQL is used for data storage, with Drizzle ORM managing database interactions and schema.
 
-## Pages
+**Authentication:** Privy-based authentication with embedded Tempo wallets. Users can sign in via email or external wallet, with an embedded Tempo wallet (chain ID 4217) automatically created. All API routes are protected using Privy access token verification.
 
-- `/` - Landing page (unauthenticated) / Pipeline dashboard (authenticated)
-- `/auth` - Login/register page
-- `/companies` - Companies list/grid view with search and filters
-- `/companies/:id` - Company detail with founders, notes, tags, pipeline management, and dynamic Next Steps advisor
-- `/add` - Add new deal form with founder fields
-- `/wallet` - Wallet profile: wallet address, fund wallet link (Tempo docs), transaction history log
-- `/credits` - Billing: enrichment pricing, cost breakdown, how it works
-- `/extension` - Browser extension setup instructions
-- `/data` - Pipeline analytics: total sourced, deals by stage/sector/model, investment rate, funnel summary
+**Data Model:**
+- **Users:** Stores user authentication details, wallet information, and credit balance.
+- **Companies:** Core deal entities, including name, description, sector, stage, funding history, URLs, pipeline stage, and AI-generated scores/reasons.
+- **Founders:** Linked to companies, capturing founder details and social links.
+- **Notes:** Time-stamped notes associated with companies.
+- **Transactions:** Logs all payment activities, including AI service costs and platform fees.
 
-## Payments (Tempo MPP)
+**Pipeline Stages:** `Discovered -> Researching -> Reaching Out -> In Diligence -> Passed / Invested`
 
-All AI-powered endpoints are gated behind the Machine Payments Protocol (MPP) via `mppx`.
-- Server: `server/mpp.ts` creates `Mppx` with `tempo()` method (pathUSD currency, owner wallet recipient)
-- Three paywall middlewares:
-  - `enrichmentPaywall` — applied to `/api/enrich`, `/api/enrich/stream`, `/api/companies/enrich-and-create` (dynamic cost-plus pricing based on running average)
-  - `nextStepsPaywall` — applied to `/api/companies/:id/next-steps` (estimated $0.12 = $0.08 × 1.5)
-  - `deepResearchPaywall` — applied to `/api/companies/:id/reports/generate` (estimated $1.50 = $1.00 × 1.5)
-- Client: `client/src/lib/mpp.ts` initializes mppx client with Privy embedded wallet (polyfills fetch for automatic 402 handling)
-- Pricing model: **cost-plus** — user pays 1.5x actual AI API cost (50% markup = platform fee)
-  - Token usage tracked per AI call (enrichment, next-steps, deep research) and logged with actual costs
-  - Cost calculated from Anthropic pricing: $15/M input tokens, $75/M output tokens
-  - Enrichment: running average of past costs used to estimate upfront MPP charge; default $0.75
-  - Next-steps and deep research: fixed estimate paywalls with actual usage-based transaction logging
-  - `GET /api/enrichment/pricing` returns estimated cost, markup multiplier, and last enrichment cost breakdown
-- Owner wallet: `0x342fFFBcEbb761bC2c7B512333AF5E397b4cB72d`
-- Server wallet: `0x8518b315b3DFC4415Be7E75b2571Df635b27552a` (pays Anthropic MPP; needs USDC funding on Tempo mainnet)
-- USDC token: `0x20c000000000000000000000b9537d11c60e8b50` (6 decimals, Tempo mainnet)
-- Anthropic MPP endpoint: `https://anthropic.mpp.tempo.xyz` (POST /v1/messages, session-based, pay per request in USDC)
-- Env: `MPP_SERVER_WALLET_KEY` (server wallet private key), `MPP_SERVER_WALLET_ADDRESS`
-- Cost tracking: `enrichment.ts` exports `getEstimatedEnrichmentCost()`, `getLastEnrichmentCost()`, `recordEnrichmentCost()`, `MARKUP_MULTIPLIER`, `calculateApiCost()`, `calculateChargeAmount()`
-- Transaction types: `enrichment`, `next_steps`, `deep_research` — all logged with actual token counts and computed costs
+**AI Enrichment Pipeline (4 Steps):**
+1.  **Web Scraper:** Fetches content from URLs.
+2.  **Identifier Agent:** Identifies the company from input and scraped data.
+3.  **Research Agent:** Builds a comprehensive deal card.
+4.  **Verify & Clean Agent:** Combines fact-checking and hallucination firewall, stripping unverified data.
+All AI agents (Identifier, Research, Verify & Clean) use Claude Opus 4.6 with web search capabilities.
 
-## Chrome Extension (`extension/` folder)
+**AI Next Steps Advisor (2 Stages):**
+1.  **Generator Agent:** Analyzes deal context to produce actionable recommendations.
+2.  **Verifier Agent:** Validates recommendations for accuracy and relevance.
 
-- `manifest.json` - Chrome Manifest V3 config
-- `background.js` - Service worker: context menu creation, API calls to dashboard
-- `content.js` / `content.css` - Injected into pages: floating confirmation card UI
-- `popup.html` / `popup.js` - Extension popup: dashboard URL configuration
-- `icons/` - Extension icons
+**UI/UX:** The application features a consistent design language with near-black backgrounds, subtle borders, monospace fonts for addresses/amounts, and a green accent color. The dashboard provides pipeline visualization, company lists, detailed company views, and dedicated pages for wallet management, credit purchasing, and analytics. Real-time SSE (Server-Sent Events) are used to display AI enrichment progress.
 
-### Extension Flow
-1. User right-clicks on any webpage -> "Add to Dealflow"
-2. Background script sends URL to `/api/companies/enrich-and-create`
-3. AI agent (Claude claude-opus-4-6) researches the company and populates all fields automatically
-4. Content script shows floating confirmation card inline (auto-dismisses after 5s)
-5. Card links to company detail in dashboard
+**Payment Architecture (Dual System):**
+1.  **User → Anthropic (AI cost):** User's Privy wallet directly pays Anthropic via `anthropic.mpp.tempo.xyz` using mppx-polyfilled fetch in the client.
+2.  **User → Owner wallet (platform fee):** MPP paywalls on backend `prepare` endpoints charge a platform fee before AI sessions start.
 
-## Key Files
+**Chrome Extension:** Manifest V3 extension facilitating quick capture. It creates a context menu item, injects content scripts for UI, and uses a background service worker to interact with the backend API.
 
-- `shared/schema.ts` - Database schema and types
-- `server/db.ts` - Database connection
-- `server/storage.ts` - CRUD operations (DatabaseStorage)
-- `server/routes.ts` - REST API endpoints
-- `server/enrichment.ts` - AI enrichment service (Claude claude-opus-4-6 via Tempo MPP)
-- `server/mpp-client.ts` - Server-side mppx client (server wallet pays Anthropic MPP endpoint)
-- `client/src/App.tsx` - Root layout with sidebar
-- `client/src/pages/` - All page components
-- `client/src/components/` - Reusable components (sidebar, theme toggle, quick capture)
+## External Dependencies
 
-## AI Enrichment (5-Stage Pipeline)
-
-When any input is submitted (URL, company name, tweet, founder profile, blog post, etc.):
-0. **Web Scraper** — Detects URLs in input, fetches real page content (meta tags, body text, outbound links). If a social profile links to a company website, scrapes that too. Agents receive this real data instead of guessing blind.
-1. **Identifier Agent** — Determines which company is referenced using scraped content + input
-2. **Research Agent** — Builds comprehensive deal card using scraped web content as primary source
-3. **Fact-Checker Agent** — Cross-checks every claim, flags uncertain/hallucinated info
-4. **Hallucination Firewall** — Final pass that strips unverified data, ensures accuracy
-
-Key files: `server/scraper.ts` (web scraper), `server/enrichment.ts` (pipeline orchestrator)
-
-All agents use Claude Opus 4.6 with web search enabled. The Identifier, Research, and Fact-Checker agents can actively search the internet to find and verify real-time information. URLs are domain-validated (linkedin.com, github.com, x.com/twitter.com) via sanitizeUrl() instead of blanket stripping. The Add Deal page shows real-time SSE progress of each stage (scraper + 4 agents). Company detail page shows Links section (Website, GitHub, Twitter/X, LinkedIn) and founder cards show all social links.
-
-Two flows: Quick Capture (one-click enrich + create) and Add Deal page (streaming enrich → review → submit).
-
-## AI Next Steps Advisor (2-Stage Pipeline)
-
-Each deal page has a "Recommended Next Steps" section powered by a 2-stage AI pipeline:
-1. **Generator Agent** — Analyzes the full deal context (company data, founders, notes, source URL, pipeline stage, data gaps) and produces 4-6 highly specific, actionable recommendations
-2. **Verifier Agent** — Reviews each step against the actual deal data, checking for factual accuracy, hallucinated details, contradictions (e.g., suggesting "find website" when one exists), and stage appropriateness. Rejects invalid steps and annotates verified ones.
-
-Only verified steps are shown, each with a green shield icon and the verifier's assessment note. Results are cached for 5 minutes and automatically regenerate when the pipeline stage changes.
-
-## Enrichment Pipeline (3 Agents)
-
-The enrichment pipeline uses 3 AI agents (down from 4 — Fact-Checker and Firewall were merged into a single Verify & Clean agent):
-1. **Identifier Agent** — Resolves company identity from any input (URL, tweet, profile, etc.) with web search
-2. **Research Agent** — Deep research to build comprehensive deal card with web search
-3. **Verify & Clean Agent** — Combined fact-checking + hallucination firewall in one pass with web search; verifies claims and strips unverified content
-
-Pipeline stages in frontend: Scraper → Identifier → Research → Verify & Clean (total: 4 steps including scraper)
-
-## Credits & Payments (Stripe)
-
-- **Subscription model**: $20/mo (Monthly) or $150/yr (Annual), each includes 33 enrichment credits per billing period
-- **Credit packs**: 10 credits ($3.00), 50 credits ($12.00) — buy extra any time
-- Stripe Checkout for both subscriptions and one-time payments
-- Webhook handles: `checkout.session.completed` (initial sub + credit purchases), `invoice.paid` (subscription renewals), `customer.subscription.updated/deleted` (status changes)
-- Credits stored on user record, deducted atomically via SQL `credits > 0` check
-- User fields: `credits`, `stripeCustomerId`, `subscriptionStatus`, `subscriptionId`, `subscriptionPeriodEnd`
-- Key files: `server/stripeClient.ts`, `server/webhookHandlers.ts`, `server/seed-credits.ts`, `client/src/pages/credits.tsx`
-- Subscription products have `metadata.credits_per_period`, credit products have `metadata.credits`
-- `/credits` page (Billing) shows subscription status, subscribe/cancel options, and extra credit packs
-- Landing page has Pricing section with Monthly/Annual plans and credit pack info
-
-## Deep Research Reports
-
-- "Generate Deep Research Report" button on each company detail page
-- Uses Claude Opus 4.6 with extensive web search (up to 20 searches) to produce investment-grade markdown reports
-- Reports follow a structured format: Executive Summary, Product Overview, Business Model, Team & Backers, Token/Equity Economics, Competitive Landscape, Key Metrics, Risk Analysis, Investment Considerations, Conclusion
-- Reports are stored in the `reports` table and linked to companies
-- Report viewer page at `/reports/:id` with markdown rendering and .md download
-- Generation is async — the API returns immediately with a reportId, then the agent runs in the background
-- Key files: `server/enrichment.ts` (generateDeepResearch function), `client/src/pages/report-viewer.tsx`, `client/src/pages/company-detail.tsx` (DeepResearchSection)
-
-## Telegram Bot
-
-Drop any link or company name into a Telegram chat with the BookMark bot and it auto-enriches and adds to your pipeline.
-
-- Bot uses Grammy (lightweight Telegram bot framework) with long polling
-- Secure account linking: user generates a one-time code in the web app (`POST /api/telegram/link-code`), sends `/link CODE` to bot
-- Link codes expire after 10 minutes, are single-use, and stored in-memory
-- Telegram enrichments use credit-based gating (separate from web MPP flow)
-- Commands: `/start`, `/link`, `/unlink`, `/status`
-- User's `telegramChatId` stored on the users table for account linking
-- Key file: `server/telegram.ts`
-
-## API Endpoints
-
-- `POST /api/enrich` - AI enrichment only (requires MPP payment, returns enriched data without saving)
-- `POST /api/enrich/stream` - AI enrichment with SSE progress events (requires MPP payment)
-- `POST /api/companies/enrich-and-create` - AI enrichment + create company + founders (requires MPP payment)
-- `GET /api/enrichment/pricing` - Public pricing endpoint (returns price, currency, recipient)
-- `POST /api/telegram/link-code` - Generate Telegram link code (requires auth)
-- `GET /api/credits` - Get current credit balance
-- `GET /api/credits/products` - List all products (subscriptions + credit packs) from Stripe
-- `POST /api/credits/checkout` - Create Stripe Checkout session (supports mode: "payment" or "subscription")
-- `GET /api/subscription` - Get current subscription status
-- `POST /api/subscription/cancel` - Cancel subscription at end of billing period
-- `GET /api/companies/:id/reports` - List reports for a company
-- `POST /api/companies/:id/reports/generate` - Start deep research report generation (async)
-- `GET /api/reports/:id` - Get a specific report
-- `GET/POST /api/companies` - List/create companies
-- `GET/PATCH/DELETE /api/companies/:id` - Read/update/delete company
-- `GET /api/companies/:id/next-steps` - AI-generated context-aware next steps with 2-stage pipeline (Generator → Verifier)
-- `GET/POST /api/companies/:id/founders` - List/add founders
-- `GET/POST /api/companies/:id/notes` - List/add notes
-- `DELETE /api/notes/:id` - Delete note (scoped to owner's companies)
-
-All API endpoints support CORS with `Authorization` header for cross-origin requests.
+-   **AI Service:** Anthropic Claude (`claude-opus-4-6`) via Tempo MPP (`anthropic.mpp.tempo.xyz`)
+-   **Authentication:** Privy (`@privy-io/node` for backend, `PrivyProvider`/`usePrivy` for frontend)
+-   **Database:** PostgreSQL
+-   **ORM:** Drizzle ORM
+-   **Payments:** Stripe (for subscriptions and one-time credit purchases)
+-   **Blockchain/Wallet:** Tempo chain (chain ID 4217) for embedded wallets and USDC for transactions.
+-   **Telegram Bot Framework:** Grammy

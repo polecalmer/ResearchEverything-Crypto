@@ -1,12 +1,5 @@
-import Anthropic from "@anthropic-ai/sdk";
 import { scrapeUrl, scrapeMultiple, type ScrapedContent } from "./scraper";
-import { mppFetch } from "./mpp-client";
-
-const anthropic = new Anthropic({
-  baseURL: "https://anthropic.mpp.tempo.xyz",
-  apiKey: "mpp",
-  fetch: mppFetch,
-});
+import crypto from "crypto";
 
 export interface EnrichedCompany {
   name: string;
@@ -90,41 +83,74 @@ export function getLastEnrichmentCost(): { apiCost: number; totalCharge: number 
   return { apiCost: last, totalCharge: calculateChargeAmount(last) };
 }
 
-async function callAgent(systemPrompt: string, userMessage: string, useWebSearch: boolean = false, usage?: TokenUsage): Promise<string> {
-  const options: any = {
+export interface AnthropicRequest {
+  model: string;
+  max_tokens: number;
+  system?: string;
+  messages: Array<{ role: string; content: string }>;
+  tools?: Array<{ type: string; name: string; max_uses?: number }>;
+}
+
+function buildAnthropicRequest(systemPrompt: string, userMessage: string, useWebSearch: boolean = false, maxTokens: number = 16000, maxSearchUses: number = 10): AnthropicRequest {
+  const request: AnthropicRequest = {
     model: "claude-opus-4-6",
-    max_tokens: 16000,
+    max_tokens: maxTokens,
     system: systemPrompt,
     messages: [{ role: "user", content: userMessage }],
   };
-
   if (useWebSearch) {
-    options.tools = [
-      {
-        type: "web_search_20250305",
-        name: "web_search",
-        max_uses: 10,
-      },
-    ];
+    request.tools = [{ type: "web_search_20250305", name: "web_search", max_uses: maxSearchUses }];
   }
+  return request;
+}
 
-  const message = await anthropic.messages.create(options);
+interface EnrichmentSession {
+  id: string;
+  type: "enrichment";
+  userId: string;
+  input: string;
+  scrapedContent: ScrapedContent[];
+  step: number;
+  identity?: any;
+  researchDraft?: any;
+  usage: TokenUsage;
+  createdAt: number;
+}
 
-  if (message.usage && usage) {
-    usage.inputTokens += message.usage.input_tokens;
-    usage.outputTokens += message.usage.output_tokens;
-  }
+interface NextStepsSession {
+  id: string;
+  type: "next-steps";
+  userId: string;
+  companyId: string;
+  step: number;
+  generatedSteps?: NextStepItem[];
+  dealContext: any;
+  usage: TokenUsage;
+  createdAt: number;
+}
 
-  let textContent = "";
-  for (const block of message.content) {
-    if (block.type === "text") {
-      textContent += block.text;
+interface DeepResearchSession {
+  id: string;
+  type: "deep-research";
+  userId: string;
+  companyId: string;
+  reportId: string;
+  usage: TokenUsage;
+  createdAt: number;
+}
+
+type Session = EnrichmentSession | NextStepsSession | DeepResearchSession;
+const sessions = new Map<string, Session>();
+const SESSION_TTL = 10 * 60 * 1000;
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, session] of sessions) {
+    if (now - session.createdAt > SESSION_TTL) {
+      sessions.delete(id);
     }
   }
-
-  if (!textContent) throw new Error("No text content in AI response");
-  return textContent;
-}
+}, 60_000);
 
 function parseJson(text: string): any {
   let cleaned = text.trim();
@@ -134,7 +160,6 @@ function parseJson(text: string): any {
 }
 
 // ─── AGENT 1: IDENTIFIER ────────────────────────────────────────────────────
-// Figures out WHICH company is being referenced from any input
 
 const IDENTIFIER_SYSTEM = `You are the Identifier Agent in a VC deal intelligence pipeline. Your ONLY job is to figure out which company/startup is being referenced from any piece of input.
 
@@ -167,12 +192,7 @@ Return ONLY valid JSON:
   "alternativeCandidates": ["Other possible companies if ambiguous"]
 }`;
 
-async function runIdentifierAgent(input: string, scrapedContent?: ScrapedContent[], usage?: TokenUsage): Promise<{
-  companyName: string;
-  domain: string;
-  confidence: string;
-  reasoning: string;
-}> {
+function buildIdentifierRequest(input: string, scrapedContent?: ScrapedContent[]): AnthropicRequest {
   let prompt = `Identify the company from this input:\n\n${input}`;
   if (scrapedContent && scrapedContent.length > 0) {
     prompt += `\n\n--- SCRAPED WEB CONTENT ---\nI fetched the following content from the URLs in the input. Use this REAL data to identify the company:\n`;
@@ -184,12 +204,10 @@ async function runIdentifierAgent(input: string, scrapedContent?: ScrapedContent
       prompt += `Body excerpt: ${sc.bodyText.slice(0, 2000)}\n`;
     }
   }
-  const result = await callAgent(IDENTIFIER_SYSTEM, prompt, true, usage);
-  return parseJson(result);
+  return buildAnthropicRequest(IDENTIFIER_SYSTEM, prompt, true);
 }
 
 // ─── AGENT 2: RESEARCH ──────────────────────────────────────────────────────
-// Deep research on the identified company
 
 const RESEARCH_SYSTEM = `You are the Research Agent in a VC deal intelligence pipeline. You receive a confirmed company identity and must produce a comprehensive deal card.
 
@@ -268,32 +286,28 @@ Return ONLY valid JSON matching this schema:
   }
 }`;
 
-async function runResearchAgent(companyName: string, domain: string, originalInput: string, scrapedContent?: ScrapedContent[], usage?: TokenUsage): Promise<any> {
+function buildResearchRequest(companyName: string, domain: string, originalInput: string, scrapedContent?: ScrapedContent[]): AnthropicRequest {
   let prompt = `Research this company thoroughly:
 Company: ${companyName}
 Domain: ${domain || "unknown"}
-Original input that led to identification: ${originalInput}
-
-Produce the comprehensive deal card. Remember: accuracy over completeness. Leave fields empty if unsure.`;
+Original input that led to identification: ${originalInput}`;
 
   if (scrapedContent && scrapedContent.length > 0) {
-    prompt += `\n\n--- REAL SCRAPED WEB CONTENT ---\nThe following content was fetched directly from web pages. This is REAL data — use it as your PRIMARY source of truth. Prefer information found here over your training data.\n`;
+    prompt += `\n\n--- SCRAPED WEB CONTENT ---\nThe following content was fetched from URLs. Use this as primary source material:\n`;
     for (const sc of scrapedContent) {
       if (!sc.fetchedSuccessfully) continue;
       prompt += `\n[URL: ${sc.url}]\nTitle: ${sc.title}\nMeta Description: ${sc.metaDescription}\n`;
-      if (sc.linkedWebsite) prompt += `Linked Website: ${sc.linkedWebsite}\n`;
+      if (sc.linkedWebsite) prompt += `Linked Website Found: ${sc.linkedWebsite}\n`;
       if (sc.ogData["og:site_name"]) prompt += `Site Name: ${sc.ogData["og:site_name"]}\n`;
-      prompt += `Body text:\n${sc.bodyText.slice(0, 3000)}\n`;
+      prompt += `Body excerpt: ${sc.bodyText.slice(0, 3000)}\n`;
       if (sc.links.length > 0) prompt += `Outbound links: ${sc.links.slice(0, 15).join(", ")}\n`;
     }
   }
 
-  const result = await callAgent(RESEARCH_SYSTEM, prompt, true, usage);
-  return parseJson(result);
+  return buildAnthropicRequest(RESEARCH_SYSTEM, prompt, true);
 }
 
 // ─── AGENT 3: VERIFY & CLEAN ────────────────────────────────────────────────
-// Combined fact-checker + hallucination firewall in a single pass
 
 const VERIFY_AND_CLEAN_SYSTEM = `You are the Verify & Clean Agent — the final quality gate in a VC deal intelligence pipeline. You receive a research draft about a company and must:
 1. VERIFY: Rigorously fact-check every claim in the draft
@@ -359,7 +373,7 @@ Return ONLY valid JSON with the final clean deal card:
   }
 }`;
 
-async function runVerifyAndCleanAgent(companyName: string, researchDraft: any, usage?: TokenUsage): Promise<{ cleaned: EnrichedCompany; issuesFound: number; assessment: string }> {
+function buildVerifyRequest(companyName: string, researchDraft: any): AnthropicRequest {
   const prompt = `Verify and clean this research draft about "${companyName}".
 
 RESEARCH DRAFT:
@@ -367,15 +381,10 @@ ${JSON.stringify(researchDraft, null, 2)}
 
 Step 1: Use web search to independently verify the key claims — funding, founders, URLs, metrics.
 Step 2: Produce the final clean deal card JSON with all unverified or hallucinated content stripped out. When in doubt, OMIT.`;
-  const result = await callAgent(VERIFY_AND_CLEAN_SYSTEM, prompt, true, usage);
-  const parsed = parseJson(result);
-  const summary = parsed.verificationSummary || {};
-  const issuesFound = (summary.removed?.length || 0) + (summary.revised?.length || 0);
-  const assessment = summary.overallAssessment || "clean";
-  return { cleaned: parsed, issuesFound, assessment };
+  return buildAnthropicRequest(VERIFY_AND_CLEAN_SYSTEM, prompt, true);
 }
 
-// ─── PIPELINE ORCHESTRATOR ──────────────────────────────────────────────────
+// ─── UTILITY FUNCTIONS ──────────────────────────────────────────────────────
 
 function sanitizeUrl(url: any, expectedDomain?: string): string {
   if (!url || typeof url !== "string") return "";
@@ -473,6 +482,8 @@ function validateOutput(data: any): EnrichedCompany {
   return result;
 }
 
+// ─── SCRAPING ────────────────────────────────────────────────────────────────
+
 type ProgressCallback = (event: any) => void;
 
 function extractUrls(text: string): string[] {
@@ -517,6 +528,8 @@ async function scrapeInputUrls(input: string, onProgress?: ProgressCallback): Pr
   return results;
 }
 
+// ─── ENRICHMENT ORCHESTRATION ────────────────────────────────────────────────
+
 export interface EnrichmentResult {
   enriched: EnrichedCompany;
   apiCost: number;
@@ -524,59 +537,128 @@ export interface EnrichmentResult {
   tokenUsage: TokenUsage;
 }
 
-async function runPipeline(input: string, onProgress?: ProgressCallback): Promise<EnrichmentResult> {
-  const emit = (data: any) => {
-    if (onProgress) onProgress(data);
+export async function startEnrichmentSession(input: string, userId: string): Promise<{
+  sessionId: string;
+  anthropicRequest: AnthropicRequest;
+  progress: any[];
+}> {
+  const progress: any[] = [];
+  const scrapedContent = await scrapeInputUrls(input, (e) => progress.push(e));
+
+  const session: EnrichmentSession = {
+    id: crypto.randomUUID(),
+    type: "enrichment",
+    userId,
+    input,
+    scrapedContent,
+    step: 0,
+    usage: { inputTokens: 0, outputTokens: 0 },
+    createdAt: Date.now(),
   };
+  sessions.set(session.id, session);
 
-  const pipelineUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
+  const request = buildIdentifierRequest(input, scrapedContent);
+  progress.push({ type: "stage", agent: "identifier", step: 1, total: 4, message: "Identifying company from input..." });
+  console.log("[Enrichment] Session started. Agent 1/3: Identifier");
 
-  const scrapedContent = await scrapeInputUrls(input, onProgress);
-
-  emit({ type: "stage", agent: "identifier", step: 1, total: 4, message: "Identifying company from input..." });
-  console.log("[Enrichment] Agent 1/3: Identifier — resolving company from input...");
-  const identity = await runIdentifierAgent(input, scrapedContent, pipelineUsage);
-  console.log(`[Enrichment] Identified: "${identity.companyName}" (confidence: ${identity.confidence})`);
-  emit({ type: "stage_complete", agent: "identifier", step: 1, companyName: identity.companyName, confidence: identity.confidence });
-
-  if (identity.confidence === "low" && !identity.companyName) {
-    throw new Error("Could not confidently identify a company from the provided input. Please try a more specific URL or company name.");
-  }
-
-  if (identity.domain && scrapedContent.every((sc) => !sc.url.includes(identity.domain))) {
-    console.log(`[Scraper] Identifier found domain ${identity.domain} — fetching company website...`);
-    const companySite = await scrapeUrl(`https://${identity.domain}`);
-    if (companySite.fetchedSuccessfully) {
-      scrapedContent.push(companySite);
-      console.log(`[Scraper] Fetched company website: ${identity.domain}`);
-    }
-  }
-
-  emit({ type: "stage", agent: "researcher", step: 2, total: 4, message: `Researching ${identity.companyName}...` });
-  console.log("[Enrichment] Agent 2/3: Research — building deal card...");
-  const researchDraft = await runResearchAgent(identity.companyName, identity.domain, input, scrapedContent, pipelineUsage);
-  console.log("[Enrichment] Research draft complete.");
-  emit({ type: "stage_complete", agent: "researcher", step: 2 });
-
-  emit({ type: "stage", agent: "verify_clean", step: 3, total: 4, message: "Verifying claims & cleaning output..." });
-  console.log("[Enrichment] Agent 3/3: Verify & Clean — fact-checking and producing clean output...");
-  const { cleaned, issuesFound, assessment } = await runVerifyAndCleanAgent(identity.companyName, researchDraft, pipelineUsage);
-  console.log(`[Enrichment] Verify & Clean: ${assessment} (${issuesFound} issues found)`);
-  emit({ type: "stage_complete", agent: "verify_clean", step: 3, issuesFound, assessment });
-
-  const apiCost = calculateApiCost(pipelineUsage);
-  const totalCharge = calculateChargeAmount(apiCost);
-  recordEnrichmentCost(apiCost);
-  console.log(`[Enrichment] Token usage: ${pipelineUsage.inputTokens} in / ${pipelineUsage.outputTokens} out | API cost: $${apiCost.toFixed(4)} | Charge (1.5x): $${totalCharge.toFixed(4)}`);
-
-  console.log("[Enrichment] Pipeline complete. Validated output ready.");
-  return {
-    enriched: validateOutput(cleaned),
-    apiCost,
-    totalCharge,
-    tokenUsage: { ...pipelineUsage },
-  };
+  return { sessionId: session.id, anthropicRequest: request, progress };
 }
+
+export async function advanceEnrichmentSession(
+  sessionId: string,
+  userId: string,
+  responseText: string,
+  responseUsage?: { input_tokens: number; output_tokens: number },
+): Promise<{
+  anthropicRequest?: AnthropicRequest;
+  result?: EnrichmentResult;
+  progress: any[];
+}> {
+  const session = sessions.get(sessionId);
+  if (!session || session.type !== "enrichment") throw new Error("Invalid or expired session");
+  if (session.userId !== userId) throw new Error("Session access denied");
+
+  const progress: any[] = [];
+
+  if (responseUsage) {
+    session.usage.inputTokens += responseUsage.input_tokens;
+    session.usage.outputTokens += responseUsage.output_tokens;
+  }
+
+  if (session.step === 0) {
+    const identity = parseJson(responseText);
+    session.identity = identity;
+    session.step = 1;
+
+    console.log(`[Enrichment] Identified: "${identity.companyName}" (confidence: ${identity.confidence})`);
+    progress.push({ type: "stage_complete", agent: "identifier", step: 1, companyName: identity.companyName, confidence: identity.confidence });
+
+    if (identity.confidence === "low" && !identity.companyName) {
+      sessions.delete(sessionId);
+      throw new Error("Could not confidently identify a company from the provided input. Please try a more specific URL or company name.");
+    }
+
+    if (identity.domain && session.scrapedContent.every((sc) => !sc.url.includes(identity.domain))) {
+      console.log(`[Scraper] Identifier found domain ${identity.domain} — fetching company website...`);
+      const companySite = await scrapeUrl(`https://${identity.domain}`);
+      if (companySite.fetchedSuccessfully) {
+        session.scrapedContent.push(companySite);
+        console.log(`[Scraper] Fetched company website: ${identity.domain}`);
+      }
+    }
+
+    const request = buildResearchRequest(identity.companyName, identity.domain, session.input, session.scrapedContent);
+    progress.push({ type: "stage", agent: "researcher", step: 2, total: 4, message: `Researching ${identity.companyName}...` });
+    console.log("[Enrichment] Agent 2/3: Research — building deal card...");
+
+    return { anthropicRequest: request, progress };
+  }
+
+  if (session.step === 1) {
+    const researchDraft = parseJson(responseText);
+    session.researchDraft = researchDraft;
+    session.step = 2;
+
+    console.log("[Enrichment] Research draft complete.");
+    progress.push({ type: "stage_complete", agent: "researcher", step: 2 });
+
+    const request = buildVerifyRequest(session.identity.companyName, researchDraft);
+    progress.push({ type: "stage", agent: "verify_clean", step: 3, total: 4, message: "Verifying claims & cleaning output..." });
+    console.log("[Enrichment] Agent 3/3: Verify & Clean — fact-checking...");
+
+    return { anthropicRequest: request, progress };
+  }
+
+  if (session.step === 2) {
+    const parsed = parseJson(responseText);
+    const summary = parsed.verificationSummary || {};
+    const issuesFound = (summary.removed?.length || 0) + (summary.revised?.length || 0);
+    const assessment = summary.overallAssessment || "clean";
+
+    console.log(`[Enrichment] Verify & Clean: ${assessment} (${issuesFound} issues found)`);
+    progress.push({ type: "stage_complete", agent: "verify_clean", step: 3, issuesFound, assessment });
+
+    const apiCost = calculateApiCost(session.usage);
+    const totalCharge = calculateChargeAmount(apiCost);
+    recordEnrichmentCost(apiCost);
+    console.log(`[Enrichment] Token usage: ${session.usage.inputTokens} in / ${session.usage.outputTokens} out | API cost: $${apiCost.toFixed(4)} | Charge (1.5x): $${totalCharge.toFixed(4)}`);
+    console.log("[Enrichment] Pipeline complete.");
+
+    const result: EnrichmentResult = {
+      enriched: validateOutput(parsed),
+      apiCost,
+      totalCharge,
+      tokenUsage: { ...session.usage },
+    };
+
+    sessions.delete(sessionId);
+    return { result, progress };
+  }
+
+  throw new Error("Session already completed");
+}
+
+// ─── NEXT STEPS ──────────────────────────────────────────────────────────────
 
 export interface NextStepItem {
   title: string;
@@ -595,15 +677,9 @@ export interface NextStepsResult {
   outputTokens: number;
 }
 
-export interface DeepResearchResult {
-  content: string;
-  apiCost: number;
-  totalCharge: number;
-  inputTokens: number;
-  outputTokens: number;
-}
-
-export async function generateNextSteps(context: {
+export function startNextStepsSession(context: {
+  userId: string;
+  companyId: string;
   company: {
     name: string;
     oneLiner: string | null;
@@ -631,7 +707,7 @@ export async function generateNextSteps(context: {
     priorCompanies: string | null;
   }>;
   notes: Array<{ content: string; createdAt: Date | string }>;
-}): Promise<NextStepsResult> {
+}): { sessionId: string; anthropicRequest: AnthropicRequest } {
   const { company, founders, notes } = context;
 
   const filledFields: string[] = [];
@@ -731,63 +807,58 @@ Respond with a JSON array of objects. Each object has:
 
 Return ONLY the JSON array, no markdown fencing.`;
 
-  let totalInputTokens = 0;
-  let totalOutputTokens = 0;
+  const session: NextStepsSession = {
+    id: crypto.randomUUID(),
+    type: "next-steps",
+    userId: context.userId,
+    companyId: context.companyId,
+    step: 0,
+    dealContext: { company, founders, notes, filledFields, missingFields, founderSummary, sourceContext },
+    usage: { inputTokens: 0, outputTokens: 0 },
+    createdAt: Date.now(),
+  };
+  sessions.set(session.id, session);
 
-  try {
-    console.log(`[NextSteps] Stage 1/2: Generating recommendations for ${company.name}...`);
-    const response = await anthropic.messages.create({
-      model: "claude-opus-4-6",
-      max_tokens: 1500,
-      messages: [{ role: "user", content: prompt }],
-    });
+  const request = buildAnthropicRequest("", prompt, false, 1500);
+  delete request.system;
 
-    totalInputTokens += response.usage.input_tokens;
-    totalOutputTokens += response.usage.output_tokens;
+  console.log(`[NextSteps] Session started for ${company.name}`);
+  return { sessionId: session.id, anthropicRequest: request };
+}
 
-    const text = response.content[0].type === "text" ? response.content[0].text : "";
-    const cleaned = text.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+export function advanceNextStepsSession(
+  sessionId: string,
+  userId: string,
+  responseText: string,
+  responseUsage?: { input_tokens: number; output_tokens: number },
+): { anthropicRequest?: AnthropicRequest; result?: NextStepsResult } {
+  const session = sessions.get(sessionId);
+  if (!session || session.type !== "next-steps") throw new Error("Invalid or expired session");
+  if (session.userId !== userId) throw new Error("Session access denied");
+
+  if (responseUsage) {
+    session.usage.inputTokens += responseUsage.input_tokens;
+    session.usage.outputTokens += responseUsage.output_tokens;
+  }
+
+  if (session.step === 0) {
+    const cleaned = responseText.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
     const rawSteps = JSON.parse(cleaned) as NextStepItem[];
     const validSteps = rawSteps.filter((s) => s.title && s.detail && s.priority && s.category);
 
     if (validSteps.length === 0) {
-      const apiCost = calculateApiCost({ inputTokens: totalInputTokens, outputTokens: totalOutputTokens });
-      return { steps: [], apiCost, totalCharge: calculateChargeAmount(apiCost), inputTokens: totalInputTokens, outputTokens: totalOutputTokens };
+      const apiCost = calculateApiCost(session.usage);
+      sessions.delete(sessionId);
+      return { result: { steps: [], apiCost, totalCharge: calculateChargeAmount(apiCost), inputTokens: session.usage.inputTokens, outputTokens: session.usage.outputTokens } };
     }
 
-    console.log(`[NextSteps] Stage 2/2: Verifying ${validSteps.length} recommendations...`);
-    const { steps: verified, inputTokens: verifyIn, outputTokens: verifyOut } = await verifyNextSteps(validSteps, {
-      company, founders, notes, filledFields, missingFields, founderSummary, sourceContext,
-    });
-    totalInputTokens += verifyIn;
-    totalOutputTokens += verifyOut;
-    const apiCost = calculateApiCost({ inputTokens: totalInputTokens, outputTokens: totalOutputTokens });
-    console.log(`[NextSteps] Pipeline complete. ${verified.length} verified steps. Cost: $${apiCost.toFixed(4)}`);
-    return { steps: verified, apiCost, totalCharge: calculateChargeAmount(apiCost), inputTokens: totalInputTokens, outputTokens: totalOutputTokens };
-  } catch (error) {
-    console.error("[NextSteps] AI generation failed:", error);
-    const apiCost = calculateApiCost({ inputTokens: totalInputTokens, outputTokens: totalOutputTokens });
-    return { steps: [], apiCost, totalCharge: calculateChargeAmount(apiCost), inputTokens: totalInputTokens, outputTokens: totalOutputTokens };
-  }
-}
+    session.generatedSteps = validSteps;
+    session.step = 1;
 
-async function verifyNextSteps(
-  steps: NextStepItem[],
-  dealContext: {
-    company: any;
-    founders: any[];
-    notes: any[];
-    filledFields: string[];
-    missingFields: string[];
-    founderSummary: string;
-    sourceContext: string;
-  },
-): Promise<{ steps: NextStepItem[]; inputTokens: number; outputTokens: number }> {
-  const { company, founders, notes, filledFields, missingFields, founderSummary, sourceContext } = dealContext;
+    const { company, founders, notes, filledFields, missingFields, founderSummary, sourceContext } = session.dealContext;
+    const stepsJson = JSON.stringify(validSteps, null, 2);
 
-  const stepsJson = JSON.stringify(steps, null, 2);
-
-  const verifyPrompt = `You are a quality assurance agent reviewing recommended next steps for a VC deal. Your job is to verify each step is factually grounded, actionable, and appropriate given the ACTUAL deal data below. You must catch hallucinations, incorrect assumptions, and steps that contradict the available data.
+    const verifyPrompt = `You are a quality assurance agent reviewing recommended next steps for a VC deal. Your job is to verify each step is factually grounded, actionable, and appropriate given the ACTUAL deal data below. You must catch hallucinations, incorrect assumptions, and steps that contradict the available data.
 
 ACTUAL DEAL DATA (ground truth):
 - Company: ${company.name}
@@ -834,15 +905,15 @@ Respond with a JSON array. For each ORIGINAL step, include:
 
 Return ONLY the JSON array, no markdown fencing.`;
 
-  try {
-    const response = await anthropic.messages.create({
-      model: "claude-opus-4-6",
-      max_tokens: 2000,
-      messages: [{ role: "user", content: verifyPrompt }],
-    });
+    const request = buildAnthropicRequest("", verifyPrompt, false, 2000);
+    delete request.system;
 
-    const text = response.content[0].type === "text" ? response.content[0].text : "";
-    const cleaned = text.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
+    console.log(`[NextSteps] Stage 2/2: Verifying ${validSteps.length} recommendations...`);
+    return { anthropicRequest: request };
+  }
+
+  if (session.step === 1) {
+    const cleaned = responseText.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
     const verifiedSteps = JSON.parse(cleaned) as NextStepItem[];
 
     const passed = verifiedSteps.filter((s) => s.verified !== false);
@@ -855,26 +926,41 @@ Return ONLY the JSON array, no markdown fencing.`;
       }
     }
 
+    const steps = passed.map((s) => ({
+      title: s.title,
+      detail: s.detail,
+      priority: s.priority,
+      category: s.category,
+      verified: true as const,
+      verifierNote: s.verifierNote,
+    }));
+
+    const apiCost = calculateApiCost(session.usage);
+    console.log(`[NextSteps] Pipeline complete. ${steps.length} verified steps. Cost: $${apiCost.toFixed(4)}`);
+
+    sessions.delete(sessionId);
     return {
-      steps: passed.map((s) => ({
-        title: s.title,
-        detail: s.detail,
-        priority: s.priority,
-        category: s.category,
-        verified: true,
-        verifierNote: s.verifierNote,
-      })),
-      inputTokens: response.usage.input_tokens,
-      outputTokens: response.usage.output_tokens,
-    };
-  } catch (error) {
-    console.error("[NextSteps] Verifier failed, returning unverified steps:", error);
-    return {
-      steps: steps.map((s) => ({ ...s, verified: false, verifierNote: "Verification unavailable" })),
-      inputTokens: 0,
-      outputTokens: 0,
+      result: {
+        steps,
+        apiCost,
+        totalCharge: calculateChargeAmount(apiCost),
+        inputTokens: session.usage.inputTokens,
+        outputTokens: session.usage.outputTokens,
+      },
     };
   }
+
+  throw new Error("Session already completed");
+}
+
+// ─── DEEP RESEARCH ───────────────────────────────────────────────────────────
+
+export interface DeepResearchResult {
+  content: string;
+  apiCost: number;
+  totalCharge: number;
+  inputTokens: number;
+  outputTokens: number;
 }
 
 const DEEP_RESEARCH_SYSTEM = `You are a Deep Research Agent producing investment-grade research reports for venture capital investors. You have web search access and must use it extensively.
@@ -1125,15 +1211,15 @@ function stripSearchNarration(content: string): string {
 
 export type ReportProgressCallback = (stage: string, detail: string) => void;
 
-export async function generateDeepResearch(
+export function startDeepResearchSession(
+  userId: string,
+  companyId: string,
+  reportId: string,
   company: { name: string; oneLiner: string; description?: string | null; sector?: string | null; subSector?: string | null; businessModel?: string | null; stage?: string | null; fundingHistory?: string | null; competitiveLandscape?: string | null; sourceUrl?: string | null; websiteUrl?: string | null; githubUrl?: string | null; twitterUrl?: string | null; linkedinUrl?: string | null; },
   founders: { name: string; role?: string | null; bio?: string | null; linkedinUrl?: string | null; twitterUrl?: string | null; priorCompanies?: string | null }[],
   notes: { content: string }[],
-  onProgress?: ReportProgressCallback,
   previouslyDeletedCount: number = 0,
-): Promise<DeepResearchResult> {
-  onProgress?.("researching", "Gathering known deal context...");
-
+): { sessionId: string; anthropicRequest: AnthropicRequest } {
   const contextParts = [
     `Company: ${company.name}`,
     `One-liner: ${company.oneLiner}`,
@@ -1171,49 +1257,54 @@ ${contextParts}${founderContext}${notesContext}${regenerationContext}
 
 Produce the full Markdown research document now. Use web search extensively to find information beyond what's provided above. Cross-reference all claims.`;
 
-  onProgress?.("researching", "Running deep web research with AI agent...");
+  const session: DeepResearchSession = {
+    id: crypto.randomUUID(),
+    type: "deep-research",
+    userId,
+    companyId,
+    reportId,
+    usage: { inputTokens: 0, outputTokens: 0 },
+    createdAt: Date.now(),
+  };
+  sessions.set(session.id, session);
 
-  const response = await anthropic.messages.create({
-    model: "claude-opus-4-6",
-    max_tokens: 16000,
-    system: DEEP_RESEARCH_SYSTEM,
-    messages: [{ role: "user", content: userMessage }],
-    tools: [
-      {
-        type: "web_search_20250305",
-        name: "web_search",
-        max_uses: 20,
-      },
-    ],
-  });
+  const request = buildAnthropicRequest(DEEP_RESEARCH_SYSTEM, userMessage, true, 16000, 20);
 
-  let reportContent = "";
-  for (const block of response.content) {
-    if (block.type === "text") {
-      reportContent += block.text;
-    }
+  console.log(`[DeepResearch] Session started for ${company.name}`);
+  return { sessionId: session.id, anthropicRequest: request };
+}
+
+export function completeDeepResearchSession(
+  sessionId: string,
+  userId: string,
+  responseText: string,
+  responseUsage?: { input_tokens: number; output_tokens: number },
+): DeepResearchResult {
+  const session = sessions.get(sessionId);
+  if (!session || session.type !== "deep-research") throw new Error("Invalid or expired session");
+  if (session.userId !== userId) throw new Error("Session access denied");
+
+  if (responseUsage) {
+    session.usage.inputTokens += responseUsage.input_tokens;
+    session.usage.outputTokens += responseUsage.output_tokens;
   }
 
+  let reportContent = responseText;
   if (!reportContent.trim()) {
     throw new Error("Deep research agent returned no content");
   }
 
   reportContent = stripSearchNarration(reportContent);
 
-  const inputTokens = response.usage.input_tokens;
-  const outputTokens = response.usage.output_tokens;
-  const apiCost = calculateApiCost({ inputTokens, outputTokens });
+  const apiCost = calculateApiCost(session.usage);
+  console.log(`[DeepResearch] Complete. Cost: $${apiCost.toFixed(4)}`);
 
-  onProgress?.("complete", "Report generated successfully");
-  return { content: reportContent, apiCost, totalCharge: calculateChargeAmount(apiCost), inputTokens, outputTokens };
-}
-
-export async function enrichFromInput(input: string): Promise<EnrichmentResult> {
-  console.log("[Enrichment] Starting 3-agent pipeline...");
-  return runPipeline(input);
-}
-
-export async function enrichFromInputWithProgress(input: string, onProgress: ProgressCallback): Promise<EnrichmentResult> {
-  console.log("[Enrichment] Starting 3-agent pipeline (with progress)...");
-  return runPipeline(input, onProgress);
+  sessions.delete(sessionId);
+  return {
+    content: reportContent,
+    apiCost,
+    totalCharge: calculateChargeAmount(apiCost),
+    inputTokens: session.usage.inputTokens,
+    outputTokens: session.usage.outputTokens,
+  };
 }
