@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { Wallet, ExternalLink, Loader2, Clock, Copy, Check, RefreshCw, Database } from "lucide-react";
+import { Wallet, ExternalLink, Loader2, Clock, Copy, Check, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useState } from "react";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient } from "@/lib/queryClient";
 
 const TEMPO_RPC = "https://rpc.mainnet.tempo.xyz";
 const BALANCE_OF_SELECTOR = "0x70a08231";
@@ -64,23 +64,6 @@ interface Transaction {
 export default function WalletPage() {
   const { privyUser } = useAuth();
   const [copied, setCopied] = useState(false);
-  const [seeding, setSeeding] = useState(false);
-  const [seedResult, setSeedResult] = useState<string | null>(null);
-
-  const handleSeed = async () => {
-    setSeeding(true);
-    setSeedResult(null);
-    try {
-      const res = await apiRequest("POST", "/api/admin/seed-from-dev");
-      const data = await res.json();
-      setSeedResult(`Done: ${data.companyCount} companies, ${data.founderCount} founders, ${data.reportCount} reports`);
-      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
-    } catch (err: any) {
-      setSeedResult(`Error: ${err.message}`);
-    } finally {
-      setSeeding(false);
-    }
-  };
 
   const embeddedWallet = privyUser?.wallet;
   const walletAddress = embeddedWallet?.address;
@@ -228,21 +211,7 @@ export default function WalletPage() {
                         <ExternalLink className="w-3 h-3" />
                       </Button>
                     </a>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="text-xs"
-                      onClick={handleSeed}
-                      disabled={seeding}
-                      data-testid="button-seed-data"
-                    >
-                      {seeding ? <Loader2 className="w-3 h-3 animate-spin" /> : <Database className="w-3 h-3" />}
-                      {seeding ? "Seeding..." : "Seed Data"}
-                    </Button>
                   </>
-                )}
-                {seedResult && (
-                  <p className="text-xs text-muted-foreground mt-1">{seedResult}</p>
                 )}
               </div>
             </div>
