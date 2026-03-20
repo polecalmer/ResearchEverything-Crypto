@@ -20,11 +20,18 @@ declare global {
 export const requireAuth: RequestHandler = async (req, res, next) => {
   try {
     const authHeader = req.headers.authorization;
-    if (!authHeader?.startsWith("Bearer ")) {
-      return res.status(401).json({ message: "Authentication required" });
+    const privyToken = req.headers["x-privy-token"] as string | undefined;
+
+    let token: string | undefined;
+    if (authHeader?.startsWith("Bearer ")) {
+      token = authHeader.slice(7);
+    } else if (privyToken) {
+      token = privyToken;
     }
 
-    const token = authHeader.slice(7);
+    if (!token) {
+      return res.status(401).json({ message: "Authentication required" });
+    }
     const { user_id: privyUserId } = await privy.utils().auth().verifyAuthToken(token);
 
     let user = await storage.getUserByPrivyId(privyUserId);

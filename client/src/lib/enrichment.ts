@@ -70,7 +70,10 @@ export async function runEnrichmentPipeline(
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (getAccessToken) {
     const token = await getAccessToken();
-    if (token) headers["Authorization"] = `Bearer ${token}`;
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+      headers["X-Privy-Token"] = token;
+    }
   }
 
   const prepareRes = await fetch("/api/enrich/prepare", {
@@ -132,7 +135,10 @@ export async function runNextStepsPipeline(
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (getAccessToken) {
     const token = await getAccessToken();
-    if (token) headers["Authorization"] = `Bearer ${token}`;
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+      headers["X-Privy-Token"] = token;
+    }
   }
 
   const prepareRes = await fetch(`/api/companies/${companyId}/next-steps/prepare`, {
@@ -188,7 +194,10 @@ export async function runDeepResearchPipeline(
   const headers: Record<string, string> = { "Content-Type": "application/json" };
   if (getAccessToken) {
     const token = await getAccessToken();
-    if (token) headers["Authorization"] = `Bearer ${token}`;
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+      headers["X-Privy-Token"] = token;
+    }
   }
 
   const prepareRes = await fetch(`/api/companies/${companyId}/reports/prepare`, {
