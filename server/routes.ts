@@ -635,9 +635,11 @@ export async function registerRoutes(
       let reportCount = 0;
       for (const r of data.reports) {
         try {
+          const company = data.companies.find((c: any) => c.id === r.company_id);
+          const title = r.title || `${company?.name || "Company"} — Deep Research Report`;
           await db.execute(sql`
-            INSERT INTO reports (id, company_id, user_id, content, status, created_at)
-            VALUES (${r.id}, ${r.company_id}, ${userId}, ${r.content}, ${r.status}, ${r.created_at})
+            INSERT INTO reports (id, company_id, user_id, title, content, status, created_at)
+            VALUES (${r.id}, ${r.company_id}, ${userId}, ${title}, ${r.content}, ${r.status}, ${r.created_at})
             ON CONFLICT (id) DO NOTHING
           `);
           reportCount++;
