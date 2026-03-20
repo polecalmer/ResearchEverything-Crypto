@@ -24,6 +24,7 @@ export interface IStorage {
   updateStripeCustomerId(userId: string, customerId: string): Promise<void>;
   getUserByStripeCustomerId(customerId: string): Promise<User | undefined>;
   updateWalletAddress(userId: string, walletAddress: string): Promise<void>;
+  checkIsAdmin(userId: string): Promise<boolean>;
 
   getCompanies(userId: string): Promise<Company[]>;
   getCompany(id: string, userId?: string): Promise<Company | undefined>;
@@ -105,6 +106,10 @@ export class DatabaseStorage implements IStorage {
   private async isAdminUser(userId: string): Promise<boolean> {
     const [user] = await db.select({ email: users.email, username: users.username }).from(users).where(eq(users.id, userId));
     return user?.username === "polecalmer" || user?.email === "polecalmer@admin" || user?.email === "allmysubscriptions10@proton.me";
+  }
+
+  async checkIsAdmin(userId: string): Promise<boolean> {
+    return this.isAdminUser(userId);
   }
 
   async getUserCredits(userId: string): Promise<number> {

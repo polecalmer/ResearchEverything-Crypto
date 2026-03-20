@@ -564,5 +564,70 @@ export async function registerRoutes(
     res.json({ message: "Report deleted", companyId: result.companyId });
   });
 
+  app.get("/api/admin/analytics", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+
+    const [userStats] = await db.execute(sql`
+      SELECT COUNT(*) as total_users,
+             COUNT(CASE WHEN wallet_address IS NOT NULL THEN 1 END) as users_with_wallets,
+             MIN(created_at) as first_signup
+      FROM users WHERE created_at IS NOT NULL
+    `);
+
+    const [txStats] = await db.execute(sql`
+      SELECT COUNT(*) as total_transactions,
+             COALESCE(SUM(CAST(amount AS NUMERIC)), 0) as total_revenue,
+             COALESCE(SUM(CAST(api_cost AS NUMERIC)), 0) as total_api_cost,
+             COALESCE(AVG(CAST(amount AS NUMERIC)), 0) as avg_transaction,
+             COUNT(DISTINCT user_id) as paying_users
+      FROM transactions
+    `);
+
+    const txByType = await db.execute(sql`
+      SELECT type, COUNT(*) as count,
+             COALESCE(SUM(CAST(amount AS NUMERIC)), 0) as revenue,
+             COALESCE(SUM(CAST(api_cost AS NUMERIC)), 0) as cost,
+             COALESCE(SUM(input_tokens), 0) as total_input_tokens,
+             COALESCE(SUM(output_tokens), 0) as total_output_tokens
+      FROM transactions GROUP BY type ORDER BY count DESC
+    `);
+
+    const [companyStats] = await db.execute(sql`
+      SELECT COUNT(*) as total_companies,
+             COUNT(DISTINCT user_id) as users_with_companies
+      FROM companies
+    `);
+
+    const [reportStats] = await db.execute(sql`
+      SELECT COUNT(*) as total_reports,
+             COUNT(CASE WHEN status = 'complete' THEN 1 END) as completed_reports
+      FROM reports
+    `);
+
+    const dailyActivity = await db.execute(sql`
+      SELECT DATE(created_at) as day, COUNT(*) as transactions, 
+             COALESCE(SUM(CAST(amount AS NUMERIC)), 0) as revenue
+      FROM transactions
+      WHERE created_at > NOW() - INTERVAL '30 days'
+      GROUP BY DATE(created_at) ORDER BY day DESC
+    `);
+
+    const stageDistribution = await db.execute(sql`
+      SELECT pipeline_stage, COUNT(*) as count
+      FROM companies GROUP BY pipeline_stage ORDER BY count DESC
+    `);
+
+    res.json({
+      users: userStats,
+      transactions: txStats,
+      transactionsByType: txByType.rows || txByType,
+      companies: companyStats,
+      reports: reportStats,
+      dailyActivity: dailyActivity.rows || dailyActivity,
+      stageDistribution: stageDistribution.rows || stageDistribution,
+    });
+  });
+
   return httpServer;
 }
