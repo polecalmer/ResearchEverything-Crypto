@@ -15,18 +15,18 @@ function wrapProvider(provider: EIP1193Provider): EIP1193Provider {
     ...provider,
     request: async (args: any) => {
       if (args.method === "wallet_sendCalls") {
-        const calls = args.params?.[0]?.calls || args.params?.calls || [];
-        const from = args.params?.[0]?.from || args.params?.from;
-        const results: string[] = [];
-        for (const call of calls) {
-          const txHash = await provider.request({
-            method: "eth_sendTransaction",
-            params: [{ from, to: call.to, data: call.data, value: call.value }],
-          });
-          results.push(txHash as string);
-        }
-        const lastHash = results[results.length - 1];
-        return { receipts: [{ transactionHash: lastHash }] };
+        const err = new Error("wallet_sendCalls is not supported");
+        (err as any).code = -32601;
+        (err as any).name = "MethodNotFoundRpcError";
+        (err as any).details = "does not exist / is not available";
+        throw err;
+      }
+      if (args.method === "wallet_getCallsStatus") {
+        const err = new Error("wallet_getCallsStatus is not supported");
+        (err as any).code = -32601;
+        (err as any).name = "MethodNotFoundRpcError";
+        (err as any).details = "does not exist / is not available";
+        throw err;
       }
       return provider.request(args);
     },
