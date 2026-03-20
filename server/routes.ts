@@ -581,11 +581,18 @@ export async function registerRoutes(
       const data = JSON.parse(fs.readFileSync(dataPath, "utf-8"));
       const userId = user.id;
 
+      const seedCompanyIds = data.companies.map((c: any) => `'${c.id}'`).join(",");
+      const seedFounderIds = data.founders.map((f: any) => `'${f.id}'`).join(",");
+
       await db.execute(sql`DELETE FROM reports WHERE user_id = ${userId}`);
+      await db.execute(sql`DELETE FROM reports WHERE company_id IN (${sql.raw(seedCompanyIds)})`);
       await db.execute(sql`DELETE FROM notes WHERE company_id IN (SELECT id FROM companies WHERE user_id = ${userId})`);
+      await db.execute(sql`DELETE FROM notes WHERE company_id IN (${sql.raw(seedCompanyIds)})`);
       await db.execute(sql`DELETE FROM founders WHERE company_id IN (SELECT id FROM companies WHERE user_id = ${userId})`);
+      await db.execute(sql`DELETE FROM founders WHERE company_id IN (${sql.raw(seedCompanyIds)})`);
+      await db.execute(sql`DELETE FROM founders WHERE id IN (${sql.raw(seedFounderIds)})`);
       await db.execute(sql`DELETE FROM companies WHERE user_id = ${userId}`);
-      await db.execute(sql`DELETE FROM founders WHERE id IN (${sql.raw(data.founders.map((f: any) => `'${f.id}'`).join(","))})`);
+      await db.execute(sql`DELETE FROM companies WHERE id IN (${sql.raw(seedCompanyIds)})`);
 
       let companyCount = 0;
       for (const c of data.companies) {
