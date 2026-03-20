@@ -190,12 +190,14 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
                         {company.oneLiner.length > maxChars ? company.oneLiner.slice(0, maxChars) + "…" : company.oneLiner}
                       </text>
                     )}
-                    {showDesc && company.excitementReason && (
-                      <text x={rect.x + px + 7} y={rect.y + px + 41} fill={es ? excitementScoreColor(es, isDark) : C.muted} fontSize={9} fontFamily="system-ui, -apple-system, sans-serif" opacity={0.6}>
-                        {company.excitementReason.length > maxChars ? company.excitementReason.slice(0, maxChars) + "…" : company.excitementReason}
-                      </text>
-                    )}
                   </g>
+                  {showDesc && company.excitementReason && (
+                    <foreignObject x={rect.x + px + 5} y={rect.y + px + 33} width={cw - 10} height={ch - 38}>
+                      <div style={{ fontSize: 9, fontFamily: "system-ui, -apple-system, sans-serif", color: es ? excitementScoreColor(es, isDark) : C.muted, opacity: 0.6, lineHeight: "12px", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: Math.max(1, Math.floor((ch - 42) / 12)), WebkitBoxOrient: "vertical" as const }}>
+                        {company.excitementReason}
+                      </div>
+                    </foreignObject>
+                  )}
                 </g>
               );
             })}
