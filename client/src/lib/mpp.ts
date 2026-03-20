@@ -54,6 +54,7 @@ export async function initMppx(provider: EIP1193Provider) {
       tempo({
         account: address,
         getClient: () => walletClient,
+        maxDeposit: "5",
       }),
     ],
     polyfill: true,
