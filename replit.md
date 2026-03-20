@@ -30,7 +30,7 @@ Key files: `server/auth.ts` (Privy token verification), `client/src/hooks/use-au
 - **Companies**: Core deal entities with userId, name, one-liner, description, sector, business model, stage, funding history, competitive landscape, source URL, website URL, GitHub URL, Twitter URL, LinkedIn URL, pipeline stage, tags, excitementScore (1-10 nullable), and excitementReason (text nullable)
 - **Founders**: Linked to companies with name, role, bio, LinkedIn/Twitter/GitHub/personal URLs, prior companies
 - **Notes**: Time-stamped notes attached to companies
-- **Transactions**: Enrichment payment log — userId, type, description, amount (pathUSD charged), apiCost, companyName, inputTokens, outputTokens, createdAt
+- **Transactions**: Payment log — userId, type (enrichment/next_steps/deep_research), description, amount (USDC charged), apiCost, companyName, inputTokens, outputTokens, txHash (on-chain tx reference), status (success/failed), createdAt
 
 ## Pipeline Stages
 

@@ -182,7 +182,7 @@ export async function registerRoutes(
     }
   });
 
-  async function logEnrichmentTransaction(userId: string, result: EnrichmentResult) {
+  async function logEnrichmentTransaction(userId: string, result: EnrichmentResult, txHash?: string, status: string = "success") {
     try {
       await storage.logTransaction({
         userId,
@@ -193,6 +193,8 @@ export async function registerRoutes(
         companyName: result.enriched.name || undefined,
         inputTokens: result.tokenUsage.inputTokens,
         outputTokens: result.tokenUsage.outputTokens,
+        txHash,
+        status,
       });
     } catch (err) {
       console.error("[Transaction] Failed to log:", err);
@@ -200,25 +202,45 @@ export async function registerRoutes(
   }
 
   app.post("/api/enrich", requireAuth, enrichmentPaywall, async (req, res) => {
+    const txHash = req.mppReceipt?.reference;
     try {
       const parsed = enrichRequestSchema.safeParse(req.body);
       if (!parsed.success) {
+        if (txHash) {
+          await storage.logTransaction({ userId: req.user!.id, type: "enrichment", description: "Enrichment failed: invalid request", amount: "0", txHash, status: "failed" }).catch(() => {});
+        }
         return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
       }
 
       const result = await enrichFromInput(parsed.data.input);
-      await logEnrichmentTransaction(req.user!.id, result);
+      await logEnrichmentTransaction(req.user!.id, result, txHash);
       res.json(result.enriched);
     } catch (error: any) {
       console.error("Enrichment error:", error);
+      try {
+        await storage.logTransaction({
+          userId: req.user!.id,
+          type: "enrichment",
+          description: `AI enrichment failed: ${error.message}`,
+          amount: "0",
+          txHash,
+          status: "failed",
+        });
+      } catch (logErr) {
+        console.error("[Transaction] Failed to log failed enrichment:", logErr);
+      }
       res.status(500).json({ message: "AI enrichment failed", error: error.message });
     }
   });
 
   app.post("/api/enrich/stream", requireAuth, enrichmentPaywall, async (req, res) => {
+    const txHash = req.mppReceipt?.reference;
     try {
       const parsed = enrichRequestSchema.safeParse(req.body);
       if (!parsed.success) {
+        if (txHash) {
+          await storage.logTransaction({ userId: req.user!.id, type: "enrichment", description: "Enrichment failed: invalid request", amount: "0", txHash, status: "failed" }).catch(() => {});
+        }
         return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
       }
 
@@ -231,11 +253,23 @@ export async function registerRoutes(
       };
 
       const result = await enrichFromInputWithProgress(parsed.data.input, sendEvent);
-      await logEnrichmentTransaction(req.user!.id, result);
+      await logEnrichmentTransaction(req.user!.id, result, txHash);
       sendEvent({ type: "complete", data: result.enriched });
       res.end();
     } catch (error: any) {
       console.error("Enrichment stream error:", error);
+      try {
+        await storage.logTransaction({
+          userId: req.user!.id,
+          type: "enrichment",
+          description: `AI enrichment failed: ${error.message}`,
+          amount: "0",
+          txHash,
+          status: "failed",
+        });
+      } catch (logErr) {
+        console.error("[Transaction] Failed to log failed enrichment:", logErr);
+      }
       if (res.headersSent) {
         res.write(`data: ${JSON.stringify({ type: "error", message: error.message })}\n\n`);
         res.end();
@@ -246,9 +280,13 @@ export async function registerRoutes(
   });
 
   app.post("/api/companies/enrich-and-create", requireAuth, enrichmentPaywall, async (req, res) => {
+    const txHash = req.mppReceipt?.reference;
     try {
       const parsed = enrichAndCreateSchema.safeParse(req.body);
       if (!parsed.success) {
+        if (txHash) {
+          await storage.logTransaction({ userId: req.user!.id, type: "enrichment", description: "Enrichment failed: invalid request", amount: "0", txHash, status: "failed" }).catch(() => {});
+        }
         return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
       }
       const { input, pipelineStage } = parsed.data;
@@ -256,7 +294,7 @@ export async function registerRoutes(
 
       const result = await enrichFromInput(input);
       const enriched = result.enriched;
-      await logEnrichmentTransaction(userId, result);
+      await logEnrichmentTransaction(userId, result, txHash);
 
       const isUrl = input.startsWith("http://") || input.startsWith("https://");
 
@@ -317,6 +355,18 @@ export async function registerRoutes(
       res.status(201).json(company);
     } catch (error: any) {
       console.error("Enrich-and-create error:", error);
+      try {
+        await storage.logTransaction({
+          userId: req.user!.id,
+          type: "enrichment",
+          description: `AI enrichment failed: ${error.message}`,
+          amount: "0",
+          txHash,
+          status: "failed",
+        });
+      } catch (logErr) {
+        console.error("[Transaction] Failed to log failed enrichment:", logErr);
+      }
       res.status(500).json({ message: "Failed to create enriched company", error: error.message });
     }
   });
@@ -328,10 +378,14 @@ export async function registerRoutes(
   });
 
   app.get("/api/companies/:id/next-steps", requireAuth, nextStepsPaywall, async (req, res) => {
+    const txHash = req.mppReceipt?.reference;
     try {
       const userId = req.user!.id;
       const company = await storage.getCompany(req.params.id, userId);
       if (!company) {
+        if (txHash) {
+          await storage.logTransaction({ userId, type: "next_steps", description: "Next steps failed: company not found", amount: "0", txHash, status: "failed" }).catch(() => {});
+        }
         return res.status(404).json({ message: "Company not found" });
       }
       const founders = await storage.getFoundersByCompany(req.params.id);
@@ -380,6 +434,7 @@ export async function registerRoutes(
           companyName: company.name,
           inputTokens: result.inputTokens,
           outputTokens: result.outputTokens,
+          txHash,
         });
       } catch (err) {
         console.error("[Transaction] Failed to log next-steps:", err);
@@ -388,6 +443,19 @@ export async function registerRoutes(
       res.json(result.steps);
     } catch (error: any) {
       console.error("Next steps generation error:", error);
+      const companyName = req.params.id;
+      try {
+        await storage.logTransaction({
+          userId: req.user!.id,
+          type: "next_steps",
+          description: `AI next steps failed: ${error.message}`,
+          amount: "0",
+          txHash,
+          status: "failed",
+        });
+      } catch (logErr) {
+        console.error("[Transaction] Failed to log failed next-steps:", logErr);
+      }
       res.status(500).json({ message: "Failed to generate next steps", error: error.message });
     }
   });
@@ -496,16 +564,23 @@ export async function registerRoutes(
   });
 
   app.post("/api/companies/:id/reports/generate", requireAuth, deepResearchPaywall, async (req, res) => {
+    const txHash = req.mppReceipt?.reference;
+    const userId = req.user!.id;
     try {
-      const company = await storage.getCompany(req.params.id, req.user!.id);
-      if (!company) return res.status(404).json({ message: "Company not found" });
+      const company = await storage.getCompany(req.params.id, userId);
+      if (!company) {
+        if (txHash) {
+          await storage.logTransaction({ userId, type: "deep_research", description: "Deep research failed: company not found", amount: "0", txHash, status: "failed" }).catch(() => {});
+        }
+        return res.status(404).json({ message: "Company not found" });
+      }
 
       const founders = await storage.getFoundersByCompany(company.id);
       const notes = await storage.getNotesByCompany(company.id);
 
       const report = await storage.createReport({
         companyId: company.id,
-        userId: req.user!.id,
+        userId,
         title: `${company.name} — Deep Research Report`,
         content: "",
         status: "generating",
@@ -526,7 +601,7 @@ export async function registerRoutes(
         console.log(`[DeepResearch] Report complete for ${company.name} (${report.id}). Cost: $${result.apiCost.toFixed(4)}`);
         try {
           await storage.logTransaction({
-            userId: req.user!.id,
+            userId,
             type: "deep_research",
             description: `Deep research: ${company.name}`,
             amount: result.totalCharge.toFixed(4),
@@ -534,6 +609,7 @@ export async function registerRoutes(
             companyName: company.name,
             inputTokens: result.inputTokens,
             outputTokens: result.outputTokens,
+            txHash,
           });
         } catch (err) {
           console.error("[Transaction] Failed to log deep-research:", err);
@@ -544,9 +620,34 @@ export async function registerRoutes(
           content: `# Report Generation Failed\n\nAn error occurred while generating the deep research report.\n\nError: ${error.message}`,
           status: "failed",
         });
+        try {
+          await storage.logTransaction({
+            userId,
+            type: "deep_research",
+            description: `Deep research failed: ${company.name} — ${error.message}`,
+            amount: "0",
+            companyName: company.name,
+            txHash,
+            status: "failed",
+          });
+        } catch (logErr) {
+          console.error("[Transaction] Failed to log failed deep-research:", logErr);
+        }
       });
     } catch (error: any) {
       console.error("Report generation error:", error);
+      try {
+        await storage.logTransaction({
+          userId,
+          type: "deep_research",
+          description: `Deep research failed: ${error.message}`,
+          amount: "0",
+          txHash,
+          status: "failed",
+        });
+      } catch (logErr) {
+        console.error("[Transaction] Failed to log failed deep-research:", logErr);
+      }
       res.status(500).json({ message: "Failed to start report generation" });
     }
   });
