@@ -1,7 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
-import { Wallet, ExternalLink, Loader2, ArrowUpRight, ArrowDownLeft, Clock } from "lucide-react";
+import { Wallet, ExternalLink, Loader2, Clock, Copy, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
+import { useState } from "react";
 
 interface Transaction {
   id: string;
@@ -18,6 +19,7 @@ interface Transaction {
 
 export default function WalletPage() {
   const { privyUser } = useAuth();
+  const [copied, setCopied] = useState(false);
 
   const embeddedWallet = privyUser?.wallet;
   const walletAddress = embeddedWallet?.address;
@@ -32,6 +34,13 @@ export default function WalletPage() {
   const handleFundWallet = () => {
     if (!walletAddress) return;
     window.open("https://docs.tempo.xyz/guide/use-accounts/add-funds", "_blank");
+  };
+
+  const handleCopy = () => {
+    if (!walletAddress) return;
+    navigator.clipboard.writeText(walletAddress);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const formatDate = (dateStr: string) => {
@@ -53,117 +62,160 @@ export default function WalletPage() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-2xl mx-auto p-6 space-y-8">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight" data-testid="text-wallet-title">Wallet</h1>
-          <p className="text-sm text-muted-foreground mt-1">Your Tempo wallet and transaction history.</p>
-        </div>
-
-        <div className="flex items-center gap-3 py-4 border-t border-b">
-          <div className="w-10 h-10 rounded-md bg-accent flex items-center justify-center">
-            <Wallet className="w-5 h-5 text-muted-foreground" />
-          </div>
-          <div className="flex-1">
-            <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Tempo Wallet</p>
-            {walletAddress ? (
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-mono" data-testid="text-wallet-address">{truncatedAddress}</p>
-                <a
-                  href={`https://explore.mainnet.tempo.xyz/address/${walletAddress}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-muted-foreground hover:text-foreground transition-colors"
-                  data-testid="link-explorer"
-                >
-                  <ExternalLink className="w-3 h-3" />
-                </a>
-              </div>
-            ) : (
-              <p className="text-sm text-muted-foreground">No wallet connected</p>
-            )}
-          </div>
+      <div className="max-w-4xl mx-auto p-6">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground mb-6">
+          <span>Wallet</span>
           {walletAddress && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleFundWallet}
-              data-testid="button-fund-wallet"
-            >
-              Fund Wallet
-            </Button>
+            <>
+              <span className="text-muted-foreground/40">&gt;</span>
+              <span className="font-mono">{truncatedAddress}</span>
+            </>
           )}
         </div>
 
-        {txs && txs.length > 0 && (
-          <div className="flex items-center gap-6 py-3">
-            <div>
-              <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Total Spent</p>
-              <p className="text-lg font-bold tabular-nums" data-testid="text-total-spent">${totalSpent.toFixed(2)}</p>
-            </div>
-            <div>
-              <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground">Enrichments</p>
-              <p className="text-lg font-bold tabular-nums" data-testid="text-tx-count">{txs.length}</p>
+        <div className="flex gap-6 flex-col lg:flex-row">
+          <div className="lg:w-64 shrink-0 space-y-4">
+            <div className="rounded-lg border border-border p-4 space-y-4">
+              <div>
+                <p className="text-[10px] uppercase tracking-widest text-muted-foreground mb-1">Address</p>
+                {walletAddress ? (
+                  <div className="flex items-center gap-1.5">
+                    <p className="text-xs font-mono text-foreground break-all leading-relaxed" data-testid="text-wallet-address">
+                      {walletAddress}
+                    </p>
+                    <button
+                      onClick={handleCopy}
+                      className="text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                      data-testid="button-copy-address"
+                      aria-label="Copy wallet address"
+                    >
+                      {copied ? <Check className="w-3 h-3 text-emerald-500" /> : <Copy className="w-3 h-3" />}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Not connected</p>
+                )}
+              </div>
+              <div className="flex justify-between">
+                <div>
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Total Spent</p>
+                  <p className="text-sm font-mono font-semibold tabular-nums" data-testid="text-total-spent">
+                    ${totalSpent.toFixed(2)}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Txns</p>
+                  <p className="text-sm font-mono font-semibold tabular-nums" data-testid="text-tx-count">
+                    {txs?.length ?? 0}
+                  </p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                {walletAddress && (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 text-xs"
+                      onClick={handleFundWallet}
+                      data-testid="button-fund-wallet"
+                    >
+                      Fund Wallet
+                    </Button>
+                    <a
+                      href={`https://explore.mainnet.tempo.xyz/address/${walletAddress}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      data-testid="link-explorer"
+                    >
+                      <Button variant="outline" size="sm" className="text-xs" aria-label="View on Tempo Explorer">
+                        <ExternalLink className="w-3 h-3" />
+                      </Button>
+                    </a>
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        )}
 
-        <div>
-          <h2 className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-4">Transaction History</h2>
-          {txsLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-            </div>
-          ) : !txs || txs.length === 0 ? (
-            <div className="py-12 text-center">
-              <Clock className="w-8 h-8 text-muted-foreground mx-auto mb-3" />
-              <p className="text-sm text-muted-foreground">No transactions yet</p>
-              <p className="text-xs text-muted-foreground mt-1">Transactions will appear here when you run enrichments.</p>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {txs.map((tx) => (
-                <div
-                  key={tx.id}
-                  className="flex items-center gap-3 py-3 border-b last:border-b-0"
-                  data-testid={`row-tx-${tx.id}`}
-                >
-                  <div className="w-8 h-8 rounded-md bg-accent flex items-center justify-center shrink-0">
-                    {tx.type === "enrichment" ? (
-                      <ArrowUpRight className="w-4 h-4 text-muted-foreground" />
-                    ) : (
-                      <ArrowDownLeft className="w-4 h-4 text-muted-foreground" />
-                    )}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate" data-testid={`text-tx-desc-${tx.id}`}>
-                      {tx.description}
-                    </p>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span>{formatDate(tx.createdAt)}</span>
-                      {tx.apiCost && (
-                        <>
-                          <span>·</span>
-                          <span>API: ${tx.apiCost}</span>
-                        </>
-                      )}
-                      {tx.inputTokens && tx.outputTokens && (
-                        <>
-                          <span>·</span>
-                          <span>{(tx.inputTokens + tx.outputTokens).toLocaleString()} tokens</span>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p className="text-sm font-mono font-medium tabular-nums" data-testid={`text-tx-amount-${tx.id}`}>
-                      -${parseFloat(tx.amount).toFixed(2)}
-                    </p>
-                    <p className="text-xs text-muted-foreground">pathUSD</p>
-                  </div>
+          <div className="flex-1 min-w-0">
+            <div className="rounded-lg border border-border overflow-hidden">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left text-[10px] uppercase tracking-widest text-muted-foreground font-medium px-4 py-3">Time</th>
+                    <th className="text-left text-[10px] uppercase tracking-widest text-muted-foreground font-medium px-4 py-3">Description</th>
+                    <th className="text-right text-[10px] uppercase tracking-widest text-muted-foreground font-medium px-4 py-3">Fee</th>
+                    <th className="text-right text-[10px] uppercase tracking-widest text-muted-foreground font-medium px-4 py-3">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {txsLoading ? (
+                    <tr>
+                      <td colSpan={4} className="text-center py-12">
+                        <Loader2 className="w-4 h-4 animate-spin text-muted-foreground mx-auto" />
+                      </td>
+                    </tr>
+                  ) : !txs || txs.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="text-center py-12">
+                        <Clock className="w-5 h-5 text-muted-foreground/40 mx-auto mb-2" />
+                        <p className="text-xs text-muted-foreground">No transactions yet</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    txs.map((tx) => (
+                      <tr
+                        key={tx.id}
+                        className="border-b border-border/50 last:border-b-0 hover:bg-accent/30 transition-colors"
+                        data-testid={`row-tx-${tx.id}`}
+                      >
+                        <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                          {formatDate(tx.createdAt)}
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className="text-sm" data-testid={`text-tx-desc-${tx.id}`}>
+                            {tx.companyName ? (
+                              <>
+                                <span className="text-muted-foreground">Enrichment </span>
+                                <span className="font-medium">{tx.companyName}</span>
+                              </>
+                            ) : (
+                              <span>{tx.description}</span>
+                            )}
+                          </span>
+                          {tx.inputTokens && tx.outputTokens && (
+                            <p className="text-[10px] text-muted-foreground font-mono mt-0.5">
+                              {tx.inputTokens.toLocaleString()} in · {tx.outputTokens.toLocaleString()} out
+                            </p>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right">
+                          {tx.apiCost && (
+                            <span className="text-xs text-muted-foreground/60 font-mono">
+                              ${parseFloat(tx.apiCost).toFixed(2)}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-3 text-right" data-testid={`text-tx-amount-${tx.id}`}>
+                          <span className="text-sm font-mono font-medium tabular-nums">
+                            ${parseFloat(tx.amount).toFixed(2)}
+                          </span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+              {txs && txs.length > 0 && (
+                <div className="flex items-center justify-end px-4 py-2.5 border-t border-border/50">
+                  <span className="text-xs text-muted-foreground font-mono">
+                    {txs.length} transaction{txs.length !== 1 ? "s" : ""}
+                  </span>
                 </div>
-              ))}
+              )}
             </div>
-          )}
+          </div>
         </div>
       </div>
     </div>

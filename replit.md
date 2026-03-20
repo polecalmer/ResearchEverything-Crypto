@@ -9,7 +9,7 @@ A deal pipeline management dashboard for VCs with a companion Chrome extension. 
 - **Database:** PostgreSQL with Drizzle ORM
 - **AI:** Anthropic Claude claude-opus-4-6 via Replit AI Integrations (no API key needed) for automatic deal enrichment
 - **Extension:** Chrome Manifest V3 extension with context menu, content scripts, and popup
-- **Styling:** Tailwind CSS with Inter font, editorial black/white primary color system
+- **Styling:** Tailwind CSS with Inter font, dark-first crypto-native aesthetic inspired by Tempo explorer (near-black backgrounds, subtle borders, monospace for addresses/amounts, green accent for amounts, table-style layouts)
 
 ## Authentication (Privy)
 

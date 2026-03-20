@@ -1,18 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
 import { type Company, STAGE_LABELS, type PipelineStage } from "@shared/schema";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 import {
   Search,
   Building2,
-  Clock,
   ExternalLink,
   Plus,
   Filter,
-  LayoutGrid,
-  List,
 } from "lucide-react";
 import { useState } from "react";
 import { formatDistanceToNow } from "date-fns";
@@ -24,107 +20,19 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-function CompanyRow({ company }: { company: Company }) {
-  const [, navigate] = useLocation();
-  const daysAgo = company.createdAt
-    ? formatDistanceToNow(new Date(company.createdAt), { addSuffix: true })
-    : "";
-
-  return (
-    <div
-      className="flex items-center gap-4 px-3 py-3 rounded-lg hover:bg-accent/50 cursor-pointer transition-colors group"
-      onClick={() => navigate(`/companies/${company.id}`)}
-      data-testid={`row-company-${company.id}`}
-    >
-      <div className="w-9 h-9 rounded-md bg-accent flex items-center justify-center flex-shrink-0">
-        {company.imageUrl ? (
-          <img src={company.imageUrl} alt={company.name} className="w-9 h-9 rounded-md object-cover" />
-        ) : (
-          <Building2 className="w-4.5 h-4.5 text-muted-foreground" />
-        )}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <h4 className="font-medium text-sm truncate" data-testid={`text-company-name-${company.id}`}>{company.name}</h4>
-          {company.sourceUrl && (
-            <a
-              href={company.sourceUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-            >
-              <ExternalLink className="w-3 h-3" />
-            </a>
-          )}
-        </div>
-        <p className="text-xs text-muted-foreground truncate mt-0.5">{company.oneLiner}</p>
-      </div>
-      <div className="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
-        {company.sector && (
-          <span className="text-[10px] text-muted-foreground bg-accent rounded px-1.5 py-0.5">{company.sector}{company.subSector ? ` · ${company.subSector}` : ""}</span>
-        )}
-        {company.stage && (
-          <span className="text-[10px] text-muted-foreground bg-accent rounded px-1.5 py-0.5">{company.stage}</span>
-        )}
-        <span className="text-[10px] text-muted-foreground/50 bg-accent rounded px-1.5 py-0.5">
-          {STAGE_LABELS[company.pipelineStage as PipelineStage]}
-        </span>
-        <span className="text-[10px] text-muted-foreground/40 flex items-center gap-0.5 ml-1">
-          <Clock className="w-2.5 h-2.5" />
-          {daysAgo}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function CompanyGridItem({ company }: { company: Company }) {
-  const [, navigate] = useLocation();
-  const daysAgo = company.createdAt
-    ? formatDistanceToNow(new Date(company.createdAt), { addSuffix: true })
-    : "";
-
-  return (
-    <div
-      className="p-4 rounded-lg hover:bg-accent/50 cursor-pointer transition-colors group"
-      onClick={() => navigate(`/companies/${company.id}`)}
-      data-testid={`card-company-grid-${company.id}`}
-    >
-      <div className="flex items-start gap-3 mb-2.5">
-        <div className="w-9 h-9 rounded-md bg-accent flex items-center justify-center flex-shrink-0">
-          {company.imageUrl ? (
-            <img src={company.imageUrl} alt={company.name} className="w-9 h-9 rounded-md object-cover" />
-          ) : (
-            <Building2 className="w-4.5 h-4.5 text-muted-foreground" />
-          )}
-        </div>
-        <div className="min-w-0">
-          <h4 className="font-medium text-sm truncate">{company.name}</h4>
-          <p className="text-[10px] text-muted-foreground/60 mt-0.5">{STAGE_LABELS[company.pipelineStage as PipelineStage]}</p>
-        </div>
-      </div>
-      <p className="text-xs text-muted-foreground line-clamp-2 mb-2.5">{company.oneLiner}</p>
-      <div className="flex items-center justify-between gap-1 flex-wrap">
-        <div className="flex items-center gap-1 flex-wrap">
-          {company.sector && (
-            <span className="text-[10px] text-muted-foreground bg-accent rounded px-1.5 py-0.5">{company.sector}{company.subSector ? ` · ${company.subSector}` : ""}</span>
-          )}
-          {company.stage && (
-            <span className="text-[10px] text-muted-foreground bg-accent rounded px-1.5 py-0.5">{company.stage}</span>
-          )}
-        </div>
-        <span className="text-[10px] text-muted-foreground/40">{daysAgo}</span>
-      </div>
-    </div>
-  );
-}
+const STAGE_DOT_COLORS: Record<PipelineStage, string> = {
+  discovered: "bg-blue-500",
+  researching: "bg-amber-500",
+  reaching_out: "bg-purple-500",
+  in_diligence: "bg-emerald-500",
+  passed: "bg-muted-foreground",
+  invested: "bg-green-500",
+};
 
 export default function Companies() {
   const [searchQuery, setSearchQuery] = useState("");
   const [stageFilter, setStageFilter] = useState<string>("all");
   const [sectorFilter, setSectorFilter] = useState<string>("all");
-  const [viewMode, setViewMode] = useState<"list" | "grid">("list");
   const [, navigate] = useLocation();
 
   const { data: companies = [], isLoading } = useQuery<Company[]>({
@@ -209,32 +117,12 @@ export default function Companies() {
             ))}
           </SelectContent>
         </Select>
-        <div className="flex items-center gap-0.5 ml-auto">
-          <Button
-            size="icon"
-            variant={viewMode === "list" ? "secondary" : "ghost"}
-            className="h-8 w-8"
-            onClick={() => setViewMode("list")}
-            data-testid="button-view-list"
-          >
-            <List className="w-3.5 h-3.5" />
-          </Button>
-          <Button
-            size="icon"
-            variant={viewMode === "grid" ? "secondary" : "ghost"}
-            className="h-8 w-8"
-            onClick={() => setViewMode("grid")}
-            data-testid="button-view-grid"
-          >
-            <LayoutGrid className="w-3.5 h-3.5" />
-          </Button>
-        </div>
       </div>
 
       {filtered.length === 0 ? (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
-            <Building2 className="w-10 h-10 text-muted-foreground mx-auto mb-3 opacity-30" />
+            <Building2 className="w-8 h-8 text-muted-foreground mx-auto mb-3 opacity-20" />
             <h3 className="text-sm font-medium mb-1">No companies found</h3>
             <p className="text-xs text-muted-foreground mb-4">
               {searchQuery ? "Try adjusting your search" : "Add your first deal to get started"}
@@ -247,17 +135,90 @@ export default function Companies() {
             )}
           </div>
         </div>
-      ) : viewMode === "list" ? (
-        <div className="flex-1 overflow-y-auto -mx-3">
-          {filtered.map((company) => (
-            <CompanyRow key={company.id} company={company} />
-          ))}
-        </div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-1 flex-1 overflow-y-auto -mx-3">
-          {filtered.map((company) => (
-            <CompanyGridItem key={company.id} company={company} />
-          ))}
+        <div className="flex-1 overflow-y-auto rounded-lg border border-border">
+          <table className="w-full">
+            <thead>
+              <tr className="border-b border-border">
+                <th className="text-left text-[10px] uppercase tracking-widest text-muted-foreground font-medium px-4 py-3">Company</th>
+                <th className="text-left text-[10px] uppercase tracking-widest text-muted-foreground font-medium px-4 py-3 hidden md:table-cell">Sector</th>
+                <th className="text-left text-[10px] uppercase tracking-widest text-muted-foreground font-medium px-4 py-3 hidden sm:table-cell">Stage</th>
+                <th className="text-left text-[10px] uppercase tracking-widest text-muted-foreground font-medium px-4 py-3">Pipeline</th>
+                <th className="text-right text-[10px] uppercase tracking-widest text-muted-foreground font-medium px-4 py-3 hidden lg:table-cell">Added</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((company) => {
+                const daysAgo = company.createdAt
+                  ? formatDistanceToNow(new Date(company.createdAt), { addSuffix: true })
+                  : "";
+                return (
+                  <tr
+                    key={company.id}
+                    className="border-b border-border/50 last:border-b-0 hover:bg-accent/30 transition-colors cursor-pointer focus-visible:bg-accent/30 outline-none"
+                    onClick={() => navigate(`/companies/${company.id}`)}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); navigate(`/companies/${company.id}`); } }}
+                    tabIndex={0}
+                    role="link"
+                    data-testid={`row-company-${company.id}`}
+                  >
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-7 h-7 rounded-md bg-accent flex items-center justify-center flex-shrink-0">
+                          {company.imageUrl ? (
+                            <img src={company.imageUrl} alt={company.name} className="w-7 h-7 rounded-md object-cover" />
+                          ) : (
+                            <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
+                          )}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-sm font-medium truncate" data-testid={`text-company-name-${company.id}`}>{company.name}</span>
+                            {company.sourceUrl && (
+                              <a
+                                href={company.sourceUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="text-muted-foreground/30 hover:text-muted-foreground transition-colors"
+                              >
+                                <ExternalLink className="w-3 h-3" />
+                              </a>
+                            )}
+                          </div>
+                          <p className="text-xs text-muted-foreground truncate max-w-[300px]">{company.oneLiner}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 hidden md:table-cell">
+                      <span className="text-xs text-muted-foreground">
+                        {company.sector || "—"}{company.subSector ? ` · ${company.subSector}` : ""}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 hidden sm:table-cell">
+                      <span className="text-xs text-muted-foreground">{company.stage || "—"}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1.5">
+                        <div className={`w-1.5 h-1.5 rounded-full ${STAGE_DOT_COLORS[company.pipelineStage as PipelineStage]}`} />
+                        <span className="text-xs text-muted-foreground">
+                          {STAGE_LABELS[company.pipelineStage as PipelineStage]}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-right hidden lg:table-cell">
+                      <span className="text-xs text-muted-foreground/60">{daysAgo}</span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <div className="flex items-center justify-end px-4 py-2.5 border-t border-border/50">
+            <span className="text-xs text-muted-foreground font-mono">
+              {filtered.length} compan{filtered.length !== 1 ? "ies" : "y"}
+            </span>
+          </div>
         </div>
       )}
     </div>

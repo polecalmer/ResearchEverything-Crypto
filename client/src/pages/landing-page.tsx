@@ -53,28 +53,28 @@ function TypingDemo() {
 
 function DealCardPreview() {
   return (
-    <div className="rounded-xl border bg-card/80 backdrop-blur-sm p-5 space-y-4 max-w-sm w-full">
+    <div className="rounded-lg border border-border/60 bg-card/50 p-5 space-y-4 max-w-sm w-full">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-violet-500 to-blue-500 flex items-center justify-center">
-            <span className="text-xs font-bold text-white">F</span>
+          <div className="w-7 h-7 rounded-md bg-accent flex items-center justify-center">
+            <span className="text-xs font-mono font-bold text-foreground">F</span>
           </div>
           <div>
             <p className="text-sm font-semibold">Fermi Labs</p>
-            <p className="text-[10px] text-muted-foreground">AI Infra</p>
+            <p className="text-[10px] text-muted-foreground font-mono">AI Infra</p>
           </div>
         </div>
-        <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-medium">Verified</span>
+        <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-mono">verified</span>
       </div>
       <p className="text-xs text-muted-foreground leading-relaxed">
         Building verifiable compute infrastructure for AI model inference, enabling cryptographic proofs that ML outputs were generated correctly.
       </p>
       <div className="flex gap-1.5 flex-wrap">
         {["ZK Proofs", "AI Infra", "Seed"].map((tag) => (
-          <span key={tag} className="text-[10px] px-2 py-0.5 rounded bg-accent text-muted-foreground">{tag}</span>
+          <span key={tag} className="text-[10px] px-2 py-0.5 rounded bg-accent text-muted-foreground font-mono">{tag}</span>
         ))}
       </div>
-      <div className="border-t pt-3 space-y-1.5">
+      <div className="border-t border-border/40 pt-3 space-y-1.5">
         <div className="flex items-center gap-1.5">
           <ShieldCheck className="w-3 h-3 text-emerald-500" />
           <span className="text-[10px] text-muted-foreground">3 claims verified, 1 removed</span>
@@ -117,18 +117,18 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-b">
-        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
+      <nav className="fixed top-0 left-0 right-0 z-50 bg-background/90 backdrop-blur-lg border-b border-border/50">
+        <div className="max-w-6xl mx-auto px-6 h-12 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Bookmark className="w-5 h-5 text-foreground" />
+            <Bookmark className="w-4 h-4 text-foreground" />
             <span className="text-sm font-semibold tracking-tight">BookMark</span>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <a href="#pricing">
-              <Button variant="ghost" size="sm" className="text-xs h-8" data-testid="button-nav-pricing">Pricing</Button>
+              <Button variant="ghost" size="sm" className="text-xs h-7 text-muted-foreground hover:text-foreground" data-testid="button-nav-pricing">Pricing</Button>
             </a>
-            <Button variant="ghost" size="sm" className="text-xs h-8" onClick={() => login()} data-testid="button-nav-login">Sign in</Button>
-            <Button size="sm" className="text-xs h-8" onClick={() => login()} data-testid="button-nav-signup">Get started</Button>
+            <Button variant="ghost" size="sm" className="text-xs h-7 text-muted-foreground hover:text-foreground" onClick={() => login()} data-testid="button-nav-login">Sign in</Button>
+            <Button size="sm" className="text-xs h-7" onClick={() => login()} data-testid="button-nav-signup">Get started</Button>
           </div>
         </div>
       </nav>
