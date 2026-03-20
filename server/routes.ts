@@ -42,6 +42,39 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
 
+  app.post("/api/ai/proxy", async (req, res) => {
+    try {
+      const upstreamUrl = "https://anthropic.mpp.tempo.xyz/v1/messages";
+      const forwardHeaders: Record<string, string> = {
+        "Content-Type": "application/json",
+        "anthropic-version": req.headers["anthropic-version"] as string || "2023-06-01",
+        "x-api-key": req.headers["x-api-key"] as string || "mpp",
+      };
+      if (req.headers["authorization"]) {
+        forwardHeaders["Authorization"] = req.headers["authorization"] as string;
+      }
+
+      const upstream = await fetch(upstreamUrl, {
+        method: "POST",
+        headers: forwardHeaders,
+        body: JSON.stringify(req.body),
+      });
+
+      for (const [key, value] of upstream.headers.entries()) {
+        if (key.toLowerCase() !== "transfer-encoding") {
+          res.setHeader(key, value);
+        }
+      }
+
+      res.status(upstream.status);
+      const body = await upstream.arrayBuffer();
+      res.end(Buffer.from(body));
+    } catch (error: any) {
+      console.error("[AI Proxy] Error:", error.message);
+      res.status(502).json({ message: "AI proxy error" });
+    }
+  });
+
   app.post("/api/telegram/link-code", requireAuth, async (req, res) => {
     const code = generateTelegramLinkCode(req.user!.id);
     res.json({ code, expiresIn: "10 minutes" });
