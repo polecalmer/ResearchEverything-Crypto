@@ -95,7 +95,7 @@ function AuthenticatedApp() {
           <header className="flex items-center gap-1 p-2 border-b border-border/50">
             <SidebarTrigger data-testid="button-sidebar-toggle" />
           </header>
-          <main className="flex-1 overflow-hidden">
+          <main className="flex-1 overflow-hidden flex flex-col">
             <Switch>
               <Route path="/" component={Pipeline} />
               <Route path="/companies" component={Companies} />

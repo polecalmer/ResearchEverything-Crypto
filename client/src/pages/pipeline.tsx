@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLocation } from "wouter";
 import { Search, Sparkles, Plus } from "lucide-react";
-import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 
 const STAGE_ACCENT: Record<PipelineStage, string> = {
   discovered: "#3b82f6",
@@ -102,20 +102,10 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
   const { cells, stages } = useMemo(() => layout(byStage, dim.w, dim.h), [byStage, dim.w, dim.h]);
 
   const px = 1;
-
-  const cs = useCallback(() => {
-    const s = getComputedStyle(document.documentElement);
-    return {
-      bg: `hsl(${s.getPropertyValue("--background").trim()})`,
-      fg: `hsl(${s.getPropertyValue("--foreground").trim()})`,
-      border: `hsl(${s.getPropertyValue("--border").trim()})`,
-      muted: `hsl(${s.getPropertyValue("--muted-foreground").trim()})`,
-      card: `hsl(${s.getPropertyValue("--card").trim()})`,
-      accent: `hsl(${s.getPropertyValue("--accent").trim()})`,
-    };
-  }, []);
-  const [colors, setColors] = useState(cs);
-  useEffect(() => { setColors(cs()); const mo = new MutationObserver(() => setColors(cs())); mo.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] }); return () => mo.disconnect(); }, [cs]);
+  const isDark = document.documentElement.classList.contains("dark");
+  const C = isDark
+    ? { border: "#2a2f42", card: "#181c2a", accent: "#252a3d", fg: "#e8e8e8", muted: "#888fa0" }
+    : { border: "#d0d4dd", card: "#f4f5f7", accent: "#e8eaef", fg: "#1c1f26", muted: "#6b7280" };
 
   return (
     <div ref={ref} className="flex-1 relative overflow-hidden bg-background">
@@ -123,7 +113,7 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
         <svg width={dim.w} height={dim.h} className="block" style={{ shapeRendering: "crispEdges" }}>
           {stages.map(({ stage, rect }) => (
             <g key={`s-${stage}`}>
-              <rect x={rect.x} y={rect.y} width={rect.w} height={rect.h} fill="none" stroke={colors.border} strokeWidth={1} />
+              <rect x={rect.x} y={rect.y} width={rect.w} height={rect.h} fill="none" stroke={C.border} strokeWidth={1} />
               {rect.w > 50 && (
                 <text
                   x={rect.x + 6}
@@ -141,7 +131,7 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
                 <text
                   x={rect.x + rect.w - 6}
                   y={rect.y + 12}
-                  fill={colors.muted}
+                  fill={C.muted}
                   fontSize={9}
                   fontFamily="ui-monospace, SFMono-Regular, 'SF Mono', monospace"
                   textAnchor="end"
@@ -177,8 +167,8 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
                   y={rect.y + px}
                   width={cw}
                   height={ch}
-                  fill={isH ? colors.accent : colors.card}
-                  stroke={colors.border}
+                  fill={isH ? C.accent : C.card}
+                  stroke={C.border}
                   strokeWidth={1}
                 />
                 {isH && (
@@ -198,7 +188,7 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
                   <text
                     x={rect.x + px + 7}
                     y={rect.y + px + (ch < 24 ? ch / 2 + 3.5 : 15)}
-                    fill={colors.fg}
+                    fill={C.fg}
                     fontSize={cw > 90 ? 11 : cw > 60 ? 10 : 8}
                     fontWeight={500}
                     fontFamily="system-ui, -apple-system, sans-serif"
@@ -210,7 +200,7 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
                     <text
                       x={rect.x + px + 7}
                       y={rect.y + px + 28}
-                      fill={colors.muted}
+                      fill={C.muted}
                       fontSize={9}
                       fontFamily="ui-monospace, SFMono-Regular, 'SF Mono', monospace"
                       opacity={0.7}
@@ -222,7 +212,7 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
                     <text
                       x={rect.x + px + 7}
                       y={rect.y + px + 41}
-                      fill={colors.muted}
+                      fill={C.muted}
                       fontSize={9}
                       fontFamily="system-ui, -apple-system, sans-serif"
                       opacity={0.4}
@@ -293,7 +283,7 @@ export default function Pipeline() {
           />
         </div>
       </div>
-      <div className="flex-1 px-6 pb-6">
+      <div className="flex-1 px-6 pb-6 flex flex-col min-h-0">
         <TreemapView byStage={byStage} />
       </div>
     </div>
