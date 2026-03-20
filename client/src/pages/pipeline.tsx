@@ -1,289 +1,219 @@
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useQuery } from "@tanstack/react-query";
 import { type Company, PIPELINE_STAGES, STAGE_LABELS, type PipelineStage } from "@shared/schema";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useLocation } from "wouter";
-import {
-  Search,
-  Sparkles,
-  Plus,
-} from "lucide-react";
-import { useState, useMemo, useRef, useEffect } from "react";
+import { Search, Sparkles, Plus } from "lucide-react";
+import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 
-const STAGE_COLORS: Record<PipelineStage, { bg: string; border: string; text: string; label: string }> = {
-  discovered: { bg: "rgba(59,130,246,0.08)", border: "rgba(59,130,246,0.25)", text: "rgb(96,165,250)", label: "rgb(59,130,246)" },
-  researching: { bg: "rgba(245,158,11,0.08)", border: "rgba(245,158,11,0.25)", text: "rgb(251,191,36)", label: "rgb(245,158,11)" },
-  reaching_out: { bg: "rgba(168,85,247,0.08)", border: "rgba(168,85,247,0.25)", text: "rgb(192,132,252)", label: "rgb(168,85,247)" },
-  in_diligence: { bg: "rgba(16,185,129,0.08)", border: "rgba(16,185,129,0.25)", text: "rgb(52,211,153)", label: "rgb(16,185,129)" },
-  passed: { bg: "rgba(156,163,175,0.06)", border: "rgba(156,163,175,0.2)", text: "rgb(156,163,175)", label: "rgb(107,114,128)" },
-  invested: { bg: "rgba(34,197,94,0.10)", border: "rgba(34,197,94,0.3)", text: "rgb(74,222,128)", label: "rgb(34,197,94)" },
+const STAGE_ACCENT: Record<PipelineStage, string> = {
+  discovered: "#3b82f6",
+  researching: "#f59e0b",
+  reaching_out: "#a855f7",
+  in_diligence: "#10b981",
+  passed: "#6b7280",
+  invested: "#22c55e",
 };
 
-interface TreeRect {
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-}
+interface Rect { x: number; y: number; w: number; h: number }
 
-function squarify(values: number[], rect: TreeRect): TreeRect[] {
+function squarify(values: number[], rect: Rect): Rect[] {
   if (values.length === 0) return [];
   if (values.length === 1) return [{ ...rect }];
-
   const total = values.reduce((s, v) => s + v, 0);
   if (total === 0) return values.map(() => ({ ...rect, w: 0, h: 0 }));
-
-  const rects: TreeRect[] = [];
+  const rects: Rect[] = [];
   let remaining = [...values];
-  let currentRect = { ...rect };
-
+  let cur = { ...rect };
   while (remaining.length > 0) {
     const remTotal = remaining.reduce((s, v) => s + v, 0);
-    const isWide = currentRect.w >= currentRect.h;
-    const side = isWide ? currentRect.h : currentRect.w;
-
-    if (side <= 0 || remTotal <= 0) {
-      remaining.forEach(() => rects.push({ x: currentRect.x, y: currentRect.y, w: 0, h: 0 }));
-      break;
-    }
-
-    let row: number[] = [remaining[0]];
-    let rowTotal = remaining[0];
-    let bestWorst = worstRatio(row, side, remTotal, currentRect);
-
+    const wide = cur.w >= cur.h;
+    const side = wide ? cur.h : cur.w;
+    if (side <= 0 || remTotal <= 0) { remaining.forEach(() => rects.push({ x: cur.x, y: cur.y, w: 0, h: 0 })); break; }
+    let row = [remaining[0]], rowT = remaining[0];
+    let best = worst(row, side, remTotal, cur);
     for (let i = 1; i < remaining.length; i++) {
-      const candidate = [...row, remaining[i]];
-      const candidateTotal = rowTotal + remaining[i];
-      const candidateWorst = worstRatio(candidate, side, remTotal, currentRect);
-      if (candidateWorst <= bestWorst) {
-        row = candidate;
-        rowTotal = candidateTotal;
-        bestWorst = candidateWorst;
-      } else {
-        break;
-      }
+      const c = [...row, remaining[i]];
+      const w = worst(c, side, remTotal, cur);
+      if (w <= best) { row = c; rowT += remaining[i]; best = w; } else break;
     }
-
-    const rowFraction = rowTotal / remTotal;
-    const rowSize = isWide ? currentRect.w * rowFraction : currentRect.h * rowFraction;
-
-    let offset = 0;
-    for (const val of row) {
-      const cellFraction = val / rowTotal;
-      const cellSize = side * cellFraction;
-      if (isWide) {
-        rects.push({ x: currentRect.x, y: currentRect.y + offset, w: rowSize, h: cellSize });
-      } else {
-        rects.push({ x: currentRect.x + offset, y: currentRect.y, w: cellSize, h: rowSize });
-      }
-      offset += cellSize;
+    const frac = rowT / remTotal;
+    const rs = wide ? cur.w * frac : cur.h * frac;
+    let off = 0;
+    for (const v of row) {
+      const cf = v / rowT, cs = side * cf;
+      rects.push(wide ? { x: cur.x, y: cur.y + off, w: rs, h: cs } : { x: cur.x + off, y: cur.y, w: cs, h: rs });
+      off += cs;
     }
-
-    if (isWide) {
-      currentRect = { x: currentRect.x + rowSize, y: currentRect.y, w: currentRect.w - rowSize, h: currentRect.h };
-    } else {
-      currentRect = { x: currentRect.x, y: currentRect.y + rowSize, w: currentRect.w, h: currentRect.h - rowSize };
-    }
-
+    if (wide) cur = { x: cur.x + rs, y: cur.y, w: cur.w - rs, h: cur.h };
+    else cur = { x: cur.x, y: cur.y + rs, w: cur.w, h: cur.h - rs };
     remaining = remaining.slice(row.length);
   }
-
   return rects;
 }
 
-function worstRatio(row: number[], side: number, total: number, rect: TreeRect): number {
-  const isWide = rect.w >= rect.h;
-  const rowSum = row.reduce((s, v) => s + v, 0);
-  const rowFraction = rowSum / total;
-  const rowSize = isWide ? rect.w * rowFraction : rect.h * rowFraction;
-  if (rowSize <= 0 || side <= 0) return Infinity;
-
-  let worst = 0;
-  for (const val of row) {
-    const cellFraction = val / rowSum;
-    const cellSize = side * cellFraction;
-    const ratio = Math.max((rowSize * rowSize) / (cellSize * cellSize), (cellSize * cellSize) / (rowSize * rowSize));
-    worst = Math.max(worst, ratio);
-  }
-  return worst;
+function worst(row: number[], side: number, total: number, rect: Rect): number {
+  const wide = rect.w >= rect.h;
+  const sum = row.reduce((s, v) => s + v, 0);
+  const rs = (wide ? rect.w : rect.h) * sum / total;
+  if (rs <= 0 || side <= 0) return Infinity;
+  let w = 0;
+  for (const v of row) { const cs = side * v / sum; const r = Math.max(rs / cs, cs / rs); w = Math.max(w, r); }
+  return w;
 }
 
-interface TreemapCell {
-  company: Company;
-  rect: TreeRect;
-  stage: PipelineStage;
-}
+interface Cell { company: Company; rect: Rect; stage: PipelineStage }
+interface StageRect { stage: PipelineStage; rect: Rect }
 
-function computeTreemap(
-  companiesByStage: Record<PipelineStage, Company[]>,
-  width: number,
-  height: number
-): { cells: TreemapCell[]; stageRects: { stage: PipelineStage; rect: TreeRect }[] } {
-  const stages = PIPELINE_STAGES.filter((s) => companiesByStage[s].length > 0);
-  if (stages.length === 0) return { cells: [], stageRects: [] };
-
-  const stageValues = stages.map((s) => Math.max(companiesByStage[s].length, 1));
-  const stageRects = squarify(stageValues, { x: 0, y: 0, w: width, h: height });
-
-  const cells: TreemapCell[] = [];
-  const stageRectsResult: { stage: PipelineStage; rect: TreeRect }[] = [];
-
+function layout(byStage: Record<PipelineStage, Company[]>, W: number, H: number) {
+  const stages = PIPELINE_STAGES.filter((s) => byStage[s].length > 0);
+  if (!stages.length) return { cells: [] as Cell[], stages: [] as StageRect[] };
+  const vals = stages.map((s) => byStage[s].length);
+  const sRects = squarify(vals, { x: 0, y: 0, w: W, h: H });
+  const cells: Cell[] = [];
+  const stageRects: StageRect[] = [];
   stages.forEach((stage, i) => {
-    const sr = stageRects[i];
-    stageRectsResult.push({ stage, rect: sr });
-
-    const companies = companiesByStage[stage];
-    const padding = 2;
-    const headerH = 22;
-    const innerRect: TreeRect = {
-      x: sr.x + padding,
-      y: sr.y + headerH,
-      w: Math.max(sr.w - padding * 2, 0),
-      h: Math.max(sr.h - headerH - padding, 0),
-    };
-
-    if (companies.length === 0) return;
-
-    const companyValues = companies.map(() => 1);
-    const companyRects = squarify(companyValues, innerRect);
-
-    companies.forEach((company, j) => {
-      cells.push({ company, rect: companyRects[j], stage });
-    });
+    const sr = sRects[i];
+    stageRects.push({ stage, rect: sr });
+    const cos = byStage[stage];
+    const hdr = 18;
+    const inner: Rect = { x: sr.x + 1, y: sr.y + hdr, w: Math.max(sr.w - 2, 0), h: Math.max(sr.h - hdr - 1, 0) };
+    if (!cos.length) return;
+    const cRects = squarify(cos.map(() => 1), inner);
+    cos.forEach((c, j) => cells.push({ company: c, rect: cRects[j], stage }));
   });
-
-  return { cells, stageRects: stageRectsResult };
+  return { cells, stages: stageRects };
 }
 
-function TreemapView({ companies, companiesByStage }: { companies: Company[]; companiesByStage: Record<PipelineStage, Company[]> }) {
+function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> }) {
   const [, navigate] = useLocation();
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [dimensions, setDimensions] = useState({ width: 0, height: 0 });
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+  const [dim, setDim] = useState({ w: 0, h: 0 });
+  const [hovered, setHovered] = useState<string | null>(null);
 
   useEffect(() => {
-    const el = containerRef.current;
+    const el = ref.current;
     if (!el) return;
-    const observer = new ResizeObserver((entries) => {
-      const entry = entries[0];
-      if (entry) {
-        setDimensions({ width: entry.contentRect.width, height: entry.contentRect.height });
-      }
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
+    const ro = new ResizeObserver((e) => { const r = e[0]?.contentRect; if (r) setDim({ w: r.width, h: r.height }); });
+    ro.observe(el);
+    return () => ro.disconnect();
   }, []);
 
-  const { cells, stageRects } = useMemo(
-    () => computeTreemap(companiesByStage, dimensions.width, dimensions.height),
-    [companiesByStage, dimensions.width, dimensions.height]
-  );
+  const { cells, stages } = useMemo(() => layout(byStage, dim.w, dim.h), [byStage, dim.w, dim.h]);
 
-  const gap = 2;
+  const px = 1;
 
   return (
-    <div ref={containerRef} className="flex-1 relative rounded-lg border border-border overflow-hidden bg-background">
-      {dimensions.width > 0 && (
-        <svg width={dimensions.width} height={dimensions.height} className="block">
-          {stageRects.map(({ stage, rect }) => {
-            const colors = STAGE_COLORS[stage];
-            return (
-              <g key={`stage-${stage}`}>
-                <rect
-                  x={rect.x + 1}
-                  y={rect.y + 1}
-                  width={Math.max(rect.w - 2, 0)}
-                  height={Math.max(rect.h - 2, 0)}
-                  fill="none"
-                  stroke={colors.border}
-                  strokeWidth={1}
-                  rx={4}
-                />
-                {rect.w > 60 && rect.h > 20 && (
-                  <text
-                    x={rect.x + 8}
-                    y={rect.y + 15}
-                    fill={colors.label}
-                    fontSize={9}
-                    fontWeight={600}
-                    fontFamily="ui-monospace, SFMono-Regular, monospace"
-                    letterSpacing="0.08em"
-                    textAnchor="start"
-                  >
-                    {STAGE_LABELS[stage].toUpperCase()} ({companiesByStage[stage].length})
-                  </text>
-                )}
-              </g>
-            );
-          })}
+    <div ref={ref} className="flex-1 relative overflow-hidden" style={{ background: "hsl(230 15% 6%)" }}>
+      {dim.w > 0 && (
+        <svg width={dim.w} height={dim.h} className="block" style={{ shapeRendering: "crispEdges" }}>
+          {stages.map(({ stage, rect }) => (
+            <g key={`s-${stage}`}>
+              <line x1={rect.x} y1={rect.y} x2={rect.x + rect.w} y2={rect.y} stroke="hsl(230 10% 16%)" strokeWidth={1} />
+              <line x1={rect.x} y1={rect.y} x2={rect.x} y2={rect.y + rect.h} stroke="hsl(230 10% 16%)" strokeWidth={1} />
+              <line x1={rect.x + rect.w} y1={rect.y} x2={rect.x + rect.w} y2={rect.y + rect.h} stroke="hsl(230 10% 16%)" strokeWidth={1} />
+              <line x1={rect.x} y1={rect.y + rect.h} x2={rect.x + rect.w} y2={rect.y + rect.h} stroke="hsl(230 10% 16%)" strokeWidth={1} />
+              {rect.w > 50 && (
+                <text
+                  x={rect.x + 6}
+                  y={rect.y + 12}
+                  fill={STAGE_ACCENT[stage]}
+                  fontSize={8}
+                  fontWeight={500}
+                  fontFamily="ui-monospace, SFMono-Regular, 'SF Mono', monospace"
+                  letterSpacing="0.1em"
+                  opacity={0.7}
+                >
+                  {STAGE_LABELS[stage].toUpperCase()}
+                </text>
+              )}
+              {rect.w > 30 && (
+                <text
+                  x={rect.x + rect.w - 5}
+                  y={rect.y + 12}
+                  fill="hsl(230 10% 30%)"
+                  fontSize={8}
+                  fontFamily="ui-monospace, SFMono-Regular, 'SF Mono', monospace"
+                  textAnchor="end"
+                >
+                  {byStage[stage].length}
+                </text>
+              )}
+            </g>
+          ))}
 
           {cells.map(({ company, rect, stage }) => {
-            const colors = STAGE_COLORS[stage];
-            const isHovered = hoveredId === company.id;
-            const cellW = Math.max(rect.w - gap * 2, 0);
-            const cellH = Math.max(rect.h - gap * 2, 0);
-            if (cellW < 2 || cellH < 2) return null;
-
-            const showSector = cellW > 80 && cellH > 40;
-            const showOneLiner = cellW > 120 && cellH > 55;
-            const maxTextW = cellW - 12;
+            const isH = hovered === company.id;
+            const cw = Math.max(rect.w - px * 2, 0);
+            const ch = Math.max(rect.h - px * 2, 0);
+            if (cw < 3 || ch < 3) return null;
+            const accent = STAGE_ACCENT[stage];
+            const showSector = cw > 70 && ch > 32;
+            const showDesc = cw > 100 && ch > 48;
+            const maxChars = Math.floor((cw - 10) / 5.5);
 
             return (
               <g
                 key={company.id}
                 className="cursor-pointer"
                 onClick={() => navigate(`/companies/${company.id}`)}
-                onMouseEnter={() => setHoveredId(company.id)}
-                onMouseLeave={() => setHoveredId(null)}
+                onMouseEnter={() => setHovered(company.id)}
+                onMouseLeave={() => setHovered(null)}
                 data-testid={`treemap-cell-${company.id}`}
               >
                 <rect
-                  x={rect.x + gap}
-                  y={rect.y + gap}
-                  width={cellW}
-                  height={cellH}
-                  fill={isHovered ? colors.border : colors.bg}
-                  stroke={colors.border}
-                  strokeWidth={isHovered ? 1.5 : 0.5}
-                  rx={3}
-                  style={{ transition: "fill 0.15s, stroke-width 0.15s" }}
+                  x={rect.x + px}
+                  y={rect.y + px}
+                  width={cw}
+                  height={ch}
+                  fill={isH ? "hsl(230 12% 12%)" : "hsl(230 15% 7.5%)"}
+                  stroke={isH ? accent : "hsl(230 10% 14%)"}
+                  strokeWidth={isH ? 1 : 0.5}
                 />
-                <clipPath id={`clip-${company.id}`}>
-                  <rect x={rect.x + gap + 4} y={rect.y + gap + 2} width={maxTextW} height={cellH - 4} />
+                {isH && (
+                  <line
+                    x1={rect.x + px}
+                    y1={rect.y + px}
+                    x2={rect.x + px}
+                    y2={rect.y + px + ch}
+                    stroke={accent}
+                    strokeWidth={2}
+                  />
+                )}
+                <clipPath id={`c-${company.id}`}>
+                  <rect x={rect.x + px + 5} y={rect.y + px + 3} width={cw - 10} height={ch - 6} />
                 </clipPath>
-                <g clipPath={`url(#clip-${company.id})`}>
+                <g clipPath={`url(#c-${company.id})`}>
                   <text
-                    x={rect.x + gap + 6}
-                    y={rect.y + gap + (cellH < 30 ? cellH / 2 + 4 : 16)}
-                    fill={isHovered ? "white" : colors.text}
-                    fontSize={cellW > 100 ? 11 : 9}
-                    fontWeight={600}
+                    x={rect.x + px + 6}
+                    y={rect.y + px + (ch < 24 ? ch / 2 + 3.5 : 14)}
+                    fill={isH ? "hsl(0 0% 92%)" : "hsl(230 10% 65%)"}
+                    fontSize={cw > 90 ? 11 : cw > 60 ? 10 : 8}
+                    fontWeight={500}
                     fontFamily="system-ui, -apple-system, sans-serif"
-                    style={{ transition: "fill 0.15s" }}
                   >
-                    {company.name}
+                    {company.name.length > maxChars + 2 ? company.name.slice(0, maxChars) + "…" : company.name}
                   </text>
                   {showSector && company.sector && (
                     <text
-                      x={rect.x + gap + 6}
-                      y={rect.y + gap + 30}
-                      fill={isHovered ? "rgba(255,255,255,0.7)" : `${colors.text.replace("rgb", "rgba").replace(")", ",0.5)")}`}
+                      x={rect.x + px + 6}
+                      y={rect.y + px + 26}
+                      fill="hsl(230 10% 38%)"
                       fontSize={8}
-                      fontFamily="ui-monospace, SFMono-Regular, monospace"
+                      fontFamily="ui-monospace, SFMono-Regular, 'SF Mono', monospace"
                     >
                       {company.sector}
                     </text>
                   )}
-                  {showOneLiner && company.oneLiner && (
+                  {showDesc && company.oneLiner && (
                     <text
-                      x={rect.x + gap + 6}
-                      y={rect.y + gap + 43}
-                      fill={isHovered ? "rgba(255,255,255,0.5)" : `${colors.text.replace("rgb", "rgba").replace(")", ",0.35)")}`}
+                      x={rect.x + px + 6}
+                      y={rect.y + px + 38}
+                      fill="hsl(230 8% 28%)"
                       fontSize={8}
                       fontFamily="system-ui, -apple-system, sans-serif"
                     >
-                      {company.oneLiner.length > Math.floor(maxTextW / 4.5) ? company.oneLiner.slice(0, Math.floor(maxTextW / 4.5)) + "…" : company.oneLiner}
+                      {company.oneLiner.length > maxChars ? company.oneLiner.slice(0, maxChars) + "…" : company.oneLiner}
                     </text>
                   )}
                 </g>
@@ -298,99 +228,60 @@ function TreemapView({ companies, companiesByStage }: { companies: Company[]; co
 
 export default function Pipeline() {
   const [, navigate] = useLocation();
-  const [searchQuery, setSearchQuery] = useState("");
-
-  const { data: companies = [], isLoading } = useQuery<Company[]>({
-    queryKey: ["/api/companies"],
-  });
-
-  const filteredCompanies = companies.filter((c) =>
-    searchQuery
-      ? c.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.oneLiner.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        c.sector?.toLowerCase().includes(searchQuery.toLowerCase())
-      : true
+  const [q, setQ] = useState("");
+  const { data: companies = [], isLoading } = useQuery<Company[]>({ queryKey: ["/api/companies"] });
+  const filtered = companies.filter((c) =>
+    q ? c.name.toLowerCase().includes(q.toLowerCase()) || c.oneLiner.toLowerCase().includes(q.toLowerCase()) || c.sector?.toLowerCase().includes(q.toLowerCase()) : true
+  );
+  const byStage = useMemo(() =>
+    PIPELINE_STAGES.reduce((a, s) => { a[s] = filtered.filter((c) => c.pipelineStage === s); return a; }, {} as Record<PipelineStage, Company[]>),
+    [filtered]
   );
 
-  const companiesByStage = useMemo(() =>
-    PIPELINE_STAGES.reduce(
-      (acc, stage) => {
-        acc[stage] = filteredCompanies.filter((c) => c.pipelineStage === stage);
-        return acc;
-      },
-      {} as Record<PipelineStage, Company[]>
-    ),
-    [filteredCompanies]
+  if (isLoading) return (
+    <div className="p-6 h-full flex flex-col">
+      <Skeleton className="h-6 w-32 mb-4" />
+      <Skeleton className="flex-1" />
+    </div>
   );
 
-  if (isLoading) {
-    return (
-      <div className="p-6 h-full flex flex-col">
-        <div className="mb-5">
-          <Skeleton className="h-7 w-48 mb-2" />
-          <Skeleton className="h-4 w-72" />
-        </div>
-        <Skeleton className="flex-1 rounded-lg" />
+  if (!companies.length) return (
+    <div className="p-6 h-full flex flex-col items-center justify-center">
+      <div className="text-center max-w-md">
+        <Sparkles className="w-8 h-8 text-muted-foreground mx-auto mb-4 opacity-30" />
+        <h2 className="text-lg font-semibold tracking-tight mb-2" data-testid="text-page-title">No deals yet</h2>
+        <p className="text-sm text-muted-foreground mb-4">Add your first deal to see the pipeline treemap.</p>
+        <Button variant="outline" onClick={() => navigate("/add")} data-testid="button-add-first-deal">
+          <Plus className="w-3.5 h-3.5 mr-1.5" /> Add Deal
+        </Button>
       </div>
-    );
-  }
-
-  if (companies.length === 0) {
-    return (
-      <div className="p-6 h-full flex flex-col items-center justify-center">
-        <div className="text-center max-w-md">
-          <div className="w-14 h-14 rounded-2xl bg-accent flex items-center justify-center mx-auto mb-4">
-            <Sparkles className="w-7 h-7 text-foreground" />
-          </div>
-          <h2 className="text-xl font-semibold tracking-tight mb-2" data-testid="text-page-title">Your Deal Pipeline</h2>
-          <p className="text-sm text-muted-foreground mb-6 leading-relaxed">
-            Start by adding your first deal. Use the button below or the <strong>Add Deal</strong> page in the sidebar.
-          </p>
-          <Button onClick={() => navigate("/add")} data-testid="button-add-first-deal">
-            <Plus className="w-4 h-4 mr-1.5" />
-            Add Your First Deal
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  const activeCount = filteredCompanies.length;
+    </div>
+  );
 
   return (
-    <div className="p-6 h-full flex flex-col">
-      <div className="mb-4 flex items-center justify-between gap-4 flex-wrap">
+    <div className="h-full flex flex-col">
+      <div className="px-6 pt-5 pb-3 flex items-end justify-between gap-4 flex-shrink-0">
         <div>
-          <h2 className="text-lg font-semibold tracking-tight" data-testid="text-page-title">Pipeline</h2>
-          <p className="text-xs text-muted-foreground mt-0.5 font-mono">
-            {activeCount} {activeCount === 1 ? "deal" : "deals"}
-            {searchQuery && ` matching "${searchQuery}"`}
-          </p>
+          <h2 className="text-sm font-medium tracking-tight text-foreground" data-testid="text-page-title">Pipeline</h2>
+          <span className="text-[10px] font-mono text-muted-foreground">
+            {filtered.length} deal{filtered.length !== 1 ? "s" : ""}
+          </span>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="hidden md:flex items-center gap-3 text-[10px] text-muted-foreground">
-            {PIPELINE_STAGES.filter(s => companiesByStage[s].length > 0).map((stage) => (
-              <span key={stage} className="flex items-center gap-1 font-mono">
-                <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: STAGE_COLORS[stage].label }} />
-                {STAGE_LABELS[stage]}
-              </span>
-            ))}
-          </div>
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-            <input
-              type="search"
-              placeholder="Search..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="h-8 pl-8 pr-3 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-1 focus:ring-ring w-44"
-              data-testid="input-search-pipeline"
-            />
-          </div>
+        <div className="relative">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
+          <input
+            type="search"
+            placeholder="Filter…"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            className="h-7 pl-7 pr-2 text-xs bg-transparent border border-border/50 rounded font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-muted-foreground/50 w-36"
+            data-testid="input-search-pipeline"
+          />
         </div>
       </div>
-
-      <TreemapView companies={filteredCompanies} companiesByStage={companiesByStage} />
+      <div className="flex-1 px-6 pb-6">
+        <TreemapView byStage={byStage} />
+      </div>
     </div>
   );
 }
