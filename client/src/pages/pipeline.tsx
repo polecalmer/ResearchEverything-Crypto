@@ -15,6 +15,28 @@ const STAGE_ACCENT: Record<PipelineStage, string> = {
   invested: "#22c55e",
 };
 
+function excitementFill(score: number | null | undefined, isDark: boolean, base: string): string {
+  if (!score) return base;
+  const dark: Record<number, string> = {
+    1: "#141824", 2: "#161a2a", 3: "#1a1e30",
+    4: "#1e2236", 5: "#22263c", 6: "#282c3e",
+    7: "#2c2a28", 8: "#362a1e", 9: "#3e2418", 10: "#461e14",
+  };
+  const light: Record<number, string> = {
+    1: "#f0f2f6", 2: "#eef0f5", 3: "#eceef4",
+    4: "#e8eaf2", 5: "#e4e6f0", 6: "#e0e2ec",
+    7: "#ede8e0", 8: "#f0e4d4", 9: "#f4dcc8", 10: "#f8d4bc",
+  };
+  return (isDark ? dark : light)[score] || base;
+}
+
+function excitementBorder(score: number | null | undefined, isDark: boolean): string | null {
+  if (!score || score < 4) return null;
+  if (score <= 6) return isDark ? "#5a4f2e" : "#d4c890";
+  if (score <= 8) return isDark ? "#6e4420" : "#dca060";
+  return isDark ? "#7a2e1e" : "#e87050";
+}
+
 interface Rect { x: number; y: number; w: number; h: number }
 
 function squarify(values: number[], rect: Rect): Rect[] {
@@ -133,13 +155,17 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
               const ch = Math.max(rect.h - px * 2, 0);
               if (cw < 3 || ch < 3) return null;
               const accent = STAGE_ACCENT[stage];
+              const es = company.excitementScore;
+              const cellFill = isH ? C.accent : excitementFill(es, isDark, C.card);
+              const eBorder = excitementBorder(es, isDark);
               const showSector = cw > 70 && ch > 34;
               const showDesc = cw > 100 && ch > 50;
               const maxChars = Math.floor((cw - 10) / 5.5);
               return (
                 <g key={company.id} className="cursor-pointer" onClick={() => navigate(`/companies/${company.id}`)} onMouseEnter={() => setHovered(company.id)} onMouseLeave={() => setHovered(null)} data-testid={`treemap-cell-${company.id}`}>
-                  <rect x={rect.x + px} y={rect.y + px} width={cw} height={ch} fill={isH ? C.accent : C.card} stroke={C.border} strokeWidth={1} />
+                  <rect x={rect.x + px} y={rect.y + px} width={cw} height={ch} fill={cellFill} stroke={eBorder || C.border} strokeWidth={eBorder ? 1.5 : 1} />
                   {isH && <line x1={rect.x + px} y1={rect.y + px} x2={rect.x + px} y2={rect.y + px + ch} stroke={accent} strokeWidth={2} />}
+                  {es && es >= 7 && ch > 14 && <text x={rect.x + px + cw - 5} y={rect.y + px + 11} fill={isDark ? "#e87050" : "#c0502a"} fontSize={8} fontFamily="ui-monospace, SFMono-Regular, monospace" textAnchor="end" opacity={0.7}>{es}</text>}
                   <clipPath id={`c-${company.id}`}>
                     <rect x={rect.x + px + 5} y={rect.y + px + 3} width={cw - 10} height={ch - 6} />
                   </clipPath>

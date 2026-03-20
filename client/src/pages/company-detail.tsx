@@ -25,6 +25,7 @@ import {
   ShieldCheck,
   Loader2,
   Plus,
+  Flame,
 } from "lucide-react";
 import { SiGithub } from "react-icons/si";
 import { useState } from "react";
@@ -287,6 +288,84 @@ function TagManager({ tags, companyId }: { tags: string[]; companyId: string }) 
         <Input value={newTag} onChange={(e) => setNewTag(e.target.value)} placeholder="Add tag..." className="h-7 text-xs flex-1" onKeyDown={(e) => e.key === "Enter" && addTag()} data-testid="input-new-tag" />
         <Button size="sm" variant="secondary" className="h-7 text-xs px-2.5" onClick={addTag} data-testid="button-add-tag">Add</Button>
       </div>
+    </div>
+  );
+}
+
+function ExcitementRating({ companyId, score, reason }: { companyId: string; score: number | null; reason: string | null }) {
+  const [localReason, setLocalReason] = useState(reason || "");
+  const [editing, setEditing] = useState(false);
+  const { toast } = useToast();
+  const mutation = useMutation({
+    mutationFn: async (data: { excitementScore: number | null; excitementReason: string }) => {
+      await apiRequest("PATCH", `/api/companies/${companyId}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      setEditing(false);
+    },
+  });
+  const setScore = (v: number) => {
+    const newScore = v === score ? null : v;
+    mutation.mutate({ excitementScore: newScore, excitementReason: localReason });
+  };
+  const saveReason = () => {
+    mutation.mutate({ excitementScore: score ?? null, excitementReason: localReason });
+  };
+
+  return (
+    <div data-testid="excitement-rating">
+      <div className="flex items-center gap-0.5 mb-2">
+        {Array.from({ length: 10 }, (_, i) => i + 1).map((v) => (
+          <button
+            key={v}
+            onClick={() => setScore(v)}
+            className={`w-6 h-6 text-[10px] font-mono border transition-all ${
+              score && v <= score
+                ? v <= 3 ? "bg-blue-500/20 border-blue-500/40 text-blue-400"
+                : v <= 6 ? "bg-amber-500/20 border-amber-500/40 text-amber-400"
+                : v <= 8 ? "bg-orange-500/20 border-orange-500/40 text-orange-400"
+                : "bg-red-500/20 border-red-500/40 text-red-400"
+                : "border-border/50 text-muted-foreground/40 hover:border-border hover:text-muted-foreground"
+            }`}
+            data-testid={`excitement-score-${v}`}
+          >
+            {v}
+          </button>
+        ))}
+      </div>
+      {score && (
+        <div className="flex items-center gap-1.5 mb-2">
+          <Flame className={`w-3 h-3 flex-shrink-0 ${score <= 3 ? "text-blue-400" : score <= 6 ? "text-amber-400" : score <= 8 ? "text-orange-400" : "text-red-400"}`} />
+          <span className="text-[10px] font-mono text-muted-foreground">
+            {score <= 3 ? "Low conviction" : score <= 6 ? "Moderate interest" : score <= 8 ? "High excitement" : "Must have"}
+          </span>
+        </div>
+      )}
+      {editing ? (
+        <div className="space-y-1.5">
+          <Textarea
+            value={localReason}
+            onChange={(e) => setLocalReason(e.target.value)}
+            placeholder="Why this score?"
+            className="min-h-[48px] text-xs resize-none bg-accent/30 border-border/50"
+            data-testid="textarea-excitement-reason"
+          />
+          <div className="flex gap-1.5 justify-end">
+            <Button size="sm" variant="ghost" className="h-6 text-[10px] px-2" onClick={() => { setEditing(false); setLocalReason(reason || ""); }} data-testid="button-cancel-reason">Cancel</Button>
+            <Button size="sm" className="h-6 text-[10px] px-2" onClick={saveReason} disabled={mutation.isPending} data-testid="button-save-reason">Save</Button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setEditing(true)}
+          className="text-[11px] text-muted-foreground hover:text-foreground transition-colors w-full text-left"
+          data-testid="button-edit-reason"
+        >
+          {reason ? reason : <span className="italic opacity-50">Add reason...</span>}
+        </button>
+      )}
     </div>
   );
 }
@@ -586,6 +665,16 @@ export default function CompanyDetail() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-border overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-border/50 flex items-center gap-1.5">
+                <Flame className="w-3 h-3 text-muted-foreground" />
+                <h3 className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">Excitement</h3>
+              </div>
+              <div className="p-3">
+                <ExcitementRating companyId={company.id} score={company.excitementScore ?? null} reason={company.excitementReason ?? null} />
               </div>
             </div>
 

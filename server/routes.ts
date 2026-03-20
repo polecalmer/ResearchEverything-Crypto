@@ -14,6 +14,8 @@ import { sql } from "drizzle-orm";
 const updateCompanySchema = insertCompanySchema.partial().extend({
   pipelineStage: z.enum(PIPELINE_STAGES).optional(),
   tags: z.array(z.string()).optional(),
+  excitementScore: z.number().int().min(1).max(10).nullable().optional(),
+  excitementReason: z.string().max(500).nullable().optional(),
 });
 
 const enrichRequestSchema = z.object({

@@ -27,7 +27,7 @@ Key files: `server/auth.ts` (Privy token verification), `client/src/hooks/use-au
 ## Data Model
 
 - **Users**: id, username, password, credits, stripeCustomerId, privyId, walletAddress, email
-- **Companies**: Core deal entities with userId, name, one-liner, description, sector, business model, stage, funding history, competitive landscape, source URL, website URL, GitHub URL, Twitter URL, LinkedIn URL, pipeline stage, and tags
+- **Companies**: Core deal entities with userId, name, one-liner, description, sector, business model, stage, funding history, competitive landscape, source URL, website URL, GitHub URL, Twitter URL, LinkedIn URL, pipeline stage, tags, excitementScore (1-10 nullable), and excitementReason (text nullable)
 - **Founders**: Linked to companies with name, role, bio, LinkedIn/Twitter/GitHub/personal URLs, prior companies
 - **Notes**: Time-stamped notes attached to companies
 - **Transactions**: Enrichment payment log — userId, type, description, amount (pathUSD charged), apiCost, companyName, inputTokens, outputTokens, createdAt
