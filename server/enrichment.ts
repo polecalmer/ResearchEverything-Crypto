@@ -588,6 +588,22 @@ export interface NextStepItem {
   verifierNote?: string;
 }
 
+export interface NextStepsResult {
+  steps: NextStepItem[];
+  apiCost: number;
+  totalCharge: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+export interface DeepResearchResult {
+  content: string;
+  apiCost: number;
+  totalCharge: number;
+  inputTokens: number;
+  outputTokens: number;
+}
+
 export async function generateNextSteps(context: {
   company: {
     name: string;
@@ -616,7 +632,7 @@ export async function generateNextSteps(context: {
     priorCompanies: string | null;
   }>;
   notes: Array<{ content: string; createdAt: Date | string }>;
-}): Promise<NextStepItem[]> {
+}): Promise<NextStepsResult> {
   const { company, founders, notes } = context;
 
   const filledFields: string[] = [];
@@ -716,6 +732,9 @@ Respond with a JSON array of objects. Each object has:
 
 Return ONLY the JSON array, no markdown fencing.`;
 
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+
   try {
     console.log(`[NextSteps] Stage 1/2: Generating recommendations for ${company.name}...`);
     const response = await anthropic.messages.create({
@@ -724,22 +743,32 @@ Return ONLY the JSON array, no markdown fencing.`;
       messages: [{ role: "user", content: prompt }],
     });
 
+    totalInputTokens += response.usage.input_tokens;
+    totalOutputTokens += response.usage.output_tokens;
+
     const text = response.content[0].type === "text" ? response.content[0].text : "";
     const cleaned = text.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
     const rawSteps = JSON.parse(cleaned) as NextStepItem[];
     const validSteps = rawSteps.filter((s) => s.title && s.detail && s.priority && s.category);
 
-    if (validSteps.length === 0) return [];
+    if (validSteps.length === 0) {
+      const apiCost = calculateApiCost({ inputTokens: totalInputTokens, outputTokens: totalOutputTokens });
+      return { steps: [], apiCost, totalCharge: calculateChargeAmount(apiCost), inputTokens: totalInputTokens, outputTokens: totalOutputTokens };
+    }
 
     console.log(`[NextSteps] Stage 2/2: Verifying ${validSteps.length} recommendations...`);
-    const verified = await verifyNextSteps(validSteps, {
+    const { steps: verified, inputTokens: verifyIn, outputTokens: verifyOut } = await verifyNextSteps(validSteps, {
       company, founders, notes, filledFields, missingFields, founderSummary, sourceContext,
     });
-    console.log(`[NextSteps] Pipeline complete. ${verified.length} verified steps.`);
-    return verified;
+    totalInputTokens += verifyIn;
+    totalOutputTokens += verifyOut;
+    const apiCost = calculateApiCost({ inputTokens: totalInputTokens, outputTokens: totalOutputTokens });
+    console.log(`[NextSteps] Pipeline complete. ${verified.length} verified steps. Cost: $${apiCost.toFixed(4)}`);
+    return { steps: verified, apiCost, totalCharge: calculateChargeAmount(apiCost), inputTokens: totalInputTokens, outputTokens: totalOutputTokens };
   } catch (error) {
     console.error("[NextSteps] AI generation failed:", error);
-    return [];
+    const apiCost = calculateApiCost({ inputTokens: totalInputTokens, outputTokens: totalOutputTokens });
+    return { steps: [], apiCost, totalCharge: calculateChargeAmount(apiCost), inputTokens: totalInputTokens, outputTokens: totalOutputTokens };
   }
 }
 
@@ -754,7 +783,7 @@ async function verifyNextSteps(
     founderSummary: string;
     sourceContext: string;
   },
-): Promise<NextStepItem[]> {
+): Promise<{ steps: NextStepItem[]; inputTokens: number; outputTokens: number }> {
   const { company, founders, notes, filledFields, missingFields, founderSummary, sourceContext } = dealContext;
 
   const stepsJson = JSON.stringify(steps, null, 2);
@@ -827,17 +856,25 @@ Return ONLY the JSON array, no markdown fencing.`;
       }
     }
 
-    return passed.map((s) => ({
-      title: s.title,
-      detail: s.detail,
-      priority: s.priority,
-      category: s.category,
-      verified: true,
-      verifierNote: s.verifierNote,
-    }));
+    return {
+      steps: passed.map((s) => ({
+        title: s.title,
+        detail: s.detail,
+        priority: s.priority,
+        category: s.category,
+        verified: true,
+        verifierNote: s.verifierNote,
+      })),
+      inputTokens: response.usage.input_tokens,
+      outputTokens: response.usage.output_tokens,
+    };
   } catch (error) {
     console.error("[NextSteps] Verifier failed, returning unverified steps:", error);
-    return steps.map((s) => ({ ...s, verified: false, verifierNote: "Verification unavailable" }));
+    return {
+      steps: steps.map((s) => ({ ...s, verified: false, verifierNote: "Verification unavailable" })),
+      inputTokens: 0,
+      outputTokens: 0,
+    };
   }
 }
 
@@ -1095,7 +1132,7 @@ export async function generateDeepResearch(
   notes: { content: string }[],
   onProgress?: ReportProgressCallback,
   previouslyDeletedCount: number = 0,
-): Promise<string> {
+): Promise<DeepResearchResult> {
   onProgress?.("researching", "Gathering known deal context...");
 
   const contextParts = [
@@ -1164,8 +1201,12 @@ Produce the full Markdown research document now. Use web search extensively to f
 
   reportContent = stripSearchNarration(reportContent);
 
+  const inputTokens = response.usage.input_tokens;
+  const outputTokens = response.usage.output_tokens;
+  const apiCost = calculateApiCost({ inputTokens, outputTokens });
+
   onProgress?.("complete", "Report generated successfully");
-  return reportContent;
+  return { content: reportContent, apiCost, totalCharge: calculateChargeAmount(apiCost), inputTokens, outputTokens };
 }
 
 export async function enrichFromInput(input: string): Promise<EnrichmentResult> {

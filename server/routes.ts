@@ -5,7 +5,7 @@ import { insertCompanySchema, insertFounderSchema, insertNoteSchema, PIPELINE_ST
 import { z } from "zod";
 import { enrichFromInput, enrichFromInputWithProgress, generateNextSteps, generateDeepResearch, getEstimatedEnrichmentCost, getLastEnrichmentCost, MARKUP_MULTIPLIER, type EnrichmentResult } from "./enrichment";
 import { requireAuth } from "./auth";
-import { enrichmentPaywall } from "./mpp";
+import { enrichmentPaywall, nextStepsPaywall, deepResearchPaywall } from "./mpp";
 import { generateTelegramLinkCode } from "./telegram";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { db } from "./db";
@@ -327,7 +327,7 @@ export async function registerRoutes(
     res.json(companies);
   });
 
-  app.get("/api/companies/:id/next-steps", requireAuth, async (req, res) => {
+  app.get("/api/companies/:id/next-steps", requireAuth, nextStepsPaywall, async (req, res) => {
     try {
       const userId = req.user!.id;
       const company = await storage.getCompany(req.params.id, userId);
@@ -337,7 +337,7 @@ export async function registerRoutes(
       const founders = await storage.getFoundersByCompany(req.params.id);
       const notes = await storage.getNotesByCompany(req.params.id);
 
-      const steps = await generateNextSteps({
+      const result = await generateNextSteps({
         company: {
           name: company.name,
           oneLiner: company.oneLiner,
@@ -370,7 +370,22 @@ export async function registerRoutes(
         })),
       });
 
-      res.json(steps);
+      try {
+        await storage.logTransaction({
+          userId,
+          type: "next_steps",
+          description: `AI next steps: ${company.name}`,
+          amount: result.totalCharge.toFixed(4),
+          apiCost: result.apiCost.toFixed(4),
+          companyName: company.name,
+          inputTokens: result.inputTokens,
+          outputTokens: result.outputTokens,
+        });
+      } catch (err) {
+        console.error("[Transaction] Failed to log next-steps:", err);
+      }
+
+      res.json(result.steps);
     } catch (error: any) {
       console.error("Next steps generation error:", error);
       res.status(500).json({ message: "Failed to generate next steps", error: error.message });
@@ -480,7 +495,7 @@ export async function registerRoutes(
     res.json(reports);
   });
 
-  app.post("/api/companies/:id/reports/generate", requireAuth, async (req, res) => {
+  app.post("/api/companies/:id/reports/generate", requireAuth, deepResearchPaywall, async (req, res) => {
     try {
       const company = await storage.getCompany(req.params.id, req.user!.id);
       if (!company) return res.status(404).json({ message: "Company not found" });
@@ -506,9 +521,23 @@ export async function registerRoutes(
           console.log(`[DeepResearch] ${company.name}: ${stage} — ${detail}`);
         },
         company.deletedReportCount || 0,
-      ).then(async (content) => {
-        await storage.updateReport(report.id, { content, status: "complete" });
-        console.log(`[DeepResearch] Report complete for ${company.name} (${report.id})`);
+      ).then(async (result) => {
+        await storage.updateReport(report.id, { content: result.content, status: "complete" });
+        console.log(`[DeepResearch] Report complete for ${company.name} (${report.id}). Cost: $${result.apiCost.toFixed(4)}`);
+        try {
+          await storage.logTransaction({
+            userId: req.user!.id,
+            type: "deep_research",
+            description: `Deep research: ${company.name}`,
+            amount: result.totalCharge.toFixed(4),
+            apiCost: result.apiCost.toFixed(4),
+            companyName: company.name,
+            inputTokens: result.inputTokens,
+            outputTokens: result.outputTokens,
+          });
+        } catch (err) {
+          console.error("[Transaction] Failed to log deep-research:", err);
+        }
       }).catch(async (error) => {
         console.error(`[DeepResearch] Failed for ${company.name}:`, error);
         await storage.updateReport(report.id, {

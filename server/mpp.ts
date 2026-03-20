@@ -1,5 +1,5 @@
 import { Mppx, tempo } from "mppx/express";
-import { getEstimatedEnrichmentCost } from "./enrichment";
+import { getEstimatedEnrichmentCost, MARKUP_MULTIPLIER } from "./enrichment";
 import type { RequestHandler } from "express";
 
 const OWNER_WALLET = "0x342fFFBcEbb761bC2c7B512333AF5E397b4cB72d";
@@ -20,6 +20,26 @@ export const enrichmentPaywall: RequestHandler = (req, res, next) => {
   const middleware = mppx.charge({
     amount,
     description: `BookMark AI enrichment (est. $${amount})`,
+  });
+  middleware(req, res, next);
+};
+
+export const nextStepsPaywall: RequestHandler = (req, res, next) => {
+  const estimated = (0.08 * MARKUP_MULTIPLIER);
+  const amount = Math.max(0.01, estimated).toFixed(2);
+  const middleware = mppx.charge({
+    amount,
+    description: `AI next steps advisor ($${amount})`,
+  });
+  middleware(req, res, next);
+};
+
+export const deepResearchPaywall: RequestHandler = (req, res, next) => {
+  const estimated = (1.00 * MARKUP_MULTIPLIER);
+  const amount = Math.max(0.01, estimated).toFixed(2);
+  const middleware = mppx.charge({
+    amount,
+    description: `Deep research report ($${amount})`,
   });
   middleware(req, res, next);
 };

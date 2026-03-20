@@ -50,20 +50,24 @@ Key files: `server/auth.ts` (Privy token verification), `client/src/hooks/use-au
 
 ## Payments (Tempo MPP)
 
-Enrichment endpoints are gated behind the Machine Payments Protocol (MPP) via `mppx`.
+All AI-powered endpoints are gated behind the Machine Payments Protocol (MPP) via `mppx`.
 - Server: `server/mpp.ts` creates `Mppx` with `tempo()` method (pathUSD currency, owner wallet recipient)
-- `enrichmentPaywall` middleware applied to `/api/enrich`, `/api/enrich/stream`, `/api/companies/enrich-and-create`
+- Three paywall middlewares:
+  - `enrichmentPaywall` — applied to `/api/enrich`, `/api/enrich/stream`, `/api/companies/enrich-and-create` (dynamic cost-plus pricing based on running average)
+  - `nextStepsPaywall` — applied to `/api/companies/:id/next-steps` (estimated $0.12 = $0.08 × 1.5)
+  - `deepResearchPaywall` — applied to `/api/companies/:id/reports/generate` (estimated $1.50 = $1.00 × 1.5)
 - Client: `client/src/lib/mpp.ts` initializes mppx client with Privy embedded wallet (polyfills fetch for automatic 402 handling)
 - Pricing model: **cost-plus** — user pays 1.5x actual AI API cost (50% markup = platform fee)
-  - Token usage tracked per enrichment pipeline (3 Claude Opus calls)
+  - Token usage tracked per AI call (enrichment, next-steps, deep research) and logged with actual costs
   - Cost calculated from Anthropic pricing: $15/M input tokens, $75/M output tokens
-  - Running average of past costs used to estimate upfront MPP charge
-  - Default estimate (no history): $0.75 (= $0.50 × 1.5)
+  - Enrichment: running average of past costs used to estimate upfront MPP charge; default $0.75
+  - Next-steps and deep research: fixed estimate paywalls with actual usage-based transaction logging
   - `GET /api/enrichment/pricing` returns estimated cost, markup multiplier, and last enrichment cost breakdown
 - Owner wallet: `0x342fFFBcEbb761bC2c7B512333AF5E397b4cB72d`
 - pathUSD token: `0x20c0000000000000000000000000000000000000`
 - Env: `MPP_SECRET_KEY` for challenge verification
-- Cost tracking: `enrichment.ts` exports `getEstimatedEnrichmentCost()`, `getLastEnrichmentCost()`, `recordEnrichmentCost()`, `MARKUP_MULTIPLIER`
+- Cost tracking: `enrichment.ts` exports `getEstimatedEnrichmentCost()`, `getLastEnrichmentCost()`, `recordEnrichmentCost()`, `MARKUP_MULTIPLIER`, `calculateApiCost()`, `calculateChargeAmount()`
+- Transaction types: `enrichment`, `next_steps`, `deep_research` — all logged with actual token counts and computed costs
 
 ## Chrome Extension (`extension/` folder)
 
