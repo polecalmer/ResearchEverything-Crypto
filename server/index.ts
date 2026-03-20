@@ -145,9 +145,11 @@ app.use((req, res, next) => {
 
 (async () => {
   const { seedDatabase } = await import("./seed");
+  const { startTelegramBot } = await import("./telegram");
   setupAuth(app);
   await registerRoutes(httpServer, app);
   await seedDatabase();
+  startTelegramBot();
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

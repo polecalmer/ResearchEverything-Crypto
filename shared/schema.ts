@@ -109,6 +109,7 @@ export const users = pgTable("users", {
   subscriptionStatus: text("subscription_status"),
   subscriptionId: text("subscription_id"),
   subscriptionPeriodEnd: timestamp("subscription_period_end"),
+  telegramChatId: text("telegram_chat_id"),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({

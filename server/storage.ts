@@ -69,6 +69,15 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
+  async getUserByTelegramChatId(chatId: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.telegramChatId, chatId));
+    return user;
+  }
+
+  async linkTelegramChat(userId: string, chatId: string): Promise<void> {
+    await db.update(users).set({ telegramChatId: chatId }).where(eq(users.id, userId));
+  }
+
   async createUser(insertUser: InsertUser): Promise<User> {
     const [user] = await db.insert(users).values(insertUser).returning();
     return user;

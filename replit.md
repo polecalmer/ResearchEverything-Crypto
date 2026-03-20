@@ -127,6 +127,18 @@ Pipeline stages in frontend: Scraper → Identifier → Research → Verify & Cl
 - Generation is async — the API returns immediately with a reportId, then the agent runs in the background
 - Key files: `server/enrichment.ts` (generateDeepResearch function), `client/src/pages/report-viewer.tsx`, `client/src/pages/company-detail.tsx` (DeepResearchSection)
 
+## Telegram Bot
+
+Drop any link or company name into a Telegram chat with the BookMark bot and it auto-enriches and adds to your pipeline.
+
+- Bot uses Grammy (lightweight Telegram bot framework) with long polling
+- Users link their BookMark account via `/link username password` command
+- Once linked, any text message triggers the AI enrichment pipeline and creates the deal automatically
+- Bot replies with company name, one-liner, sector, stage, and founders
+- Commands: `/start`, `/link`, `/unlink`, `/status`
+- User's `telegramChatId` stored on the users table for account linking
+- Key file: `server/telegram.ts`
+
 ## API Endpoints
 
 - `POST /api/enrich` - AI enrichment only (requires 1 credit, returns enriched data without saving)
