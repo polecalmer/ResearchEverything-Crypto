@@ -4,7 +4,8 @@ import {
   type Founder, type InsertFounder,
   type Note, type InsertNote,
   type Report,
-  users, companies, founders, notes, reports,
+  type Transaction,
+  users, companies, founders, notes, reports, transactions,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, sql } from "drizzle-orm";
@@ -45,6 +46,9 @@ export interface IStorage {
   getReportsByCompany(companyId: string, userId: string): Promise<Report[]>;
 
   claimOrphanedCompanies(userId: string): Promise<number>;
+
+  logTransaction(data: { userId: string; type: string; description: string; amount: string; apiCost?: string; companyName?: string; inputTokens?: number; outputTokens?: number }): Promise<Transaction>;
+  getTransactions(userId: string, limit?: number): Promise<Transaction[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -244,6 +248,15 @@ export class DatabaseStorage implements IStorage {
       .where(isNull(companies.userId))
       .returning();
     return orphaned.length;
+  }
+
+  async logTransaction(data: { userId: string; type: string; description: string; amount: string; apiCost?: string; companyName?: string; inputTokens?: number; outputTokens?: number }): Promise<Transaction> {
+    const [tx] = await db.insert(transactions).values(data).returning();
+    return tx;
+  }
+
+  async getTransactions(userId: string, limit: number = 50): Promise<Transaction[]> {
+    return db.select().from(transactions).where(eq(transactions.userId, userId)).orderBy(desc(transactions.createdAt)).limit(limit);
   }
 }
 

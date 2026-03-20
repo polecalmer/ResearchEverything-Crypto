@@ -517,12 +517,20 @@ async function scrapeInputUrls(input: string, onProgress?: ProgressCallback): Pr
   return results;
 }
 
-async function runPipeline(input: string, onProgress?: ProgressCallback): Promise<EnrichedCompany> {
+export interface EnrichmentResult {
+  enriched: EnrichedCompany;
+  apiCost: number;
+  totalCharge: number;
+  tokenUsage: TokenUsage;
+}
+
+async function runPipeline(input: string, onProgress?: ProgressCallback): Promise<EnrichmentResult> {
   const emit = (data: any) => {
     if (onProgress) onProgress(data);
   };
 
-  currentPipelineUsage = { inputTokens: 0, outputTokens: 0 };
+  const pipelineUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
+  currentPipelineUsage = pipelineUsage;
 
   const scrapedContent = await scrapeInputUrls(input, onProgress);
 
@@ -557,13 +565,18 @@ async function runPipeline(input: string, onProgress?: ProgressCallback): Promis
   console.log(`[Enrichment] Verify & Clean: ${assessment} (${issuesFound} issues found)`);
   emit({ type: "stage_complete", agent: "verify_clean", step: 3, issuesFound, assessment });
 
-  const apiCost = calculateApiCost(currentPipelineUsage);
+  const apiCost = calculateApiCost(pipelineUsage);
   const totalCharge = calculateChargeAmount(apiCost);
   recordEnrichmentCost(apiCost);
-  console.log(`[Enrichment] Token usage: ${currentPipelineUsage.inputTokens} in / ${currentPipelineUsage.outputTokens} out | API cost: $${apiCost.toFixed(4)} | Charge (1.5x): $${totalCharge.toFixed(4)}`);
+  console.log(`[Enrichment] Token usage: ${pipelineUsage.inputTokens} in / ${pipelineUsage.outputTokens} out | API cost: $${apiCost.toFixed(4)} | Charge (1.5x): $${totalCharge.toFixed(4)}`);
 
   console.log("[Enrichment] Pipeline complete. Validated output ready.");
-  return validateOutput(cleaned);
+  return {
+    enriched: validateOutput(cleaned),
+    apiCost,
+    totalCharge,
+    tokenUsage: { ...pipelineUsage },
+  };
 }
 
 export interface NextStepItem {
@@ -1155,12 +1168,12 @@ Produce the full Markdown research document now. Use web search extensively to f
   return reportContent;
 }
 
-export async function enrichFromInput(input: string): Promise<EnrichedCompany> {
+export async function enrichFromInput(input: string): Promise<EnrichmentResult> {
   console.log("[Enrichment] Starting 3-agent pipeline...");
   return runPipeline(input);
 }
 
-export async function enrichFromInputWithProgress(input: string, onProgress: ProgressCallback): Promise<EnrichedCompany> {
+export async function enrichFromInputWithProgress(input: string, onProgress: ProgressCallback): Promise<EnrichmentResult> {
   console.log("[Enrichment] Starting 3-agent pipeline (with progress)...");
   return runPipeline(input, onProgress);
 }

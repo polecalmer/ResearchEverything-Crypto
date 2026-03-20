@@ -158,7 +158,8 @@ export function startTelegramBot() {
         return;
       }
 
-      const enriched = await enrichFromInput(text);
+      const enrichResult = await enrichFromInput(text);
+      const enriched = enrichResult.enriched;
 
       const isUrl = text.startsWith("http://") || text.startsWith("https://");
       let websiteUrl = enriched.websiteUrl || "";

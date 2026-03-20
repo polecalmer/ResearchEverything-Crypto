@@ -30,6 +30,7 @@ Key files: `server/auth.ts` (Privy token verification), `client/src/hooks/use-au
 - **Companies**: Core deal entities with userId, name, one-liner, description, sector, business model, stage, funding history, competitive landscape, source URL, website URL, GitHub URL, Twitter URL, LinkedIn URL, pipeline stage, and tags
 - **Founders**: Linked to companies with name, role, bio, LinkedIn/Twitter/GitHub/personal URLs, prior companies
 - **Notes**: Time-stamped notes attached to companies
+- **Transactions**: Enrichment payment log — userId, type, description, amount (pathUSD charged), apiCost, companyName, inputTokens, outputTokens, createdAt
 
 ## Pipeline Stages
 
@@ -42,6 +43,8 @@ Key files: `server/auth.ts` (Privy token verification), `client/src/hooks/use-au
 - `/companies` - Companies list/grid view with search and filters
 - `/companies/:id` - Company detail with founders, notes, tags, pipeline management, and dynamic Next Steps advisor
 - `/add` - Add new deal form with founder fields
+- `/wallet` - Wallet profile: wallet address, fund wallet link (Tempo docs), transaction history log
+- `/credits` - Billing: enrichment pricing, cost breakdown, how it works
 - `/extension` - Browser extension setup instructions
 - `/data` - Pipeline analytics: total sourced, deals by stage/sector/model, investment rate, funnel summary
 

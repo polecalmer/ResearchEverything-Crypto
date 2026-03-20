@@ -18,6 +18,7 @@ import AddDeal from "@/pages/add-deal";
 import ExtensionPage from "@/pages/extension";
 import DataPage from "@/pages/data";
 import CreditsPage from "@/pages/credits";
+import WalletPage from "@/pages/wallet";
 import ReportViewer from "@/pages/report-viewer";
 import LandingPage from "@/pages/landing-page";
 import AuthPage from "@/pages/auth-page";
@@ -104,6 +105,7 @@ function AuthenticatedApp() {
               <Route path="/add" component={AddDeal} />
               <Route path="/extension" component={ExtensionPage} />
               <Route path="/credits" component={CreditsPage} />
+              <Route path="/wallet" component={WalletPage} />
               <Route path="/data" component={DataPage} />
               <Route component={NotFound} />
             </Switch>

@@ -115,6 +115,19 @@ export const users = pgTable("users", {
   telegramChatId: text("telegram_chat_id"),
 });
 
+export const transactions = pgTable("transactions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  type: text("type").notNull(),
+  description: text("description").notNull(),
+  amount: text("amount").notNull(),
+  apiCost: text("api_cost"),
+  companyName: text("company_name"),
+  inputTokens: integer("input_tokens"),
+  outputTokens: integer("output_tokens"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
@@ -122,6 +135,7 @@ export const insertUserSchema = createInsertSchema(users).pick({
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
+export type Transaction = typeof transactions.$inferSelect;
 
 export { sessions } from "./models/auth";
 

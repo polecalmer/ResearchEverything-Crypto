@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { LayoutDashboard, Building2, Plus, Chrome, BarChart3, Bookmark, LogOut, User, Wallet } from "lucide-react";
+import { LayoutDashboard, Building2, Plus, Chrome, BarChart3, Bookmark, LogOut, User, Wallet, CreditCard } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -19,7 +19,8 @@ const navItems = [
   { title: "Pipeline", url: "/", icon: LayoutDashboard },
   { title: "Companies", url: "/companies", icon: Building2 },
   { title: "Add Deal", url: "/add", icon: Plus },
-  { title: "Billing", url: "/credits", icon: Wallet },
+  { title: "Wallet", url: "/wallet", icon: Wallet },
+  { title: "Billing", url: "/credits", icon: CreditCard },
   { title: "Extension", url: "/extension", icon: Chrome },
   { title: "Data", url: "/data", icon: BarChart3 },
 ];
@@ -75,7 +76,7 @@ export function AppSidebar() {
         {user && (
           <>
             {walletShort && (
-              <Link href="/credits">
+              <Link href="/wallet">
                 <div className="flex items-center justify-between px-3 py-2 rounded-md bg-accent/50 cursor-pointer hover:bg-accent transition-colors" data-testid="link-wallet">
                   <span className="text-xs font-medium text-muted-foreground">Wallet</span>
                   <span className="text-xs font-mono tabular-nums" data-testid="text-wallet">{walletShort}</span>

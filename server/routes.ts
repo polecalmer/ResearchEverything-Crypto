@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertCompanySchema, insertFounderSchema, insertNoteSchema, PIPELINE_STAGES } from "@shared/schema";
 import { z } from "zod";
-import { enrichFromInput, enrichFromInputWithProgress, generateNextSteps, generateDeepResearch, getEstimatedEnrichmentCost, getLastEnrichmentCost, MARKUP_MULTIPLIER } from "./enrichment";
+import { enrichFromInput, enrichFromInputWithProgress, generateNextSteps, generateDeepResearch, getEstimatedEnrichmentCost, getLastEnrichmentCost, MARKUP_MULTIPLIER, type EnrichmentResult } from "./enrichment";
 import { requireAuth } from "./auth";
 import { enrichmentPaywall } from "./mpp";
 import { generateTelegramLinkCode } from "./telegram";
@@ -49,6 +49,16 @@ export async function registerRoutes(
       currency: "pathUSD",
       recipient: "0x342fFFBcEbb761bC2c7B512333AF5E397b4cB72d",
     });
+  });
+
+  app.get("/api/transactions", requireAuth, async (req, res) => {
+    try {
+      const txs = await storage.getTransactions(req.user!.id);
+      res.json(txs);
+    } catch (error: any) {
+      console.error("Error fetching transactions:", error);
+      res.status(500).json({ message: "Failed to fetch transactions" });
+    }
   });
 
   app.get("/api/credits", requireAuth, async (req, res) => {
@@ -170,6 +180,23 @@ export async function registerRoutes(
     }
   });
 
+  async function logEnrichmentTransaction(userId: string, result: EnrichmentResult) {
+    try {
+      await storage.logTransaction({
+        userId,
+        type: "enrichment",
+        description: result.enriched.name ? `AI enrichment: ${result.enriched.name}` : "AI deal enrichment",
+        amount: result.totalCharge.toFixed(4),
+        apiCost: result.apiCost.toFixed(4),
+        companyName: result.enriched.name || undefined,
+        inputTokens: result.tokenUsage.inputTokens,
+        outputTokens: result.tokenUsage.outputTokens,
+      });
+    } catch (err) {
+      console.error("[Transaction] Failed to log:", err);
+    }
+  }
+
   app.post("/api/enrich", requireAuth, enrichmentPaywall, async (req, res) => {
     try {
       const parsed = enrichRequestSchema.safeParse(req.body);
@@ -177,8 +204,9 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
       }
 
-      const enriched = await enrichFromInput(parsed.data.input);
-      res.json(enriched);
+      const result = await enrichFromInput(parsed.data.input);
+      await logEnrichmentTransaction(req.user!.id, result);
+      res.json(result.enriched);
     } catch (error: any) {
       console.error("Enrichment error:", error);
       res.status(500).json({ message: "AI enrichment failed", error: error.message });
@@ -200,8 +228,9 @@ export async function registerRoutes(
         res.write(`data: ${JSON.stringify(data)}\n\n`);
       };
 
-      const enriched = await enrichFromInputWithProgress(parsed.data.input, sendEvent);
-      sendEvent({ type: "complete", data: enriched });
+      const result = await enrichFromInputWithProgress(parsed.data.input, sendEvent);
+      await logEnrichmentTransaction(req.user!.id, result);
+      sendEvent({ type: "complete", data: result.enriched });
       res.end();
     } catch (error: any) {
       console.error("Enrichment stream error:", error);
@@ -223,7 +252,9 @@ export async function registerRoutes(
       const { input, pipelineStage } = parsed.data;
       const userId = req.user!.id;
 
-      const enriched = await enrichFromInput(input);
+      const result = await enrichFromInput(input);
+      const enriched = result.enriched;
+      await logEnrichmentTransaction(userId, result);
 
       const isUrl = input.startsWith("http://") || input.startsWith("https://");
 
