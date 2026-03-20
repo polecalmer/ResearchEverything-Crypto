@@ -45,3 +45,9 @@ waitForPort = 5000
 
 [agent]
 integrations = ["javascript_anthropic_ai_integrations:2.0.0", "javascript_log_in_with_replit:2.0.0", "github:1.0.0", "stripe:1.0.0"]
+
+[userenv]
+
+[userenv.shared]
+VITE_PRIVY_APP_ID = "cmmyniyn500170dl19lkedqy8"
+MPP_SECRET_KEY = "df7d54d0a95582836a3ba9c1aad1b16c78f3667486d90e0d3876c258d65dffa0"

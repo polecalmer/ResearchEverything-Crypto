@@ -2,8 +2,20 @@ import { Bot } from "grammy";
 import { storage } from "./storage";
 import { enrichFromInput } from "./enrichment";
 import type { InsertCompany } from "@shared/schema";
+import crypto from "crypto";
 
 let bot: Bot | null = null;
+
+const linkCodes = new Map<string, { userId: string; expiresAt: number }>();
+
+export function generateTelegramLinkCode(userId: string): string {
+  for (const [code, data] of linkCodes) {
+    if (data.userId === userId) linkCodes.delete(code);
+  }
+  const code = crypto.randomBytes(4).toString("hex").toUpperCase();
+  linkCodes.set(code, { userId, expiresAt: Date.now() + 10 * 60 * 1000 });
+  return code;
+}
 
 export function startTelegramBot() {
   const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -26,9 +38,11 @@ export function startTelegramBot() {
   bot.command("start", async (ctx) => {
     await ctx.reply(
       "Welcome to BookMark Deal Bot!\n\n" +
-      "Link your BookMark account to start dropping deals directly from Telegram.\n\n" +
-      "Send: /link your_username your_password\n\n" +
-      "Once linked, just drop any link or company name and I'll enrich it and add it to your pipeline automatically."
+      "To link your account:\n" +
+      "1. Go to BookMark app → Settings\n" +
+      "2. Click 'Generate Telegram Link Code'\n" +
+      "3. Send: /link YOUR_CODE\n\n" +
+      "Once linked, just drop any link or company name and I'll enrich it and add it to your pipeline."
     );
   });
 
@@ -36,35 +50,41 @@ export function startTelegramBot() {
     const text = ctx.message?.text || "";
     const parts = text.split(/\s+/).slice(1);
 
-    if (parts.length < 2) {
-      await ctx.reply("Usage: /link your_username your_password");
+    if (parts.length < 1) {
+      await ctx.reply("Usage: /link YOUR_CODE\n\nGenerate a link code from your BookMark app first.");
       return;
     }
 
-    const [username, password] = parts;
+    const code = parts[0].toUpperCase().trim();
     const chatId = ctx.chat.id.toString();
 
+    const codeData = linkCodes.get(code);
+    if (!codeData) {
+      await ctx.reply("Invalid or expired code. Generate a new one from your BookMark app.");
+      return;
+    }
+
+    if (codeData.expiresAt < Date.now()) {
+      linkCodes.delete(code);
+      await ctx.reply("Code expired. Generate a new one from your BookMark app.");
+      return;
+    }
+
     try {
-      const { comparePasswords } = await import("./auth");
-      const user = await storage.getUserByUsername(username);
+      linkCodes.delete(code);
+      const user = await storage.getUser(codeData.userId);
 
       if (!user) {
-        await ctx.reply("Account not found. Check your username and try again.");
-        return;
-      }
-
-      const valid = await comparePasswords(password, user.password);
-      if (!valid) {
-        await ctx.reply("Invalid password. Try again.");
+        await ctx.reply("Account not found. Try generating a new code.");
         return;
       }
 
       await storage.linkTelegramChat(user.id, chatId);
       await ctx.reply(
-        `Linked to ${username}! You're all set.\n\n` +
+        `Account linked successfully!\n\n` +
         "Now just drop any link or company name here and I'll enrich it and add it to your deal pipeline.\n\n" +
         "Commands:\n" +
-        "/status — Check your credits and deal count\n" +
+        "/status — Check your deal count\n" +
         "/unlink — Disconnect your account"
       );
     } catch (error: any) {
@@ -95,12 +115,14 @@ export function startTelegramBot() {
       return;
     }
 
-    const credits = await storage.getUserCredits(user.id);
     const companies = await storage.getCompanies(user.id);
+    const walletLine = user.walletAddress
+      ? `Wallet: ${user.walletAddress.slice(0, 6)}...${user.walletAddress.slice(-4)}`
+      : "Wallet: Not connected";
 
     await ctx.reply(
-      `Account: ${user.username}\n` +
-      `Credits: ${credits >= 999999 ? "Unlimited" : credits}\n` +
+      `Account: ${user.email || user.username}\n` +
+      `${walletLine}\n` +
       `Deals in pipeline: ${companies.length}`
     );
   });
@@ -116,14 +138,14 @@ export function startTelegramBot() {
     if (!user) {
       await ctx.reply(
         "No account linked yet.\n\n" +
-        "Send /link your_username your_password to connect your BookMark account."
+        "Generate a link code from your BookMark app, then send: /link YOUR_CODE"
       );
       return;
     }
 
     const credits = await storage.getUserCredits(user.id);
     if (credits <= 0) {
-      await ctx.reply("No credits remaining. Purchase more credits in the BookMark app to continue enriching deals.");
+      await ctx.reply("No credits remaining for Telegram enrichments. Fund your wallet and use the BookMark app for pay-per-use enrichment, or purchase credits to use via Telegram.");
       return;
     }
 

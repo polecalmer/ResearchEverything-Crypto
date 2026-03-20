@@ -11,22 +11,22 @@ A deal pipeline management dashboard for VCs with a companion Chrome extension. 
 - **Extension:** Chrome Manifest V3 extension with context menu, content scripts, and popup
 - **Styling:** Tailwind CSS with Inter font, editorial black/white primary color system
 
-## Authentication
+## Authentication (Privy)
 
-Username/password auth with passport-local, express-session, scrypt password hashing. Sessions stored in PostgreSQL via connect-pg-simple.
-- `POST /api/register` — create account
-- `POST /api/login` — sign in
-- `POST /api/logout` — sign out
+Privy-based auth with embedded Tempo wallets. Users sign in via email or external wallet; an embedded wallet is auto-created on the Tempo chain (chain ID 4217).
+- Frontend: `PrivyProvider` wraps app in `client/src/App.tsx`, `useAuth` hook wraps `usePrivy`
+- Backend: `requireAuth` middleware verifies Privy access tokens via `@privy-io/node`, creates user on first login
 - `GET /api/user` — current user (401 if not authenticated)
-- All `/api/companies`, `/api/enrich`, `/api/founders`, `/api/notes` routes protected with `requireAuth` middleware
+- All API routes protected with `requireAuth` middleware
 - Companies scoped to users via `userId` column
-- Orphaned companies (no userId) are auto-assigned to the first user who logs in
+- Users table: `privyId`, `walletAddress`, `email`, plus legacy `username`/`password` columns
+- Env vars: `PRIVY_APP_ID`, `PRIVY_APP_SECRET` (secrets), `VITE_PRIVY_APP_ID` (shared env)
 
-Key files: `server/auth.ts` (auth setup + routes), `client/src/hooks/use-auth.tsx` (useAuth hook)
+Key files: `server/auth.ts` (Privy token verification), `client/src/hooks/use-auth.tsx` (useAuth hook), `client/src/App.tsx` (PrivyProvider)
 
 ## Data Model
 
-- **Users**: id, username, password (scrypt hashed), credits (integer, default 0), stripeCustomerId
+- **Users**: id, username, password, credits, stripeCustomerId, privyId, walletAddress, email
 - **Companies**: Core deal entities with userId, name, one-liner, description, sector, business model, stage, funding history, competitive landscape, source URL, website URL, GitHub URL, Twitter URL, LinkedIn URL, pipeline stage, and tags
 - **Founders**: Linked to companies with name, role, bio, LinkedIn/Twitter/GitHub/personal URLs, prior companies
 - **Notes**: Time-stamped notes attached to companies
@@ -44,6 +44,17 @@ Key files: `server/auth.ts` (auth setup + routes), `client/src/hooks/use-auth.ts
 - `/add` - Add new deal form with founder fields
 - `/extension` - Browser extension setup instructions
 - `/data` - Pipeline analytics: total sourced, deals by stage/sector/model, investment rate, funnel summary
+
+## Payments (Tempo MPP)
+
+Enrichment endpoints are gated behind the Machine Payments Protocol (MPP) via `mppx`.
+- Server: `server/mpp.ts` creates `Mppx` with `tempo()` method (pathUSD currency, owner wallet recipient)
+- `enrichmentPaywall` middleware applied to `/api/enrich`, `/api/enrich/stream`, `/api/companies/enrich-and-create`
+- Client: `client/src/lib/mpp.ts` initializes mppx client with Privy embedded wallet (polyfills fetch for automatic 402 handling)
+- Price: $0.10 per enrichment (configurable in `ENRICHMENT_PRICE`)
+- Owner wallet: `0x342fFFBcEbb761bC2c7B512333AF5E397b4cB72d`
+- pathUSD token: `0x20c0000000000000000000000000000000000000`
+- Env: `MPP_SECRET_KEY` for challenge verification
 
 ## Chrome Extension (`extension/` folder)
 
@@ -132,18 +143,20 @@ Pipeline stages in frontend: Scraper → Identifier → Research → Verify & Cl
 Drop any link or company name into a Telegram chat with the BookMark bot and it auto-enriches and adds to your pipeline.
 
 - Bot uses Grammy (lightweight Telegram bot framework) with long polling
-- Users link their BookMark account via `/link username password` command
-- Once linked, any text message triggers the AI enrichment pipeline and creates the deal automatically
-- Bot replies with company name, one-liner, sector, stage, and founders
+- Secure account linking: user generates a one-time code in the web app (`POST /api/telegram/link-code`), sends `/link CODE` to bot
+- Link codes expire after 10 minutes, are single-use, and stored in-memory
+- Telegram enrichments use credit-based gating (separate from web MPP flow)
 - Commands: `/start`, `/link`, `/unlink`, `/status`
 - User's `telegramChatId` stored on the users table for account linking
 - Key file: `server/telegram.ts`
 
 ## API Endpoints
 
-- `POST /api/enrich` - AI enrichment only (requires 1 credit, returns enriched data without saving)
-- `POST /api/enrich/stream` - AI enrichment with SSE progress events (requires 1 credit)
-- `POST /api/companies/enrich-and-create` - AI enrichment + create company + founders (requires 1 credit)
+- `POST /api/enrich` - AI enrichment only (requires MPP payment, returns enriched data without saving)
+- `POST /api/enrich/stream` - AI enrichment with SSE progress events (requires MPP payment)
+- `POST /api/companies/enrich-and-create` - AI enrichment + create company + founders (requires MPP payment)
+- `GET /api/enrichment/pricing` - Public pricing endpoint (returns price, currency, recipient)
+- `POST /api/telegram/link-code` - Generate Telegram link code (requires auth)
 - `GET /api/credits` - Get current credit balance
 - `GET /api/credits/products` - List all products (subscriptions + credit packs) from Stripe
 - `POST /api/credits/checkout` - Create Stripe Checkout session (supports mode: "payment" or "subscription")
@@ -157,6 +170,6 @@ Drop any link or company name into a Telegram chat with the BookMark bot and it 
 - `GET /api/companies/:id/next-steps` - AI-generated context-aware next steps with 2-stage pipeline (Generator → Verifier)
 - `GET/POST /api/companies/:id/founders` - List/add founders
 - `GET/POST /api/companies/:id/notes` - List/add notes
-- `DELETE /api/notes/:id` - Delete note
+- `DELETE /api/notes/:id` - Delete note (scoped to owner's companies)
 
-All API endpoints support CORS for cross-origin requests from the browser extension.
+All API endpoints support CORS with `Authorization` header for cross-origin requests.

@@ -5,6 +5,8 @@ import { insertCompanySchema, insertFounderSchema, insertNoteSchema, PIPELINE_ST
 import { z } from "zod";
 import { enrichFromInput, enrichFromInputWithProgress, generateNextSteps, generateDeepResearch } from "./enrichment";
 import { requireAuth } from "./auth";
+import { enrichmentPaywall, ENRICHMENT_PRICE } from "./mpp";
+import { generateTelegramLinkCode } from "./telegram";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
@@ -27,6 +29,19 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  app.post("/api/telegram/link-code", requireAuth, async (req, res) => {
+    const code = generateTelegramLinkCode(req.user!.id);
+    res.json({ code, expiresIn: "10 minutes" });
+  });
+
+  app.get("/api/enrichment/pricing", (_req, res) => {
+    res.json({
+      pricePerEnrichment: ENRICHMENT_PRICE,
+      currency: "pathUSD",
+      recipient: "0x342fFFBcEbb761bC2c7B512333AF5E397b4cB72d",
+    });
+  });
 
   app.get("/api/credits", requireAuth, async (req, res) => {
     const credits = await storage.getUserCredits(req.user!.id);
@@ -147,17 +162,11 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/enrich", requireAuth, async (req, res) => {
+  app.post("/api/enrich", requireAuth, enrichmentPaywall, async (req, res) => {
     try {
       const parsed = enrichRequestSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
-      }
-
-      const userId = req.user!.id;
-      const deducted = await storage.deductCredit(userId);
-      if (!deducted) {
-        return res.status(402).json({ message: "Insufficient credits. Please purchase more credits to continue." });
       }
 
       const enriched = await enrichFromInput(parsed.data.input);
@@ -168,17 +177,11 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/enrich/stream", requireAuth, async (req, res) => {
+  app.post("/api/enrich/stream", requireAuth, enrichmentPaywall, async (req, res) => {
     try {
       const parsed = enrichRequestSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
-      }
-
-      const userId = req.user!.id;
-      const deducted = await storage.deductCredit(userId);
-      if (!deducted) {
-        return res.status(402).json({ message: "Insufficient credits. Please purchase more credits to continue." });
       }
 
       res.setHeader("Content-Type", "text/event-stream");
@@ -203,7 +206,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/companies/enrich-and-create", requireAuth, async (req, res) => {
+  app.post("/api/companies/enrich-and-create", requireAuth, enrichmentPaywall, async (req, res) => {
     try {
       const parsed = enrichAndCreateSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -211,11 +214,6 @@ export async function registerRoutes(
       }
       const { input, pipelineStage } = parsed.data;
       const userId = req.user!.id;
-
-      const deducted = await storage.deductCredit(userId);
-      if (!deducted) {
-        return res.status(402).json({ message: "Insufficient credits. Please purchase more credits to continue." });
-      }
 
       const enriched = await enrichFromInput(input);
 
@@ -431,7 +429,8 @@ export async function registerRoutes(
   });
 
   app.delete("/api/notes/:id", requireAuth, async (req, res) => {
-    await storage.deleteNote(req.params.id);
+    const deleted = await storage.deleteNote(req.params.id, req.user!.id);
+    if (!deleted) return res.status(404).json({ message: "Note not found" });
     res.status(204).end();
   });
 

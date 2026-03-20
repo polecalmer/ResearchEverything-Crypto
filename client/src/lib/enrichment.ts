@@ -36,10 +36,17 @@ export function getAgentDescription(agent: string): string {
 export async function streamEnrichment(
   input: string,
   onStage: (stage: EnrichmentStage) => void,
+  getAccessToken?: () => Promise<string | null>,
 ): Promise<any> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (getAccessToken) {
+    const token = await getAccessToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+  }
+
   const response = await fetch("/api/enrich/stream", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers,
     body: JSON.stringify({ input }),
   });
 

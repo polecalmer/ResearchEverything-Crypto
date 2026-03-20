@@ -44,6 +44,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { streamEnrichment, type EnrichmentStage } from "@/lib/enrichment";
+import { useAuth } from "@/hooks/use-auth";
 
 const SECTORS = [
   "AI / ML", "AI Infra", "Fintech", "DevTools", "Consumer", "Healthcare",
@@ -93,6 +94,7 @@ interface FounderForm {
 export default function AddDeal() {
   const [, navigate] = useLocation();
   const { toast } = useToast();
+  const { getAccessToken } = useAuth();
   const [founders, setFounders] = useState<FounderForm[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [enrichInput, setEnrichInput] = useState("");
@@ -128,17 +130,21 @@ export default function AddDeal() {
     setPipelineStages([]);
 
     try {
-      const data = await streamEnrichment(enrichInput.trim(), (stage) => {
-        setPipelineStages((prev) => {
-          const existing = prev.findIndex((s) => s.agent === stage.agent);
-          if (existing >= 0) {
-            const updated = [...prev];
-            updated[existing] = stage;
-            return updated;
-          }
-          return [...prev, stage];
-        });
-      });
+      const data = await streamEnrichment(
+        enrichInput.trim(),
+        (stage) => {
+          setPipelineStages((prev) => {
+            const existing = prev.findIndex((s) => s.agent === stage.agent);
+            if (existing >= 0) {
+              const updated = [...prev];
+              updated[existing] = stage;
+              return updated;
+            }
+            return [...prev, stage];
+          });
+        },
+        getAccessToken,
+      );
 
       const inputUrl = enrichInput.trim();
       const isUrl = inputUrl.startsWith("http://") || inputUrl.startsWith("https://");
@@ -202,18 +208,11 @@ export default function AddDeal() {
       }
 
       queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/credits"] });
       toast({ title: `"${company.name}" added successfully` });
       navigate(`/companies/${company.id}`);
     } catch (error: any) {
-      const isCreditsError = error.message?.toLowerCase().includes("insufficient credits");
       setEnrichError(error.message);
-      if (isCreditsError) {
-        toast({ title: "No credits remaining", description: "Purchase credits to continue enriching deals.", variant: "destructive" });
-      } else {
-        toast({ title: "AI enrichment failed", description: error.message, variant: "destructive" });
-      }
-      queryClient.invalidateQueries({ queryKey: ["/api/credits"] });
+      toast({ title: "AI enrichment failed", description: error.message, variant: "destructive" });
     } finally {
       setIsEnriching(false);
     }
@@ -381,9 +380,6 @@ export default function AddDeal() {
             {enrichError && (
               <div className="text-sm text-destructive">
                 <p>{enrichError}</p>
-                {enrichError.toLowerCase().includes("insufficient credits") && (
-                  <a href="/credits" className="underline text-foreground mt-1 inline-block">Buy credits to continue</a>
-                )}
               </div>
             )}
 

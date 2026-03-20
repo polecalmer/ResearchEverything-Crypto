@@ -1,10 +1,26 @@
-import { usePrivy } from "@privy-io/react-auth";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
 import { queryClient } from "@/lib/queryClient";
+import { initMppx, resetMppx } from "@/lib/mpp";
 import type { User } from "@shared/schema";
 
 export function useAuth() {
   const { ready, authenticated, login, logout: privyLogout, getAccessToken, user: privyUser } = usePrivy();
+  const { wallets } = useWallets();
+
+  useEffect(() => {
+    if (!authenticated || wallets.length === 0) return;
+
+    const embeddedWallet = wallets.find(
+      (w) => w.walletClientType === "privy"
+    );
+    if (!embeddedWallet) return;
+
+    embeddedWallet.getEthereumProvider().then((provider) => {
+      initMppx(provider).catch(console.error);
+    });
+  }, [authenticated, wallets]);
 
   const { data: user, isLoading: userLoading } = useQuery<User | null>({
     queryKey: ["/api/user"],
@@ -27,6 +43,7 @@ export function useAuth() {
   const isLoading = !ready || (authenticated && userLoading);
 
   const handleLogout = async () => {
+    resetMppx();
     await privyLogout();
     queryClient.setQueryData(["/api/user"], null);
     queryClient.clear();

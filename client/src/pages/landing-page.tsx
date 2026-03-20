@@ -4,6 +4,7 @@ import {
   ArrowUpRight, Layers, Eye, Check,
 } from "lucide-react";
 import { useState, useEffect } from "react";
+import { usePrivy } from "@privy-io/react-auth";
 
 const TYPING_INPUTS = [
   "https://x.com/adi_baradwaj",
@@ -112,6 +113,8 @@ function AgentPipelineVisual() {
 }
 
 export default function LandingPage() {
+  const { login } = usePrivy();
+
   return (
     <div className="min-h-screen bg-background">
       <nav className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-b">
@@ -124,12 +127,8 @@ export default function LandingPage() {
             <a href="#pricing">
               <Button variant="ghost" size="sm" className="text-xs h-8" data-testid="button-nav-pricing">Pricing</Button>
             </a>
-            <a href="/auth">
-              <Button variant="ghost" size="sm" className="text-xs h-8" data-testid="button-nav-login">Sign in</Button>
-            </a>
-            <a href="/auth">
-              <Button size="sm" className="text-xs h-8" data-testid="button-nav-signup">Get started</Button>
-            </a>
+            <Button variant="ghost" size="sm" className="text-xs h-8" onClick={() => login()} data-testid="button-nav-login">Sign in</Button>
+            <Button size="sm" className="text-xs h-8" onClick={() => login()} data-testid="button-nav-signup">Get started</Button>
           </div>
         </div>
       </nav>
@@ -154,12 +153,10 @@ export default function LandingPage() {
             </div>
 
             <div className="flex items-center gap-3">
-              <a href="/auth">
-                <Button size="lg" className="h-11 px-6 gap-2 text-sm" data-testid="button-cta-start">
-                  Start for free
-                  <ArrowRight className="w-4 h-4" />
-                </Button>
-              </a>
+              <Button size="lg" className="h-11 px-6 gap-2 text-sm" onClick={() => login()} data-testid="button-cta-start">
+                Start for free
+                <ArrowRight className="w-4 h-4" />
+              </Button>
               <a href="#how">
                 <Button variant="ghost" size="lg" className="h-11 px-4 text-sm text-muted-foreground" data-testid="button-how-it-works">
                   How it works
@@ -304,9 +301,7 @@ export default function LandingPage() {
                     </div>
                   ))}
                 </div>
-                <a href="/auth">
-                  <Button className="w-full mt-2" data-testid="button-pricing-monthly">Get started</Button>
-                </a>
+                <Button className="w-full mt-2" onClick={() => login()} data-testid="button-pricing-monthly">Get started</Button>
               </div>
 
               <div className="rounded-lg border border-foreground/20 bg-accent/30 p-6 space-y-5 relative" data-testid="pricing-annual">
@@ -329,9 +324,7 @@ export default function LandingPage() {
                     </div>
                   ))}
                 </div>
-                <a href="/auth">
-                  <Button className="w-full mt-2" data-testid="button-pricing-annual">Get started</Button>
-                </a>
+                <Button className="w-full mt-2" onClick={() => login()} data-testid="button-pricing-annual">Get started</Button>
               </div>
             </div>
           </div>

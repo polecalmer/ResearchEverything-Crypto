@@ -14,6 +14,7 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   getUserByPrivyId(privyId: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   createPrivyUser(data: { privyId: string; email: string; walletAddress: string; username: string }): Promise<User>;
   getUserCredits(userId: string): Promise<number>;
@@ -34,7 +35,7 @@ export interface IStorage {
 
   getNotesByCompany(companyId: string): Promise<Note[]>;
   createNote(note: InsertNote): Promise<Note>;
-  deleteNote(id: string): Promise<void>;
+  deleteNote(id: string, userId?: string): Promise<boolean>;
 
   updateSubscription(userId: string, data: { subscriptionStatus: string; subscriptionId: string; subscriptionPeriodEnd: Date | null }): Promise<void>;
 
@@ -59,6 +60,11 @@ export class DatabaseStorage implements IStorage {
 
   async getUserByPrivyId(privyId: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.privyId, privyId));
+    return user;
+  }
+
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.email, email));
     return user;
   }
 
@@ -183,8 +189,15 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
 
-  async deleteNote(id: string): Promise<void> {
-    await db.delete(notes).where(eq(notes.id, id));
+  async deleteNote(id: string, userId?: string): Promise<boolean> {
+    if (userId) {
+      const [note] = await db.select().from(notes).where(eq(notes.id, id));
+      if (!note) return false;
+      const company = await this.getCompany(note.companyId, userId);
+      if (!company) return false;
+    }
+    const result = await db.delete(notes).where(eq(notes.id, id)).returning();
+    return result.length > 0;
   }
 
   async updateSubscription(userId: string, data: { subscriptionStatus: string; subscriptionId: string; subscriptionPeriodEnd: Date | null }): Promise<void> {

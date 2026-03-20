@@ -1,30 +1,26 @@
-import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
+import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card } from "@/components/ui/card";
-import { Bookmark, ArrowRight, Loader2, ShieldCheck, Search, FileSearch, Sparkles } from "lucide-react";
+import { Bookmark, ArrowRight, Loader2, ShieldCheck, Search, FileSearch, Sparkles, Wallet } from "lucide-react";
 
 export default function AuthPage() {
-  const [isLogin, setIsLogin] = useState(true);
-  const [username, setUsername] = useState("");
-  const [password, setPassword] = useState("");
-  const { loginMutation, registerMutation } = useAuth();
+  const { login, isAuthenticated, isLoading } = useAuth();
   const [, navigate] = useLocation();
 
-  const isPending = loginMutation.isPending || registerMutation.isPending;
+  useEffect(() => {
+    if (isAuthenticated) {
+      navigate("/");
+    }
+  }, [isAuthenticated, navigate]);
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!username.trim() || !password.trim()) return;
-
-    const mutation = isLogin ? loginMutation : registerMutation;
-    mutation.mutate(
-      { username: username.trim(), password },
-      { onSuccess: () => navigate("/") },
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+      </div>
     );
-  };
+  }
 
   return (
     <div className="min-h-screen grid lg:grid-cols-2">
@@ -38,58 +34,29 @@ export default function AuthPage() {
               <span className="text-lg font-semibold tracking-tight">BookMark</span>
             </div>
             <h1 className="text-2xl font-bold tracking-tight" data-testid="text-auth-title">
-              {isLogin ? "Welcome back" : "Create your account"}
+              Get started
             </h1>
             <p className="text-sm text-muted-foreground">
-              {isLogin
-                ? "Sign in to access your deal pipeline"
-                : "Start managing your deal flow with AI"}
+              Sign in with your email or wallet to access your deal pipeline. You'll get an embedded Tempo wallet automatically.
             </p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Username</label>
-              <Input
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Enter your username"
-                autoFocus
-                disabled={isPending}
-                data-testid="input-username"
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Password</label>
-              <Input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder={isLogin ? "Enter your password" : "Choose a password (6+ chars)"}
-                disabled={isPending}
-                data-testid="input-password"
-              />
-            </div>
-            <Button type="submit" className="w-full" disabled={isPending || !username.trim() || !password.trim()} data-testid="button-auth-submit">
-              {isPending ? (
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              ) : (
-                <ArrowRight className="w-4 h-4 mr-2" />
-              )}
-              {isLogin ? "Sign In" : "Create Account"}
-            </Button>
-          </form>
-
-          <div className="text-center">
-            <button
-              type="button"
-              onClick={() => setIsLogin(!isLogin)}
-              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-              data-testid="button-toggle-auth"
+          <div className="space-y-3">
+            <Button
+              className="w-full h-12 text-base"
+              onClick={() => login()}
+              data-testid="button-auth-submit"
             >
-              {isLogin ? "Don't have an account? " : "Already have an account? "}
-              <span className="text-foreground font-medium underline underline-offset-2">{isLogin ? "Sign up" : "Sign in"}</span>
-            </button>
+              <ArrowRight className="w-4 h-4 mr-2" />
+              Sign In / Sign Up
+            </Button>
+
+            <div className="flex items-center gap-2 pt-2">
+              <Wallet className="w-4 h-4 text-muted-foreground" />
+              <p className="text-xs text-muted-foreground">
+                Powered by Privy — email or wallet login with embedded Tempo wallet
+              </p>
+            </div>
           </div>
         </div>
       </div>
@@ -110,7 +77,7 @@ export default function AuthPage() {
               { icon: Search, title: "Drop any link", desc: "URL, tweet, founder profile, blog post" },
               { icon: FileSearch, title: "AI researches deeply", desc: "3 agents build a verified deal card" },
               { icon: ShieldCheck, title: "Hallucination firewall", desc: "Every claim fact-checked before saving" },
-              { icon: Sparkles, title: "Smart next steps", desc: "AI-generated actions verified by QA agent" },
+              { icon: Sparkles, title: "Pay per use", desc: "Micropayments via Tempo — pay only for what you use" },
             ].map(({ icon: Icon, title, desc }) => (
               <div key={title} className="flex items-start gap-3 p-3 rounded-lg bg-background/50 dark:bg-background/30">
                 <div className="w-8 h-8 rounded-md bg-background flex items-center justify-center shrink-0 mt-0.5">
