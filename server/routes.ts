@@ -12,6 +12,7 @@ import {
 } from "./enrichment";
 import { requireAuth } from "./auth";
 import { enrichmentPaywall, nextStepsPaywall, deepResearchPaywall } from "./mpp";
+import { callAnthropicServer, isServerMppReady } from "./mpp-client";
 import { generateTelegramLinkCode } from "./telegram";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { db } from "./db";
@@ -42,36 +43,20 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
 
-  app.post("/api/ai/proxy", async (req, res) => {
+  app.post("/api/ai/proxy", requireAuth, async (req, res) => {
     try {
-      const upstreamUrl = "https://anthropic.mpp.tempo.xyz/v1/messages";
-      const forwardHeaders: Record<string, string> = {
-        "Content-Type": "application/json",
-        "anthropic-version": req.headers["anthropic-version"] as string || "2023-06-01",
-        "x-api-key": req.headers["x-api-key"] as string || "mpp",
-      };
-      if (req.headers["authorization"]) {
-        forwardHeaders["Authorization"] = req.headers["authorization"] as string;
+      if (!isServerMppReady()) {
+        return res.status(503).json({ message: "AI service not configured — server wallet not set" });
       }
-
-      const upstream = await fetch(upstreamUrl, {
-        method: "POST",
-        headers: forwardHeaders,
-        body: JSON.stringify(req.body),
-      });
-
-      for (const [key, value] of upstream.headers.entries()) {
-        if (key.toLowerCase() !== "transfer-encoding") {
-          res.setHeader(key, value);
-        }
+      const { model, max_tokens, system, messages, tools } = req.body;
+      if (!model || !max_tokens || !messages) {
+        return res.status(400).json({ message: "Invalid request: model, max_tokens, and messages required" });
       }
-
-      res.status(upstream.status);
-      const body = await upstream.arrayBuffer();
-      res.end(Buffer.from(body));
+      const result = await callAnthropicServer({ model, max_tokens, system, messages, tools });
+      res.json(result);
     } catch (error: any) {
       console.error("[AI Proxy] Error:", error.message);
-      res.status(502).json({ message: "AI proxy error" });
+      res.status(502).json({ message: error.message || "AI call failed" });
     }
   });
 

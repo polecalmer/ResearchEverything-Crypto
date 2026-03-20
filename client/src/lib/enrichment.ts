@@ -68,8 +68,9 @@ export async function runEnrichmentPipeline(
   getAccessToken?: () => Promise<string | null>,
 ): Promise<any> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
+  let token: string | null = null;
   if (getAccessToken) {
-    const token = await getAccessToken();
+    token = await getAccessToken();
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
       headers["X-Privy-Token"] = token;
@@ -92,7 +93,7 @@ export async function runEnrichmentPipeline(
 
   const MAX_ENRICHMENT_STEPS = 10;
   for (let step = 0; step < MAX_ENRICHMENT_STEPS; step++) {
-    const anthropicResponse = await callAnthropic(anthropicRequest);
+    const anthropicResponse = await callAnthropic(anthropicRequest, token);
 
     const stepRes = await fetch("/api/enrich/step", {
       method: "POST",
@@ -133,8 +134,9 @@ export async function runNextStepsPipeline(
   getAccessToken?: () => Promise<string | null>,
 ): Promise<any[]> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
+  let token: string | null = null;
   if (getAccessToken) {
-    const token = await getAccessToken();
+    token = await getAccessToken();
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
       headers["X-Privy-Token"] = token;
@@ -155,7 +157,7 @@ export async function runNextStepsPipeline(
 
   const MAX_NEXT_STEPS_ITERATIONS = 5;
   for (let step = 0; step < MAX_NEXT_STEPS_ITERATIONS; step++) {
-    const anthropicResponse = await callAnthropic(anthropicRequest);
+    const anthropicResponse = await callAnthropic(anthropicRequest, token);
 
     const stepRes = await fetch(`/api/companies/${companyId}/next-steps/step`, {
       method: "POST",
@@ -192,8 +194,9 @@ export async function runDeepResearchPipeline(
   getAccessToken?: () => Promise<string | null>,
 ): Promise<{ reportId: string }> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
+  let token: string | null = null;
   if (getAccessToken) {
-    const token = await getAccessToken();
+    token = await getAccessToken();
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
       headers["X-Privy-Token"] = token;
@@ -212,7 +215,7 @@ export async function runDeepResearchPipeline(
 
   const { sessionId, anthropicRequest, reportId } = await prepareRes.json();
 
-  const anthropicResponse = await callAnthropic(anthropicRequest);
+  const anthropicResponse = await callAnthropic(anthropicRequest, token);
 
   const completeRes = await fetch(`/api/companies/${companyId}/reports/complete`, {
     method: "POST",

@@ -11,38 +11,27 @@ export interface AnthropicResponse {
   usage: { input_tokens: number; output_tokens: number };
 }
 
-export async function callAnthropic(request: AnthropicRequest): Promise<AnthropicResponse> {
-  const response = await ((...args: Parameters<typeof fetch>) => globalThis.fetch(...args))("/api/ai/proxy", {
+export async function callAnthropic(
+  request: AnthropicRequest,
+  accessToken?: string | null,
+): Promise<AnthropicResponse> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+
+  if (accessToken) {
+    headers["Authorization"] = `Bearer ${accessToken}`;
+    headers["X-Privy-Token"] = accessToken;
+  }
+
+  const response = await fetch("/api/ai/proxy", {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "anthropic-version": "2023-06-01",
-      "x-api-key": "mpp",
-    },
+    headers,
     body: JSON.stringify(request),
   });
 
   if (!response.ok) {
-    const errorText = await response.text().catch(() => "Unknown error");
-    throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
+    const errorData = await response.json().catch(() => ({ message: "AI call failed" }));
+    throw new Error(errorData.message || `AI call failed (${response.status})`);
   }
 
-  const data = await response.json();
-
-  let text = "";
-  if (data.content) {
-    for (const block of data.content) {
-      if (block.type === "text") {
-        text += block.text;
-      }
-    }
-  }
-
-  return {
-    text,
-    usage: {
-      input_tokens: data.usage?.input_tokens || 0,
-      output_tokens: data.usage?.output_tokens || 0,
-    },
-  };
+  return await response.json();
 }
