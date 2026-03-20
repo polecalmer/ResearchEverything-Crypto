@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Wallet, Check, ExternalLink, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
-import { useFundWallet } from "@privy-io/react-auth";
 
 interface EnrichmentPricing {
   model: string;
@@ -18,7 +17,6 @@ interface EnrichmentPricing {
 
 export default function CreditsPage() {
   const { privyUser } = useAuth();
-  const { fundWallet } = useFundWallet();
 
   const { data: pricing, isLoading: pricingLoading } = useQuery<EnrichmentPricing>({
     queryKey: ["/api/enrichment/pricing"],
@@ -30,13 +28,9 @@ export default function CreditsPage() {
     ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
     : null;
 
-  const handleFundWallet = async () => {
+  const handleFundWallet = () => {
     if (!walletAddress) return;
-    try {
-      await fundWallet(walletAddress, { chain: { id: 4217 } as any });
-    } catch (err) {
-      console.error("Fund wallet error:", err);
-    }
+    window.open(`https://bridge.tempo.xyz/?toAddress=${walletAddress}`, "_blank");
   };
 
   return (
