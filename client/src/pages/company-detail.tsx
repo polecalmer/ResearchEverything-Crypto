@@ -24,6 +24,7 @@ import {
   Sparkles,
   ShieldCheck,
   Loader2,
+  Plus,
 } from "lucide-react";
 import { SiGithub } from "react-icons/si";
 import { useState } from "react";
@@ -374,10 +375,20 @@ export default function CompanyDetail() {
   return (
     <div className="h-full overflow-y-auto">
       <div className="max-w-5xl mx-auto p-6">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground mb-5">
-          <button onClick={() => navigate("/companies")} className="hover:text-foreground transition-colors" data-testid="button-back">Companies</button>
-          <span className="text-muted-foreground/30">/</span>
-          <span className="text-foreground font-medium truncate">{company.name}</span>
+        <div className="flex items-center justify-between mb-5">
+          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+            <button onClick={() => navigate("/companies")} className="hover:text-foreground transition-colors" data-testid="button-back">Companies</button>
+            <span className="text-muted-foreground/30">/</span>
+            <span className="text-foreground font-medium truncate">{company.name}</span>
+          </div>
+          <button
+            onClick={() => navigate("/add")}
+            className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground hover:text-foreground border border-border/50 hover:border-border px-2.5 py-1 transition-colors"
+            data-testid="button-add-deal"
+          >
+            <Plus className="w-3 h-3" />
+            Add Deal
+          </button>
         </div>
 
         <div className="flex flex-col lg:flex-row gap-6">
