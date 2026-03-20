@@ -30,7 +30,7 @@ export default function CreditsPage() {
 
   const handleFundWallet = () => {
     if (!walletAddress) return;
-    window.open(`https://bridge.tempo.xyz/?toAddress=${walletAddress}`, "_blank");
+    window.open("https://docs.tempo.xyz/guide/use-accounts/add-funds", "_blank");
   };
 
   return (
