@@ -564,5 +564,85 @@ export async function registerRoutes(
     res.json({ message: "Report deleted", companyId: result.companyId });
   });
 
+  app.post("/api/admin/seed-from-dev", requireAuth, async (req, res) => {
+    const ADMIN_EMAILS = ["allmysubscriptions10@proton.me"];
+    const user = req.user!;
+    if (!ADMIN_EMAILS.includes(user.email || "")) {
+      return res.status(403).json({ message: "Admin only" });
+    }
+
+    try {
+      const fs = await import("fs");
+      const path = await import("path");
+      const dataPath = path.join(process.cwd(), "server", "seed-data.json");
+      if (!fs.existsSync(dataPath)) {
+        return res.status(404).json({ message: "Seed data file not found" });
+      }
+      const data = JSON.parse(fs.readFileSync(dataPath, "utf-8"));
+      const userId = user.id;
+
+      let companyCount = 0;
+      for (const c of data.companies) {
+        try {
+          await db.execute(sql`
+            INSERT INTO companies (id, user_id, name, one_liner, description, sector, sub_sector, business_model, stage, funding_history, competitive_landscape, source_url, website_url, github_url, twitter_url, linkedin_url, pipeline_stage, tags, image_url, excitement_score, excitement_reason, deleted_report_count, created_at)
+            VALUES (${c.id}, ${userId}, ${c.name}, ${c.one_liner}, ${c.description}, ${c.sector}, ${c.sub_sector}, ${c.business_model}, ${c.stage}, ${c.funding_history}, ${c.competitive_landscape}, ${c.source_url}, ${c.website_url}, ${c.github_url}, ${c.twitter_url}, ${c.linkedin_url}, ${c.pipeline_stage}, ${c.tags}, ${c.image_url}, ${c.excitement_score}, ${c.excitement_reason}, ${c.deleted_report_count || 0}, ${c.created_at})
+            ON CONFLICT (id) DO NOTHING
+          `);
+          companyCount++;
+        } catch (err: any) {
+          console.error(`[Seed] Company ${c.name} failed:`, err.message);
+        }
+      }
+
+      let founderCount = 0;
+      for (const f of data.founders) {
+        try {
+          await db.execute(sql`
+            INSERT INTO founders (id, company_id, name, role, bio, linkedin_url, twitter_url, github_url, personal_url, prior_companies)
+            VALUES (${f.id}, ${f.company_id}, ${f.name}, ${f.role}, ${f.bio}, ${f.linkedin_url}, ${f.twitter_url}, ${f.github_url}, ${f.personal_url}, ${f.prior_companies})
+            ON CONFLICT (id) DO NOTHING
+          `);
+          founderCount++;
+        } catch (err: any) {
+          console.error(`[Seed] Founder ${f.name} failed:`, err.message);
+        }
+      }
+
+      let noteCount = 0;
+      for (const n of data.notes) {
+        try {
+          await db.execute(sql`
+            INSERT INTO notes (id, company_id, content, created_at)
+            VALUES (${n.id}, ${n.company_id}, ${n.content}, ${n.created_at})
+            ON CONFLICT (id) DO NOTHING
+          `);
+          noteCount++;
+        } catch (err: any) {
+          console.error(`[Seed] Note failed:`, err.message);
+        }
+      }
+
+      let reportCount = 0;
+      for (const r of data.reports) {
+        try {
+          await db.execute(sql`
+            INSERT INTO reports (id, company_id, content, status, created_at)
+            VALUES (${r.id}, ${r.company_id}, ${r.content}, ${r.status}, ${r.created_at})
+            ON CONFLICT (id) DO NOTHING
+          `);
+          reportCount++;
+        } catch (err: any) {
+          console.error(`[Seed] Report failed:`, err.message);
+        }
+      }
+
+      res.json({ message: "Seed complete", companyCount, founderCount, noteCount, reportCount });
+    } catch (err: any) {
+      console.error("[Seed] Failed:", err);
+      res.status(500).json({ message: "Seed failed", error: err.message });
+    }
+  });
+
   return httpServer;
 }
