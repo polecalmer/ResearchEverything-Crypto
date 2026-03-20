@@ -46,6 +46,50 @@ const BUSINESS_MODELS = [
 
 const STAGES = ["Pre-seed", "Seed", "Series A", "Series B", "Growth", "Public"];
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+}
+
+const CLAUDE_OPUS_INPUT_COST_PER_TOKEN = 15 / 1_000_000;
+const CLAUDE_OPUS_OUTPUT_COST_PER_TOKEN = 75 / 1_000_000;
+export const MARKUP_MULTIPLIER = 1.5;
+
+const enrichmentCostHistory: number[] = [];
+const MAX_HISTORY = 50;
+
+export function calculateApiCost(usage: TokenUsage): number {
+  return (usage.inputTokens * CLAUDE_OPUS_INPUT_COST_PER_TOKEN) +
+         (usage.outputTokens * CLAUDE_OPUS_OUTPUT_COST_PER_TOKEN);
+}
+
+export function calculateChargeAmount(apiCost: number): number {
+  return apiCost * MARKUP_MULTIPLIER;
+}
+
+export function getEstimatedEnrichmentCost(): number {
+  if (enrichmentCostHistory.length === 0) {
+    return 0.50 * MARKUP_MULTIPLIER;
+  }
+  const avg = enrichmentCostHistory.reduce((a, b) => a + b, 0) / enrichmentCostHistory.length;
+  return avg * MARKUP_MULTIPLIER;
+}
+
+export function recordEnrichmentCost(apiCost: number): void {
+  enrichmentCostHistory.push(apiCost);
+  if (enrichmentCostHistory.length > MAX_HISTORY) {
+    enrichmentCostHistory.shift();
+  }
+}
+
+export function getLastEnrichmentCost(): { apiCost: number; totalCharge: number } | null {
+  if (enrichmentCostHistory.length === 0) return null;
+  const last = enrichmentCostHistory[enrichmentCostHistory.length - 1];
+  return { apiCost: last, totalCharge: calculateChargeAmount(last) };
+}
+
+let currentPipelineUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
+
 async function callAgent(systemPrompt: string, userMessage: string, useWebSearch: boolean = false): Promise<string> {
   const options: any = {
     model: "claude-opus-4-6",
@@ -65,6 +109,11 @@ async function callAgent(systemPrompt: string, userMessage: string, useWebSearch
   }
 
   const message = await anthropic.messages.create(options);
+
+  if (message.usage) {
+    currentPipelineUsage.inputTokens += message.usage.input_tokens;
+    currentPipelineUsage.outputTokens += message.usage.output_tokens;
+  }
 
   let textContent = "";
   for (const block of message.content) {
@@ -473,6 +522,8 @@ async function runPipeline(input: string, onProgress?: ProgressCallback): Promis
     if (onProgress) onProgress(data);
   };
 
+  currentPipelineUsage = { inputTokens: 0, outputTokens: 0 };
+
   const scrapedContent = await scrapeInputUrls(input, onProgress);
 
   emit({ type: "stage", agent: "identifier", step: 1, total: 4, message: "Identifying company from input..." });
@@ -505,6 +556,11 @@ async function runPipeline(input: string, onProgress?: ProgressCallback): Promis
   const { cleaned, issuesFound, assessment } = await runVerifyAndCleanAgent(identity.companyName, researchDraft);
   console.log(`[Enrichment] Verify & Clean: ${assessment} (${issuesFound} issues found)`);
   emit({ type: "stage_complete", agent: "verify_clean", step: 3, issuesFound, assessment });
+
+  const apiCost = calculateApiCost(currentPipelineUsage);
+  const totalCharge = calculateChargeAmount(apiCost);
+  recordEnrichmentCost(apiCost);
+  console.log(`[Enrichment] Token usage: ${currentPipelineUsage.inputTokens} in / ${currentPipelineUsage.outputTokens} out | API cost: $${apiCost.toFixed(4)} | Charge (1.5x): $${totalCharge.toFixed(4)}`);
 
   console.log("[Enrichment] Pipeline complete. Validated output ready.");
   return validateOutput(cleaned);

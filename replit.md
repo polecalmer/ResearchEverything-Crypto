@@ -51,10 +51,16 @@ Enrichment endpoints are gated behind the Machine Payments Protocol (MPP) via `m
 - Server: `server/mpp.ts` creates `Mppx` with `tempo()` method (pathUSD currency, owner wallet recipient)
 - `enrichmentPaywall` middleware applied to `/api/enrich`, `/api/enrich/stream`, `/api/companies/enrich-and-create`
 - Client: `client/src/lib/mpp.ts` initializes mppx client with Privy embedded wallet (polyfills fetch for automatic 402 handling)
-- Price: $0.10 per enrichment (configurable in `ENRICHMENT_PRICE`)
+- Pricing model: **cost-plus** — user pays 1.5x actual AI API cost (50% markup = platform fee)
+  - Token usage tracked per enrichment pipeline (3 Claude Opus calls)
+  - Cost calculated from Anthropic pricing: $15/M input tokens, $75/M output tokens
+  - Running average of past costs used to estimate upfront MPP charge
+  - Default estimate (no history): $0.75 (= $0.50 × 1.5)
+  - `GET /api/enrichment/pricing` returns estimated cost, markup multiplier, and last enrichment cost breakdown
 - Owner wallet: `0x342fFFBcEbb761bC2c7B512333AF5E397b4cB72d`
 - pathUSD token: `0x20c0000000000000000000000000000000000000`
 - Env: `MPP_SECRET_KEY` for challenge verification
+- Cost tracking: `enrichment.ts` exports `getEstimatedEnrichmentCost()`, `getLastEnrichmentCost()`, `recordEnrichmentCost()`, `MARKUP_MULTIPLIER`
 
 ## Chrome Extension (`extension/` folder)
 

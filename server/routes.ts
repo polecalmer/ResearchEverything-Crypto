@@ -3,9 +3,9 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import { insertCompanySchema, insertFounderSchema, insertNoteSchema, PIPELINE_STAGES } from "@shared/schema";
 import { z } from "zod";
-import { enrichFromInput, enrichFromInputWithProgress, generateNextSteps, generateDeepResearch } from "./enrichment";
+import { enrichFromInput, enrichFromInputWithProgress, generateNextSteps, generateDeepResearch, getEstimatedEnrichmentCost, getLastEnrichmentCost, MARKUP_MULTIPLIER } from "./enrichment";
 import { requireAuth } from "./auth";
-import { enrichmentPaywall, ENRICHMENT_PRICE } from "./mpp";
+import { enrichmentPaywall } from "./mpp";
 import { generateTelegramLinkCode } from "./telegram";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { db } from "./db";
@@ -36,8 +36,16 @@ export async function registerRoutes(
   });
 
   app.get("/api/enrichment/pricing", (_req, res) => {
+    const estimated = getEstimatedEnrichmentCost();
+    const lastCost = getLastEnrichmentCost();
     res.json({
-      pricePerEnrichment: ENRICHMENT_PRICE,
+      model: "cost-plus",
+      markupMultiplier: MARKUP_MULTIPLIER,
+      estimatedCost: estimated.toFixed(2),
+      lastEnrichment: lastCost ? {
+        apiCost: lastCost.apiCost.toFixed(4),
+        totalCharge: lastCost.totalCharge.toFixed(4),
+      } : null,
       currency: "pathUSD",
       recipient: "0x342fFFBcEbb761bC2c7B512333AF5E397b4cB72d",
     });
