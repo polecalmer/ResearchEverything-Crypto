@@ -100,15 +100,33 @@ function SafeLink({ href, children, className, ...props }: React.AnchorHTMLAttri
 
 function NextStepsAdvisor({ companyId, pipelineStage }: { companyId: string; pipelineStage: string }) {
   const [showAll, setShowAll] = useState(false);
-  const { data: steps, isLoading, error } = useQuery<NextStepItem[]>({
+  const { data: steps, isLoading, error, refetch, isFetched } = useQuery<NextStepItem[]>({
     queryKey: ["/api/companies", companyId, "next-steps", pipelineStage],
     queryFn: async () => {
-      const res = await fetch(`/api/companies/${companyId}/next-steps`);
+      const res = await apiRequest("GET", `/api/companies/${companyId}/next-steps`);
       if (!res.ok) throw new Error("Failed to fetch next steps");
       return res.json();
     },
+    enabled: false,
     staleTime: 5 * 60 * 1000,
   });
+
+  if (!isFetched && !isLoading) {
+    return (
+      <div data-testid="card-next-steps">
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full text-xs"
+          onClick={() => refetch()}
+          data-testid="button-generate-next-steps"
+        >
+          <Sparkles className="w-3 h-3 mr-1.5" />
+          Generate Recommendations (~$0.12)
+        </Button>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -129,10 +147,20 @@ function NextStepsAdvisor({ companyId, pipelineStage }: { companyId: string; pip
 
   if (error || !steps || steps.length === 0) {
     return (
-      <div data-testid="card-next-steps">
+      <div data-testid="card-next-steps" className="space-y-2">
         <p className="text-xs text-muted-foreground text-center py-2">
           {error ? "Could not generate recommendations." : "No recommendations available."}
         </p>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full text-xs"
+          onClick={() => refetch()}
+          data-testid="button-retry-next-steps"
+        >
+          <Sparkles className="w-3 h-3 mr-1.5" />
+          Retry (~$0.12)
+        </Button>
       </div>
     );
   }
