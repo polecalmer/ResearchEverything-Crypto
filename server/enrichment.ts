@@ -46,17 +46,10 @@ export interface TokenUsage {
   outputTokens: number;
 }
 
-const CLAUDE_OPUS_INPUT_COST_PER_TOKEN = 15 / 1_000_000;
-const CLAUDE_OPUS_OUTPUT_COST_PER_TOKEN = 75 / 1_000_000;
 export const MARKUP_MULTIPLIER = 1.5;
 
 const enrichmentCostHistory: number[] = [];
 const MAX_HISTORY = 50;
-
-export function calculateApiCost(usage: TokenUsage): number {
-  return (usage.inputTokens * CLAUDE_OPUS_INPUT_COST_PER_TOKEN) +
-         (usage.outputTokens * CLAUDE_OPUS_OUTPUT_COST_PER_TOKEN);
-}
 
 export function calculateChargeAmount(apiCost: number): number {
   return apiCost * MARKUP_MULTIPLIER;
@@ -114,6 +107,7 @@ interface EnrichmentSession {
   identity?: any;
   researchDraft?: any;
   usage: TokenUsage;
+  mppCost: number;
   createdAt: number;
 }
 
@@ -126,6 +120,7 @@ interface NextStepsSession {
   generatedSteps?: NextStepItem[];
   dealContext: any;
   usage: TokenUsage;
+  mppCost: number;
   createdAt: number;
 }
 
@@ -136,6 +131,7 @@ interface DeepResearchSession {
   companyId: string;
   reportId: string;
   usage: TokenUsage;
+  mppCost: number;
   createdAt: number;
 }
 
@@ -553,6 +549,7 @@ export async function startEnrichmentSession(input: string, userId: string): Pro
     scrapedContent,
     step: 0,
     usage: { inputTokens: 0, outputTokens: 0 },
+    mppCost: 0,
     createdAt: Date.now(),
   };
   sessions.set(session.id, session);
@@ -569,6 +566,7 @@ export async function advanceEnrichmentSession(
   userId: string,
   responseText: string,
   responseUsage?: { input_tokens: number; output_tokens: number },
+  mppCost?: number,
 ): Promise<{
   anthropicRequest?: AnthropicRequest;
   result?: EnrichmentResult;
@@ -583,6 +581,9 @@ export async function advanceEnrichmentSession(
   if (responseUsage) {
     session.usage.inputTokens += responseUsage.input_tokens;
     session.usage.outputTokens += responseUsage.output_tokens;
+  }
+  if (mppCost && mppCost > 0) {
+    session.mppCost += mppCost;
   }
 
   if (session.step === 0) {
@@ -638,10 +639,10 @@ export async function advanceEnrichmentSession(
     console.log(`[Enrichment] Verify & Clean: ${assessment} (${issuesFound} issues found)`);
     progress.push({ type: "stage_complete", agent: "verify_clean", step: 3, issuesFound, assessment });
 
-    const apiCost = calculateApiCost(session.usage);
+    const apiCost = session.mppCost;
     const totalCharge = calculateChargeAmount(apiCost);
     recordEnrichmentCost(apiCost);
-    console.log(`[Enrichment] Token usage: ${session.usage.inputTokens} in / ${session.usage.outputTokens} out | API cost: $${apiCost.toFixed(4)} | Charge (1.5x): $${totalCharge.toFixed(4)}`);
+    console.log(`[Enrichment] Token usage: ${session.usage.inputTokens} in / ${session.usage.outputTokens} out | MPP cost: $${apiCost.toFixed(6)} | Charge (1.5x): $${totalCharge.toFixed(6)}`);
     console.log("[Enrichment] Pipeline complete.");
 
     const result: EnrichmentResult = {
@@ -815,6 +816,7 @@ Return ONLY the JSON array, no markdown fencing.`;
     step: 0,
     dealContext: { company, founders, notes, filledFields, missingFields, founderSummary, sourceContext },
     usage: { inputTokens: 0, outputTokens: 0 },
+    mppCost: 0,
     createdAt: Date.now(),
   };
   sessions.set(session.id, session);
@@ -831,6 +833,7 @@ export function advanceNextStepsSession(
   userId: string,
   responseText: string,
   responseUsage?: { input_tokens: number; output_tokens: number },
+  mppCost?: number,
 ): { anthropicRequest?: AnthropicRequest; result?: NextStepsResult } {
   const session = sessions.get(sessionId);
   if (!session || session.type !== "next-steps") throw new Error("Invalid or expired session");
@@ -840,6 +843,9 @@ export function advanceNextStepsSession(
     session.usage.inputTokens += responseUsage.input_tokens;
     session.usage.outputTokens += responseUsage.output_tokens;
   }
+  if (mppCost && mppCost > 0) {
+    session.mppCost += mppCost;
+  }
 
   if (session.step === 0) {
     const cleaned = responseText.replace(/```json\s*/g, "").replace(/```\s*/g, "").trim();
@@ -847,7 +853,7 @@ export function advanceNextStepsSession(
     const validSteps = rawSteps.filter((s) => s.title && s.detail && s.priority && s.category);
 
     if (validSteps.length === 0) {
-      const apiCost = calculateApiCost(session.usage);
+      const apiCost = session.mppCost;
       sessions.delete(sessionId);
       return { result: { steps: [], apiCost, totalCharge: calculateChargeAmount(apiCost), inputTokens: session.usage.inputTokens, outputTokens: session.usage.outputTokens } };
     }
@@ -935,8 +941,8 @@ Return ONLY the JSON array, no markdown fencing.`;
       verifierNote: s.verifierNote,
     }));
 
-    const apiCost = calculateApiCost(session.usage);
-    console.log(`[NextSteps] Pipeline complete. ${steps.length} verified steps. Cost: $${apiCost.toFixed(4)}`);
+    const apiCost = session.mppCost;
+    console.log(`[NextSteps] Pipeline complete. ${steps.length} verified steps. MPP cost: $${apiCost.toFixed(6)}`);
 
     sessions.delete(sessionId);
     return {
@@ -1264,6 +1270,7 @@ Produce the full Markdown research document now. Use web search extensively to f
     companyId,
     reportId,
     usage: { inputTokens: 0, outputTokens: 0 },
+    mppCost: 0,
     createdAt: Date.now(),
   };
   sessions.set(session.id, session);
@@ -1279,6 +1286,7 @@ export function completeDeepResearchSession(
   userId: string,
   responseText: string,
   responseUsage?: { input_tokens: number; output_tokens: number },
+  mppCost?: number,
 ): DeepResearchResult {
   const session = sessions.get(sessionId);
   if (!session || session.type !== "deep-research") throw new Error("Invalid or expired session");
@@ -1288,6 +1296,9 @@ export function completeDeepResearchSession(
     session.usage.inputTokens += responseUsage.input_tokens;
     session.usage.outputTokens += responseUsage.output_tokens;
   }
+  if (mppCost && mppCost > 0) {
+    session.mppCost += mppCost;
+  }
 
   let reportContent = responseText;
   if (!reportContent.trim()) {
@@ -1296,8 +1307,8 @@ export function completeDeepResearchSession(
 
   reportContent = stripSearchNarration(reportContent);
 
-  const apiCost = calculateApiCost(session.usage);
-  console.log(`[DeepResearch] Complete. Cost: $${apiCost.toFixed(4)}`);
+  const apiCost = session.mppCost;
+  console.log(`[DeepResearch] Complete. MPP cost: $${apiCost.toFixed(6)}`);
 
   sessions.delete(sessionId);
   return {

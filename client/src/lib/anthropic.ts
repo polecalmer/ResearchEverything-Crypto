@@ -9,6 +9,7 @@ export interface AnthropicRequest {
 export interface AnthropicResponse {
   text: string;
   usage: { input_tokens: number; output_tokens: number };
+  mppCost: number;
 }
 
 export async function callAnthropic(
@@ -33,5 +34,10 @@ export async function callAnthropic(
     throw new Error(errorData.message || `AI call failed (${response.status})`);
   }
 
-  return await response.json();
+  const data = await response.json();
+  return {
+    text: data.text,
+    usage: data.usage,
+    mppCost: data.mppCost || 0,
+  };
 }

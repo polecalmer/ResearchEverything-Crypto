@@ -36,6 +36,7 @@ const stepRequestSchema = z.object({
     input_tokens: z.number(),
     output_tokens: z.number(),
   }).optional(),
+  mppCost: z.number().optional(),
 });
 
 export async function registerRoutes(
@@ -225,8 +226,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
       }
 
-      const { sessionId, responseText, responseUsage } = parsed.data;
-      const result = await advanceEnrichmentSession(sessionId, req.user!.id, responseText, responseUsage);
+      const { sessionId, responseText, responseUsage, mppCost } = parsed.data;
+      const result = await advanceEnrichmentSession(sessionId, req.user!.id, responseText, responseUsage, mppCost);
 
       if (result.result) {
         try {
@@ -316,8 +317,8 @@ export async function registerRoutes(
 
       const userId = req.user!.id;
       const company = await storage.getCompany(req.params.id, userId);
-      const { sessionId, responseText, responseUsage } = parsed.data;
-      const result = advanceNextStepsSession(sessionId, userId, responseText, responseUsage);
+      const { sessionId, responseText, responseUsage, mppCost } = parsed.data;
+      const result = advanceNextStepsSession(sessionId, userId, responseText, responseUsage, mppCost);
 
       if (result.result && company) {
         try {
@@ -391,6 +392,7 @@ export async function registerRoutes(
           input_tokens: z.number(),
           output_tokens: z.number(),
         }).optional(),
+        mppCost: z.number().optional(),
       }).safeParse(req.body);
 
       if (!parsed.success) {
@@ -399,12 +401,12 @@ export async function registerRoutes(
 
       const userId = req.user!.id;
       const company = await storage.getCompany(req.params.id, userId);
-      const { sessionId, reportId, responseText, responseUsage } = parsed.data;
+      const { sessionId, reportId, responseText, responseUsage, mppCost } = parsed.data;
 
-      const result = completeDeepResearchSession(sessionId, userId, responseText, responseUsage);
+      const result = completeDeepResearchSession(sessionId, userId, responseText, responseUsage, mppCost);
 
       await storage.updateReport(reportId, { content: result.content, status: "complete" });
-      console.log(`[DeepResearch] Report complete for ${company?.name || req.params.id} (${reportId}). Cost: $${result.apiCost.toFixed(4)}`);
+      console.log(`[DeepResearch] Report complete for ${company?.name || req.params.id} (${reportId}). MPP cost: $${result.apiCost.toFixed(6)}`);
 
       if (company) {
         try {

@@ -102,6 +102,7 @@ export async function runEnrichmentPipeline(
         sessionId,
         responseText: anthropicResponse.text,
         responseUsage: anthropicResponse.usage,
+        mppCost: anthropicResponse.mppCost,
       }),
     });
 
@@ -166,6 +167,7 @@ export async function runNextStepsPipeline(
         sessionId,
         responseText: anthropicResponse.text,
         responseUsage: anthropicResponse.usage,
+        mppCost: anthropicResponse.mppCost,
       }),
     });
 
@@ -225,6 +227,7 @@ export async function runDeepResearchPipeline(
       reportId,
       responseText: anthropicResponse.text,
       responseUsage: anthropicResponse.usage,
+      mppCost: anthropicResponse.mppCost,
     }),
   });
 
