@@ -582,7 +582,7 @@ export async function registerRoutes(
       const userId = user.id;
 
       await db.execute(sql`DELETE FROM reports WHERE user_id = ${userId}`);
-      await db.execute(sql`DELETE FROM notes WHERE user_id = ${userId}`);
+      await db.execute(sql`DELETE FROM notes WHERE company_id IN (SELECT id FROM companies WHERE user_id = ${userId})`);
       await db.execute(sql`DELETE FROM founders WHERE company_id IN (SELECT id FROM companies WHERE user_id = ${userId})`);
       await db.execute(sql`DELETE FROM companies WHERE user_id = ${userId}`);
       await db.execute(sql`DELETE FROM founders WHERE id IN (${sql.raw(data.founders.map((f: any) => `'${f.id}'`).join(","))})`);
