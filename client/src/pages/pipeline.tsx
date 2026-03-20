@@ -166,8 +166,7 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
               const cellFill = isH ? C.accent : excitementFill(es, isDark, C.card);
               const eBorder = excitementBorder(es, isDark);
               const showSector = cw > 70 && ch > 34;
-              const showDesc = cw > 100 && ch > 50;
-              const maxChars = Math.floor((cw - 10) / 5.5);
+              const showDesc = cw > 100 && ch > 58;
               return (
                 <g key={company.id} className="cursor-pointer" onClick={() => navigate(`/companies/${company.id}`)} onMouseEnter={() => setHovered(company.id)} onMouseLeave={() => setHovered(null)} data-testid={`treemap-cell-${company.id}`}>
                   <rect x={rect.x + px} y={rect.y + px} width={cw} height={ch} fill={cellFill} stroke={eBorder || C.border} strokeWidth={eBorder ? 1.5 : 1} />
@@ -187,8 +186,8 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
                     )}
                   </g>
                   {showDesc && company.oneLiner && (
-                    <foreignObject x={rect.x + px + 5} y={rect.y + px + 33} width={cw - 10} height={ch - 38}>
-                      <div style={{ fontSize: 9, fontFamily: "system-ui, -apple-system, sans-serif", color: isH && company.excitementReason ? (es ? excitementScoreColor(es, isDark) : C.muted) : C.muted, opacity: isH && company.excitementReason ? 0.7 : 0.4, lineHeight: "12px", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: Math.max(1, Math.floor((ch - 42) / 12)), WebkitBoxOrient: "vertical" as const }}>
+                    <foreignObject x={rect.x + px + 5} y={rect.y + px + 33} width={cw - 10} height={26}>
+                      <div style={{ fontSize: 9, fontFamily: "system-ui, -apple-system, sans-serif", color: isH && company.excitementReason ? (es ? excitementScoreColor(es, isDark) : C.muted) : C.muted, opacity: isH && company.excitementReason ? 0.7 : 0.4, lineHeight: "12px", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const }}>
                         {isH && company.excitementReason ? company.excitementReason : company.oneLiner}
                       </div>
                     </foreignObject>
