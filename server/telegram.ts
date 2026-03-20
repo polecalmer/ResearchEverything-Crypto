@@ -14,6 +14,15 @@ export function startTelegramBot() {
 
   bot = new Bot(token);
 
+  bot.catch((err) => {
+    if (err.message?.includes("409") || err.message?.includes("terminated by other getUpdates")) {
+      console.log("[Telegram] Another bot instance is running, stopping this one gracefully");
+      bot?.stop();
+    } else {
+      console.error("[Telegram] Bot error:", err.message);
+    }
+  });
+
   bot.command("start", async (ctx) => {
     await ctx.reply(
       "Welcome to BookMark Deal Bot!\n\n" +
