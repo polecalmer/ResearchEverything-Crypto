@@ -14,7 +14,7 @@ export interface AnthropicResponse {
 const ANTHROPIC_MPP_URL = "https://anthropic.mpp.tempo.xyz/v1/messages";
 
 export async function callAnthropic(request: AnthropicRequest): Promise<AnthropicResponse> {
-  const response = await fetch(ANTHROPIC_MPP_URL, {
+  const response = await ((...args: Parameters<typeof fetch>) => globalThis.fetch(...args))(ANTHROPIC_MPP_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
