@@ -1,9 +1,9 @@
 import { useQuery } from "@tanstack/react-query";
-import { Wallet, ExternalLink, Loader2, Clock, Copy, Check, RefreshCw } from "lucide-react";
+import { Wallet, ExternalLink, Loader2, Clock, Copy, Check, RefreshCw, Database } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useState } from "react";
-import { queryClient } from "@/lib/queryClient";
+import { queryClient, apiRequest } from "@/lib/queryClient";
 
 const TEMPO_RPC = "https://rpc.mainnet.tempo.xyz";
 const BALANCE_OF_SELECTOR = "0x70a08231";
@@ -69,6 +69,7 @@ export default function WalletPage() {
 
   const handleSeed = async () => {
     setSeeding(true);
+    setSeedResult(null);
     try {
       const res = await apiRequest("POST", "/api/admin/seed-from-dev");
       const data = await res.json();
