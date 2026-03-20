@@ -1,9 +1,11 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { scrapeUrl, scrapeMultiple, type ScrapedContent } from "./scraper";
+import { mppFetch } from "./mpp-client";
 
 const anthropic = new Anthropic({
-  apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_ANTHROPIC_BASE_URL,
+  baseURL: "https://anthropic.mpp.tempo.xyz",
+  apiKey: "mpp",
+  fetch: mppFetch,
 });
 
 export interface EnrichedCompany {
@@ -88,9 +90,7 @@ export function getLastEnrichmentCost(): { apiCost: number; totalCharge: number 
   return { apiCost: last, totalCharge: calculateChargeAmount(last) };
 }
 
-let currentPipelineUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
-
-async function callAgent(systemPrompt: string, userMessage: string, useWebSearch: boolean = false): Promise<string> {
+async function callAgent(systemPrompt: string, userMessage: string, useWebSearch: boolean = false, usage?: TokenUsage): Promise<string> {
   const options: any = {
     model: "claude-opus-4-6",
     max_tokens: 16000,
@@ -110,9 +110,9 @@ async function callAgent(systemPrompt: string, userMessage: string, useWebSearch
 
   const message = await anthropic.messages.create(options);
 
-  if (message.usage) {
-    currentPipelineUsage.inputTokens += message.usage.input_tokens;
-    currentPipelineUsage.outputTokens += message.usage.output_tokens;
+  if (message.usage && usage) {
+    usage.inputTokens += message.usage.input_tokens;
+    usage.outputTokens += message.usage.output_tokens;
   }
 
   let textContent = "";
@@ -167,7 +167,7 @@ Return ONLY valid JSON:
   "alternativeCandidates": ["Other possible companies if ambiguous"]
 }`;
 
-async function runIdentifierAgent(input: string, scrapedContent?: ScrapedContent[]): Promise<{
+async function runIdentifierAgent(input: string, scrapedContent?: ScrapedContent[], usage?: TokenUsage): Promise<{
   companyName: string;
   domain: string;
   confidence: string;
@@ -184,7 +184,7 @@ async function runIdentifierAgent(input: string, scrapedContent?: ScrapedContent
       prompt += `Body excerpt: ${sc.bodyText.slice(0, 2000)}\n`;
     }
   }
-  const result = await callAgent(IDENTIFIER_SYSTEM, prompt, true);
+  const result = await callAgent(IDENTIFIER_SYSTEM, prompt, true, usage);
   return parseJson(result);
 }
 
@@ -268,7 +268,7 @@ Return ONLY valid JSON matching this schema:
   }
 }`;
 
-async function runResearchAgent(companyName: string, domain: string, originalInput: string, scrapedContent?: ScrapedContent[]): Promise<any> {
+async function runResearchAgent(companyName: string, domain: string, originalInput: string, scrapedContent?: ScrapedContent[], usage?: TokenUsage): Promise<any> {
   let prompt = `Research this company thoroughly:
 Company: ${companyName}
 Domain: ${domain || "unknown"}
@@ -288,7 +288,7 @@ Produce the comprehensive deal card. Remember: accuracy over completeness. Leave
     }
   }
 
-  const result = await callAgent(RESEARCH_SYSTEM, prompt, true);
+  const result = await callAgent(RESEARCH_SYSTEM, prompt, true, usage);
   return parseJson(result);
 }
 
@@ -359,7 +359,7 @@ Return ONLY valid JSON with the final clean deal card:
   }
 }`;
 
-async function runVerifyAndCleanAgent(companyName: string, researchDraft: any): Promise<{ cleaned: EnrichedCompany; issuesFound: number; assessment: string }> {
+async function runVerifyAndCleanAgent(companyName: string, researchDraft: any, usage?: TokenUsage): Promise<{ cleaned: EnrichedCompany; issuesFound: number; assessment: string }> {
   const prompt = `Verify and clean this research draft about "${companyName}".
 
 RESEARCH DRAFT:
@@ -367,7 +367,7 @@ ${JSON.stringify(researchDraft, null, 2)}
 
 Step 1: Use web search to independently verify the key claims — funding, founders, URLs, metrics.
 Step 2: Produce the final clean deal card JSON with all unverified or hallucinated content stripped out. When in doubt, OMIT.`;
-  const result = await callAgent(VERIFY_AND_CLEAN_SYSTEM, prompt, true);
+  const result = await callAgent(VERIFY_AND_CLEAN_SYSTEM, prompt, true, usage);
   const parsed = parseJson(result);
   const summary = parsed.verificationSummary || {};
   const issuesFound = (summary.removed?.length || 0) + (summary.revised?.length || 0);
@@ -530,13 +530,12 @@ async function runPipeline(input: string, onProgress?: ProgressCallback): Promis
   };
 
   const pipelineUsage: TokenUsage = { inputTokens: 0, outputTokens: 0 };
-  currentPipelineUsage = pipelineUsage;
 
   const scrapedContent = await scrapeInputUrls(input, onProgress);
 
   emit({ type: "stage", agent: "identifier", step: 1, total: 4, message: "Identifying company from input..." });
   console.log("[Enrichment] Agent 1/3: Identifier — resolving company from input...");
-  const identity = await runIdentifierAgent(input, scrapedContent);
+  const identity = await runIdentifierAgent(input, scrapedContent, pipelineUsage);
   console.log(`[Enrichment] Identified: "${identity.companyName}" (confidence: ${identity.confidence})`);
   emit({ type: "stage_complete", agent: "identifier", step: 1, companyName: identity.companyName, confidence: identity.confidence });
 
@@ -555,13 +554,13 @@ async function runPipeline(input: string, onProgress?: ProgressCallback): Promis
 
   emit({ type: "stage", agent: "researcher", step: 2, total: 4, message: `Researching ${identity.companyName}...` });
   console.log("[Enrichment] Agent 2/3: Research — building deal card...");
-  const researchDraft = await runResearchAgent(identity.companyName, identity.domain, input, scrapedContent);
+  const researchDraft = await runResearchAgent(identity.companyName, identity.domain, input, scrapedContent, pipelineUsage);
   console.log("[Enrichment] Research draft complete.");
   emit({ type: "stage_complete", agent: "researcher", step: 2 });
 
   emit({ type: "stage", agent: "verify_clean", step: 3, total: 4, message: "Verifying claims & cleaning output..." });
   console.log("[Enrichment] Agent 3/3: Verify & Clean — fact-checking and producing clean output...");
-  const { cleaned, issuesFound, assessment } = await runVerifyAndCleanAgent(identity.companyName, researchDraft);
+  const { cleaned, issuesFound, assessment } = await runVerifyAndCleanAgent(identity.companyName, researchDraft, pipelineUsage);
   console.log(`[Enrichment] Verify & Clean: ${assessment} (${issuesFound} issues found)`);
   emit({ type: "stage_complete", agent: "verify_clean", step: 3, issuesFound, assessment });
 

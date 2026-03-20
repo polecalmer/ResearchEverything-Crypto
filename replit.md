@@ -7,7 +7,7 @@ A deal pipeline management dashboard for VCs with a companion Chrome extension. 
 - **Frontend:** React + TypeScript + Vite, with shadcn/ui components, TanStack Query, wouter routing
 - **Backend:** Express.js API server with CORS enabled for extension access
 - **Database:** PostgreSQL with Drizzle ORM
-- **AI:** Anthropic Claude claude-opus-4-6 via Replit AI Integrations (no API key needed) for automatic deal enrichment
+- **AI:** Anthropic Claude claude-opus-4-6 via Tempo MPP (`anthropic.mpp.tempo.xyz`) — server wallet pays Anthropic in USDC per request, no API key needed
 - **Extension:** Chrome Manifest V3 extension with context menu, content scripts, and popup
 - **Styling:** Tailwind CSS with Inter font, dark-first crypto-native aesthetic inspired by Tempo explorer (near-black backgrounds, subtle borders, monospace for addresses/amounts, green accent for amounts, table-style layouts)
 
@@ -64,8 +64,10 @@ All AI-powered endpoints are gated behind the Machine Payments Protocol (MPP) vi
   - Next-steps and deep research: fixed estimate paywalls with actual usage-based transaction logging
   - `GET /api/enrichment/pricing` returns estimated cost, markup multiplier, and last enrichment cost breakdown
 - Owner wallet: `0x342fFFBcEbb761bC2c7B512333AF5E397b4cB72d`
-- pathUSD token: `0x20c0000000000000000000000000000000000000`
-- Env: `MPP_SECRET_KEY` for challenge verification
+- Server wallet: `0x8518b315b3DFC4415Be7E75b2571Df635b27552a` (pays Anthropic MPP; needs USDC funding on Tempo mainnet)
+- USDC token: `0x20c000000000000000000000b9537d11c60e8b50` (6 decimals, Tempo mainnet)
+- Anthropic MPP endpoint: `https://anthropic.mpp.tempo.xyz` (POST /v1/messages, session-based, pay per request in USDC)
+- Env: `MPP_SERVER_WALLET_KEY` (server wallet private key), `MPP_SERVER_WALLET_ADDRESS`
 - Cost tracking: `enrichment.ts` exports `getEstimatedEnrichmentCost()`, `getLastEnrichmentCost()`, `recordEnrichmentCost()`, `MARKUP_MULTIPLIER`, `calculateApiCost()`, `calculateChargeAmount()`
 - Transaction types: `enrichment`, `next_steps`, `deep_research` — all logged with actual token counts and computed costs
 
@@ -90,8 +92,8 @@ All AI-powered endpoints are gated behind the Machine Payments Protocol (MPP) vi
 - `server/db.ts` - Database connection
 - `server/storage.ts` - CRUD operations (DatabaseStorage)
 - `server/routes.ts` - REST API endpoints
-- `server/enrichment.ts` - AI enrichment service (Claude claude-opus-4-6 via Replit AI Integrations)
-- `server/replit_integrations/` - Anthropic AI integration (auto-configured, do not modify)
+- `server/enrichment.ts` - AI enrichment service (Claude claude-opus-4-6 via Tempo MPP)
+- `server/mpp-client.ts` - Server-side mppx client (server wallet pays Anthropic MPP endpoint)
 - `client/src/App.tsx` - Root layout with sidebar
 - `client/src/pages/` - All page components
 - `client/src/components/` - Reusable components (sidebar, theme toggle, quick capture)

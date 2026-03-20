@@ -48,7 +48,7 @@ export async function registerRoutes(
         apiCost: lastCost.apiCost.toFixed(4),
         totalCharge: lastCost.totalCharge.toFixed(4),
       } : null,
-      currency: "pathUSD",
+      currency: "USDC",
       recipient: "0x342fFFBcEbb761bC2c7B512333AF5E397b4cB72d",
     });
   });
