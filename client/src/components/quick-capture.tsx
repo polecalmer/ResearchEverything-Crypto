@@ -13,13 +13,14 @@ import {
   DialogTitle,
   DialogDescription,
 } from "@/components/ui/dialog";
-import { Plus, Loader2, Sparkles, CheckCircle2, Search, FileSearch, ShieldCheck } from "lucide-react";
+import { Plus, Loader2, Sparkles, CheckCircle2, Search, FileSearch, ShieldCheck, FileText } from "lucide-react";
 import { runEnrichmentPipeline, type EnrichmentStage } from "@/lib/enrichment";
 
 const PIPELINE_AGENTS = [
   { key: "identifier", icon: Search, label: "Identifier" },
   { key: "researcher", icon: FileSearch, label: "Research" },
   { key: "verify_clean", icon: ShieldCheck, label: "Verify & Clean" },
+  { key: "dd_reads", icon: FileText, label: "DD Reads" },
 ] as const;
 
 export function QuickCapture() {
@@ -86,6 +87,8 @@ export function QuickCapture() {
         linkedinUrl: enriched.linkedinUrl || "",
         pipelineStage: "discovered",
         tags: enriched.tags || [],
+        adjacentReads: enriched.adjacentReads && enriched.adjacentReads.length > 0
+          ? JSON.stringify(enriched.adjacentReads) : undefined,
       };
 
       const token = await getAccessToken();
@@ -164,7 +167,7 @@ export function QuickCapture() {
               AI Quick Capture
             </DialogTitle>
             <DialogDescription>
-              Drop any link or text. A team of 3 AI agents will identify the company, research it, then verify and clean the output.
+              Drop any link or text. A team of 4 AI agents will identify, research, verify, and find due diligence reads.
             </DialogDescription>
           </DialogHeader>
 
@@ -214,7 +217,7 @@ export function QuickCapture() {
                   </div>
                 )}
                 <p className="text-xs text-muted-foreground mt-1">
-                  3 agents are working: identifying → researching → verifying & cleaning
+                  4 agents working: identifying → researching → verifying → finding DD reads
                 </p>
               </div>
             )}
@@ -228,7 +231,7 @@ export function QuickCapture() {
               {enrichMutation.isPending ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                  3 agents working...
+                  4 agents working...
                 </>
               ) : (
                 <>

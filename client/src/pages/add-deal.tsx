@@ -41,6 +41,7 @@ import {
   FileSearch,
   ShieldCheck,
   Globe,
+  FileText,
 } from "lucide-react";
 import { useState } from "react";
 import { runEnrichmentPipeline, type EnrichmentStage } from "@/lib/enrichment";
@@ -165,7 +166,7 @@ export default function AddDeal() {
         } catch {}
       }
 
-      const enrichedData: AddDealForm = {
+      const enrichedData: AddDealForm & { adjacentReads?: string } = {
         name: data.name || "",
         oneLiner: data.oneLiner || "",
         description: data.description || "",
@@ -183,6 +184,10 @@ export default function AddDeal() {
         pipelineStage: "discovered",
         tags: data.tags || [],
       };
+
+      if (data.adjacentReads && data.adjacentReads.length > 0) {
+        enrichedData.adjacentReads = JSON.stringify(data.adjacentReads);
+      }
 
       const enrichedFounders: FounderForm[] = (data.founders || []).map((f: any) => ({
         name: f.name || "",
@@ -301,7 +306,7 @@ export default function AddDeal() {
             AI Auto-Research
           </h3>
           <p className="text-sm text-muted-foreground mb-4">
-            Drop any link or text and a team of 3 AI agents will identify, research, then verify and clean the output.
+            Drop any link or text and a team of 4 AI agents will identify, research, verify, and find critical due diligence reads.
           </p>
           <div className="space-y-3">
             <Input
@@ -324,6 +329,7 @@ export default function AddDeal() {
                   { key: "identifier", icon: Search, label: "Identifier Agent" },
                   { key: "researcher", icon: FileSearch, label: "Research Agent" },
                   { key: "verify_clean", icon: ShieldCheck, label: "Verify & Clean Agent" },
+                  { key: "dd_reads", icon: FileText, label: "Due Diligence Reads" },
                 ].map(({ key, icon: Icon, label }, idx) => {
                   const stage = pipelineStages.find((s) => s.agent === key);
                   const isActive = stage?.status === "running";
@@ -369,8 +375,13 @@ export default function AddDeal() {
                               : `${stage.issuesFound} issue${stage.issuesFound === 1 ? "" : "s"} found and cleaned`}
                           </p>
                         )}
+                        {isDone && stage?.agent === "dd_reads" && (
+                          <p className="text-[11px] text-green-600/70">
+                            {stage.readsFound || 0} adjacent reads found
+                          </p>
+                        )}
                       </div>
-                      <span className="text-[10px] text-muted-foreground/40 tabular-nums">{idx + 1}/4</span>
+                      <span className="text-[10px] text-muted-foreground/40 tabular-nums">{idx + 1}/5</span>
                     </div>
                   );
                 })}

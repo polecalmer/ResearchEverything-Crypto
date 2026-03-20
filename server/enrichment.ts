@@ -1,6 +1,13 @@
 import { scrapeUrl, scrapeMultiple, type ScrapedContent } from "./scraper";
 import crypto from "crypto";
 
+export interface AdjacentRead {
+  title: string;
+  url: string;
+  source: string;
+  relevance: string;
+}
+
 export interface EnrichedCompany {
   name: string;
   oneLiner: string;
@@ -26,6 +33,7 @@ export interface EnrichedCompany {
     personalUrl: string;
     priorCompanies: string;
   }[];
+  adjacentReads?: AdjacentRead[];
 }
 
 const SECTORS = [
@@ -106,6 +114,7 @@ interface EnrichmentSession {
   step: number;
   identity?: any;
   researchDraft?: any;
+  verifiedData?: any;
   usage: TokenUsage;
   mppCost: number;
   createdAt: number;
@@ -380,6 +389,61 @@ Step 2: Produce the final clean deal card JSON with all unverified or hallucinat
   return buildAnthropicRequest(VERIFY_AND_CLEAN_SYSTEM, prompt, true);
 }
 
+// ─── AGENT 4: DUE DILIGENCE READS ────────────────────────────────────────────
+
+const DUE_DILIGENCE_READS_SYSTEM = `You are the Due Diligence Reads Agent in a VC deal intelligence pipeline. You receive a verified deal card about a company and must find 4-5 critical adjacent reads that an investor MUST review during due diligence.
+
+YOU HAVE WEB SEARCH ACCESS. Use it aggressively to find the most important, non-obvious adjacent reads.
+
+WHAT ARE "ADJACENT READS"?
+These are NOT articles about the company itself. They are primary source documents, research papers, technical deep-dives, or analyses of the UNDERLYING technology, market thesis, regulatory landscape, or competitive dynamics that would inform an investment decision.
+
+EXAMPLES:
+- For a company building on a novel cryptographic technique → the original research paper on that technique
+- For a DeFi protocol using a specific AMM design → the seminal paper or blog post explaining that design
+- For a company in a regulated space → the key regulatory framework document or recent ruling
+- For an AI company using a specific architecture → the arxiv paper introducing that architecture
+- For a company entering a specific market → the definitive market analysis or industry report
+- For a company with a novel consensus mechanism → the whitepaper describing that mechanism
+- For a company building on top of another protocol → that protocol's documentation or audit reports
+
+RULES:
+- Find 4-5 reads maximum
+- Each read MUST have a real, working URL that you found via web search
+- Prioritize: research papers, whitepapers, technical blog posts, audit reports, regulatory documents, market analyses
+- Do NOT include generic news articles about the company
+- Do NOT include the company's own website or blog
+- Each read should cover a DIFFERENT aspect of due diligence (technology, market, regulatory, competition, risk)
+- Write a concise 1-sentence explanation of WHY this read matters for the investment decision
+
+Return ONLY valid JSON:
+{
+  "adjacentReads": [
+    {
+      "title": "Title of the document/paper/article",
+      "url": "https://actual-verified-url.com/...",
+      "source": "Source name (e.g., arxiv, SEC, company blog, research firm)",
+      "relevance": "One sentence on why this matters for due diligence on this deal"
+    }
+  ]
+}`;
+
+function buildDueDiligenceReadsRequest(companyName: string, verifiedData: any): AnthropicRequest {
+  const prompt = `Find 4-5 critical adjacent reads for due diligence on "${companyName}".
+
+VERIFIED DEAL CARD:
+Company: ${companyName}
+Sector: ${verifiedData.sector || "Unknown"}
+Sub-sector: ${verifiedData.subSector || "Unknown"}
+Description: ${verifiedData.description || ""}
+Business Model: ${verifiedData.businessModel || ""}
+Competitive Landscape: ${verifiedData.competitiveLandscape || ""}
+Tags: ${(verifiedData.tags || []).join(", ")}
+
+Search for the most important primary sources, research papers, technical deep-dives, regulatory documents, and market analyses that would inform an investment decision in this company. These should NOT be about the company itself — they should be about the underlying technology, market, or regulatory landscape.`;
+  return buildAnthropicRequest(DUE_DILIGENCE_READS_SYSTEM, prompt, true, 4000, 10);
+}
+
 // ─── UTILITY FUNCTIONS ──────────────────────────────────────────────────────
 
 function sanitizeUrl(url: any, expectedDomain?: string): string {
@@ -493,7 +557,7 @@ async function scrapeInputUrls(input: string, onProgress?: ProgressCallback): Pr
   if (urls.length === 0) return [];
 
   const emit = (data: any) => { if (onProgress) onProgress(data); };
-  emit({ type: "stage", agent: "scraper", step: 0, total: 4, message: `Fetching content from ${urls.length} URL(s)...` });
+  emit({ type: "stage", agent: "scraper", step: 0, total: 5, message: `Fetching content from ${urls.length} URL(s)...` });
   console.log(`[Scraper] Fetching ${urls.length} URL(s): ${urls.join(", ")}`);
 
   const results = await scrapeMultiple(urls);
@@ -512,7 +576,7 @@ async function scrapeInputUrls(input: string, onProgress?: ProgressCallback): Pr
 
   if (additionalUrls.length > 0) {
     console.log(`[Scraper] Found linked company website(s), fetching: ${additionalUrls.join(", ")}`);
-    emit({ type: "stage", agent: "scraper", step: 0, total: 4, message: `Found linked website — fetching company page...` });
+    emit({ type: "stage", agent: "scraper", step: 0, total: 5, message: `Found linked website — fetching company page...` });
     const additional = await scrapeMultiple(additionalUrls);
     results.push(...additional);
   }
@@ -555,8 +619,8 @@ export async function startEnrichmentSession(input: string, userId: string): Pro
   sessions.set(session.id, session);
 
   const request = buildIdentifierRequest(input, scrapedContent);
-  progress.push({ type: "stage", agent: "identifier", step: 1, total: 4, message: "Identifying company from input..." });
-  console.log("[Enrichment] Session started. Agent 1/3: Identifier");
+  progress.push({ type: "stage", agent: "identifier", step: 1, total: 5, message: "Identifying company from input..." });
+  console.log("[Enrichment] Session started. Agent 1/4: Identifier");
 
   return { sessionId: session.id, anthropicRequest: request, progress };
 }
@@ -609,8 +673,8 @@ export async function advanceEnrichmentSession(
     }
 
     const request = buildResearchRequest(identity.companyName, identity.domain, session.input, session.scrapedContent);
-    progress.push({ type: "stage", agent: "researcher", step: 2, total: 4, message: `Researching ${identity.companyName}...` });
-    console.log("[Enrichment] Agent 2/3: Research — building deal card...");
+    progress.push({ type: "stage", agent: "researcher", step: 2, total: 5, message: `Researching ${identity.companyName}...` });
+    console.log("[Enrichment] Agent 2/4: Research — building deal card...");
 
     return { anthropicRequest: request, progress };
   }
@@ -624,8 +688,8 @@ export async function advanceEnrichmentSession(
     progress.push({ type: "stage_complete", agent: "researcher", step: 2 });
 
     const request = buildVerifyRequest(session.identity.companyName, researchDraft);
-    progress.push({ type: "stage", agent: "verify_clean", step: 3, total: 4, message: "Verifying claims & cleaning output..." });
-    console.log("[Enrichment] Agent 3/3: Verify & Clean — fact-checking...");
+    progress.push({ type: "stage", agent: "verify_clean", step: 3, total: 5, message: "Verifying claims & cleaning output..." });
+    console.log("[Enrichment] Agent 3/4: Verify & Clean — fact-checking...");
 
     return { anthropicRequest: request, progress };
   }
@@ -639,6 +703,40 @@ export async function advanceEnrichmentSession(
     console.log(`[Enrichment] Verify & Clean: ${assessment} (${issuesFound} issues found)`);
     progress.push({ type: "stage_complete", agent: "verify_clean", step: 3, issuesFound, assessment });
 
+    session.verifiedData = parsed;
+    session.step = 3;
+
+    const request = buildDueDiligenceReadsRequest(session.identity.companyName, parsed);
+    progress.push({ type: "stage", agent: "dd_reads", step: 4, total: 5, message: "Finding critical adjacent reads..." });
+    console.log("[Enrichment] Agent 4/4: Due Diligence Reads — finding adjacent reads...");
+
+    return { anthropicRequest: request, progress };
+  }
+
+  if (session.step === 3) {
+    let validReads: AdjacentRead[] = [];
+    try {
+      const parsed = parseJson(responseText);
+      const adjacentReads = Array.isArray(parsed.adjacentReads) ? parsed.adjacentReads : [];
+      validReads = adjacentReads
+        .filter((r: any) => r && r.title && r.url && r.url.startsWith("http"))
+        .slice(0, 5)
+        .map((r: any) => ({
+          title: r.title || "",
+          url: r.url || "",
+          source: r.source || "",
+          relevance: r.relevance || "",
+        }));
+    } catch (err) {
+      console.warn("[Enrichment] DD Reads parsing failed, continuing without adjacent reads:", err);
+    }
+
+    console.log(`[Enrichment] Due Diligence Reads: found ${validReads.length} adjacent reads`);
+    progress.push({ type: "stage_complete", agent: "dd_reads", step: 4, readsFound: validReads.length });
+
+    const enrichedOutput = validateOutput(session.verifiedData);
+    enrichedOutput.adjacentReads = validReads;
+
     const apiCost = session.mppCost;
     const totalCharge = calculateChargeAmount(apiCost);
     recordEnrichmentCost(apiCost);
@@ -646,7 +744,7 @@ export async function advanceEnrichmentSession(
     console.log("[Enrichment] Pipeline complete.");
 
     const result: EnrichmentResult = {
-      enriched: validateOutput(parsed),
+      enriched: enrichedOutput,
       apiCost,
       totalCharge,
       tokenUsage: { ...session.usage },

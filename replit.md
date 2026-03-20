@@ -42,12 +42,13 @@ Focus on user experience and intuitive design.
 
 **Pipeline Stages:** `Discovered -> Researching -> Reaching Out -> In Diligence -> Passed / Invested`
 
-**AI Enrichment Pipeline (4 Steps):**
+**AI Enrichment Pipeline (5 Steps):**
 1.  **Web Scraper:** Fetches content from URLs.
 2.  **Identifier Agent:** Identifies the company from input and scraped data.
 3.  **Research Agent:** Builds a comprehensive deal card.
 4.  **Verify & Clean Agent:** Combines fact-checking and hallucination firewall, stripping unverified data.
-All AI agents (Identifier, Research, Verify & Clean) use Claude Opus 4.6 with web search capabilities.
+5.  **Due Diligence Reads Agent:** Finds 4-5 critical adjacent reads (research papers, whitepapers, regulatory docs, market analyses) relevant to the investment thesis. Stored as JSON in `adjacentReads` column.
+All AI agents use Claude Opus 4.6 with web search capabilities.
 
 **AI Next Steps Advisor (2 Stages):**
 1.  **Generator Agent:** Analyzes deal context to produce actionable recommendations.

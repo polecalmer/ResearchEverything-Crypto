@@ -11,6 +11,7 @@ export interface EnrichmentStage {
   issuesFound?: number;
   assessment?: string;
   pagesFetched?: number;
+  readsFound?: number;
 }
 
 const AGENT_LABELS: Record<string, string> = {
@@ -18,6 +19,7 @@ const AGENT_LABELS: Record<string, string> = {
   identifier: "Identifier Agent",
   researcher: "Research Agent",
   verify_clean: "Verify & Clean Agent",
+  dd_reads: "Due Diligence Reads",
 };
 
 const AGENT_DESCRIPTIONS: Record<string, string> = {
@@ -25,6 +27,7 @@ const AGENT_DESCRIPTIONS: Record<string, string> = {
   identifier: "Figuring out which company is referenced",
   researcher: "Building a comprehensive deal card",
   verify_clean: "Fact-checking claims and stripping unverified data",
+  dd_reads: "Finding critical adjacent reads for due diligence",
 };
 
 export function getAgentLabel(agent: string): string {
@@ -49,7 +52,7 @@ function emitProgress(events: any[], onStage: (stage: EnrichmentStage) => void) 
       onStage({
         agent: event.agent,
         step: event.step,
-        total: event.total || 4,
+        total: event.total || 5,
         message: "",
         status: "complete",
         companyName: event.companyName,
@@ -57,6 +60,7 @@ function emitProgress(events: any[], onStage: (stage: EnrichmentStage) => void) 
         issuesFound: event.issuesFound,
         assessment: event.assessment,
         pagesFetched: event.pagesFetched,
+        readsFound: event.readsFound,
       });
     }
   }

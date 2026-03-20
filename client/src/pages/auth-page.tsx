@@ -74,7 +74,7 @@ export default function AuthPage() {
           <div className="space-y-1">
             {[
               { icon: Search, title: "Drop any link", desc: "URL, tweet, founder profile, blog post" },
-              { icon: FileSearch, title: "AI researches deeply", desc: "3 agents build a verified deal card" },
+              { icon: FileSearch, title: "AI researches deeply", desc: "4 agents build a verified deal card" },
               { icon: ShieldCheck, title: "Hallucination firewall", desc: "Every claim fact-checked before saving" },
               { icon: Sparkles, title: "Pay per use", desc: "Micropayments via Tempo wallet" },
             ].map(({ icon: Icon, title, desc }) => (

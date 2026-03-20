@@ -45,6 +45,7 @@ export const companies = pgTable("companies", {
   imageUrl: text("image_url"),
   excitementScore: integer("excitement_score"),
   excitementReason: text("excitement_reason"),
+  adjacentReads: text("adjacent_reads"),
   deletedReportCount: integer("deleted_report_count").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

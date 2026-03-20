@@ -575,6 +575,49 @@ export default function CompanyDetail() {
               </Section>
             )}
 
+            {company.adjacentReads && (() => {
+              try {
+                const reads = JSON.parse(company.adjacentReads);
+                if (Array.isArray(reads) && reads.length > 0) {
+                  return (
+                    <Section title={`Due Diligence Reads (${reads.length})`}>
+                      <div className="space-y-3">
+                        {reads.map((read: any, idx: number) => (
+                          <div key={idx} className="group" data-testid={`dd-read-${idx}`}>
+                            {idx > 0 && <div className="border-t border-border/30 mb-3" />}
+                            <div className="flex items-start gap-3">
+                              <div className="w-6 h-6 flex items-center justify-center flex-shrink-0 mt-0.5">
+                                <FileText className="w-3.5 h-3.5 text-muted-foreground" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <a
+                                  href={read.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-sm font-medium text-foreground hover:text-primary transition-colors inline-flex items-center gap-1.5"
+                                  data-testid={`link-dd-read-${idx}`}
+                                >
+                                  {read.title}
+                                  <ExternalLink className="w-3 h-3 opacity-50" />
+                                </a>
+                                {read.source && (
+                                  <span className="text-[10px] text-muted-foreground/60 font-mono ml-2">{read.source}</span>
+                                )}
+                                {read.relevance && (
+                                  <p className="text-xs text-muted-foreground leading-relaxed mt-0.5">{read.relevance}</p>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </Section>
+                  );
+                }
+              } catch {}
+              return null;
+            })()}
+
             {founders.length > 0 && (
               <Section title={`Founders & Team (${founders.length})`}>
                 <div className="space-y-4">
