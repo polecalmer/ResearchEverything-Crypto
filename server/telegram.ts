@@ -217,10 +217,12 @@ export function startTelegramBot() {
 
   bot.start({
     onStart: () => console.log("[Telegram] Bot started successfully"),
-  });
-
-  bot.catch((err) => {
-    console.error("[Telegram] Bot error:", err);
+  }).catch((err: any) => {
+    if (err?.message?.includes("409") || err?.message?.includes("terminated by other getUpdates")) {
+      console.log("[Telegram] Another bot instance is running (e.g. deployed version), skipping polling in dev");
+    } else {
+      console.error("[Telegram] Bot polling error:", err?.message || err);
+    }
   });
 }
 
