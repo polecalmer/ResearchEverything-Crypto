@@ -104,37 +104,34 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
   const px = 1;
 
   return (
-    <div ref={ref} className="flex-1 relative overflow-hidden" style={{ background: "hsl(230 15% 6%)" }}>
+    <div ref={ref} className="flex-1 relative overflow-hidden bg-background">
       {dim.w > 0 && (
         <svg width={dim.w} height={dim.h} className="block" style={{ shapeRendering: "crispEdges" }}>
           {stages.map(({ stage, rect }) => (
             <g key={`s-${stage}`}>
-              <line x1={rect.x} y1={rect.y} x2={rect.x + rect.w} y2={rect.y} stroke="hsl(230 10% 16%)" strokeWidth={1} />
-              <line x1={rect.x} y1={rect.y} x2={rect.x} y2={rect.y + rect.h} stroke="hsl(230 10% 16%)" strokeWidth={1} />
-              <line x1={rect.x + rect.w} y1={rect.y} x2={rect.x + rect.w} y2={rect.y + rect.h} stroke="hsl(230 10% 16%)" strokeWidth={1} />
-              <line x1={rect.x} y1={rect.y + rect.h} x2={rect.x + rect.w} y2={rect.y + rect.h} stroke="hsl(230 10% 16%)" strokeWidth={1} />
+              <rect x={rect.x} y={rect.y} width={rect.w} height={rect.h} fill="none" stroke="hsl(var(--border))" strokeWidth={1} />
               {rect.w > 50 && (
                 <text
                   x={rect.x + 6}
                   y={rect.y + 12}
                   fill={STAGE_ACCENT[stage]}
-                  fontSize={8}
-                  fontWeight={500}
+                  fontSize={9}
+                  fontWeight={600}
                   fontFamily="ui-monospace, SFMono-Regular, 'SF Mono', monospace"
                   letterSpacing="0.1em"
-                  opacity={0.7}
                 >
                   {STAGE_LABELS[stage].toUpperCase()}
                 </text>
               )}
               {rect.w > 30 && (
                 <text
-                  x={rect.x + rect.w - 5}
+                  x={rect.x + rect.w - 6}
                   y={rect.y + 12}
-                  fill="hsl(230 10% 30%)"
-                  fontSize={8}
+                  fill="hsl(var(--muted-foreground))"
+                  fontSize={9}
                   fontFamily="ui-monospace, SFMono-Regular, 'SF Mono', monospace"
                   textAnchor="end"
+                  opacity={0.5}
                 >
                   {byStage[stage].length}
                 </text>
@@ -148,8 +145,8 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
             const ch = Math.max(rect.h - px * 2, 0);
             if (cw < 3 || ch < 3) return null;
             const accent = STAGE_ACCENT[stage];
-            const showSector = cw > 70 && ch > 32;
-            const showDesc = cw > 100 && ch > 48;
+            const showSector = cw > 70 && ch > 34;
+            const showDesc = cw > 100 && ch > 50;
             const maxChars = Math.floor((cw - 10) / 5.5);
 
             return (
@@ -166,9 +163,10 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
                   y={rect.y + px}
                   width={cw}
                   height={ch}
-                  fill={isH ? "hsl(230 12% 12%)" : "hsl(230 15% 7.5%)"}
-                  stroke={isH ? accent : "hsl(230 10% 14%)"}
-                  strokeWidth={isH ? 1 : 0.5}
+                  fill={isH ? "hsl(var(--accent))" : "none"}
+                  stroke="hsl(var(--border))"
+                  strokeWidth={isH ? 1.5 : 0.5}
+                  strokeOpacity={isH ? 1 : 0.6}
                 />
                 {isH && (
                   <line
@@ -185,33 +183,36 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
                 </clipPath>
                 <g clipPath={`url(#c-${company.id})`}>
                   <text
-                    x={rect.x + px + 6}
-                    y={rect.y + px + (ch < 24 ? ch / 2 + 3.5 : 14)}
-                    fill={isH ? "hsl(0 0% 92%)" : "hsl(230 10% 65%)"}
+                    x={rect.x + px + 7}
+                    y={rect.y + px + (ch < 24 ? ch / 2 + 3.5 : 15)}
+                    fill={isH ? "hsl(var(--foreground))" : "hsl(var(--foreground))"}
                     fontSize={cw > 90 ? 11 : cw > 60 ? 10 : 8}
                     fontWeight={500}
                     fontFamily="system-ui, -apple-system, sans-serif"
+                    opacity={isH ? 1 : 0.8}
                   >
                     {company.name.length > maxChars + 2 ? company.name.slice(0, maxChars) + "…" : company.name}
                   </text>
                   {showSector && company.sector && (
                     <text
-                      x={rect.x + px + 6}
-                      y={rect.y + px + 26}
-                      fill="hsl(230 10% 38%)"
-                      fontSize={8}
+                      x={rect.x + px + 7}
+                      y={rect.y + px + 28}
+                      fill="hsl(var(--muted-foreground))"
+                      fontSize={9}
                       fontFamily="ui-monospace, SFMono-Regular, 'SF Mono', monospace"
+                      opacity={0.6}
                     >
                       {company.sector}
                     </text>
                   )}
                   {showDesc && company.oneLiner && (
                     <text
-                      x={rect.x + px + 6}
-                      y={rect.y + px + 38}
-                      fill="hsl(230 8% 28%)"
-                      fontSize={8}
+                      x={rect.x + px + 7}
+                      y={rect.y + px + 41}
+                      fill="hsl(var(--muted-foreground))"
+                      fontSize={9}
                       fontFamily="system-ui, -apple-system, sans-serif"
+                      opacity={0.35}
                     >
                       {company.oneLiner.length > maxChars ? company.oneLiner.slice(0, maxChars) + "…" : company.oneLiner}
                     </text>
