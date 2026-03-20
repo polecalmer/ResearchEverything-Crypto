@@ -102,6 +102,9 @@ export type Report = typeof reports.$inferSelect;
 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  privyId: text("privy_id").unique(),
+  walletAddress: text("wallet_address"),
+  email: text("email"),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
   credits: integer("credits").notNull().default(0),

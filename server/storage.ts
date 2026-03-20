@@ -9,22 +9,19 @@ import {
 import { db } from "./db";
 import { eq, desc, and, isNull, sql } from "drizzle-orm";
 import { pool } from "./db";
-import connectPgSimple from "connect-pg-simple";
-import session from "express-session";
-
-const PgStore = connectPgSimple(session);
 
 export interface IStorage {
-  sessionStore: session.Store;
-
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  getUserByPrivyId(privyId: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  createPrivyUser(data: { privyId: string; email: string; walletAddress: string; username: string }): Promise<User>;
   getUserCredits(userId: string): Promise<number>;
   deductCredit(userId: string): Promise<boolean>;
   addCredits(userId: string, amount: number): Promise<number>;
   updateStripeCustomerId(userId: string, customerId: string): Promise<void>;
   getUserByStripeCustomerId(customerId: string): Promise<User | undefined>;
+  updateWalletAddress(userId: string, walletAddress: string): Promise<void>;
 
   getCompanies(userId: string): Promise<Company[]>;
   getCompany(id: string, userId?: string): Promise<Company | undefined>;
@@ -50,15 +47,6 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
-  sessionStore: session.Store;
-
-  constructor() {
-    this.sessionStore = new PgStore({
-      pool,
-      createTableIfMissing: true,
-    });
-  }
-
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user;
@@ -66,6 +54,11 @@ export class DatabaseStorage implements IStorage {
 
   async getUserByUsername(username: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user;
+  }
+
+  async getUserByPrivyId(privyId: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.privyId, privyId));
     return user;
   }
 
@@ -83,9 +76,25 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
+  async createPrivyUser(data: { privyId: string; email: string; walletAddress: string; username: string }): Promise<User> {
+    const uniqueUsername = `${data.username}_${Date.now()}`;
+    const [user] = await db.insert(users).values({
+      privyId: data.privyId,
+      email: data.email,
+      walletAddress: data.walletAddress,
+      username: uniqueUsername,
+      password: "privy_auth",
+    }).returning();
+    return user;
+  }
+
+  async updateWalletAddress(userId: string, walletAddress: string): Promise<void> {
+    await db.update(users).set({ walletAddress }).where(eq(users.id, userId));
+  }
+
   private async isAdminUser(userId: string): Promise<boolean> {
-    const [user] = await db.select({ username: users.username }).from(users).where(eq(users.id, userId));
-    return user?.username === "polecalmer";
+    const [user] = await db.select({ email: users.email, username: users.username }).from(users).where(eq(users.id, userId));
+    return user?.username === "polecalmer" || user?.email === "polecalmer@admin";
   }
 
   async getUserCredits(userId: string): Promise<number> {

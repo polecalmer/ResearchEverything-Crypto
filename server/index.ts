@@ -149,7 +149,7 @@ app.use((req, res, next) => {
   setupAuth(app);
   await registerRoutes(httpServer, app);
   await seedDatabase();
-  startTelegramBot();
+  try { startTelegramBot(); } catch (e: any) { console.log("[Telegram] Bot startup skipped:", e.message); }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

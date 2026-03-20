@@ -1,5 +1,6 @@
 import { Switch, Route, Redirect } from "wouter";
 import { queryClient } from "./lib/queryClient";
+import { setAccessTokenGetter } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -7,6 +8,8 @@ import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useAuth } from "@/hooks/use-auth";
+import { PrivyProvider, usePrivy } from "@privy-io/react-auth";
+import { useEffect } from "react";
 import NotFound from "@/pages/not-found";
 import Pipeline from "@/pages/pipeline";
 import Companies from "@/pages/companies";
@@ -21,8 +24,38 @@ import AuthPage from "@/pages/auth-page";
 import { QuickCapture } from "@/components/quick-capture";
 import { Loader2 } from "lucide-react";
 
+const tempoChain = {
+  id: 4217,
+  name: "Tempo Mainnet",
+  network: "tempo",
+  nativeCurrency: {
+    name: "USD",
+    symbol: "USD",
+    decimals: 18,
+  },
+  rpcUrls: {
+    default: {
+      http: ["https://rpc.mainnet.tempo.xyz"],
+    },
+  },
+  blockExplorers: {
+    default: {
+      name: "Tempo Explorer",
+      url: "https://explore.mainnet.tempo.xyz",
+    },
+  },
+};
+
+function AccessTokenSync() {
+  const { getAccessToken } = usePrivy();
+  useEffect(() => {
+    setAccessTokenGetter(getAccessToken);
+  }, [getAccessToken]);
+  return null;
+}
+
 function AppRouter() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, isAuthenticated } = useAuth();
 
   if (isLoading) {
     return (
@@ -32,7 +65,7 @@ function AppRouter() {
     );
   }
 
-  if (!user) {
+  if (!isAuthenticated) {
     return (
       <Switch>
         <Route path="/" component={LandingPage} />
@@ -84,11 +117,29 @@ function AuthenticatedApp() {
 
 export default function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <AppRouter />
-        <Toaster />
-      </TooltipProvider>
-    </QueryClientProvider>
+    <PrivyProvider
+      appId={import.meta.env.VITE_PRIVY_APP_ID || ""}
+      config={{
+        appearance: {
+          theme: "dark",
+          accentColor: "#000000",
+          logo: undefined,
+        },
+        loginMethods: ["email", "wallet"],
+        embeddedWallets: {
+          createOnLogin: "users-without-wallets",
+        },
+        defaultChain: tempoChain as any,
+        supportedChains: [tempoChain as any],
+      }}
+    >
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <AccessTokenSync />
+          <AppRouter />
+          <Toaster />
+        </TooltipProvider>
+      </QueryClientProvider>
+    </PrivyProvider>
   );
 }
