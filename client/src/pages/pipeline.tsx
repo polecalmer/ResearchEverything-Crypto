@@ -108,124 +108,62 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
     : { border: "#d0d4dd", card: "#f4f5f7", accent: "#e8eaef", fg: "#1c1f26", muted: "#6b7280" };
 
   return (
-    <div ref={ref} className="flex-1 relative overflow-hidden bg-background">
-      {dim.w > 0 && (
-        <svg width={dim.w} height={dim.h} className="block" style={{ shapeRendering: "crispEdges" }}>
-          {stages.map(({ stage, rect }) => (
-            <g key={`s-${stage}`}>
-              <rect x={rect.x} y={rect.y} width={rect.w} height={rect.h} fill="none" stroke={C.border} strokeWidth={1} />
-              {rect.w > 50 && (
-                <text
-                  x={rect.x + 6}
-                  y={rect.y + 12}
-                  fill={STAGE_ACCENT[stage]}
-                  fontSize={9}
-                  fontWeight={600}
-                  fontFamily="ui-monospace, SFMono-Regular, 'SF Mono', monospace"
-                  letterSpacing="0.1em"
-                >
-                  {STAGE_LABELS[stage].toUpperCase()}
-                </text>
-              )}
-              {rect.w > 30 && (
-                <text
-                  x={rect.x + rect.w - 6}
-                  y={rect.y + 12}
-                  fill={C.muted}
-                  fontSize={9}
-                  fontFamily="ui-monospace, SFMono-Regular, 'SF Mono', monospace"
-                  textAnchor="end"
-                  opacity={0.6}
-                >
-                  {byStage[stage].length}
-                </text>
-              )}
-            </g>
-          ))}
-
-          {cells.map(({ company, rect, stage }) => {
-            const isH = hovered === company.id;
-            const cw = Math.max(rect.w - px * 2, 0);
-            const ch = Math.max(rect.h - px * 2, 0);
-            if (cw < 3 || ch < 3) return null;
-            const accent = STAGE_ACCENT[stage];
-            const showSector = cw > 70 && ch > 34;
-            const showDesc = cw > 100 && ch > 50;
-            const maxChars = Math.floor((cw - 10) / 5.5);
-
-            return (
-              <g
-                key={company.id}
-                className="cursor-pointer"
-                onClick={() => navigate(`/companies/${company.id}`)}
-                onMouseEnter={() => setHovered(company.id)}
-                onMouseLeave={() => setHovered(null)}
-                data-testid={`treemap-cell-${company.id}`}
-              >
-                <rect
-                  x={rect.x + px}
-                  y={rect.y + px}
-                  width={cw}
-                  height={ch}
-                  fill={isH ? C.accent : C.card}
-                  stroke={C.border}
-                  strokeWidth={1}
-                />
-                {isH && (
-                  <line
-                    x1={rect.x + px}
-                    y1={rect.y + px}
-                    x2={rect.x + px}
-                    y2={rect.y + px + ch}
-                    stroke={accent}
-                    strokeWidth={2}
-                  />
-                )}
-                <clipPath id={`c-${company.id}`}>
-                  <rect x={rect.x + px + 5} y={rect.y + px + 3} width={cw - 10} height={ch - 6} />
-                </clipPath>
-                <g clipPath={`url(#c-${company.id})`}>
-                  <text
-                    x={rect.x + px + 7}
-                    y={rect.y + px + (ch < 24 ? ch / 2 + 3.5 : 15)}
-                    fill={C.fg}
-                    fontSize={cw > 90 ? 11 : cw > 60 ? 10 : 8}
-                    fontWeight={500}
-                    fontFamily="system-ui, -apple-system, sans-serif"
-                    opacity={isH ? 1 : 0.85}
-                  >
-                    {company.name.length > maxChars + 2 ? company.name.slice(0, maxChars) + "…" : company.name}
+    <div className="flex-1 relative min-h-0">
+      <div ref={ref} className="absolute inset-0 overflow-hidden bg-background">
+        {dim.w > 0 && (
+          <svg width={dim.w} height={dim.h} className="block" style={{ shapeRendering: "crispEdges" }}>
+            {stages.map(({ stage, rect }) => (
+              <g key={`s-${stage}`}>
+                <rect x={rect.x} y={rect.y} width={rect.w} height={rect.h} fill="none" stroke={C.border} strokeWidth={1} />
+                {rect.w > 50 && (
+                  <text x={rect.x + 6} y={rect.y + 12} fill={STAGE_ACCENT[stage]} fontSize={9} fontWeight={600} fontFamily="ui-monospace, SFMono-Regular, 'SF Mono', monospace" letterSpacing="0.1em">
+                    {STAGE_LABELS[stage].toUpperCase()}
                   </text>
-                  {showSector && company.sector && (
-                    <text
-                      x={rect.x + px + 7}
-                      y={rect.y + px + 28}
-                      fill={C.muted}
-                      fontSize={9}
-                      fontFamily="ui-monospace, SFMono-Regular, 'SF Mono', monospace"
-                      opacity={0.7}
-                    >
-                      {company.sector}
-                    </text>
-                  )}
-                  {showDesc && company.oneLiner && (
-                    <text
-                      x={rect.x + px + 7}
-                      y={rect.y + px + 41}
-                      fill={C.muted}
-                      fontSize={9}
-                      fontFamily="system-ui, -apple-system, sans-serif"
-                      opacity={0.4}
-                    >
-                      {company.oneLiner.length > maxChars ? company.oneLiner.slice(0, maxChars) + "…" : company.oneLiner}
-                    </text>
-                  )}
-                </g>
+                )}
+                {rect.w > 30 && (
+                  <text x={rect.x + rect.w - 6} y={rect.y + 12} fill={C.muted} fontSize={9} fontFamily="ui-monospace, SFMono-Regular, 'SF Mono', monospace" textAnchor="end" opacity={0.6}>
+                    {byStage[stage].length}
+                  </text>
+                )}
               </g>
-            );
-          })}
-        </svg>
-      )}
+            ))}
+            {cells.map(({ company, rect, stage }) => {
+              const isH = hovered === company.id;
+              const cw = Math.max(rect.w - px * 2, 0);
+              const ch = Math.max(rect.h - px * 2, 0);
+              if (cw < 3 || ch < 3) return null;
+              const accent = STAGE_ACCENT[stage];
+              const showSector = cw > 70 && ch > 34;
+              const showDesc = cw > 100 && ch > 50;
+              const maxChars = Math.floor((cw - 10) / 5.5);
+              return (
+                <g key={company.id} className="cursor-pointer" onClick={() => navigate(`/companies/${company.id}`)} onMouseEnter={() => setHovered(company.id)} onMouseLeave={() => setHovered(null)} data-testid={`treemap-cell-${company.id}`}>
+                  <rect x={rect.x + px} y={rect.y + px} width={cw} height={ch} fill={isH ? C.accent : C.card} stroke={C.border} strokeWidth={1} />
+                  {isH && <line x1={rect.x + px} y1={rect.y + px} x2={rect.x + px} y2={rect.y + px + ch} stroke={accent} strokeWidth={2} />}
+                  <clipPath id={`c-${company.id}`}>
+                    <rect x={rect.x + px + 5} y={rect.y + px + 3} width={cw - 10} height={ch - 6} />
+                  </clipPath>
+                  <g clipPath={`url(#c-${company.id})`}>
+                    <text x={rect.x + px + 7} y={rect.y + px + (ch < 24 ? ch / 2 + 3.5 : 15)} fill={C.fg} fontSize={cw > 90 ? 11 : cw > 60 ? 10 : 8} fontWeight={500} fontFamily="system-ui, -apple-system, sans-serif" opacity={isH ? 1 : 0.85}>
+                      {company.name.length > maxChars + 2 ? company.name.slice(0, maxChars) + "…" : company.name}
+                    </text>
+                    {showSector && company.sector && (
+                      <text x={rect.x + px + 7} y={rect.y + px + 28} fill={C.muted} fontSize={9} fontFamily="ui-monospace, SFMono-Regular, 'SF Mono', monospace" opacity={0.7}>
+                        {company.sector}
+                      </text>
+                    )}
+                    {showDesc && company.oneLiner && (
+                      <text x={rect.x + px + 7} y={rect.y + px + 41} fill={C.muted} fontSize={9} fontFamily="system-ui, -apple-system, sans-serif" opacity={0.4}>
+                        {company.oneLiner.length > maxChars ? company.oneLiner.slice(0, maxChars) + "…" : company.oneLiner}
+                      </text>
+                    )}
+                  </g>
+                </g>
+              );
+            })}
+          </svg>
+        )}
+      </div>
     </div>
   );
 }
