@@ -32,7 +32,7 @@ function getMppxClient() {
   const account = privateKeyToAccount(privateKey as `0x${string}`);
 
   mppxClient = Mppx.create({
-    methods: [tempo({ account, maxDeposit: "0.15" })],
+    methods: [tempo({ account, maxDeposit: "5" })],
     polyfill: false,
     onChallenge: async (challenge, helpers) => {
       const rawAmount = challenge.request?.amount;
