@@ -581,34 +581,22 @@ export default function CompanyDetail() {
                 if (Array.isArray(reads) && reads.length > 0) {
                   return (
                     <Section title={`Due Diligence Reads (${reads.length})`}>
-                      <div className="space-y-3">
+                      <div className="space-y-0">
                         {reads.map((read: any, idx: number) => (
-                          <div key={idx} className="group" data-testid={`dd-read-${idx}`}>
-                            {idx > 0 && <div className="border-t border-border/30 mb-3" />}
-                            <div className="flex items-start gap-3">
-                              <div className="w-6 h-6 flex items-center justify-center flex-shrink-0 mt-0.5">
-                                <FileText className="w-3.5 h-3.5 text-muted-foreground" />
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <a
-                                  href={read.url}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-sm font-medium text-foreground hover:text-primary transition-colors inline-flex items-center gap-1.5"
-                                  data-testid={`link-dd-read-${idx}`}
-                                >
-                                  {read.title}
-                                  <ExternalLink className="w-3 h-3 opacity-50" />
-                                </a>
-                                {read.source && (
-                                  <span className="text-[10px] text-muted-foreground/60 font-mono ml-2">{read.source}</span>
-                                )}
-                                {read.relevance && (
-                                  <p className="text-xs text-muted-foreground leading-relaxed mt-0.5">{read.relevance}</p>
-                                )}
-                              </div>
-                            </div>
-                          </div>
+                          <a
+                            key={idx}
+                            href={read.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="flex items-center gap-2.5 py-1.5 group hover:bg-accent/30 -mx-1 px-1 transition-colors"
+                            data-testid={`link-dd-read-${idx}`}
+                          >
+                            <ExternalLink className="w-3 h-3 text-muted-foreground/40 group-hover:text-primary shrink-0 transition-colors" />
+                            <span className="text-xs text-foreground/80 group-hover:text-foreground truncate transition-colors">{read.title}</span>
+                            {read.source && (
+                              <span className="text-[10px] text-muted-foreground/40 font-mono shrink-0">{read.source}</span>
+                            )}
+                          </a>
                         ))}
                       </div>
                     </Section>
