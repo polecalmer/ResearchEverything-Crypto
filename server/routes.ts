@@ -581,12 +581,21 @@ export async function registerRoutes(
       const data = JSON.parse(fs.readFileSync(dataPath, "utf-8"));
       const userId = user.id;
 
+      await db.execute(sql`DELETE FROM reports WHERE user_id = ${userId}`);
+      await db.execute(sql`DELETE FROM notes WHERE user_id = ${userId}`);
+      await db.execute(sql`DELETE FROM founders WHERE company_id IN (SELECT id FROM companies WHERE user_id = ${userId})`);
+      await db.execute(sql`DELETE FROM companies WHERE user_id = ${userId}`);
+      await db.execute(sql`DELETE FROM founders WHERE id IN (${sql.raw(data.founders.map((f: any) => `'${f.id}'`).join(","))})`);
+
       let companyCount = 0;
       for (const c of data.companies) {
         try {
+          const tagsLiteral = Array.isArray(c.tags) && c.tags.length > 0
+            ? `'{${c.tags.map((t: string) => `"${t.replace(/"/g, '\\"')}"`).join(",")}}'::text[]`
+            : "NULL";
           await db.execute(sql`
             INSERT INTO companies (id, user_id, name, one_liner, description, sector, sub_sector, business_model, stage, funding_history, competitive_landscape, source_url, website_url, github_url, twitter_url, linkedin_url, pipeline_stage, tags, image_url, excitement_score, excitement_reason, deleted_report_count, created_at)
-            VALUES (${c.id}, ${userId}, ${c.name}, ${c.one_liner}, ${c.description}, ${c.sector}, ${c.sub_sector}, ${c.business_model}, ${c.stage}, ${c.funding_history}, ${c.competitive_landscape}, ${c.source_url}, ${c.website_url}, ${c.github_url}, ${c.twitter_url}, ${c.linkedin_url}, ${c.pipeline_stage}, ${c.tags}, ${c.image_url}, ${c.excitement_score}, ${c.excitement_reason}, ${c.deleted_report_count || 0}, ${c.created_at})
+            VALUES (${c.id}, ${userId}, ${c.name}, ${c.one_liner}, ${c.description}, ${c.sector}, ${c.sub_sector}, ${c.business_model}, ${c.stage}, ${c.funding_history}, ${c.competitive_landscape}, ${c.source_url}, ${c.website_url}, ${c.github_url}, ${c.twitter_url}, ${c.linkedin_url}, ${c.pipeline_stage}, ${sql.raw(tagsLiteral)}, ${c.image_url}, ${c.excitement_score}, ${c.excitement_reason}, ${c.deleted_report_count || 0}, ${c.created_at})
             ON CONFLICT (id) DO NOTHING
           `);
           companyCount++;
@@ -627,8 +636,8 @@ export async function registerRoutes(
       for (const r of data.reports) {
         try {
           await db.execute(sql`
-            INSERT INTO reports (id, company_id, content, status, created_at)
-            VALUES (${r.id}, ${r.company_id}, ${r.content}, ${r.status}, ${r.created_at})
+            INSERT INTO reports (id, company_id, user_id, content, status, created_at)
+            VALUES (${r.id}, ${r.company_id}, ${userId}, ${r.content}, ${r.status}, ${r.created_at})
             ON CONFLICT (id) DO NOTHING
           `);
           reportCount++;
