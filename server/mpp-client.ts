@@ -29,7 +29,7 @@ function getMppxClient() {
   const account = privateKeyToAccount(privateKey as `0x${string}`);
 
   mppxClient = Mppx.create({
-    methods: [tempo({ account, maxDeposit: "5" })],
+    methods: [tempo({ account, maxDeposit: "4" })],
     polyfill: false,
   });
 
