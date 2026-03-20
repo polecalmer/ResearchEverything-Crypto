@@ -185,16 +185,11 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
                         {company.sector}
                       </text>
                     )}
-                    {showDesc && company.oneLiner && !company.excitementReason && (
-                      <text x={rect.x + px + 7} y={rect.y + px + 41} fill={C.muted} fontSize={9} fontFamily="system-ui, -apple-system, sans-serif" opacity={0.4}>
-                        {company.oneLiner.length > maxChars ? company.oneLiner.slice(0, maxChars) + "…" : company.oneLiner}
-                      </text>
-                    )}
                   </g>
-                  {showDesc && company.excitementReason && (
+                  {showDesc && company.oneLiner && (
                     <foreignObject x={rect.x + px + 5} y={rect.y + px + 33} width={cw - 10} height={ch - 38}>
-                      <div style={{ fontSize: 9, fontFamily: "system-ui, -apple-system, sans-serif", color: es ? excitementScoreColor(es, isDark) : C.muted, opacity: 0.6, lineHeight: "12px", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: Math.max(1, Math.floor((ch - 42) / 12)), WebkitBoxOrient: "vertical" as const }}>
-                        {company.excitementReason}
+                      <div style={{ fontSize: 9, fontFamily: "system-ui, -apple-system, sans-serif", color: isH && company.excitementReason ? (es ? excitementScoreColor(es, isDark) : C.muted) : C.muted, opacity: isH && company.excitementReason ? 0.7 : 0.4, lineHeight: "12px", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: Math.max(1, Math.floor((ch - 42) / 12)), WebkitBoxOrient: "vertical" as const }}>
+                        {isH && company.excitementReason ? company.excitementReason : company.oneLiner}
                       </div>
                     </foreignObject>
                   )}
