@@ -18,23 +18,30 @@ const STAGE_ACCENT: Record<PipelineStage, string> = {
 function excitementFill(score: number | null | undefined, isDark: boolean, base: string): string {
   if (!score) return base;
   const dark: Record<number, string> = {
-    1: "#141824", 2: "#161a2a", 3: "#1a1e30",
-    4: "#1e2236", 5: "#22263c", 6: "#282c3e",
-    7: "#2c2a28", 8: "#362a1e", 9: "#3e2418", 10: "#461e14",
+    1: "#1a1420", 2: "#1c1622", 3: "#1e1826",
+    4: "#18202a", 5: "#1a2430", 6: "#1c2836",
+    7: "#162a30", 8: "#143028", 9: "#123624", 10: "#103c20",
   };
   const light: Record<number, string> = {
-    1: "#f0f2f6", 2: "#eef0f5", 3: "#eceef4",
-    4: "#e8eaf2", 5: "#e4e6f0", 6: "#e0e2ec",
-    7: "#ede8e0", 8: "#f0e4d4", 9: "#f4dcc8", 10: "#f8d4bc",
+    1: "#f4f0f6", 2: "#f2eef5", 3: "#f0ecf4",
+    4: "#eaf0f4", 5: "#e6eef2", 6: "#e0eaf0",
+    7: "#daf0ec", 8: "#d4f0e4", 9: "#cef0dc", 10: "#c8f0d4",
   };
   return (isDark ? dark : light)[score] || base;
 }
 
 function excitementBorder(score: number | null | undefined, isDark: boolean): string | null {
   if (!score || score < 4) return null;
-  if (score <= 6) return isDark ? "#5a4f2e" : "#d4c890";
-  if (score <= 8) return isDark ? "#6e4420" : "#dca060";
-  return isDark ? "#7a2e1e" : "#e87050";
+  if (score <= 6) return isDark ? "#2a4a5a" : "#90b8d4";
+  if (score <= 8) return isDark ? "#1e5a4a" : "#60b890";
+  return isDark ? "#1e7a4a" : "#50c878";
+}
+
+function excitementScoreColor(score: number, isDark: boolean): string {
+  if (score <= 3) return isDark ? "#8a7090" : "#705080";
+  if (score <= 6) return isDark ? "#5090b0" : "#3070a0";
+  if (score <= 8) return isDark ? "#40a080" : "#208060";
+  return isDark ? "#30c070" : "#109050";
 }
 
 interface Rect { x: number; y: number; w: number; h: number }
@@ -165,7 +172,7 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
                 <g key={company.id} className="cursor-pointer" onClick={() => navigate(`/companies/${company.id}`)} onMouseEnter={() => setHovered(company.id)} onMouseLeave={() => setHovered(null)} data-testid={`treemap-cell-${company.id}`}>
                   <rect x={rect.x + px} y={rect.y + px} width={cw} height={ch} fill={cellFill} stroke={eBorder || C.border} strokeWidth={eBorder ? 1.5 : 1} />
                   {isH && <line x1={rect.x + px} y1={rect.y + px} x2={rect.x + px} y2={rect.y + px + ch} stroke={accent} strokeWidth={2} />}
-                  {es && es >= 7 && ch > 14 && <text x={rect.x + px + cw - 5} y={rect.y + px + 11} fill={isDark ? "#e87050" : "#c0502a"} fontSize={8} fontFamily="ui-monospace, SFMono-Regular, monospace" textAnchor="end" opacity={0.7}>{es}</text>}
+                  {es && es >= 7 && ch > 14 && <text x={rect.x + px + cw - 5} y={rect.y + px + 11} fill={excitementScoreColor(es, isDark)} fontSize={8} fontFamily="ui-monospace, SFMono-Regular, monospace" textAnchor="end" opacity={0.8}>{es}</text>}
                   <clipPath id={`c-${company.id}`}>
                     <rect x={rect.x + px + 5} y={rect.y + px + 3} width={cw - 10} height={ch - 6} />
                   </clipPath>
@@ -178,9 +185,14 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
                         {company.sector}
                       </text>
                     )}
-                    {showDesc && company.oneLiner && (
+                    {showDesc && company.oneLiner && !company.excitementReason && (
                       <text x={rect.x + px + 7} y={rect.y + px + 41} fill={C.muted} fontSize={9} fontFamily="system-ui, -apple-system, sans-serif" opacity={0.4}>
                         {company.oneLiner.length > maxChars ? company.oneLiner.slice(0, maxChars) + "…" : company.oneLiner}
+                      </text>
+                    )}
+                    {showDesc && company.excitementReason && (
+                      <text x={rect.x + px + 7} y={rect.y + px + 41} fill={es ? excitementScoreColor(es, isDark) : C.muted} fontSize={9} fontFamily="system-ui, -apple-system, sans-serif" opacity={0.6}>
+                        {company.excitementReason.length > maxChars ? company.excitementReason.slice(0, maxChars) + "…" : company.excitementReason}
                       </text>
                     )}
                   </g>
