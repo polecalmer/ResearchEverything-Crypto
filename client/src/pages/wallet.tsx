@@ -1,8 +1,22 @@
 import { useQuery } from "@tanstack/react-query";
-import { Wallet, ExternalLink, Loader2, Clock, Copy, Check } from "lucide-react";
+import { Wallet, ExternalLink, Loader2, Clock, Copy, Check, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/use-auth";
 import { useState } from "react";
+import { queryClient } from "@/lib/queryClient";
+
+async function fetchWalletBalance(address: string): Promise<string> {
+  const res = await fetch("https://rpc.mainnet.tempo.xyz", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", method: "eth_getBalance", params: [address, "latest"], id: 1 }),
+  });
+  const data = await res.json();
+  if (data.error) throw new Error(data.error.message);
+  const wei = BigInt(data.result);
+  const eth = Number(wei) / 1e18;
+  return eth.toFixed(6);
+}
 
 interface Transaction {
   id: string;
@@ -29,6 +43,14 @@ export default function WalletPage() {
 
   const { data: txs, isLoading: txsLoading } = useQuery<Transaction[]>({
     queryKey: ["/api/transactions"],
+  });
+
+  const { data: balance, isLoading: balanceLoading } = useQuery<string>({
+    queryKey: ["wallet-balance", walletAddress],
+    queryFn: () => fetchWalletBalance(walletAddress!),
+    enabled: !!walletAddress,
+    refetchInterval: 30000,
+    staleTime: 15000,
   });
 
   const handleFundWallet = () => {
@@ -95,6 +117,28 @@ export default function WalletPage() {
                 ) : (
                   <p className="text-xs text-muted-foreground">Not connected</p>
                 )}
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Balance</p>
+                  <button
+                    onClick={() => queryClient.invalidateQueries({ queryKey: ["wallet-balance", walletAddress] })}
+                    className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                    aria-label="Refresh balance"
+                    data-testid="button-refresh-balance"
+                  >
+                    <RefreshCw className={`w-2.5 h-2.5 ${balanceLoading ? "animate-spin" : ""}`} />
+                  </button>
+                </div>
+                <p className="text-lg font-mono font-semibold tabular-nums" data-testid="text-wallet-balance">
+                  {balanceLoading ? (
+                    <span className="text-muted-foreground text-sm">Loading...</span>
+                  ) : balance ? (
+                    <>{balance} <span className="text-xs text-muted-foreground font-normal">ETH</span></>
+                  ) : (
+                    <span className="text-muted-foreground text-sm">—</span>
+                  )}
+                </p>
               </div>
               <div className="flex justify-between">
                 <div>
