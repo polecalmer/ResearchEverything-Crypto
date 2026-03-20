@@ -25,15 +25,22 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
     }
 
     const token = authHeader.slice(7);
-    const { userId: privyUserId } = await privy.verifyAuthToken(token);
+    const { user_id: privyUserId } = await privy.utils().auth().verifyAuthToken(token);
 
     let user = await storage.getUserByPrivyId(privyUserId);
 
     if (!user) {
-      const privyUser = await privy.getUser(privyUserId);
+      const privyUser = await privy.users()._get(privyUserId);
 
-      const email = privyUser.email?.address || "";
-      const walletAddress = privyUser.wallet?.address || "";
+      const emailAccount = privyUser.linked_accounts?.find(
+        (a: any) => a.type === "email"
+      ) as any;
+      const walletAccount = privyUser.linked_accounts?.find(
+        (a: any) => a.type === "wallet"
+      ) as any;
+
+      const email = emailAccount?.address || "";
+      const walletAddress = walletAccount?.address || "";
       const displayName = email.split("@")[0] || `user_${Date.now()}`;
 
       user = await storage.createPrivyUser({
