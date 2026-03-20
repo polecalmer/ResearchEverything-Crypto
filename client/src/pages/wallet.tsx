@@ -5,19 +5,34 @@ import { useAuth } from "@/hooks/use-auth";
 import { useState } from "react";
 import { queryClient } from "@/lib/queryClient";
 
-async function fetchWalletBalance(address: string): Promise<string> {
-  const res = await fetch("https://rpc.mainnet.tempo.xyz", {
+const PATHUSD_CONTRACT = "0x20c0000000000000000000000000000000000000";
+const BALANCE_OF_SELECTOR = "0x70a08231";
+
+async function fetchTokenBalance(rpc: string, token: string, address: string, decimals: number): Promise<string> {
+  const paddedAddr = address.toLowerCase().replace("0x", "").padStart(64, "0");
+  const res = await fetch(rpc, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ jsonrpc: "2.0", method: "eth_getBalance", params: [address, "latest"], id: 1 }),
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      method: "eth_call",
+      params: [{ to: token, data: `${BALANCE_OF_SELECTOR}${paddedAddr}` }, "latest"],
+      id: 1,
+    }),
   });
   const data = await res.json();
   if (data.error) throw new Error(data.error.message);
-  const wei = BigInt(data.result);
-  const whole = wei / 1000000000000000000n;
-  const frac = wei % 1000000000000000000n;
-  const fracStr = frac.toString().padStart(18, "0").slice(0, 6);
+  if (!data.result || data.result === "0x") return "0.00";
+  const raw = BigInt(data.result);
+  const divisor = BigInt(10 ** decimals);
+  const whole = raw / divisor;
+  const frac = raw % divisor;
+  const fracStr = frac.toString().padStart(decimals, "0").slice(0, 2);
   return `${whole.toString()}.${fracStr}`;
+}
+
+async function fetchWalletBalance(address: string): Promise<string> {
+  return fetchTokenBalance("https://rpc.mainnet.tempo.xyz", PATHUSD_CONTRACT, address, 6);
 }
 
 interface Transaction {
@@ -136,7 +151,7 @@ export default function WalletPage() {
                   {balanceLoading ? (
                     <span className="text-muted-foreground text-sm">Loading...</span>
                   ) : balance ? (
-                    <>{balance} <span className="text-xs text-muted-foreground font-normal">TEMPO</span></>
+                    <>${balance} <span className="text-xs text-muted-foreground font-normal">pathUSD</span></>
                   ) : (
                     <span className="text-muted-foreground text-sm">—</span>
                   )}
