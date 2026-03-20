@@ -5,12 +5,19 @@ import { useAuth } from "@/hooks/use-auth";
 import { useState } from "react";
 import { queryClient } from "@/lib/queryClient";
 
-const PATHUSD_CONTRACT = "0x20c0000000000000000000000000000000000000";
+const TEMPO_RPC = "https://rpc.mainnet.tempo.xyz";
 const BALANCE_OF_SELECTOR = "0x70a08231";
 
-async function fetchTokenBalance(rpc: string, token: string, address: string, decimals: number): Promise<string> {
+const TOKENS = [
+  { symbol: "pathUSD", contract: "0x20c0000000000000000000000000000000000000", decimals: 6 },
+  { symbol: "USDC", contract: "0x20c000000000000000000000b9537d11c60e8b50", decimals: 6 },
+] as const;
+
+interface TokenBalance { symbol: string; amount: string }
+
+async function fetchTokenBalance(token: string, address: string, decimals: number): Promise<string> {
   const paddedAddr = address.toLowerCase().replace("0x", "").padStart(64, "0");
-  const res = await fetch(rpc, {
+  const res = await fetch(TEMPO_RPC, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -31,8 +38,14 @@ async function fetchTokenBalance(rpc: string, token: string, address: string, de
   return `${whole.toString()}.${fracStr}`;
 }
 
-async function fetchWalletBalance(address: string): Promise<string> {
-  return fetchTokenBalance("https://rpc.mainnet.tempo.xyz", PATHUSD_CONTRACT, address, 6);
+async function fetchWalletBalances(address: string): Promise<TokenBalance[]> {
+  const results = await Promise.all(
+    TOKENS.map(async (t) => ({
+      symbol: t.symbol,
+      amount: await fetchTokenBalance(t.contract, address, t.decimals),
+    }))
+  );
+  return results;
 }
 
 interface Transaction {
@@ -62,9 +75,9 @@ export default function WalletPage() {
     queryKey: ["/api/transactions"],
   });
 
-  const { data: balance, isLoading: balanceLoading } = useQuery<string>({
-    queryKey: ["wallet-balance", walletAddress],
-    queryFn: () => fetchWalletBalance(walletAddress!),
+  const { data: balances, isLoading: balanceLoading } = useQuery<TokenBalance[]>({
+    queryKey: ["wallet-balances", walletAddress],
+    queryFn: () => fetchWalletBalances(walletAddress!),
     enabled: !!walletAddress,
     refetchInterval: 30000,
     staleTime: 15000,
@@ -136,26 +149,31 @@ export default function WalletPage() {
                 )}
               </div>
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Balance</p>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Balances</p>
                   <button
-                    onClick={() => queryClient.invalidateQueries({ queryKey: ["wallet-balance", walletAddress] })}
+                    onClick={() => queryClient.invalidateQueries({ queryKey: ["wallet-balances", walletAddress] })}
                     className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-                    aria-label="Refresh balance"
+                    aria-label="Refresh balances"
                     data-testid="button-refresh-balance"
                   >
                     <RefreshCw className={`w-2.5 h-2.5 ${balanceLoading ? "animate-spin" : ""}`} />
                   </button>
                 </div>
-                <p className="text-lg font-mono font-semibold tabular-nums" data-testid="text-wallet-balance">
-                  {balanceLoading ? (
-                    <span className="text-muted-foreground text-sm">Loading...</span>
-                  ) : balance ? (
-                    <>${balance} <span className="text-xs text-muted-foreground font-normal">pathUSD</span></>
-                  ) : (
-                    <span className="text-muted-foreground text-sm">—</span>
-                  )}
-                </p>
+                {balanceLoading ? (
+                  <span className="text-muted-foreground text-sm">Loading...</span>
+                ) : balances ? (
+                  <div className="space-y-1.5">
+                    {balances.map((b) => (
+                      <div key={b.symbol} className="flex items-baseline justify-between" data-testid={`balance-${b.symbol}`}>
+                        <span className="text-[10px] font-mono text-muted-foreground">{b.symbol}</span>
+                        <span className="text-sm font-mono font-semibold tabular-nums">${b.amount}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="text-muted-foreground text-sm">—</span>
+                )}
               </div>
               <div className="flex justify-between">
                 <div>
