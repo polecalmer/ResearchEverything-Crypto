@@ -14,33 +14,59 @@ const CLI_ENV = {
   PATH: `${path.dirname(ALLIUM_CLI_PATH)}:${process.env.HOME}/.local/bin:${process.env.PATH}`,
 };
 
-async function runAlliumCli(args: string[], timeoutMs = 90000): Promise<any> {
-  try {
-    const { stdout, stderr } = await execFileAsync(ALLIUM_CLI_PATH, args, {
-      env: CLI_ENV,
-      timeout: timeoutMs,
-      maxBuffer: 10 * 1024 * 1024,
-    });
+let alliumCliQueue: Promise<void> = Promise.resolve();
 
-    const jsonStr = stdout.trim();
-    if (!jsonStr) {
-      throw new Error("Empty response from Allium CLI");
-    }
+function serializeAlliumCall<T>(fn: () => Promise<T>): Promise<T> {
+  const result = alliumCliQueue.then(fn, fn);
+  alliumCliQueue = result.then(() => {}, () => {});
+  return result;
+}
 
-    return JSON.parse(jsonStr);
-  } catch (err: any) {
-    if (err.code === "ENOENT") {
-      throw new Error("Allium CLI not installed. Run setup first.");
-    }
-    if (err.killed) {
-      throw new Error("Allium query timed out");
-    }
-    const msg = err.stderr || err.message || "Unknown Allium CLI error";
-    if (msg.includes("failed")) {
-      throw new Error(`Allium query failed: ${msg}`);
-    }
-    throw new Error(`Allium CLI error: ${msg}`);
+async function runAlliumCliOnce(args: string[], timeoutMs: number): Promise<any> {
+  const { stdout, stderr } = await execFileAsync(ALLIUM_CLI_PATH, args, {
+    env: CLI_ENV,
+    timeout: timeoutMs,
+    maxBuffer: 10 * 1024 * 1024,
+  });
+
+  const jsonStr = stdout.trim();
+  if (!jsonStr) {
+    throw new Error("Empty response from Allium CLI");
   }
+
+  return JSON.parse(jsonStr);
+}
+
+async function runAlliumCli(args: string[], timeoutMs = 90000): Promise<any> {
+  const maxRetries = 3;
+
+  return serializeAlliumCall(async () => {
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await runAlliumCliOnce(args, timeoutMs);
+      } catch (err: any) {
+        if (err.code === "ENOENT") {
+          throw new Error("Allium CLI not installed. Run setup first.");
+        }
+        if (err.killed) {
+          throw new Error("Allium query timed out");
+        }
+        const msg = err.stderr || err.message || "Unknown Allium CLI error";
+        const isPaymentError = msg.includes("Payment settlement failed") || msg.includes("authorization header");
+
+        if (isPaymentError && attempt < maxRetries) {
+          console.warn(`[Allium] Payment settlement failed (attempt ${attempt}/${maxRetries}), retrying in ${attempt * 2}s...`);
+          await new Promise(r => setTimeout(r, attempt * 2000));
+          continue;
+        }
+
+        if (msg.includes("failed")) {
+          throw new Error(`Allium query failed: ${msg}`);
+        }
+        throw new Error(`Allium CLI error: ${msg}`);
+      }
+    }
+  });
 }
 
 export interface AlliumPricePoint {
