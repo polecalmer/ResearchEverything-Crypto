@@ -48,13 +48,15 @@ Focus on user experience and intuitive design.
 **AI Enrichment Pipeline (6 Steps):**
 1.  **Web Scraper:** Fetches content from URLs.
 2.  **Identifier Agent:** Identifies the company from input and scraped data.
-3.  **Token Identifier Agent:** Detects if the project has a liquid token. Classifies into Tier 1-4 using the liquid token analysis framework (revenue, PMF, distribution, value accrual). Stores: hasLiquidToken, tokenTicker, contractAddress, chain, tokenTier on the company record.
+3.  **Token Identifier Agent:** Detects if the project has a liquid token. Classifies into Tier 0-3 using the liquid token analysis framework (Tier 0: Monetary Premium, Tier 1: Great, Tier 2: Average, Tier 3: Bad). Stores: hasLiquidToken, tokenTicker, contractAddress, chain, tokenTier on the company record.
 4.  **Research Agent:** Builds a comprehensive deal card (VC research runs for ALL projects).
 5.  **Verify & Clean Agent:** Combines fact-checking and hallucination firewall, stripping unverified data.
 6.  **Due Diligence Reads Agent:** Finds 4-5 critical adjacent reads (research papers, whitepapers, regulatory docs, market analyses) relevant to the investment thesis. Stored as JSON in `adjacentReads` column.
 All AI agents use Claude Opus 4.6 with web search capabilities. Liquid token projects get a "Liquid Token" tag and stage automatically. Token profiles are auto-populated when a liquid token is detected. The liquid token analysis framework is stored in `server/skills/liquid-token-analysis.md`.
 
-**Standalone Liquid Token Research:** The deep token analysis (supply, valuation, liquidity, value accrual, risk flags) runs as a standalone background job via the "Generate AI Token Analysis" button on the Token Intelligence tab. Uses `server/token-agent.ts` with full web search (15 rounds) and 8000 max tokens. Runs as an async background task (same pattern as deep research reports) to avoid gateway timeouts. Results saved to both `token_analyses` table and `liquidTokenAnalysis` column on the company.
+**Standalone Liquid Token Research:** The deep token analysis (supply, valuation, liquidity, value accrual, risk flags) runs as a standalone background job via the "Generate AI Token Analysis" button on the Token Intelligence tab. Uses `server/token-agent.ts` with multi-turn approach (3 sequential calls: market data research → valuation & risk research → synthesis). Runs as an async background task (same pattern as deep research reports) to avoid gateway timeouts. Results saved to both `token_analyses` table and `liquidTokenAnalysis` column on the company.
+
+**Deep Research Reports:** Also use multi-turn approach (3 sequential calls: company/team/market research → competition/risk research → synthesis into final report). Each call stays under ~90s to avoid MPP proxy gateway timeouts.
 
 **AI Next Steps Advisor (2 Stages):**
 1.  **Generator Agent:** Analyzes deal context to produce actionable recommendations.
@@ -86,5 +88,9 @@ Company detail pages feature two tabs: "Deal Intelligence" (existing content) an
 -   **Database:** PostgreSQL
 -   **ORM:** Drizzle ORM
 -   **Payments:** Stripe (for subscriptions and one-time credit purchases)
--   **Blockchain/Wallet:** Tempo chain (chain ID 4217) for embedded wallets and USDC for transactions.
+-   **Blockchain/Wallet:** Tempo chain (chain ID 4217) for embedded wallets and USDC for transactions. Tempo MPP skill reference at `server/skills/tempo-mpp.md`.
 -   **Telegram Bot Framework:** Grammy
+
+## Skill Files
+- `server/skills/liquid-token-analysis.md` — Liquid token analysis framework (tier classification, supply analysis, valuation models, risk flags)
+- `server/skills/tempo-mpp.md` — Tempo MPP builder skill (channel management, wallet ops, client/server patterns, testing)
