@@ -20,6 +20,8 @@ export interface AnthropicResponse {
 
 let mppxClient: ReturnType<typeof Mppx.create> | null = null;
 let lastChallengeAmount = 0;
+let sessionMethods: ReturnType<typeof tempo> | null = null;
+let lastChallenge: any = null;
 
 function getMppxClient() {
   if (mppxClient) return mppxClient;
@@ -31,10 +33,13 @@ function getMppxClient() {
 
   const account = privateKeyToAccount(privateKey as `0x${string}`);
 
+  sessionMethods = tempo({ account, maxDeposit: "3" });
+
   mppxClient = Mppx.create({
-    methods: [tempo({ account, maxDeposit: "3" })],
+    methods: [sessionMethods],
     polyfill: false,
     onChallenge: async (challenge, helpers) => {
+      lastChallenge = challenge;
       const rawAmount = challenge.request?.amount;
       if (rawAmount) {
         const amountNum = typeof rawAmount === "string" ? parseInt(rawAmount, 10) : Number(rawAmount);
@@ -55,6 +60,49 @@ function getMppxClient() {
 export function isServerMppReady(): boolean {
   return !!process.env.MPP_SERVER_WALLET_KEY;
 }
+
+async function closeMppSession() {
+  if (!mppxClient || !sessionMethods || !lastChallenge) {
+    console.log("[MPP-Client] No active session to close.");
+    mppxClient = null;
+    sessionMethods = null;
+    lastChallenge = null;
+    return;
+  }
+
+  try {
+    console.log("[MPP-Client] Closing session, returning unspent funds...");
+    const sessionMethod = sessionMethods.flat().find((m: any) => m?.createCredential);
+    if (sessionMethod) {
+      const credential = await sessionMethod.createCredential({
+        challenge: lastChallenge,
+        context: { action: "close" as const },
+      });
+
+      const response = await fetch(ANTHROPIC_MPP_URL, {
+        method: "POST",
+        headers: { Authorization: credential },
+      });
+      console.log(`[MPP-Client] Close response: ${response.status}`);
+    }
+    console.log("[MPP-Client] Session closed, funds returned.");
+  } catch (err) {
+    console.error("[MPP-Client] Error closing session:", err);
+  }
+  mppxClient = null;
+  sessionMethods = null;
+  lastChallenge = null;
+}
+
+process.on("SIGTERM", async () => {
+  await closeMppSession();
+  process.exit(0);
+});
+
+process.on("SIGINT", async () => {
+  await closeMppSession();
+  process.exit(0);
+});
 
 export async function callAnthropicServer(request: AnthropicRequest): Promise<AnthropicResponse> {
   const client = getMppxClient();
