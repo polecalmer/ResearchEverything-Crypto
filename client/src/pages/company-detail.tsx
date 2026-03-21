@@ -564,17 +564,17 @@ export default function CompanyDetail() {
               aria-selected={activeTab === "deal"}
               aria-controls="panel-deal"
               onClick={() => setActiveTab("deal")}
-              className={`text-xs px-3 py-1.5 rounded transition-colors ${activeTab === "deal" ? "text-foreground bg-accent/40" : "text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-accent/20"}`}
+              className={`text-xs px-3 py-1.5 rounded transition-colors ${activeTab === "deal" ? "text-foreground bg-blue-500/15 dark:bg-blue-400/15" : "text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-accent/20"}`}
               data-testid="tab-deal-intelligence"
             >
-              Deal Intelligence
+              Project Intelligence
             </button>
             <button
               role="tab"
               aria-selected={activeTab === "token"}
               aria-controls="panel-token"
               onClick={() => setActiveTab("token")}
-              className={`text-xs px-3 py-1.5 rounded transition-colors ${activeTab === "token" ? "text-foreground bg-accent/40" : "text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-accent/20"}`}
+              className={`text-xs px-3 py-1.5 rounded transition-colors ${activeTab === "token" ? "text-foreground bg-blue-500/15 dark:bg-blue-400/15" : "text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-accent/20"}`}
               data-testid="tab-token-intelligence"
             >
               Token Intelligence
