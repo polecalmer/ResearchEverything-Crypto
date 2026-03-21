@@ -283,36 +283,35 @@ export default function AddDeal() {
 
   return (
     <div className="p-6 max-w-3xl mx-auto h-full overflow-y-auto">
-      <div className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground/50 mb-6">
-        <button onClick={() => navigate("/")} className="hover:text-emerald-400 transition-colors" data-testid="button-back">pipeline</button>
+      <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/50 mb-6">
+        <button onClick={() => navigate("/")} className="hover:text-foreground transition-colors" data-testid="button-back">Pipeline</button>
         <span className="text-muted-foreground/20">/</span>
-        <span className="text-foreground/80">new_deal</span>
+        <span className="text-foreground/70">New Deal</span>
       </div>
 
         <div className="mb-8 pb-8 border-b border-border/20">
-          <div className="flex items-center gap-2 mb-4 font-mono">
-            <span className="text-emerald-500/50 text-xs">$</span>
-            <span className="text-xs text-muted-foreground/60">bookmark research</span>
+          <div className="mb-4">
+            <h2 className="text-sm font-medium text-foreground/80 mb-1">AI Research</h2>
+            <p className="text-[11px] text-muted-foreground/40">Paste a URL or company name to auto-research</p>
           </div>
           <div className="space-y-3">
-            <div className="flex items-center gap-2 border-b border-emerald-500/20 focus-within:border-emerald-500/40 transition-colors pb-2">
-              <span className="text-emerald-500/40 font-mono text-sm">{">"}</span>
+            <div className="flex items-center gap-2 border border-border/20 rounded px-3 py-2 focus-within:border-border/40 transition-colors">
               <input
                 value={enrichInput}
                 onChange={(e) => setEnrichInput(e.target.value)}
-                placeholder="url, company name, tweet, founder profile..."
+                placeholder="URL, company name, tweet, founder profile..."
                 onKeyDown={(e) => e.key === "Enter" && handleEnrichStream()}
                 disabled={isEnriching}
-                className="flex-1 bg-transparent text-sm font-mono text-foreground outline-none placeholder:text-muted-foreground/20 disabled:opacity-30"
+                className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/25 disabled:opacity-30"
                 data-testid="input-enrich"
               />
             </div>
-            <p className="text-[10px] font-mono text-muted-foreground/25">
-              accepts: websites, tweets, x/linkedin profiles, blog posts, product hunt, github repos, company names
+            <p className="text-[10px] text-muted-foreground/30">
+              Websites, tweets, X/LinkedIn profiles, blog posts, Product Hunt, GitHub repos, company names
             </p>
 
             {pipelineStages.length > 0 && (
-              <div className="py-3 font-mono" data-testid="pipeline-progress">
+              <div className="py-3" data-testid="pipeline-progress">
                 {(() => {
                   const tokenDetected = pipelineStages.some(s => s.agent === "token_identifier" && s.status === "complete" && s.hasLiquidToken);
                   const baseStages = [
@@ -350,20 +349,20 @@ export default function AddDeal() {
                       className="flex items-start gap-2 py-0.5"
                       data-testid={`pipeline-stage-${key}`}
                     >
-                      <span className={`text-[11px] w-3 flex-shrink-0 ${isActive ? "text-emerald-400" : isDone ? "text-emerald-500/40" : "text-muted-foreground/15"}`}>
-                        {isActive ? "▶" : isDone ? "✓" : "○"}
+                      <span className={`text-[11px] w-3 flex-shrink-0 ${isActive ? "text-foreground/70" : isDone ? "text-muted-foreground/40" : "text-muted-foreground/15"}`}>
+                        {isActive ? "●" : isDone ? "✓" : "○"}
                       </span>
                       <div className="flex-1 min-w-0">
-                        <span className={`text-[11px] ${isPending ? "text-muted-foreground/15" : isActive ? "text-foreground" : "text-muted-foreground/50"}`}>
+                        <span className={`text-[11px] ${isPending ? "text-muted-foreground/15" : isActive ? "text-foreground/80" : "text-muted-foreground/50"}`}>
                           {label}
                         </span>
                         {isActive && stage?.message && (
-                          <span className="text-[10px] text-emerald-500/50 ml-2">{stage.message}</span>
+                          <span className="text-[10px] text-muted-foreground/40 ml-2">{stage.message}</span>
                         )}
                         {isDone && getStatusLine() && (
-                          <span className="text-[10px] text-emerald-500/30 ml-2">{getStatusLine()}</span>
+                          <span className="text-[10px] text-muted-foreground/30 ml-2">{getStatusLine()}</span>
                         )}
-                        {isActive && <span className="text-emerald-400 animate-pulse ml-1">_</span>}
+                        {isActive && <Loader2 className="w-2.5 h-2.5 animate-spin inline ml-1.5 text-muted-foreground/40" />}
                       </div>
                     </div>
                   );
@@ -372,26 +371,23 @@ export default function AddDeal() {
             )}
 
             {enrichError && (
-              <p className="font-mono text-[11px] text-red-400/70">{enrichError}</p>
+              <p className="text-[11px] text-red-400/70">{enrichError}</p>
             )}
 
             <button
               type="button"
               onClick={handleEnrichStream}
               disabled={!enrichInput.trim() || isEnriching}
-              className="w-full py-2 font-mono text-xs border border-emerald-500/20 text-emerald-500/70 hover:text-emerald-400 hover:border-emerald-500/40 transition-colors disabled:opacity-20 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full py-2 text-xs rounded border border-border/20 text-foreground/60 hover:text-foreground hover:border-border/40 hover:bg-accent/20 transition-colors disabled:opacity-20 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               data-testid="button-enrich"
             >
               {isEnriching ? (
                 <>
                   <Loader2 className="w-3 h-3 animate-spin" />
-                  running agent pipeline...
+                  Running research pipeline...
                 </>
               ) : (
-                <>
-                  <span className="text-emerald-500/30">$</span>
-                  research --auto
-                </>
+                "Auto-research"
               )}
             </button>
           </div>
@@ -400,10 +396,9 @@ export default function AddDeal() {
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
           <div>
-            <div className="flex items-center gap-2 mb-4 font-mono">
-              <span className="text-muted-foreground/20 text-[10px]">{">"}</span>
-              <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground/30">manual entry</span>
-              <span className="flex-1 border-t border-border/10" />
+            <div className="flex items-center gap-2 mb-4">
+              <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/40">Manual Entry</span>
+              <span className="flex-1 border-t border-border/15" />
             </div>
             <div className="space-y-4">
               <FormField

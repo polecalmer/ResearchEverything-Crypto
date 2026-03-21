@@ -13,7 +13,6 @@ import {
   Trash2,
   Loader2,
   Plus,
-  Terminal,
 } from "lucide-react";
 import { SiGithub } from "react-icons/si";
 import { useState } from "react";
@@ -61,15 +60,14 @@ const PRIORITY_COLORS = {
   low: "text-muted-foreground",
 };
 
-function TermBlock({ label, children, className = "", icon }: { label: string; children: React.ReactNode; className?: string; icon?: string }) {
+function TermBlock({ label, children, className = "" }: { label: string; children: React.ReactNode; className?: string; icon?: string }) {
   return (
     <div className={`mb-0 ${className}`}>
-      <div className="flex items-center gap-2 mb-2 select-none">
-        <span className="text-emerald-500/70 font-mono text-[10px]">{icon || ">"}</span>
-        <span className="text-[10px] font-mono uppercase tracking-[0.2em] text-emerald-500/70">{label}</span>
-        <span className="flex-1 border-t border-emerald-500/10" />
+      <div className="flex items-center gap-2 mb-3 select-none">
+        <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/50">{label}</span>
+        <span className="flex-1 border-t border-border/15" />
       </div>
-      <div className="pl-4 border-l border-border/30">
+      <div className="pl-1">
         {children}
       </div>
     </div>
@@ -89,7 +87,7 @@ function TermLink({ href, children, className = "", ...props }: React.AnchorHTML
   const safe = safeHref(href);
   if (!safe) return null;
   return (
-    <a href={safe} target="_blank" rel="noopener noreferrer" className={`font-mono text-emerald-500/60 hover:text-emerald-400 transition-colors underline underline-offset-2 decoration-emerald-500/20 hover:decoration-emerald-400/40 ${className}`} {...props}>
+    <a href={safe} target="_blank" rel="noopener noreferrer" className={`text-muted-foreground/50 hover:text-foreground transition-colors ${className}`} {...props}>
       {children}
     </a>
   );
@@ -115,11 +113,10 @@ function NextStepsAdvisor({ companyId, pipelineStage }: { companyId: string; pip
       <div data-testid="card-next-steps">
         <button
           onClick={() => refetch()}
-          className="font-mono text-xs text-muted-foreground hover:text-emerald-400 transition-colors group flex items-center gap-2"
+          className="text-xs text-muted-foreground/60 hover:text-foreground transition-colors flex items-center gap-2"
           data-testid="button-generate-next-steps"
         >
-          <span className="text-emerald-500/50 group-hover:text-emerald-400">$</span>
-          <span>generate_recommendations</span>
+          <span>Generate recommendations</span>
           <span className="text-muted-foreground/30">~$0.12</span>
         </button>
       </div>
@@ -129,14 +126,13 @@ function NextStepsAdvisor({ companyId, pipelineStage }: { companyId: string; pip
   if (isLoading) {
     return (
       <div data-testid="card-next-steps" className="space-y-1">
-        <div className="flex items-center gap-2 font-mono text-xs text-emerald-500/60">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground/60">
           <Loader2 className="w-3 h-3 animate-spin" />
-          <span>analyzing deal context...</span>
-          <span className="animate-pulse">_</span>
+          <span>Analyzing deal context...</span>
         </div>
         {[1, 2, 3].map((i) => (
           <div key={i} className="pl-4">
-            <Skeleton className="h-3 w-3/4 bg-emerald-500/5" />
+            <Skeleton className="h-3 w-3/4" />
           </div>
         ))}
       </div>
@@ -146,16 +142,15 @@ function NextStepsAdvisor({ companyId, pipelineStage }: { companyId: string; pip
   if (error || !steps || steps.length === 0) {
     return (
       <div data-testid="card-next-steps" className="space-y-2">
-        <p className="font-mono text-xs text-red-400/60">
-          {error ? "ERR: could not generate recommendations" : "no recommendations available"}
+        <p className="text-xs text-red-400/60">
+          {error ? "Could not generate recommendations" : "No recommendations available"}
         </p>
         <button
           onClick={() => refetch()}
-          className="font-mono text-xs text-muted-foreground hover:text-emerald-400 transition-colors group flex items-center gap-2"
+          className="text-xs text-muted-foreground/60 hover:text-foreground transition-colors flex items-center gap-2"
           data-testid="button-retry-next-steps"
         >
-          <span className="text-emerald-500/50 group-hover:text-emerald-400">$</span>
-          <span>retry</span>
+          <span>Retry</span>
           <span className="text-muted-foreground/30">~$0.12</span>
         </button>
       </div>
@@ -170,19 +165,19 @@ function NextStepsAdvisor({ companyId, pipelineStage }: { companyId: string; pip
     <div data-testid="card-next-steps" className="space-y-2">
       {displaySteps.map((step, i) => (
         <div key={i} className="group" data-testid={`next-step-${i}`}>
-          <div className="flex items-start gap-2 font-mono">
+          <div className="flex items-start gap-2">
             <span className={`text-[10px] flex-shrink-0 mt-0.5 ${PRIORITY_COLORS[step.priority]}`}>
               {PRIORITY_MARKERS[step.priority]}
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-xs leading-tight" data-testid={`next-step-title-${i}`}>
                 {step.title}
-                {step.verified && <span className="text-emerald-500 ml-1">✓</span>}
+                {step.verified && <span className="text-emerald-500/70 ml-1 text-[10px]">verified</span>}
               </p>
-              <p className="text-[11px] text-muted-foreground/60 mt-0.5 leading-snug" data-testid={`next-step-detail-${i}`}>{step.detail}</p>
+              <p className="text-[11px] text-muted-foreground/50 mt-0.5 leading-snug" data-testid={`next-step-detail-${i}`}>{step.detail}</p>
               {step.verifierNote && (
-                <p className="text-[10px] text-emerald-500/50 mt-0.5 font-mono">
-                  ✓ {step.verifierNote}
+                <p className="text-[10px] text-muted-foreground/40 mt-0.5 italic">
+                  {step.verifierNote}
                 </p>
               )}
             </div>
@@ -190,13 +185,13 @@ function NextStepsAdvisor({ companyId, pipelineStage }: { companyId: string; pip
         </div>
       ))}
       {hiddenCount > 0 && !showAll && (
-        <button onClick={() => setShowAll(true)} className="font-mono text-[10px] text-muted-foreground/40 hover:text-foreground transition-colors flex items-center gap-1" data-testid="button-show-more-steps">
-          <span className="text-emerald-500/30">└</span> +{hiddenCount} more
+        <button onClick={() => setShowAll(true)} className="text-[11px] text-muted-foreground/40 hover:text-foreground transition-colors" data-testid="button-show-more-steps">
+          +{hiddenCount} more
         </button>
       )}
       {showAll && hiddenCount > 0 && (
-        <button onClick={() => setShowAll(false)} className="font-mono text-[10px] text-muted-foreground/40 hover:text-foreground transition-colors" data-testid="button-show-less-steps">
-          collapse
+        <button onClick={() => setShowAll(false)} className="text-[11px] text-muted-foreground/40 hover:text-foreground transition-colors" data-testid="button-show-less-steps">
+          Show less
         </button>
       )}
     </div>
@@ -238,11 +233,11 @@ function DeepResearchSection({ companyId, companyName }: { companyId: string; co
           key={report.id}
           href={`/reports/${report.id}`}
           onClick={(e) => { e.preventDefault(); navigate(`/reports/${report.id}`); }}
-          className="flex items-center gap-2 py-1.5 font-mono text-xs group hover:text-emerald-400 transition-colors cursor-pointer"
+          className="flex items-center gap-2 py-1.5 text-xs group hover:text-foreground transition-colors cursor-pointer"
           data-testid={`link-report-${report.id}`}
         >
-          <span className="text-emerald-500/30 group-hover:text-emerald-400">├</span>
-          <span className="text-muted-foreground group-hover:text-emerald-400 truncate flex-1">
+          <span className="text-muted-foreground/20 group-hover:text-foreground/40">-</span>
+          <span className="text-muted-foreground group-hover:text-foreground truncate flex-1">
             {report.title}
           </span>
           {report.status === "generating" ? (
@@ -260,17 +255,16 @@ function DeepResearchSection({ companyId, companyName }: { companyId: string; co
       <button
         onClick={() => generateMutation.mutate()}
         disabled={generateMutation.isPending}
-        className="font-mono text-xs text-muted-foreground hover:text-emerald-400 transition-colors group flex items-center gap-2 disabled:opacity-30"
+        className="text-xs text-muted-foreground/60 hover:text-foreground transition-colors flex items-center gap-2 disabled:opacity-30"
         data-testid="button-generate-report"
       >
-        <span className="text-emerald-500/50 group-hover:text-emerald-400">$</span>
         {generateMutation.isPending ? (
           <span className="flex items-center gap-2">
             <Loader2 className="w-3 h-3 animate-spin" />
-            initializing deep research...
+            Generating deep research...
           </span>
         ) : (
-          <span>generate_deep_research</span>
+          <span>Generate deep research</span>
         )}
       </button>
     </div>
@@ -301,15 +295,15 @@ function TagsInline({ tags, companyId }: { tags: string[]; companyId: string }) 
   const removeTag = (tagToRemove: string) => updateTagsMutation.mutate(tags.filter((t) => t !== tagToRemove));
 
   return (
-    <div className="flex items-center gap-1.5 flex-wrap font-mono text-[10px]">
+    <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
       {tags.map((tag) => (
         <button
           key={tag}
           onClick={() => removeTag(tag)}
-          className="text-muted-foreground/60 hover:text-red-400 transition-colors group"
+          className="text-muted-foreground/50 hover:text-red-400 transition-colors px-1.5 py-0.5 rounded bg-accent/30 hover:bg-red-400/10"
           data-testid={`badge-tag-${tag}`}
         >
-          <span className="text-emerald-500/30 group-hover:text-red-400/50">#</span>{tag}
+          {tag}
         </button>
       ))}
       {adding ? (
@@ -319,14 +313,14 @@ function TagsInline({ tags, companyId }: { tags: string[]; companyId: string }) 
           onChange={(e) => setNewTag(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") addTag(); if (e.key === "Escape") { setAdding(false); setNewTag(""); } }}
           onBlur={() => { if (!newTag.trim()) setAdding(false); }}
-          className="bg-transparent border-b border-emerald-500/30 text-xs font-mono text-foreground outline-none w-20 pb-0.5"
+          className="bg-transparent border-b border-border/40 text-xs text-foreground outline-none w-20 pb-0.5 focus:border-foreground/30"
           placeholder="tag"
           data-testid="input-new-tag"
         />
       ) : (
         <button
           onClick={() => setAdding(true)}
-          className="text-muted-foreground/20 hover:text-emerald-400 transition-colors"
+          className="text-muted-foreground/30 hover:text-foreground/60 transition-colors"
           data-testid="button-add-tag"
         >
           +
@@ -367,10 +361,10 @@ function ExcitementBar({ companyId, score, reason }: { companyId: string; score:
 
   const getLabel = () => {
     if (!score) return "unrated";
-    if (score <= 3) return "low_conviction";
+    if (score <= 3) return "low";
     if (score <= 6) return "moderate";
-    if (score <= 8) return "high_excitement";
-    return "must_have";
+    if (score <= 8) return "high";
+    return "very high";
   };
 
   return (
@@ -386,8 +380,8 @@ function ExcitementBar({ companyId, score, reason }: { companyId: string; score:
         ))}
       </div>
       <div className="flex items-center justify-between">
-        <span className="font-mono text-[10px] text-muted-foreground/40">
-          {score ? `${score}/10` : "—"} <span className="text-muted-foreground/20">{getLabel()}</span>
+        <span className="text-[11px] text-muted-foreground/40">
+          {score ? `${score}/10` : "—"} <span className="text-muted-foreground/30">{getLabel()}</span>
         </span>
       </div>
       {editing ? (
@@ -396,18 +390,18 @@ function ExcitementBar({ companyId, score, reason }: { companyId: string; score:
             value={localReason}
             onChange={(e) => setLocalReason(e.target.value)}
             placeholder="why this score?"
-            className="w-full min-h-[40px] bg-transparent border border-border/30 text-xs font-mono text-foreground/80 p-2 outline-none resize-none focus:border-emerald-500/30"
+            className="w-full min-h-[40px] bg-transparent border border-border/30 text-xs text-foreground/80 p-2 outline-none resize-none focus:border-foreground/20 rounded"
             data-testid="textarea-excitement-reason"
           />
-          <div className="flex gap-2 justify-end font-mono text-[10px]">
-            <button onClick={() => { setEditing(false); setLocalReason(reason || ""); }} className="text-muted-foreground/40 hover:text-foreground transition-colors" data-testid="button-cancel-reason">cancel</button>
-            <button onClick={saveReason} disabled={mutation.isPending} className="text-emerald-500/60 hover:text-emerald-400 transition-colors" data-testid="button-save-reason">save</button>
+          <div className="flex gap-2 justify-end text-[11px]">
+            <button onClick={() => { setEditing(false); setLocalReason(reason || ""); }} className="text-muted-foreground/40 hover:text-foreground transition-colors" data-testid="button-cancel-reason">Cancel</button>
+            <button onClick={saveReason} disabled={mutation.isPending} className="text-foreground/70 hover:text-foreground transition-colors" data-testid="button-save-reason">Save</button>
           </div>
         </div>
       ) : (
         <button
           onClick={() => setEditing(true)}
-          className="mt-1 font-mono text-[10px] text-muted-foreground/30 hover:text-foreground/60 transition-colors block w-full text-left"
+          className="mt-1 text-[11px] text-muted-foreground/30 hover:text-foreground/60 transition-colors block w-full text-left"
           data-testid="button-edit-reason"
         >
           {reason ? <span className="text-muted-foreground/50">{reason}</span> : <span className="italic">add note...</span>}
@@ -468,26 +462,25 @@ export default function CompanyDetail() {
 
   if (companyLoading) {
     return (
-      <div className="p-6 max-w-6xl mx-auto font-mono">
-        <div className="flex items-center gap-2 text-xs text-emerald-500/40 mb-6">
-          <Terminal className="w-3 h-3" />
-          <span>loading...</span>
-          <span className="animate-pulse">_</span>
+      <div className="p-6 max-w-6xl mx-auto">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground/40 mb-6">
+          <Loader2 className="w-3 h-3 animate-spin" />
+          <span>Loading...</span>
         </div>
-        <Skeleton className="h-4 w-48 bg-emerald-500/5 mb-4" />
-        <Skeleton className="h-32 w-full bg-emerald-500/5 mb-4" />
-        <Skeleton className="h-64 w-full bg-emerald-500/5" />
+        <Skeleton className="h-4 w-48 mb-4" />
+        <Skeleton className="h-32 w-full mb-4" />
+        <Skeleton className="h-64 w-full" />
       </div>
     );
   }
 
   if (!company) {
     return (
-      <div className="p-6 flex items-center justify-center h-full font-mono">
+      <div className="p-6 flex items-center justify-center h-full">
         <div className="text-center">
-          <p className="text-sm text-red-400/60 mb-2">ERR: company not found</p>
-          <button onClick={() => navigate("/")} className="text-xs text-emerald-500/60 hover:text-emerald-400 transition-colors">
-            $ cd /pipeline
+          <p className="text-sm text-muted-foreground/60 mb-2">Company not found</p>
+          <button onClick={() => navigate("/")} className="text-xs text-muted-foreground/40 hover:text-foreground transition-colors">
+            Back to pipeline
           </button>
         </div>
       </div>
@@ -496,20 +489,20 @@ export default function CompanyDetail() {
 
   return (
     <div className="h-full overflow-y-auto terminal-scrollbar">
-      <div className="max-w-6xl mx-auto p-6 font-mono">
+      <div className="max-w-6xl mx-auto p-6">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/50">
-            <button onClick={() => navigate("/companies")} className="hover:text-emerald-400 transition-colors" data-testid="button-back">companies</button>
+            <button onClick={() => navigate("/companies")} className="hover:text-foreground transition-colors" data-testid="button-back">Companies</button>
             <span className="text-muted-foreground/20">/</span>
-            <span className="text-foreground/80">{company.name.toLowerCase().replace(/\s+/g, '-')}</span>
+            <span className="text-foreground/70">{company.name}</span>
           </div>
           <button
             onClick={() => navigate("/add")}
-            className="flex items-center gap-1.5 text-[10px] font-mono text-muted-foreground/40 hover:text-emerald-400 transition-colors"
+            className="flex items-center gap-1.5 text-[11px] text-muted-foreground/40 hover:text-foreground/70 transition-colors"
             data-testid="button-add-deal"
           >
             <Plus className="w-3 h-3" />
-            new
+            New
           </button>
         </div>
 
@@ -528,7 +521,7 @@ export default function CompanyDetail() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3 flex-wrap text-[10px] font-mono mb-3">
+          <div className="flex items-center gap-3 flex-wrap text-[11px] mb-3">
             {company.sector && (
               <span className="text-muted-foreground/40">
                 {company.sector}{company.subSector ? `/${company.subSector}` : ""}
@@ -548,43 +541,43 @@ export default function CompanyDetail() {
             )}
           </div>
 
-          <div className="flex items-center gap-4 text-muted-foreground/30">
-            <TermLink href={company.websiteUrl} className="hover:text-emerald-400" data-testid="link-company-website" aria-label="Website">
+          <div className="flex items-center gap-3 text-muted-foreground/30">
+            <TermLink href={company.websiteUrl} data-testid="link-company-website" aria-label="Website">
               <Globe className="w-3.5 h-3.5" />
             </TermLink>
-            <TermLink href={company.twitterUrl} className="hover:text-emerald-400" data-testid="link-company-twitter" aria-label="Twitter">
+            <TermLink href={company.twitterUrl} data-testid="link-company-twitter" aria-label="Twitter">
               <Twitter className="w-3.5 h-3.5" />
             </TermLink>
-            <TermLink href={company.githubUrl} className="hover:text-emerald-400" data-testid="link-company-github" aria-label="GitHub">
+            <TermLink href={company.githubUrl} data-testid="link-company-github" aria-label="GitHub">
               <SiGithub className="w-3.5 h-3.5" />
             </TermLink>
-            <TermLink href={company.linkedinUrl} className="hover:text-emerald-400" data-testid="link-company-linkedin" aria-label="LinkedIn">
+            <TermLink href={company.linkedinUrl} data-testid="link-company-linkedin" aria-label="LinkedIn">
               <Linkedin className="w-3.5 h-3.5" />
             </TermLink>
           </div>
         </div>
 
         <div className="border-t border-border/20 pt-4 mb-6">
-          <div className="flex items-center gap-6 mb-6" role="tablist" aria-label="Intelligence tabs">
+          <div className="flex items-center gap-1 mb-6" role="tablist" aria-label="Intelligence tabs">
             <button
               role="tab"
               aria-selected={activeTab === "deal"}
               aria-controls="panel-deal"
               onClick={() => setActiveTab("deal")}
-              className={`text-xs font-mono transition-colors ${activeTab === "deal" ? "text-foreground" : "text-muted-foreground/30 hover:text-muted-foreground/60"}`}
+              className={`text-xs px-3 py-1.5 rounded transition-colors ${activeTab === "deal" ? "text-foreground bg-accent/40" : "text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-accent/20"}`}
               data-testid="tab-deal-intelligence"
             >
-              <span className={activeTab === "deal" ? "text-emerald-500" : "text-muted-foreground/20"}>{">"}</span> deal_intelligence
+              Deal Intelligence
             </button>
             <button
               role="tab"
               aria-selected={activeTab === "token"}
               aria-controls="panel-token"
               onClick={() => setActiveTab("token")}
-              className={`text-xs font-mono transition-colors ${activeTab === "token" ? "text-foreground" : "text-muted-foreground/30 hover:text-muted-foreground/60"}`}
+              className={`text-xs px-3 py-1.5 rounded transition-colors ${activeTab === "token" ? "text-foreground bg-accent/40" : "text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-accent/20"}`}
               data-testid="tab-token-intelligence"
             >
-              <span className={activeTab === "token" ? "text-emerald-500" : "text-muted-foreground/20"}>{">"}</span> token_intelligence
+              Token Intelligence
             </button>
           </div>
         </div>
@@ -594,19 +587,19 @@ export default function CompanyDetail() {
             <div className="flex-1 min-w-0 space-y-6">
 
               {company.description && (
-                <TermBlock label="INTEL" icon="█">
+                <TermBlock label="Overview">
                   <p className="text-[13px] leading-relaxed text-foreground/80" data-testid="text-company-description">{company.description}</p>
                 </TermBlock>
               )}
 
               {company.fundingHistory && (
-                <TermBlock label="FUNDING" icon="$">
+                <TermBlock label="Funding">
                   <p className="text-[13px] leading-relaxed text-foreground/80" data-testid="text-funding">{company.fundingHistory}</p>
                 </TermBlock>
               )}
 
               {company.competitiveLandscape && (
-                <TermBlock label="COMPETITIVE" icon="⚔">
+                <TermBlock label="Competitive Landscape">
                   <p className="text-[13px] leading-relaxed text-foreground/80" data-testid="text-competitive">{company.competitiveLandscape}</p>
                 </TermBlock>
               )}
@@ -616,7 +609,7 @@ export default function CompanyDetail() {
                   const reads = JSON.parse(company.adjacentReads);
                   if (Array.isArray(reads) && reads.length > 0) {
                     return (
-                      <TermBlock label={`DD READS [${reads.length}]`} icon="📎">
+                      <TermBlock label={`DD Reads (${reads.length})`}>
                         <div className="space-y-1">
                           {reads.map((read: any, idx: number) => (
                             <a
@@ -624,11 +617,11 @@ export default function CompanyDetail() {
                               href={read.url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="flex items-center gap-2 py-1 group text-xs font-mono"
+                              className="flex items-center gap-2 py-1 group text-xs"
                               data-testid={`link-dd-read-${idx}`}
                             >
-                              <span className="text-emerald-500/20 group-hover:text-emerald-400 transition-colors">├</span>
-                              <span className="text-foreground/60 group-hover:text-emerald-400 truncate flex-1 transition-colors">{read.title}</span>
+                              <span className="text-muted-foreground/20 group-hover:text-foreground/40 transition-colors">-</span>
+                              <span className="text-foreground/60 group-hover:text-foreground truncate flex-1 transition-colors">{read.title}</span>
                               {read.source && (
                                 <span className="text-muted-foreground/20 flex-shrink-0">[{read.source}]</span>
                               )}
@@ -643,13 +636,13 @@ export default function CompanyDetail() {
               })()}
 
               {founders.length > 0 && (
-                <TermBlock label={`TEAM [${founders.length}]`} icon="◉">
+                <TermBlock label={`Team (${founders.length})`}>
                   <div className="space-y-4">
                     {founders.map((founder, idx) => (
                       <div key={founder.id} data-testid={`card-founder-${founder.id}`}>
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-xs font-bold" data-testid={`text-founder-name-${founder.id}`}>{founder.name}</span>
-                          {founder.role && <span className="text-[10px] text-emerald-500/40">{founder.role}</span>}
+                          {founder.role && <span className="text-[10px] text-muted-foreground/40">{founder.role}</span>}
                           <div className="flex items-center gap-2 ml-auto text-muted-foreground/20">
                             <TermLink href={founder.linkedinUrl} aria-label={`${founder.name} LinkedIn`} data-testid={`link-founder-linkedin-${founder.id}`}>
                               <Linkedin className="w-3 h-3" />
@@ -668,7 +661,7 @@ export default function CompanyDetail() {
                         {founder.bio && <p className="text-xs text-muted-foreground/60 leading-relaxed">{founder.bio}</p>}
                         {founder.priorCompanies && (
                           <p className="text-[10px] text-muted-foreground/40 mt-1">
-                            <span className="text-emerald-500/30">prev:</span> {founder.priorCompanies}
+                            <span className="text-muted-foreground/30">Previously:</span> {founder.priorCompanies}
                           </p>
                         )}
                       </div>
@@ -677,21 +670,20 @@ export default function CompanyDetail() {
                 </TermBlock>
               )}
 
-              <TermBlock label={`LOG [${notes.length}]`} icon="◇">
+              <TermBlock label={`Notes (${notes.length})`}>
                 <div className="mb-3">
                   <div className="flex items-start gap-2">
-                    <span className="text-emerald-500/30 text-xs mt-1.5">$</span>
                     <textarea
                       value={noteContent}
                       onChange={(e) => setNoteContent(e.target.value)}
-                      placeholder="add note..."
-                      className="flex-1 min-h-[40px] bg-transparent text-xs text-foreground/80 outline-none resize-none placeholder:text-muted-foreground/20 border-b border-transparent focus:border-emerald-500/20 transition-colors"
+                      placeholder="Add a note..."
+                      className="flex-1 min-h-[36px] bg-transparent text-xs text-foreground/80 outline-none resize-none placeholder:text-muted-foreground/30 border border-border/20 rounded px-2 py-1.5 focus:border-border/40 transition-colors"
                       data-testid="textarea-note"
                     />
                     <button
                       onClick={() => noteContent.trim() && addNoteMutation.mutate(noteContent)}
                       disabled={!noteContent.trim() || addNoteMutation.isPending}
-                      className="text-emerald-500/30 hover:text-emerald-400 transition-colors disabled:opacity-20 mt-1.5"
+                      className="text-muted-foreground/30 hover:text-foreground/60 transition-colors disabled:opacity-20 mt-1.5"
                       data-testid="button-add-note"
                     >
                       <Send className="w-3 h-3" />
@@ -702,7 +694,7 @@ export default function CompanyDetail() {
                   <div className="space-y-0">
                     {notes.map((note) => (
                       <div key={note.id} className="flex items-start gap-2 py-2 border-t border-border/10 group" data-testid={`note-${note.id}`}>
-                        <span className="text-[10px] text-muted-foreground/20 font-mono flex-shrink-0 mt-0.5 w-16">
+                        <span className="text-[10px] text-muted-foreground/30 flex-shrink-0 mt-0.5 w-16">
                           {note.createdAt ? format(new Date(note.createdAt), "MM/dd HH:mm") : ""}
                         </span>
                         <p className="text-xs whitespace-pre-wrap text-foreground/70 flex-1">{note.content}</p>
@@ -718,17 +710,17 @@ export default function CompanyDetail() {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-[10px] text-muted-foreground/20 font-mono">no entries</p>
+                  <p className="text-[11px] text-muted-foreground/30 italic">No notes yet</p>
                 )}
               </TermBlock>
 
-              <TermBlock label="DEEP RESEARCH" icon="◆">
+              <TermBlock label="Deep Research">
                 <DeepResearchSection companyId={company.id} companyName={company.name} />
               </TermBlock>
             </div>
 
             <div className="lg:w-64 flex-shrink-0 space-y-6">
-              <TermBlock label="STAGE" icon="◎">
+              <TermBlock label="Stage">
                 <div className="space-y-1">
                   {PIPELINE_STAGES.map((stage) => {
                     const isActive = company.pipelineStage === stage;
@@ -736,7 +728,7 @@ export default function CompanyDetail() {
                       <button
                         key={stage}
                         onClick={() => updateStageMutation.mutate(stage)}
-                        className={`w-full text-left font-mono text-[11px] py-1 px-2 transition-colors flex items-center gap-2 ${
+                        className={`w-full text-left text-[11px] py-1 px-2 rounded transition-colors flex items-center gap-2 ${
                           isActive
                             ? `${STAGE_COLORS[stage]} bg-accent/20`
                             : "text-muted-foreground/20 hover:text-muted-foreground/60 hover:bg-accent/10"
@@ -751,58 +743,58 @@ export default function CompanyDetail() {
                 </div>
               </TermBlock>
 
-              <TermBlock label="CONVICTION" icon="▲">
+              <TermBlock label="Conviction">
                 <ExcitementBar companyId={company.id} score={company.excitementScore ?? null} reason={company.excitementReason ?? null} />
               </TermBlock>
 
-              <TermBlock label="NEXT STEPS" icon="→">
+              <TermBlock label="Next Steps">
                 <NextStepsAdvisor companyId={company.id} pipelineStage={company.pipelineStage} />
               </TermBlock>
 
-              <TermBlock label="TAGS" icon="#">
+              <TermBlock label="Tags">
                 <TagsInline tags={company.tags || []} companyId={company.id} />
               </TermBlock>
 
               <div className="pt-4 border-t border-border/10 space-y-1">
                 {company.websiteUrl && (
-                  <a href={company.websiteUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground/30 hover:text-emerald-400 transition-colors py-0.5" data-testid="button-visit-website">
-                    <span className="text-emerald-500/20">$</span> open website
+                  <a href={company.websiteUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[11px] text-muted-foreground/40 hover:text-foreground/70 transition-colors py-0.5" data-testid="button-visit-website">
+                    <Globe className="w-3 h-3" /> Visit website
                   </a>
                 )}
                 {company.sourceUrl && company.sourceUrl !== company.websiteUrl && (
-                  <a href={company.sourceUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 font-mono text-[10px] text-muted-foreground/30 hover:text-emerald-400 transition-colors py-0.5" data-testid="button-visit-source">
-                    <span className="text-emerald-500/20">$</span> open source
+                  <a href={company.sourceUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[11px] text-muted-foreground/40 hover:text-foreground/70 transition-colors py-0.5" data-testid="button-visit-source">
+                    <ExternalLink className="w-3 h-3" /> View source
                   </a>
                 )}
-                <div className="pt-2">
+                <div className="pt-3">
                   {!showDeleteConfirm ? (
                     <button
                       onClick={() => setShowDeleteConfirm(true)}
-                      className="flex items-center gap-2 font-mono text-[10px] text-red-400/20 hover:text-red-400/60 transition-colors py-0.5"
+                      className="flex items-center gap-2 text-[11px] text-muted-foreground/20 hover:text-red-400/60 transition-colors py-0.5"
                       data-testid="button-delete-company"
                     >
-                      <span>$</span> rm -rf {company.name.toLowerCase().replace(/\s+/g, '_')}
+                      <Trash2 className="w-3 h-3" /> Delete company
                     </button>
                   ) : (
                     <div className="space-y-2">
-                      <p className="font-mono text-[10px] text-red-400/70">
-                        confirm: delete "{company.name}"? this cannot be undone.
+                      <p className="text-[11px] text-red-400/70">
+                        Delete "{company.name}"? This cannot be undone.
                       </p>
-                      <div className="flex gap-2 font-mono text-[10px]">
+                      <div className="flex gap-3 text-[11px]">
                         <button
                           onClick={() => deleteCompanyMutation.mutate()}
                           disabled={deleteCompanyMutation.isPending}
                           className="text-red-400 hover:text-red-300 transition-colors"
                           data-testid="button-confirm-delete"
                         >
-                          {deleteCompanyMutation.isPending ? "deleting..." : "y"}
+                          {deleteCompanyMutation.isPending ? "Deleting..." : "Yes, delete"}
                         </button>
                         <button
                           onClick={() => setShowDeleteConfirm(false)}
                           className="text-muted-foreground/40 hover:text-foreground transition-colors"
                           data-testid="button-cancel-delete"
                         >
-                          n
+                          Cancel
                         </button>
                       </div>
                     </div>
