@@ -347,29 +347,27 @@ export default function AddDeal() {
                   return (
                     <div
                       key={key}
-                      className={`flex items-center gap-3 py-1.5 transition-opacity duration-300 ${isPending ? "opacity-[0.15]" : isDone ? "opacity-40" : "opacity-90"}`}
+                      className={`flex items-center gap-3 py-1 transition-opacity duration-300 ${isPending ? "opacity-[0.12]" : isDone ? "opacity-35" : "opacity-90"}`}
                       data-testid={`pipeline-stage-${key}`}
                     >
-                      <div className={`w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 ${isDone ? "bg-emerald-500/15" : isActive ? "bg-white/[0.06]" : "bg-white/[0.03]"}`}>
+                      <span className="w-4 flex-shrink-0 flex items-center justify-center">
                         {isDone ? (
-                          <Check className="w-2.5 h-2.5 text-emerald-400" />
+                          <span className="text-[11px] text-emerald-500/70">&#10003;</span>
                         ) : isActive ? (
-                          <Loader2 className="w-2.5 h-2.5 animate-spin text-white/50" />
+                          <Loader2 className="w-3 h-3 animate-spin text-white/40" />
                         ) : (
-                          <div className="w-1 h-1 rounded-full bg-white/20" />
+                          <span className="text-[8px] text-white/20">&#9675;</span>
                         )}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <span className={`text-[12px] tracking-tight ${isActive ? "text-white/80 font-medium" : "text-white/50"}`}>
-                          {label}
-                        </span>
-                        {isActive && stage?.message && (
-                          <span className="text-[11px] text-white/25 ml-2">{stage.message}</span>
-                        )}
-                        {isDone && getStatusLine() && (
-                          <span className="text-[11px] text-white/20 ml-2">{getStatusLine()}</span>
-                        )}
-                      </div>
+                      </span>
+                      <span className={`text-[12px] tracking-tight ${isActive ? "text-white/80 font-medium" : "text-white/45"}`}>
+                        {label}
+                      </span>
+                      {isActive && stage?.message && (
+                        <span className="text-[11px] text-white/20">{stage.message}</span>
+                      )}
+                      {isDone && getStatusLine() && (
+                        <span className="text-[11px] text-white/15">{getStatusLine()}</span>
+                      )}
                     </div>
                   );
                 })}
