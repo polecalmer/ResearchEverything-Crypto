@@ -19,14 +19,11 @@ import {
   Coins,
   Plus,
   Trash2,
-  BarChart3,
   RefreshCw,
   Brain,
   AlertTriangle,
   Link2,
   Database,
-  LineChart,
-  Table2,
   TrendingUp,
   TrendingDown,
   Activity,
@@ -34,11 +31,6 @@ import {
   DollarSign,
 } from "lucide-react";
 import type { TokenProfile, DuneQuery, MasterDuneQuery, TokenAnalysis } from "@shared/schema";
-import {
-  BarChart, Bar, LineChart as ReLineChart, Line,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  AreaChart, Area,
-} from "recharts";
 
 const CHAINS = [
   { value: "ethereum", label: "Ethereum" },
@@ -51,12 +43,6 @@ const CHAINS = [
   { value: "bsc", label: "BSC" },
 ];
 
-const VIZ_TYPES = [
-  { value: "table", label: "Table", icon: Table2 },
-  { value: "bar", label: "Bar Chart", icon: BarChart3 },
-  { value: "line", label: "Line Chart", icon: LineChart },
-  { value: "area", label: "Area Chart", icon: BarChart3 },
-];
 
 function Section({ title, children, action }: { title: string; icon?: any; children: React.ReactNode; action?: React.ReactNode }) {
   return (
@@ -188,161 +174,14 @@ function TokenProfileManager({ companyId }: { companyId: string }) {
   );
 }
 
-function SyncLibraryButton() {
-  const { toast } = useToast();
-  const syncMutation = useMutation({
-    mutationFn: async () => {
-      const res = await apiRequest("POST", "/api/master-dune-queries/sync", { fromExternal: true });
-      return res.json();
-    },
-    onSuccess: (data: any) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/master-dune-queries"] });
-      toast({ title: `Synced ${data.synced} queries from library` });
-    },
-    onError: (err: any) => toast({ title: "Sync failed", description: err.message, variant: "destructive" }),
-  });
-
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="h-6 text-[10px] text-muted-foreground/60 hover:text-muted-foreground"
-      onClick={() => syncMutation.mutate()}
-      disabled={syncMutation.isPending}
-      data-testid="button-sync-library"
-    >
-      {syncMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RefreshCw className="w-3 h-3 mr-1" />}
-      Sync Library
-    </Button>
-  );
-}
-
-function MasterQueryBrowser({ companyId, existingQueryIds, onAttach, onClose }: {
-  companyId: string;
-  existingQueryIds: number[];
-  onAttach: () => void;
-  onClose: () => void;
-}) {
-  const { toast } = useToast();
-  const { data: masterQueries = [], isLoading } = useQuery<MasterDuneQuery[]>({
-    queryKey: ["/api/master-dune-queries"],
-  });
-
-  const attachMutation = useMutation({
-    mutationFn: async (mq: MasterDuneQuery) => {
-      await apiRequest("POST", `/api/companies/${companyId}/dune-queries`, {
-        queryId: mq.queryId,
-        label: mq.label,
-        visualizationType: mq.visualizationType,
-        displayOrder: existingQueryIds.length,
-        masterQueryId: mq.id,
-      });
-    },
-    onSuccess: () => {
-      toast({ title: "Query attached" });
-      onAttach();
-    },
-    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
-  });
-
-  const [search, setSearch] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-
-  const available = masterQueries.filter(mq => !existingQueryIds.includes(mq.queryId));
-  const categories = [...new Set(available.map(q => q.category).filter(Boolean))].sort();
-
-  const filtered = available.filter(mq => {
-    if (selectedCategory && mq.category !== selectedCategory) return false;
-    if (!search.trim()) return true;
-    const s = search.toLowerCase();
-    return mq.label.toLowerCase().includes(s) ||
-      mq.description?.toLowerCase().includes(s) ||
-      (mq.protocolTags || []).some(t => t.toLowerCase().includes(s)) ||
-      (mq.chainTags || []).some(t => t.toLowerCase().includes(s)) ||
-      String(mq.queryId).includes(s);
-  });
-
-  if (isLoading) return <Skeleton className="h-16 w-full" />;
-
-  return (
-    <div className="space-y-2 pt-2 border-t border-border/30">
-      <div className="flex items-center justify-between">
-        <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Query Library ({available.length})</p>
-        <div className="flex gap-1">
-          <SyncLibraryButton />
-          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={onClose}>Close</Button>
-        </div>
-      </div>
-      <Input
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="Search queries by name, tag, or ID..."
-        className="h-7 text-xs"
-        data-testid="input-search-library"
-      />
-      {categories.length > 1 && (
-        <div className="flex flex-wrap gap-1">
-          <button
-            className={`text-[9px] px-1.5 py-0.5 rounded transition-colors ${!selectedCategory ? 'bg-blue-500/20 text-blue-400' : 'bg-accent/20 text-muted-foreground hover:text-foreground'}`}
-            onClick={() => setSelectedCategory(null)}
-          >
-            All
-          </button>
-          {categories.map(cat => (
-            <button
-              key={cat}
-              className={`text-[9px] px-1.5 py-0.5 rounded transition-colors capitalize ${selectedCategory === cat ? 'bg-blue-500/20 text-blue-400' : 'bg-accent/20 text-muted-foreground hover:text-foreground'}`}
-              onClick={() => setSelectedCategory(selectedCategory === cat ? null : cat!)}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-      )}
-      {filtered.length === 0 ? (
-        <p className="text-xs text-muted-foreground text-center py-3">
-          {search.trim() ? "No queries match your search" : "No unattached queries in library"}
-        </p>
-      ) : (
-        <div className="space-y-0.5 max-h-52 overflow-y-auto">
-          <p className="text-[10px] text-muted-foreground/40 mb-1">{filtered.length} results</p>
-          {filtered.map(mq => (
-            <div key={mq.id} className="flex items-center justify-between py-1 px-2 rounded-md hover:bg-accent/20 transition-colors" data-testid={`master-query-${mq.id}`}>
-              <div className="min-w-0">
-                <p className="text-xs truncate">{mq.label}</p>
-                <div className="flex gap-1 mt-0.5">
-                  {mq.category && <span className="text-[9px] px-1 py-0.5 rounded bg-accent/30 text-muted-foreground capitalize">{mq.category}</span>}
-                  {(mq.protocolTags || []).slice(0, 2).map(t => (
-                    <span key={t} className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400">{t}</span>
-                  ))}
-                  <span className="text-[9px] text-muted-foreground/50 font-mono">#{mq.queryId}</span>
-                </div>
-              </div>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-6 text-xs shrink-0"
-                onClick={() => attachMutation.mutate(mq)}
-                disabled={attachMutation.isPending}
-                data-testid={`button-attach-${mq.id}`}
-              >
-                <Plus className="w-3 h-3" />
-              </Button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
 function DuneQueryManager({ companyId }: { companyId: string }) {
   const { toast } = useToast();
-  const [adding, setAdding] = useState(false);
-  const [browsing, setBrowsing] = useState(false);
-  const [queryId, setQueryId] = useState("");
-  const [label, setLabel] = useState("");
-  const [vizType, setVizType] = useState("table");
+  const [inputValue, setInputValue] = useState("");
+  const [inputFocused, setInputFocused] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [manualLabel, setManualLabel] = useState("");
+  const [showManualForm, setShowManualForm] = useState(false);
+  const [pendingQueryId, setPendingQueryId] = useState<number | null>(null);
 
   const { data: queries = [], isLoading } = useQuery<DuneQuery[]>({
     queryKey: ["/api/companies", companyId, "dune-queries"],
@@ -352,22 +191,27 @@ function DuneQueryManager({ companyId }: { companyId: string }) {
     queryKey: ["/api/dune/status"],
   });
 
+  const { data: masterQueries = [] } = useQuery<MasterDuneQuery[]>({
+    queryKey: ["/api/master-dune-queries"],
+  });
+
+  const existingQueryIds = queries.map(q => q.queryId);
+
   const addMutation = useMutation({
-    mutationFn: async () => {
+    mutationFn: async (payload: { queryId: number; label: string; visualizationType?: string; masterQueryId?: string }) => {
       await apiRequest("POST", `/api/companies/${companyId}/dune-queries`, {
-        queryId: parseInt(queryId),
-        label,
-        visualizationType: vizType,
+        ...payload,
         displayOrder: queries.length,
       });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "dune-queries"] });
-      setQueryId("");
-      setLabel("");
-      setVizType("table");
-      setAdding(false);
-      toast({ title: "Query added" });
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "charts"] });
+      setInputValue("");
+      setManualLabel("");
+      setShowManualForm(false);
+      setPendingQueryId(null);
+      toast({ title: "Query added — chart will appear in Data tab" });
     },
     onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
   });
@@ -389,291 +233,250 @@ function DuneQueryManager({ companyId }: { companyId: string }) {
     },
     onSuccess: (data: any) => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "dune-queries"] });
-      if (data.attached > 0) {
-        toast({ title: `${data.attached} queries attached from library` });
-      } else {
-        toast({ title: "No matching queries found in library" });
-      }
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "charts"] });
+      toast({ title: data.attached > 0 ? `${data.attached} queries auto-attached` : "No matching queries found" });
     },
     onError: (err: any) => toast({ title: "Auto-attach failed", description: err.message, variant: "destructive" }),
   });
 
-  if (isLoading) return <Skeleton className="h-16 w-full" />;
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/master-dune-queries/sync", { fromExternal: true });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/master-dune-queries"] });
+      toast({ title: `Library synced — ${data.synced} queries` });
+    },
+    onError: (err: any) => toast({ title: "Sync failed", description: err.message, variant: "destructive" }),
+  });
+
+  if (isLoading) return <Skeleton className="h-12 w-full" />;
 
   if (!duneStatus?.configured) {
     return (
-      <div className="text-center py-4">
-        <AlertTriangle className="w-5 h-5 text-amber-500/50 mx-auto mb-2" />
-        <p className="text-xs text-muted-foreground">Dune API key not configured</p>
-        <p className="text-[10px] text-muted-foreground/60 mt-1">Set DUNE_API_KEY in environment secrets</p>
+      <div className="flex items-center gap-2 py-3 px-3 rounded-lg bg-amber-500/5 border border-amber-500/10">
+        <AlertTriangle className="w-3.5 h-3.5 text-amber-500/50 shrink-0" />
+        <div>
+          <p className="text-xs text-muted-foreground">Dune API key not configured</p>
+          <p className="text-[10px] text-muted-foreground/40">Set DUNE_API_KEY in environment secrets</p>
+        </div>
       </div>
     );
   }
 
-  return (
-    <div className="space-y-2">
-      {queries.map((q) => (
-        <div key={q.id} className="flex items-center justify-between py-1.5 px-2 rounded-md bg-accent/20" data-testid={`dune-query-${q.id}`}>
-          <div className="flex items-center gap-2 min-w-0">
-            <Database className="w-3 h-3 text-muted-foreground shrink-0" />
-            <div className="min-w-0">
-              <p className="text-xs font-medium truncate">{q.label}</p>
-              <p className="text-[10px] text-muted-foreground font-mono">#{q.queryId} · {q.visualizationType}</p>
-            </div>
-          </div>
-          <Button variant="ghost" size="icon" className="h-6 w-6 opacity-30 hover:opacity-100 text-destructive" onClick={() => removeMutation.mutate(q.id)} data-testid={`button-remove-query-${q.id}`}>
-            <Trash2 className="w-3 h-3" />
-          </Button>
-        </div>
-      ))}
+  const isNumericInput = /^\d+$/.test(inputValue.trim());
+  const searchTerm = inputValue.toLowerCase().trim();
 
-      {adding ? (
-        <div className="space-y-2 pt-2 border-t border-border/30">
-          <Input value={queryId} onChange={(e) => setQueryId(e.target.value)} placeholder="Dune Query ID (e.g. 3456789)" className="h-8 text-xs font-mono" data-testid="input-dune-query-id" />
-          <Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Label (e.g. Daily Active Users)" className="h-8 text-xs" data-testid="input-dune-label" />
-          <Select value={vizType} onValueChange={setVizType}>
-            <SelectTrigger className="h-8 text-xs" data-testid="select-viz-type">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {VIZ_TYPES.map((v) => (
-                <SelectItem key={v.value} value={v.value}>{v.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <div className="flex gap-1.5 justify-end">
-            <Button variant="ghost" size="sm" className="h-7 text-xs" onClick={() => setAdding(false)}>Cancel</Button>
-            <Button size="sm" className="h-7 text-xs" onClick={() => addMutation.mutate()} disabled={!queryId.trim() || !label.trim() || addMutation.isPending} data-testid="button-save-dune-query">
-              {addMutation.isPending ? "Adding..." : "Add"}
-            </Button>
-          </div>
-        </div>
-      ) : browsing ? (
-        <MasterQueryBrowser
-          companyId={companyId}
-          existingQueryIds={queries.map(q => q.queryId)}
-          onAttach={() => {
-            queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "dune-queries"] });
-            setBrowsing(false);
-          }}
-          onClose={() => setBrowsing(false)}
-        />
-      ) : (
-        <div className="flex gap-1.5">
-          <Button variant="outline" size="sm" className="flex-1 text-xs h-7" onClick={() => setAdding(true)} data-testid="button-add-dune-query">
-            <Plus className="w-3 h-3 mr-1.5" />
-            Manual Add
-          </Button>
-          <Button variant="outline" size="sm" className="flex-1 text-xs h-7" onClick={() => setBrowsing(true)} data-testid="button-browse-library">
-            <Database className="w-3 h-3 mr-1.5" />
-            From Library
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-xs h-7"
-            onClick={() => autoAttachMutation.mutate()}
-            disabled={autoAttachMutation.isPending}
-            data-testid="button-auto-attach"
-          >
-            {autoAttachMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
+  const available = masterQueries.filter(mq => !existingQueryIds.includes(mq.queryId));
+  const categories = [...new Set(available.map(q => q.category).filter(Boolean))].sort();
 
-interface DuneResultData {
-  columns: string[];
-  rows: Record<string, any>[];
-  metadata: { queryId: number; state: string; rowCount: number };
-}
+  const libraryResults = searchTerm && !isNumericInput
+    ? available.filter(mq => {
+        if (selectedCategory && mq.category !== selectedCategory) return false;
+        return mq.label.toLowerCase().includes(searchTerm) ||
+          mq.description?.toLowerCase().includes(searchTerm) ||
+          (mq.protocolTags || []).some(t => t.toLowerCase().includes(searchTerm)) ||
+          (mq.chainTags || []).some(t => t.toLowerCase().includes(searchTerm)) ||
+          String(mq.queryId).includes(searchTerm);
+      })
+    : selectedCategory
+      ? available.filter(mq => mq.category === selectedCategory)
+      : [];
 
-function DuneQueryResultCard({ query }: { query: DuneQuery }) {
-  const { toast } = useToast();
-  const { getAccessToken } = useAuth();
+  const showDropdown = inputFocused && (searchTerm.length > 0 || selectedCategory);
 
-  const [data, setData] = useState<DuneResultData | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const fetchData = async (refresh = false) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const token = await getAccessToken();
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-        headers["X-Privy-Token"] = token;
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && isNumericInput) {
+      e.preventDefault();
+      const qid = parseInt(inputValue.trim());
+      if (existingQueryIds.includes(qid)) {
+        toast({ title: "Already attached", variant: "destructive" });
+        return;
       }
-      const endpoint = refresh
-        ? `/api/dune-queries/${query.id}/refresh`
-        : `/api/dune-queries/${query.id}/execute`;
-      const res = await fetch(endpoint, { method: "POST", headers });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ message: "Failed" }));
-        throw new Error(err.message);
+      const match = masterQueries.find(mq => mq.queryId === qid);
+      if (match) {
+        addMutation.mutate({ queryId: match.queryId, label: match.label, visualizationType: match.visualizationType || undefined, masterQueryId: match.id });
+      } else {
+        setPendingQueryId(qid);
+        setShowManualForm(true);
       }
-      const result = await res.json();
-      setData(result);
-    } catch (err: any) {
-      setError(err.message);
-      toast({ title: "Query failed", description: err.message, variant: "destructive" });
-    } finally {
-      setLoading(false);
     }
   };
 
-  if (!data && !loading && !error) {
-    return (
-      <div className="mb-0">
-        <div className="flex items-center gap-2 mb-3 select-none">
-          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/50">{query.label}</span>
-          <span className="text-[10px] font-mono text-muted-foreground/30">#{query.queryId}</span>
-          <span className="flex-1 border-t border-border/15" />
-        </div>
-        <div className="pl-1 text-center">
-          <Button variant="outline" size="sm" className="text-xs" onClick={() => fetchData()} data-testid={`button-load-query-${query.queryId}`}>
-            <BarChart3 className="w-3 h-3 mr-1.5" />
-            Load Data (~$0.05)
-          </Button>
-        </div>
-      </div>
-    );
-  }
+  const handleAttachLibrary = (mq: MasterDuneQuery) => {
+    addMutation.mutate({ queryId: mq.queryId, label: mq.label, visualizationType: mq.visualizationType || undefined, masterQueryId: mq.id });
+  };
+
+  const handleManualSubmit = () => {
+    if (!pendingQueryId || !manualLabel.trim()) return;
+    addMutation.mutate({ queryId: pendingQueryId, label: manualLabel.trim() });
+  };
 
   return (
-    <div className="mb-0">
-      <div className="flex items-center gap-2 mb-3 select-none">
-        <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/50">{query.label}</span>
-        {data && <span className="text-[10px] font-mono text-muted-foreground/30">{data.metadata.rowCount} rows</span>}
-        <span className="flex-1 border-t border-border/15" />
-        <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => fetchData(true)} disabled={loading} data-testid={`button-refresh-query-${query.queryId}`}>
-          <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
-        </Button>
-      </div>
-      <div className="pl-1">
-        {loading && (
-          <div className="flex items-center gap-2 justify-center py-6">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span className="text-xs text-muted-foreground">Fetching data...</span>
+    <div className="space-y-2">
+      {queries.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {queries.map((q) => (
+            <div
+              key={q.id}
+              className="group flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-teal-500/8 border border-teal-500/15 hover:border-teal-500/30 transition-all"
+              data-testid={`dune-query-${q.id}`}
+            >
+              <Database className="w-2.5 h-2.5 text-teal-400/60" />
+              <span className="text-[11px] text-foreground/70">{q.label}</span>
+              <span className="text-[9px] font-mono text-muted-foreground/30">#{q.queryId}</span>
+              <button
+                onClick={() => removeMutation.mutate(q.id)}
+                className="opacity-0 group-hover:opacity-100 p-0.5 rounded-full hover:bg-destructive/20 text-muted-foreground/30 hover:text-destructive transition-all"
+                data-testid={`button-remove-query-${q.id}`}
+              >
+                <Trash2 className="w-2.5 h-2.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div className="relative">
+        <div className="flex items-center gap-1">
+          <div className="flex-1 relative">
+            <input
+              value={inputValue}
+              onChange={(e) => { setInputValue(e.target.value); setSelectedCategory(null); }}
+              onFocus={() => setInputFocused(true)}
+              onBlur={() => setTimeout(() => setInputFocused(false), 200)}
+              onKeyDown={handleKeyDown}
+              placeholder={queries.length > 0 ? "Add query — search library or paste ID..." : "Search queries or paste a Dune query ID..."}
+              className="w-full h-8 px-3 pr-8 text-xs rounded-md border border-border/15 bg-card/20 text-foreground placeholder:text-muted-foreground/25 focus:outline-none focus:border-teal-500/30 transition-colors"
+              data-testid="input-dune-search"
+            />
+            {isNumericInput && (
+              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] text-teal-400/60 font-mono">
+                ↵ add
+              </span>
+            )}
+          </div>
+          <button
+            onClick={() => autoAttachMutation.mutate()}
+            disabled={autoAttachMutation.isPending}
+            className="p-1.5 rounded-md hover:bg-accent/20 text-muted-foreground/25 hover:text-teal-400 transition-colors"
+            title="Auto-detect and attach relevant queries"
+            data-testid="button-auto-attach"
+          >
+            {autoAttachMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+
+        {showDropdown && !isNumericInput && (
+          <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-[hsl(var(--card))] border border-border/15 rounded-lg shadow-xl overflow-hidden" data-testid="query-dropdown">
+            {categories.length > 1 && (
+              <div className="flex flex-wrap gap-1 px-2.5 py-2 border-b border-border/10">
+                <button
+                  className={`text-[9px] px-2 py-0.5 rounded-full transition-colors ${!selectedCategory ? 'bg-teal-500/15 text-teal-400' : 'text-muted-foreground/40 hover:text-muted-foreground'}`}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => setSelectedCategory(null)}
+                >
+                  All
+                </button>
+                {categories.map(cat => (
+                  <button
+                    key={cat}
+                    className={`text-[9px] px-2 py-0.5 rounded-full transition-colors capitalize ${selectedCategory === cat ? 'bg-teal-500/15 text-teal-400' : 'text-muted-foreground/40 hover:text-muted-foreground'}`}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => setSelectedCategory(selectedCategory === cat ? null : cat!)}
+                  >
+                    {cat}
+                  </button>
+                ))}
+              </div>
+            )}
+            {libraryResults.length === 0 ? (
+              <div className="px-3 py-4 text-center">
+                <p className="text-[11px] text-muted-foreground/30">
+                  {searchTerm ? "No matching queries" : "Type to search library"}
+                </p>
+                {masterQueries.length === 0 && (
+                  <button
+                    className="mt-2 text-[10px] text-teal-400/60 hover:text-teal-400 transition-colors"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => syncMutation.mutate()}
+                    disabled={syncMutation.isPending}
+                    data-testid="button-sync-library"
+                  >
+                    {syncMutation.isPending ? "Syncing..." : "Sync query library"}
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="max-h-56 overflow-y-auto">
+                <p className="text-[9px] text-muted-foreground/25 px-2.5 py-1.5">{libraryResults.length} results</p>
+                {libraryResults.slice(0, 20).map(mq => (
+                  <button
+                    key={mq.id}
+                    className="w-full flex items-center justify-between px-2.5 py-2 hover:bg-accent/10 transition-colors text-left"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => handleAttachLibrary(mq)}
+                    disabled={addMutation.isPending}
+                    data-testid={`button-attach-${mq.id}`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[11px] text-foreground/80 truncate">{mq.label}</p>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[9px] font-mono text-muted-foreground/30">#{mq.queryId}</span>
+                        {mq.category && <span className="text-[9px] px-1.5 py-0 rounded-full bg-accent/20 text-muted-foreground/40 capitalize">{mq.category}</span>}
+                        {(mq.protocolTags || []).slice(0, 1).map(t => (
+                          <span key={t} className="text-[9px] text-teal-400/50">{t}</span>
+                        ))}
+                      </div>
+                    </div>
+                    <Plus className="w-3 h-3 text-muted-foreground/20 shrink-0 ml-2" />
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         )}
-        {error && (
-          <div className="text-center py-4">
-            <p className="text-xs text-destructive">{error}</p>
-            <Button variant="outline" size="sm" className="text-xs mt-2" onClick={() => fetchData()}>Retry</Button>
-          </div>
-        )}
-        {data && !loading && <DuneResultVisualization data={data} vizType={query.visualizationType} />}
       </div>
-    </div>
-  );
-}
 
-function DuneResultVisualization({ data, vizType }: { data: DuneResultData; vizType: string }) {
-  if (data.rows.length === 0) {
-    return <p className="text-xs text-muted-foreground text-center py-4">No data returned</p>;
-  }
+      {showManualForm && pendingQueryId && (
+        <div className="flex items-center gap-2 p-2.5 rounded-lg bg-card/30 border border-border/10">
+          <span className="text-[10px] font-mono text-teal-400/60 shrink-0">#{pendingQueryId}</span>
+          <input
+            value={manualLabel}
+            onChange={(e) => setManualLabel(e.target.value)}
+            placeholder="Label this query..."
+            className="flex-1 h-7 px-2 text-xs rounded border border-border/15 bg-transparent text-foreground placeholder:text-muted-foreground/25 focus:outline-none focus:border-teal-500/30"
+            autoFocus
+            onKeyDown={(e) => { if (e.key === "Enter") handleManualSubmit(); if (e.key === "Escape") { setShowManualForm(false); setPendingQueryId(null); } }}
+            data-testid="input-manual-label"
+          />
+          <button
+            onClick={handleManualSubmit}
+            disabled={!manualLabel.trim() || addMutation.isPending}
+            className="text-[10px] px-2.5 py-1 rounded bg-teal-500/15 text-teal-400 hover:bg-teal-500/25 disabled:opacity-30 transition-colors"
+            data-testid="button-save-manual-query"
+          >
+            {addMutation.isPending ? "Adding..." : "Add"}
+          </button>
+          <button
+            onClick={() => { setShowManualForm(false); setPendingQueryId(null); }}
+            className="text-[10px] text-muted-foreground/30 hover:text-muted-foreground transition-colors"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
-  const numericCols = data.columns.filter((col) => {
-    const val = data.rows[0]?.[col];
-    return typeof val === "number";
-  });
-
-  const nonNumericCols = data.columns.filter((col) => !numericCols.includes(col));
-  const xKey = nonNumericCols[0] || data.columns[0];
-  const yKeys = numericCols.length > 0 ? numericCols.slice(0, 3) : [data.columns[1] || data.columns[0]];
-
-  const chartColors = ["#22c55e", "#3b82f6", "#f59e0b"];
-
-  const chartData = data.rows.slice(0, 100).map((row) => {
-    const entry: Record<string, any> = {};
-    entry[xKey] = String(row[xKey] || "").slice(0, 20);
-    for (const key of yKeys) {
-      entry[key] = typeof row[key] === "number" ? row[key] : parseFloat(row[key]) || 0;
-    }
-    return entry;
-  });
-
-  if (vizType === "bar" && numericCols.length > 0) {
-    return (
-      <ResponsiveContainer width="100%" height={220}>
-        <BarChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-          <XAxis dataKey={xKey} tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-          <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 4, fontSize: 11 }} />
-          {yKeys.map((key, i) => (
-            <Bar key={key} dataKey={key} fill={chartColors[i]} radius={[2, 2, 0, 0]} />
-          ))}
-        </BarChart>
-      </ResponsiveContainer>
-    );
-  }
-
-  if (vizType === "line" && numericCols.length > 0) {
-    return (
-      <ResponsiveContainer width="100%" height={220}>
-        <ReLineChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-          <XAxis dataKey={xKey} tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-          <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 4, fontSize: 11 }} />
-          {yKeys.map((key, i) => (
-            <Line key={key} type="monotone" dataKey={key} stroke={chartColors[i]} strokeWidth={2} dot={false} />
-          ))}
-        </ReLineChart>
-      </ResponsiveContainer>
-    );
-  }
-
-  if (vizType === "area" && numericCols.length > 0) {
-    return (
-      <ResponsiveContainer width="100%" height={220}>
-        <AreaChart data={chartData}>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-          <XAxis dataKey={xKey} tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-          <YAxis tick={{ fontSize: 10 }} stroke="hsl(var(--muted-foreground))" />
-          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 4, fontSize: 11 }} />
-          {yKeys.map((key, i) => (
-            <Area key={key} type="monotone" dataKey={key} stroke={chartColors[i]} fill={chartColors[i]} fillOpacity={0.15} />
-          ))}
-        </AreaChart>
-      </ResponsiveContainer>
-    );
-  }
-
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="border-b border-border/50">
-            {data.columns.slice(0, 8).map((col) => (
-              <th key={col} className="text-left py-1.5 px-2 text-[10px] uppercase tracking-widest text-muted-foreground font-medium">{col}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {data.rows.slice(0, 25).map((row, i) => (
-            <tr key={i} className="border-b border-border/20">
-              {data.columns.slice(0, 8).map((col) => (
-                <td key={col} className="py-1.5 px-2 font-mono text-[11px] text-foreground/80 max-w-[200px] truncate">
-                  {typeof row[col] === "number" ? row[col].toLocaleString() : String(row[col] ?? "")}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {data.rows.length > 25 && (
-        <p className="text-[10px] text-muted-foreground text-center mt-2">Showing 25 of {data.metadata.rowCount} rows</p>
+      {queries.length === 0 && !showManualForm && (
+        <p className="text-[10px] text-muted-foreground/20 text-center py-1">
+          Search the library above, paste a Dune query ID, or use the refresh icon to auto-detect queries
+        </p>
       )}
     </div>
   );
 }
+
 
 function TokenAnalysisSection({ companyId, companyName }: { companyId: string; companyName: string }) {
   const { toast } = useToast();
@@ -1256,10 +1059,6 @@ export default function TokenIntelligenceTab({ companyId, companyName, hasLiquid
     }
   }, [companyId, hasLiquidToken]);
 
-  const { data: queries = [] } = useQuery<DuneQuery[]>({
-    queryKey: ["/api/companies", companyId, "dune-queries"],
-  });
-
   return (
     <div className="space-y-6">
       <Section title="Token Profile">
@@ -1273,14 +1072,6 @@ export default function TokenIntelligenceTab({ companyId, companyName, hasLiquid
       <Section title="Dune Queries">
         <DuneQueryManager companyId={companyId} />
       </Section>
-
-      {queries.length > 0 && (
-        <div className="space-y-6">
-          {queries.map((q) => (
-            <DuneQueryResultCard key={q.id} query={q} />
-          ))}
-        </div>
-      )}
 
       <Section title="AI Token Analysis">
         <TokenAnalysisSection companyId={companyId} companyName={companyName} />
