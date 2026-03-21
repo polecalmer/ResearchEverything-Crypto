@@ -489,6 +489,38 @@ async function attemptFallback(
     } catch (e: any) {
       console.warn(`[Data Agent] DeFiLlama revenue fallback failed: ${e.message}`);
     }
+
+    if (isDuneConfigured()) {
+      try {
+        const masterQueries = await storage.getMasterDuneQueries();
+        const companyLower = companyName.toLowerCase();
+        const revenueQuery = masterQueries.find(mq => {
+          const tags = (mq.protocolTags || []).map((t: string) => t.toLowerCase());
+          const labelLower = mq.label.toLowerCase();
+          const isRevenueCategory = mq.category === "revenue" || /revenue|fees|earnings/i.test(labelLower);
+          const matchesCompany = tags.some((t: string) => companyLower.includes(t)) || labelLower.includes(companyLower);
+          return isRevenueCategory && matchesCompany;
+        });
+        if (revenueQuery) {
+          console.log(`[Data Agent] Revenue fallback: trying master Dune query #${revenueQuery.queryId} "${revenueQuery.label}"`);
+          const result = await getLatestDuneResults(revenueQuery.queryId);
+          if (result.rows.length > 0) {
+            const data = result.rows;
+            console.log(`[Data Agent] Revenue fallback via Dune succeeded (${data.length} rows, cols: ${result.columns.join(", ")})`);
+            return {
+              data,
+              dataSource: "dune",
+              dataSourceConfig: { queryId: revenueQuery.queryId },
+              chartConfig: { columns: result.columns },
+              chartType: "table",
+              title: revenueQuery.label.toUpperCase(),
+            };
+          }
+        }
+      } catch (e: any) {
+        console.warn(`[Data Agent] Dune revenue fallback failed: ${e.message}`);
+      }
+    }
   }
 
   if (isHolder && contractAddress && chain) {

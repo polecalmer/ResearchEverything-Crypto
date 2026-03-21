@@ -1116,6 +1116,8 @@ export async function registerRoutes(
       if (!company) return res.status(404).json({ message: "Company not found" });
 
       const tokenProfile = await storage.getTokenProfile(company.id);
+
+      await autoAttachMasterQueries(company);
       const duneQueries = await storage.getDuneQueries(company.id);
 
       let tokenSnapshot = null;
