@@ -239,32 +239,32 @@ YOU HAVE WEB SEARCH ACCESS. Use it to:
 
 CLASSIFICATION TIERS (from the Liquid Token Analysis Framework):
 
-Tier 1 — Memecoins / Monetary Premiums:
+Tier 0 — Monetary Premium:
 - No intrinsic value from protocol cash flows
 - Trade on belief, narrative, lindyness, or moneyness
 - Examples: BTC, DOGE, ETH (partially)
 
-Tier 2 — Great Tokens:
+Tier 1 — Great Tokens:
 - Product has strong PMF, fees are high in absolute terms
 - Fees drive token value accrual (staking/distribution or buybacks/burns)
 - Good token distribution (initial float 25-45%)
 - Examples: HYPE
 
-Tier 3 — Average Tokens:
+Tier 2 — Average Tokens:
 - Some PMF but scaling path unclear
 - Fees exist but low relative to valuation
 - Value accrual mechanism exists
 - Examples: PUMP, AERO, AAVE, ENA, MORPHO
 
-Tier 4 — Bad Tokens:
+Tier 3 — Bad Tokens:
 - No PMF, predatory tokenomics, low float
 - No revenues, no value accrual
 - Examples: MOVE, OM
 
 CLASSIFICATION DECISION TREE:
-1. Does the protocol generate meaningful recurring revenue? No → Tier 1 or Tier 4
-2. If no revenue: does the token trade on monetary premium/network effects? Yes → Tier 1. No → Tier 4
-3. If revenue exists: is it high in absolute terms AND growing? Yes → Tier 2. No → Tier 3
+1. Does the protocol generate meaningful recurring revenue? No → Tier 0 or Tier 3
+2. If no revenue: does the token trade on monetary premium/network effects? Yes → Tier 0. No → Tier 3
+3. If revenue exists: is it high in absolute terms AND growing? Yes → Tier 1. No → Tier 2
 4. Is token distribution fair (25-45% initial float)? No → downgrade one tier
 5. Is there clear value accrual linking fees to token holders? No → downgrade one tier
 
@@ -274,7 +274,7 @@ Return ONLY valid JSON:
   "tokenTicker": "TOKEN or empty string if none",
   "contractAddress": "0x... or empty string if unknown/none",
   "chain": "ethereum/solana/arbitrum/base/etc or empty string if unknown/none",
-  "tokenTier": "Tier 1/Tier 2/Tier 3/Tier 4 or empty string if no token",
+  "tokenTier": "Tier 0/Tier 1/Tier 2/Tier 3 or empty string if no token",
   "classificationReasoning": "2-3 sentences explaining the tier classification based on revenue, PMF, distribution, and value accrual",
   "valueAccrualMechanism": "direct_distribution/buyback_burn/buyback_hold/indirect/none or empty string",
   "revenueModel": "Brief description of how the protocol generates revenue, or empty string"
@@ -289,7 +289,7 @@ Search for:
 3. Look for token contract addresses
 4. Determine the token tier based on the classification framework
 
-If the project has a token, classify it into Tier 1-4 based on:
+If the project has a token, classify it into Tier 0-3 based on:
 - Revenue generation and PMF
 - Value accrual mechanism
 - Token distribution quality

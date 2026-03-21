@@ -21,8 +21,8 @@ You also receive real-time data feeds (token snapshot, Dune query results) when 
 YOUR ANALYSIS MUST COVER (use markdown formatting):
 
 ## 1. Token Classification
-- Classify into Tier 1 (blue-chip), Tier 2 (established), Tier 3 (emerging), or Tier 4 (speculative)
-- Apply decision tree: Does protocol generate real revenue? → Is there genuine PMF? → Does token accrue value? → Is there sustainable distribution?
+- Classify into Tier 0 (Monetary Premium — blue-chip assets trading on lindyness, network effects, or monetary premium like BTC/ETH), Tier 1 (Great Token — high recurring revenue, strong value accrual, fair distribution), Tier 2 (Average Token — some revenue but inconsistent, growth potential, needs monitoring), or Tier 3 (Bad Token — no revenue, extractive tokenomics, unfair distribution)
+- Apply decision tree: Does protocol generate meaningful recurring revenue? No → check monetary premium/lindyness → Yes = Tier 0, No = Tier 3. If revenue exists: high AND growing with strong value accrual? → Yes = Tier 1, No = Tier 2. Is distribution fair (25-45% initial float)? No → downgrade one tier or flag as Tier 3.
 
 ## 2. Supply & Adjusted Market Cap
 - Calculate: Float Market Cap, Adjusted Market Cap, FDV
@@ -33,7 +33,7 @@ YOUR ANALYSIS MUST COVER (use markdown formatting):
 - Cashflow Yield Model: Base Yield = Total Protocol Revenue / Circulating Token Supply
 - P/E ratios on BOTH FDV and Adjusted MCAP basis
 - Revenue multiples comparison to peers
-- For Tier 2 tokens: Attempt bull/base/bear scenario analysis
+- For Tier 1 (Great) tokens: Attempt bull/base/bear scenario analysis
 
 ## 4. Liquidity Assessment
 - Average daily volume (filter wash trading if possible)

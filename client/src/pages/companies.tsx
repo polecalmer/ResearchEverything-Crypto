@@ -9,6 +9,7 @@ import {
   ExternalLink,
   Plus,
   Filter,
+  Coins,
 } from "lucide-react";
 import { useState } from "react";
 import { formatDistanceToNow } from "date-fns";
@@ -174,6 +175,12 @@ export default function Companies() {
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
                             <span className="text-sm font-medium truncate" data-testid={`text-company-name-${company.id}`}>{company.name}</span>
+                            {company.hasLiquidToken && (
+                              <span className="inline-flex items-center gap-0.5 text-[9px] font-mono px-1.5 py-0.5 border border-yellow-500/30 text-yellow-500 flex-shrink-0" data-testid={`badge-liquid-token-${company.id}`}>
+                                <Coins className="w-2.5 h-2.5" />
+                                {company.tokenTicker || "TOKEN"}
+                              </span>
+                            )}
                             {company.sourceUrl && (
                               <a
                                 href={company.sourceUrl}
@@ -196,14 +203,7 @@ export default function Companies() {
                       </span>
                     </td>
                     <td className="px-4 py-3 hidden sm:table-cell">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs text-muted-foreground">{company.stage || "—"}</span>
-                        {company.hasLiquidToken && (
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 border border-yellow-500/30 text-yellow-500" data-testid={`badge-liquid-token-${company.id}`}>
-                            {company.tokenTicker || "TOKEN"}
-                          </span>
-                        )}
-                      </div>
+                      <span className="text-xs text-muted-foreground">{company.stage || "—"}</span>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">

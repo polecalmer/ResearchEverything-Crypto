@@ -39,7 +39,7 @@ Every token under analysis must first be classified into one of four tiers. Clas
 
 ### Tier Definitions
 
-**Tier 1 — Memecoins / Monetary Premiums**
+**Tier 0 — Monetary Premium**
 
 - No intrinsic value from protocol cash flows
 - Trade on belief, narrative, lindyness, or moneyness
@@ -48,7 +48,7 @@ Every token under analysis must first be classified into one of four tiers. Clas
 - Examples: BTC, DOGE, ETH (partially), ZEC, SOL (partially)
 - Valuation approach: Do NOT apply cash flow models. Assess via network effects, holder distribution, liquidity depth, and relative momentum. Narrative durability matters more than fundamentals.
 
-**Tier 2 — Great Tokens**
+**Tier 1 — Great Tokens**
 
 - Product behind the token has strong product-market fit (PMF)
 - PMF drives fees that are high in absolute terms (not just percentage)
@@ -58,7 +58,7 @@ Every token under analysis must first be classified into one of four tiers. Clas
 - Examples: HYPE
 - Valuation approach: Full fundamental analysis — P/E, DCF, revenue multiples, comparable company analysis. Treat like a growth equity position.
 
-**Tier 3 — Average Tokens**
+**Tier 2 — Average Tokens**
 
 - Product has some PMF, but scaling path is unclear
 - Fees exist but notional amount is low relative to valuation
@@ -66,13 +66,13 @@ Every token under analysis must first be classified into one of four tiers. Clas
 - Token distribution needs to be good, initial float 25% to 45%
 - Akin to small/mid-cap stocks with a path to success, though the path may be unclear
 - Examples: PUMP, AERO, AAVE, SKY, ENA, SYRUP, META, MORPHO, JTO, HNT
-- Valuation approach: Revenue multiples with scenario analysis. Heavier weight on growth trajectory and TAM capture probability. Monitor for upgrade to Tier 2 or downgrade to Tier 4.
+- Valuation approach: Revenue multiples with scenario analysis. Heavier weight on growth trajectory and TAM capture probability. Monitor for upgrade to Tier 1 or downgrade to Tier 3.
 
-**Tier 4 — Bad Tokens**
+**Tier 3 — Bad Tokens**
 
 - No PMF, predatory tokenomics, low float with poor token engineering
 - Bundled supply, malicious cap table, no revenues, no value accrual
-- Everything else in crypto that doesn't fit Tiers 1-3
+- Everything else in crypto that doesn't fit Tiers 0-2
 - Examples: MOVE, OM, MIRA
 - Valuation approach: Do NOT waste time modeling. Flag and avoid. If encountered in portfolio, recommend exit.
 
@@ -80,10 +80,10 @@ Every token under analysis must first be classified into one of four tiers. Clas
 
 When classifying a token, evaluate in this order:
 
-1. **Does the protocol generate meaningful recurring revenue?** No → Tier 1 or Tier 4
-2. **If no revenue: does the token trade on monetary premium, lindyness, or deep network effects?** Yes → Tier 1. No → Tier 4.
-3. **If revenue exists: is it high in absolute terms AND growing?** Yes → candidate for Tier 2. No → Tier 3.
-4. **Is the token distribution fair (25-45% initial float, no malicious cap table)?** No → downgrade one tier or flag as Tier 4 regardless of revenue.
+1. **Does the protocol generate meaningful recurring revenue?** No → Tier 0 or Tier 3
+2. **If no revenue: does the token trade on monetary premium, lindyness, or deep network effects?** Yes → Tier 0. No → Tier 3.
+3. **If revenue exists: is it high in absolute terms AND growing?** Yes → candidate for Tier 1. No → Tier 2.
+4. **Is the token distribution fair (25-45% initial float, no malicious cap table)?** No → downgrade one tier or flag as Tier 3 regardless of revenue.
 5. **Is there a clear value accrual mechanism linking fees to token holders?** No → downgrade one tier.
 
 ---
@@ -140,7 +140,7 @@ For each token in coverage, maintain a table with:
 
 ### 3A. Cashflow Yield Model
 
-The primary model for Tier 2 and Tier 3 tokens. Assumes 100% of protocol cashflows are distributed to stakers (theoretical baseline).
+The primary model for Tier 1 and Tier 2 tokens. Assumes 100% of protocol cashflows are distributed to stakers (theoretical baseline).
 
 ```
 Base Yield           = Total Protocol Revenue (TPR) / Circulating Token Supply (CTS)
@@ -178,7 +178,7 @@ Yield Multiple       = Market Cap / Annual Revenue (lower = better value)
 
 ### 3C. DCF Model
 
-For deep-dive Tier 2 analysis. Use 3-year forward projections with three scenarios:
+For deep-dive Tier 1 analysis. Use 3-year forward projections with three scenarios:
 
 - **Bull Case**: Aggressive TAM capture, expanding margins, fee switch activation
 - **Base Case**: Moderate growth consistent with current trajectory
@@ -309,7 +309,7 @@ If swap cost < opportunity cost, the withdrawal window is a soft constraint, not
 **No accrual (none):**
 - Fees exist but do not flow to token holders in any mechanism
 - Token value derives entirely from speculation or governance utility
-- Valuation: Tier 4 candidate unless other compelling factors exist
+- Valuation: Tier 3 candidate unless other compelling factors exist
 
 ### Deflation Threshold (P*) — For Burn Mechanisms
 
@@ -580,13 +580,13 @@ ORDER BY month DESC
 
 ## 9. Output Formats & Deliverables
 
-### Investment Memo (Tier 2/3 tokens)
+### Investment Memo (Tier 1/2 tokens)
 
 Structure:
 1. Executive Summary (classification tier, thesis in 2-3 sentences)
 2. Protocol Overview (what it does, revenue model)
 3. Token Mechanics (supply schedule, value accrual, adjusted supply table)
-4. Financial Analysis (revenue trajectory, P/E, yield model, DCF if Tier 2)
+4. Financial Analysis (revenue trajectory, P/E, yield model, DCF if Tier 1)
 5. Liquidity Assessment (days to exit, discount, depth analysis)
 6. On-Chain Signals (holder distribution, buyback verification, whale activity)
 7. Risk Matrix (regulatory, smart contract, competition, concentration, unlock schedule)
