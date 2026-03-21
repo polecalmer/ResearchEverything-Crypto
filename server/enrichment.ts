@@ -649,7 +649,7 @@ Search for current market data on ${tokenIdentification.tokenTicker || companyNa
 6. Holder distribution data
 
 Apply the full Liquid Token Analysis Framework to produce the comprehensive analysis.`;
-  return buildAnthropicRequest(LIQUID_TOKEN_RESEARCH_SYSTEM, prompt, true, 8000, 15);
+  return buildAnthropicRequest(LIQUID_TOKEN_RESEARCH_SYSTEM, prompt, true, 4000, 8);
 }
 
 // ─── UTILITY FUNCTIONS ──────────────────────────────────────────────────────
