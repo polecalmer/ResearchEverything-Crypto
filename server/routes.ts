@@ -354,6 +354,10 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Company not found" });
       }
 
+      if (!isServerMppReady()) {
+        return res.status(503).json({ message: "AI service not configured" });
+      }
+
       const founders = await storage.getFoundersByCompany(company.id);
       const notes = await storage.getNotesByCompany(company.id);
 
@@ -375,69 +379,45 @@ export async function registerRoutes(
         company.deletedReportCount || 0,
       );
 
-      res.json({ sessionId, anthropicRequest, reportId: report.id });
+      res.json({ reportId: report.id });
+
+      (async () => {
+        try {
+          console.log(`[DeepResearch] Background AI call started for ${company.name} (${report.id})`);
+          const aiResult = await callAnthropicServer(anthropicRequest);
+          const result = completeDeepResearchSession(
+            sessionId, userId, aiResult.text,
+            aiResult.usage, aiResult.mppCost,
+          );
+
+          await storage.updateReport(report.id, { content: result.content, status: "complete" });
+          console.log(`[DeepResearch] Report complete for ${company.name} (${report.id}). MPP cost: $${result.apiCost.toFixed(6)}`);
+
+          try {
+            await storage.logTransaction({
+              userId,
+              type: "deep_research",
+              description: `Deep research: ${company.name}`,
+              amount: result.totalCharge.toFixed(4),
+              apiCost: result.apiCost.toFixed(4),
+              companyName: company.name,
+              inputTokens: result.inputTokens,
+              outputTokens: result.outputTokens,
+            });
+          } catch (err) {
+            console.error("[Transaction] Failed to log deep-research:", err);
+          }
+        } catch (error: any) {
+          console.error(`[DeepResearch] Background AI call failed for ${company.name}:`, error.message);
+          await storage.updateReport(report.id, {
+            content: `# Report Generation Failed\n\nError: ${error.message}\n\nPlease try generating again.`,
+            status: "failed",
+          }).catch(() => {});
+        }
+      })();
     } catch (error: any) {
       console.error("Report prepare error:", error);
       res.status(500).json({ message: "Failed to prepare report generation", error: error.message });
-    }
-  });
-
-  app.post("/api/companies/:id/reports/complete", requireAuth, async (req, res) => {
-    try {
-      const parsed = z.object({
-        sessionId: z.string().min(1),
-        reportId: z.string().min(1),
-        responseText: z.string().min(1),
-        responseUsage: z.object({
-          input_tokens: z.number(),
-          output_tokens: z.number(),
-        }).optional(),
-        mppCost: z.number().optional(),
-      }).safeParse(req.body);
-
-      if (!parsed.success) {
-        return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
-      }
-
-      const userId = req.user!.id;
-      const company = await storage.getCompany(req.params.id, userId);
-      const { sessionId, reportId, responseText, responseUsage, mppCost } = parsed.data;
-
-      const result = completeDeepResearchSession(sessionId, userId, responseText, responseUsage, mppCost);
-
-      await storage.updateReport(reportId, { content: result.content, status: "complete" });
-      console.log(`[DeepResearch] Report complete for ${company?.name || req.params.id} (${reportId}). MPP cost: $${result.apiCost.toFixed(6)}`);
-
-      if (company) {
-        try {
-          await storage.logTransaction({
-            userId,
-            type: "deep_research",
-            description: `Deep research: ${company.name}`,
-            amount: result.totalCharge.toFixed(4),
-            apiCost: result.apiCost.toFixed(4),
-            companyName: company.name,
-            inputTokens: result.inputTokens,
-            outputTokens: result.outputTokens,
-          });
-        } catch (err) {
-          console.error("[Transaction] Failed to log deep-research:", err);
-        }
-      }
-
-      res.json({ complete: true, reportId, apiCost: result.apiCost, totalCharge: result.totalCharge });
-    } catch (error: any) {
-      console.error("Report complete error:", error);
-
-      const reportId = req.body?.reportId;
-      if (reportId) {
-        await storage.updateReport(reportId, {
-          content: `# Report Generation Failed\n\nError: ${error.message}`,
-          status: "failed",
-        }).catch(() => {});
-      }
-
-      res.status(500).json({ message: "Failed to complete report", error: error.message });
     }
   });
 

@@ -220,6 +220,11 @@ function DeepResearchSection({ companyId, companyName }: { companyId: string; co
   const [, navigate] = useLocation();
   const { data: reports = [] } = useQuery<Report[]>({
     queryKey: ["/api/companies", companyId, "reports"],
+    refetchInterval: (query) => {
+      const data = query.state.data as Report[] | undefined;
+      if (data?.some((r) => r.status === "generating")) return 5000;
+      return false;
+    },
   });
 
   const { getAccessToken } = useAuth();
@@ -229,9 +234,9 @@ function DeepResearchSection({ companyId, companyName }: { companyId: string; co
       const { runDeepResearchPipeline } = await import("@/lib/enrichment");
       return runDeepResearchPipeline(companyId, getAccessToken);
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "reports"] });
-      navigate(`/reports/${data.reportId}`);
+      toast({ title: "Deep research started", description: "This typically takes 2-3 minutes. The report will appear when ready." });
     },
     onError: (error: any) => {
       toast({ title: "Failed to generate report", description: error.message, variant: "destructive" });
@@ -255,7 +260,7 @@ function DeepResearchSection({ companyId, companyName }: { companyId: string; co
                 <div className="min-w-0">
                   <p className="text-xs font-medium truncate">{report.title}</p>
                   <p className="text-[10px] text-muted-foreground">
-                    {report.status === "generating" ? "Generating..." : format(new Date(report.createdAt), "MMM d, yyyy")}
+                    {report.status === "generating" ? "Generating..." : report.status === "failed" ? "Failed — click to view" : format(new Date(report.createdAt), "MMM d, yyyy")}
                   </p>
                 </div>
               </div>

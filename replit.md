@@ -57,9 +57,10 @@ All AI agents use Claude Opus 4.6 with web search capabilities.
 **UI/UX:** The application features a consistent design language with near-black backgrounds, subtle borders, monospace fonts for addresses/amounts, and a green accent color. The dashboard provides pipeline visualization, company lists, detailed company views, and dedicated pages for wallet management, credit purchasing, and analytics. Real-time SSE (Server-Sent Events) are used to display AI enrichment progress.
 
 **Payment Architecture (Server Wallet):**
-1.  **Server wallet → Anthropic (AI cost):** Server wallet (`0x8518b315b3DFC4415Be7E75b2571Df635b27552a`) pays Anthropic via `/api/ai/proxy` using mppx with Tempo payment method. Real MPP costs are captured from the `onChallenge` callback (challenge.request.amount) and tracked per session — no estimated/calculated costs.
+1.  **Server wallet → Anthropic (AI cost):** Server wallet (`0x8518b315b3DFC4415Be7E75b2571Df635b27552a`) pays Anthropic via mppx with Tempo payment method. Escrow channel maxDeposit: $2. Real MPP costs are captured from the `onChallenge` callback (challenge.request.amount) and tracked per session.
 2.  **User → Owner wallet (platform fee):** MPP paywalls on backend `prepare` endpoints charge a platform fee before AI sessions start. Owner wallet: `0x342fFFBcEbb761bC2c7B512333AF5E397b4cB72d`.
-3.  **Cost tracking:** All pipelines (enrichment, next-steps, deep-research) accumulate real `mppCost` from each AI call and apply a 1.5x markup for the user charge. The `mppCost` flows: mpp-client.ts → /api/ai/proxy response → client → /api/enrich/step (or equivalent) → session.mppCost accumulator.
+3.  **Cost tracking:** Enrichment/next-steps pipelines: mppCost flows client→server via /api/enrich/step. Deep research: runs entirely server-side as background job, mppCost tracked internally. All pipelines apply 1.5x markup for user charge.
+4.  **Deep research architecture:** The `/reports/prepare` endpoint creates the report record, kicks off the Anthropic call as a background async task, and returns immediately. The client polls report status every 5s until complete. No HTTP timeout issues since the long AI call runs server-side.
 
 **Chrome Extension:** Manifest V3 extension facilitating quick capture. It creates a context menu item, injects content scripts for UI, and uses a background service worker to interact with the backend API.
 

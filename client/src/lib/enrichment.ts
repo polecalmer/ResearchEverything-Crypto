@@ -200,9 +200,8 @@ export async function runDeepResearchPipeline(
   getAccessToken?: () => Promise<string | null>,
 ): Promise<{ reportId: string }> {
   const headers: Record<string, string> = { "Content-Type": "application/json" };
-  let token: string | null = null;
   if (getAccessToken) {
-    token = await getAccessToken();
+    const token = await getAccessToken();
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
       headers["X-Privy-Token"] = token;
@@ -219,26 +218,6 @@ export async function runDeepResearchPipeline(
     throw new Error(error.message || "Deep research failed");
   }
 
-  const { sessionId, anthropicRequest, reportId } = await prepareRes.json();
-
-  const anthropicResponse = await callAnthropic(anthropicRequest, token);
-
-  const completeRes = await fetch(`/api/companies/${companyId}/reports/complete`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      sessionId,
-      reportId,
-      responseText: anthropicResponse.text,
-      responseUsage: anthropicResponse.usage,
-      mppCost: anthropicResponse.mppCost,
-    }),
-  });
-
-  if (!completeRes.ok) {
-    const error = await completeRes.json().catch(() => ({ message: "Report completion failed" }));
-    throw new Error(error.message || "Report completion failed");
-  }
-
+  const { reportId } = await prepareRes.json();
   return { reportId };
 }
