@@ -135,7 +135,7 @@ function parseSubtitle(description: string | null | undefined): { subtitle: stri
   return { subtitle: "", desc: description };
 }
 
-function computeHeadlineStat(data: any[], yAxes: any[]): { value: string; label: string } | null {
+function computeHeadlineStat(data: any[], yAxes: any[], title?: string): { value: string; label: string } | null {
   if (!data || data.length === 0 || !yAxes || yAxes.length === 0) return null;
   const primary = yAxes[0];
   const key = primary.dataKey;
@@ -147,8 +147,21 @@ function computeHeadlineStat(data: any[], yAxes: any[]): { value: string; label:
   const latest = values[values.length - 1];
   const sum = values.reduce((a: number, b: number) => a + b, 0);
 
-  if (/revenue|fee|volume|earnings|profit/i.test(key)) {
-    return { value: smartFormat(sum, fmt || "currency"), label: "Total" };
+  const titleLower = (title || "").toLowerCase();
+  const isRate = /annualized|moving average|ratio|p\/e|pe_ratio|average|daily|rate|apy|apr/i.test(key) ||
+    /annualized|moving average|ratio|p\/e|average|daily rate|apy|apr/i.test(titleLower);
+
+  if (isRate) {
+    return { value: smartFormat(latest, fmt || "currency"), label: "Latest" };
+  }
+  if (/revenue|fee|earnings|profit/i.test(key) && !isRate) {
+    if (values.length <= 24) {
+      return { value: smartFormat(sum, fmt || "currency"), label: "Total" };
+    }
+    return { value: smartFormat(latest, fmt || "currency"), label: "Latest" };
+  }
+  if (/volume/i.test(key)) {
+    return { value: smartFormat(latest, fmt || "currency"), label: "Latest" };
   }
   if (/price|tvl|market_cap|fdv/i.test(key)) {
     return { value: smartFormat(latest, fmt || "currency"), label: "Latest" };
@@ -453,7 +466,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
   const isTable = chart.chartType === "table" || !hasChartConfig;
   const currentView = view === "auto" ? (isTable ? "table" : "chart") : view;
 
-  const headlineStat = hasChartConfig ? computeHeadlineStat(chartData, chartConfig.yAxes) : null;
+  const headlineStat = hasChartConfig ? computeHeadlineStat(chartData, chartConfig.yAxes, chart.title) : null;
 
   const renderTable = () => {
     const columns = chartConfig.columns || (chartData[0] ? Object.keys(chartData[0]) : []);
