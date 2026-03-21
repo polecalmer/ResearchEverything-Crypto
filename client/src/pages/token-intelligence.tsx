@@ -683,56 +683,47 @@ function TokenSnapshotCard({ companyId }: { companyId: string }) {
       )}
 
       {snapshot && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="snapshot-metrics">
-          <div>
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/40 mb-1">Price</div>
-            <div className="text-sm font-mono font-medium" data-testid="snapshot-price">
-              {snapshot.price !== null ? `$${snapshot.price < 0.01 ? snapshot.price.toFixed(6) : snapshot.price.toFixed(2)}` : "—"}
-            </div>
-            {snapshot.priceChange24h !== null && (
-              <div className={`flex items-center gap-0.5 text-[10px] mt-0.5 ${snapshot.priceChange24h >= 0 ? "text-green-500" : "text-red-500"}`} data-testid="snapshot-price-change">
-                {snapshot.priceChange24h >= 0 ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
-                {snapshot.priceChange24h > 0 ? "+" : ""}{snapshot.priceChange24h.toFixed(2)}%
-              </div>
-            )}
+        <div data-testid="snapshot-metrics">
+          <table className="w-full text-xs border-collapse">
+            <tbody>
+              <tr className="border-b border-border/15">
+                <td className="py-1.5 pr-4 text-muted-foreground/50 w-24">Price</td>
+                <td className="py-1.5 font-mono font-medium" data-testid="snapshot-price">
+                  {snapshot.price !== null ? `$${snapshot.price < 0.01 ? snapshot.price.toFixed(6) : snapshot.price.toFixed(2)}` : "—"}
+                  {snapshot.priceChange24h !== null && (
+                    <span className={`ml-2 text-[10px] ${snapshot.priceChange24h >= 0 ? "text-green-500" : "text-red-500"}`} data-testid="snapshot-price-change">
+                      {snapshot.priceChange24h > 0 ? "+" : ""}{snapshot.priceChange24h.toFixed(2)}%
+                    </span>
+                  )}
+                </td>
+              </tr>
+              <tr className="border-b border-border/15">
+                <td className="py-1.5 pr-4 text-muted-foreground/50">Market Cap</td>
+                <td className="py-1.5 font-mono font-medium" data-testid="snapshot-mcap">{formatLargeNumber(snapshot.marketCap)}</td>
+              </tr>
+              <tr className="border-b border-border/15">
+                <td className="py-1.5 pr-4 text-muted-foreground/50">24h Volume</td>
+                <td className="py-1.5 font-mono font-medium" data-testid="snapshot-volume">{formatLargeNumber(snapshot.volume24h)}</td>
+              </tr>
+              {snapshot.holderCount !== null && (
+                <tr className="border-b border-border/15">
+                  <td className="py-1.5 pr-4 text-muted-foreground/50">Holders</td>
+                  <td className="py-1.5 font-mono font-medium" data-testid="snapshot-holders">{snapshot.holderCount.toLocaleString()}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+          <div className="text-[10px] text-muted-foreground/30 flex items-center justify-between mt-1.5">
+            <span>{snapshot.source} · {new Date(snapshot.fetchedAt).toLocaleTimeString()}</span>
+            <button
+              onClick={fetchSnapshot}
+              disabled={loading}
+              className="text-muted-foreground/30 hover:text-muted-foreground transition-colors"
+              data-testid="button-refresh-snapshot"
+            >
+              {loading ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
+            </button>
           </div>
-
-          <div>
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/40 mb-1">Market Cap</div>
-            <div className="text-sm font-mono font-medium" data-testid="snapshot-mcap">
-              {formatLargeNumber(snapshot.marketCap)}
-            </div>
-          </div>
-
-          <div>
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/40 mb-1">24h Volume</div>
-            <div className="text-sm font-mono font-medium" data-testid="snapshot-volume">
-              {formatLargeNumber(snapshot.volume24h)}
-            </div>
-          </div>
-
-          <div>
-            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/40 mb-1">Holders</div>
-            <div className="text-sm font-mono font-medium" data-testid="snapshot-holders">
-              {snapshot.holderCount !== null ? snapshot.holderCount.toLocaleString() : "—"}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {snapshot && (
-        <div className="text-[10px] text-muted-foreground/40 flex items-center justify-between">
-          <span>Source: {snapshot.source} | Fetched: {new Date(snapshot.fetchedAt).toLocaleTimeString()}</span>
-          <Button
-            onClick={fetchSnapshot}
-            disabled={loading}
-            variant="ghost"
-            size="sm"
-            className="text-[10px] h-5 px-1.5 text-muted-foreground/40 hover:text-muted-foreground"
-            data-testid="button-refresh-snapshot"
-          >
-            {loading ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
-          </Button>
         </div>
       )}
     </div>
@@ -740,15 +731,23 @@ function TokenSnapshotCard({ companyId }: { companyId: string }) {
 }
 
 function MarkdownContent({ content }: { content: string }) {
-  const lines = content.split('\n');
+  let cleaned = content
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
+    .replace(/<reflection>[\s\S]*?<\/reflection>/gi, '')
+    .replace(/<scratchpad>[\s\S]*?<\/scratchpad>/gi, '')
+    .trim();
+
+  const lines = cleaned.split('\n');
   const elements: JSX.Element[] = [];
   let listItems: string[] = [];
+  let i = 0;
 
   const flushList = () => {
     if (listItems.length > 0) {
       elements.push(
         <ul key={`ul-${elements.length}`} className="list-disc pl-4 space-y-0.5">
-          {listItems.map((item, i) => <li key={i}>{renderInline(item)}</li>)}
+          {listItems.map((item, j) => <li key={j}>{renderInline(item)}</li>)}
         </ul>
       );
       listItems = [];
@@ -757,14 +756,13 @@ function MarkdownContent({ content }: { content: string }) {
 
   const renderInline = (text: string) => {
     const parts: (string | JSX.Element)[] = [];
-    let remaining = text;
     let idx = 0;
     const regex = /\*\*(.+?)\*\*|\*(.+?)\*/g;
     let match;
     let lastIndex = 0;
-    while ((match = regex.exec(remaining)) !== null) {
+    while ((match = regex.exec(text)) !== null) {
       if (match.index > lastIndex) {
-        parts.push(remaining.slice(lastIndex, match.index));
+        parts.push(text.slice(lastIndex, match.index));
       }
       if (match[1]) {
         parts.push(<strong key={idx++}>{match[1]}</strong>);
@@ -773,34 +771,110 @@ function MarkdownContent({ content }: { content: string }) {
       }
       lastIndex = regex.lastIndex;
     }
-    if (lastIndex < remaining.length) {
-      parts.push(remaining.slice(lastIndex));
+    if (lastIndex < text.length) {
+      parts.push(text.slice(lastIndex));
     }
     return <>{parts}</>;
   };
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const listMatch = line.match(/^[-*] (.+)$/);
+  const isTableRow = (line: string) => line.trim().startsWith('|') && line.trim().endsWith('|');
+  const isSeparatorRow = (line: string) => /^\|[\s\-:|]+\|$/.test(line.trim());
+  const parseTableCells = (line: string) =>
+    line.trim().slice(1, -1).split('|').map(c => c.trim());
 
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (isTableRow(line) && i + 1 < lines.length && isTableRow(lines[i + 1])) {
+      flushList();
+      const tableRows: string[] = [];
+      while (i < lines.length && isTableRow(lines[i])) {
+        tableRows.push(lines[i]);
+        i++;
+      }
+
+      const dataRows = tableRows.filter(r => !isSeparatorRow(r));
+      if (dataRows.length > 0) {
+        const headerCells = parseTableCells(dataRows[0]);
+        const bodyRows = dataRows.slice(1);
+
+        elements.push(
+          <div key={`tbl-${elements.length}`} className="overflow-x-auto my-2">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-border/30">
+                  {headerCells.map((cell, ci) => (
+                    <th key={ci} className="text-left py-1.5 px-2 text-[10px] uppercase tracking-wider text-muted-foreground/50 font-medium">
+                      {renderInline(cell)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {bodyRows.map((row, ri) => {
+                  const cells = parseTableCells(row);
+                  return (
+                    <tr key={ri} className="border-b border-border/15">
+                      {cells.map((cell, ci) => (
+                        <td key={ci} className="py-1.5 px-2 text-[11px] text-foreground/80">
+                          {renderInline(cell)}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        );
+      }
+      continue;
+    }
+
+    const listMatch = line.match(/^(\s*)[-*] (.+)$/);
     if (listMatch) {
-      listItems.push(listMatch[1]);
+      listItems.push(listMatch[2]);
+      i++;
+      continue;
+    }
+
+    const numListMatch = line.match(/^\d+\.\s+(.+)$/);
+    if (numListMatch) {
+      flushList();
+      listItems.push(numListMatch[1]);
+      i++;
+      while (i < lines.length && lines[i].match(/^\d+\.\s+(.+)$/)) {
+        const m = lines[i].match(/^\d+\.\s+(.+)$/);
+        if (m) listItems.push(m[1]);
+        i++;
+      }
+      if (listItems.length > 0) {
+        elements.push(
+          <ol key={`ol-${elements.length}`} className="list-decimal pl-4 space-y-0.5">
+            {listItems.map((item, j) => <li key={j}>{renderInline(item)}</li>)}
+          </ol>
+        );
+        listItems = [];
+      }
       continue;
     }
 
     flushList();
 
-    if (line.match(/^### (.+)$/)) {
-      elements.push(<h3 key={`h3-${i}`}>{line.replace(/^### /, '')}</h3>);
+    if (line.match(/^---+$/)) {
+      elements.push(<hr key={`hr-${i}`} className="border-border/15 my-3" />);
+    } else if (line.match(/^### (.+)$/)) {
+      elements.push(<h3 key={`h3-${i}`}>{renderInline(line.replace(/^### /, ''))}</h3>);
     } else if (line.match(/^## (.+)$/)) {
-      elements.push(<h2 key={`h2-${i}`}>{line.replace(/^## /, '')}</h2>);
+      elements.push(<h2 key={`h2-${i}`}>{renderInline(line.replace(/^## /, ''))}</h2>);
     } else if (line.match(/^# (.+)$/)) {
-      elements.push(<h1 key={`h1-${i}`}>{line.replace(/^# /, '')}</h1>);
+      elements.push(<h1 key={`h1-${i}`}>{renderInline(line.replace(/^# /, ''))}</h1>);
     } else if (line.trim() === '') {
-      continue;
+      // skip
     } else {
       elements.push(<p key={`p-${i}`}>{renderInline(line)}</p>);
     }
+    i++;
   }
   flushList();
 
