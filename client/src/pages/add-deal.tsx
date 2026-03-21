@@ -26,25 +26,13 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Building2,
   Briefcase,
   DollarSign,
   Tag,
-  ArrowLeft,
   Plus,
   Trash2,
   User,
-  Sparkles,
   Loader2,
-  CheckCircle2,
-  Search,
-  FileSearch,
-  ShieldCheck,
-  Globe,
-  FileText,
-  Coins,
-  Link2,
-  BadgeCheck,
 } from "lucide-react";
 import { useState } from "react";
 import { runEnrichmentPipeline, type EnrichmentStage } from "@/lib/enrichment";
@@ -295,120 +283,88 @@ export default function AddDeal() {
 
   return (
     <div className="p-6 max-w-3xl mx-auto h-full overflow-y-auto">
-      <button
-        onClick={() => navigate("/")}
-        className="flex items-center gap-1.5 text-sm text-muted-foreground mb-4"
-        data-testid="button-back"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Back to Pipeline
-      </button>
-
-      <div className="mb-8">
-        <h2 className="text-lg font-semibold tracking-tight" data-testid="text-page-title">Add New Deal</h2>
-        <p className="text-xs text-muted-foreground mt-0.5">
-          Drop any link or text above to auto-add with AI, or fill in the form manually below.
-        </p>
+      <div className="flex items-center gap-1.5 text-[11px] font-mono text-muted-foreground/50 mb-6">
+        <button onClick={() => navigate("/")} className="hover:text-emerald-400 transition-colors" data-testid="button-back">pipeline</button>
+        <span className="text-muted-foreground/20">/</span>
+        <span className="text-foreground/80">new_deal</span>
       </div>
 
-        <div className="mb-8 pb-8 border-b">
-          <h3 className="text-xs uppercase tracking-wider text-foreground font-medium mb-3 flex items-center gap-2">
-            <Sparkles className="w-3.5 h-3.5" />
-            AI Auto-Research
-          </h3>
-          <p className="text-sm text-muted-foreground mb-4">
-            Drop any link or text and a team of AI agents will identify, detect tokens, research, verify, and find critical due diligence reads.
-          </p>
+        <div className="mb-8 pb-8 border-b border-border/20">
+          <div className="flex items-center gap-2 mb-4 font-mono">
+            <span className="text-emerald-500/50 text-xs">$</span>
+            <span className="text-xs text-muted-foreground/60">bookmark research</span>
+          </div>
           <div className="space-y-3">
-            <Input
-              value={enrichInput}
-              onChange={(e) => setEnrichInput(e.target.value)}
-              placeholder="Paste a URL, company name, tweet link, founder profile..."
-              onKeyDown={(e) => e.key === "Enter" && handleEnrichStream()}
-              disabled={isEnriching}
-              data-testid="input-enrich"
-            />
-            <p className="text-[11px] text-muted-foreground">
-              Works with: company websites, tweets, X/LinkedIn profiles, blog posts, Product Hunt, GitHub repos, or plain company names
+            <div className="flex items-center gap-2 border-b border-emerald-500/20 focus-within:border-emerald-500/40 transition-colors pb-2">
+              <span className="text-emerald-500/40 font-mono text-sm">{">"}</span>
+              <input
+                value={enrichInput}
+                onChange={(e) => setEnrichInput(e.target.value)}
+                placeholder="url, company name, tweet, founder profile..."
+                onKeyDown={(e) => e.key === "Enter" && handleEnrichStream()}
+                disabled={isEnriching}
+                className="flex-1 bg-transparent text-sm font-mono text-foreground outline-none placeholder:text-muted-foreground/20 disabled:opacity-30"
+                data-testid="input-enrich"
+              />
+            </div>
+            <p className="text-[10px] font-mono text-muted-foreground/25">
+              accepts: websites, tweets, x/linkedin profiles, blog posts, product hunt, github repos, company names
             </p>
 
             {pipelineStages.length > 0 && (
-              <div className="space-y-1.5 py-3" data-testid="pipeline-progress">
-                <p className="text-xs font-medium text-muted-foreground mb-2">Agent Pipeline</p>
+              <div className="py-3 font-mono" data-testid="pipeline-progress">
                 {(() => {
                   const tokenDetected = pipelineStages.some(s => s.agent === "token_identifier" && s.status === "complete" && s.hasLiquidToken);
                   const baseStages = [
-                    { key: "scraper", icon: Globe, label: "Web Scraper" },
-                    { key: "identifier", icon: Search, label: "Identifier Agent" },
-                    { key: "token_identifier", icon: Coins, label: "Token Identifier" },
+                    { key: "scraper", label: "web_scraper" },
+                    { key: "identifier", label: "identifier" },
+                    { key: "token_identifier", label: "token_identifier" },
                     ...(tokenDetected ? [
-                      { key: "contract_finder", icon: Link2, label: "Contract Finder" },
-                      { key: "contract_verifier", icon: BadgeCheck, label: "Contract Verifier" },
+                      { key: "contract_finder", label: "contract_finder" },
+                      { key: "contract_verifier", label: "contract_verifier" },
                     ] : []),
-                    { key: "researcher", icon: FileSearch, label: "Research Agent" },
-                    { key: "verify_clean", icon: ShieldCheck, label: "Verify & Clean Agent" },
-                    { key: "dd_reads", icon: FileText, label: "Due Diligence Reads" },
+                    { key: "researcher", label: "research_agent" },
+                    { key: "verify_clean", label: "verify_clean" },
+                    { key: "dd_reads", label: "dd_reads" },
                   ];
                   return baseStages;
-                })().map(({ key, icon: Icon, label }, idx, stages) => {
+                })().map(({ key, label }, idx) => {
                   const stage = pipelineStages.find((s) => s.agent === key);
                   const isActive = stage?.status === "running";
                   const isDone = stage?.status === "complete";
                   const isPending = !stage;
 
+                  const getStatusLine = () => {
+                    if (isDone && stage?.agent === "scraper") return stage.pagesFetched ? `fetched ${stage.pagesFetched} page(s)` : "no urls to fetch";
+                    if (isDone && stage?.agent === "identifier" && stage.companyName) return `identified: ${stage.companyName} (${stage.confidence})`;
+                    if (isDone && stage?.agent === "token_identifier") return stage.hasLiquidToken ? `${stage.tokenTicker} detected (${stage.tokenTier})` : "no liquid token";
+                    if (isDone && stage?.agent === "verify_clean") return stage.issuesFound === 0 ? "all claims verified" : `${stage.issuesFound} issue(s) cleaned`;
+                    if (isDone && stage?.agent === "dd_reads") return `${stage.readsFound || 0} reads found`;
+                    if (isDone) return "done";
+                    return null;
+                  };
+
                   return (
                     <div
                       key={key}
-                      className={`flex items-center gap-3 py-2 px-3 rounded-md transition-colors ${
-                        isActive ? "bg-accent/50" : ""
-                      }`}
+                      className="flex items-start gap-2 py-0.5"
                       data-testid={`pipeline-stage-${key}`}
                     >
-                      <div className="w-5 h-5 flex items-center justify-center">
-                        {isActive && <Loader2 className="w-4 h-4 animate-spin text-foreground" />}
-                        {isDone && <CheckCircle2 className="w-4 h-4 text-green-600" />}
-                        {isPending && <Icon className="w-4 h-4 text-muted-foreground/30" />}
-                      </div>
+                      <span className={`text-[11px] w-3 flex-shrink-0 ${isActive ? "text-emerald-400" : isDone ? "text-emerald-500/40" : "text-muted-foreground/15"}`}>
+                        {isActive ? "▶" : isDone ? "✓" : "○"}
+                      </span>
                       <div className="flex-1 min-w-0">
-                        <p className={`text-xs font-medium ${isPending ? "text-muted-foreground/30" : ""}`}>
+                        <span className={`text-[11px] ${isPending ? "text-muted-foreground/15" : isActive ? "text-foreground" : "text-muted-foreground/50"}`}>
                           {label}
-                        </p>
+                        </span>
                         {isActive && stage?.message && (
-                          <p className="text-[11px] text-muted-foreground">{stage.message}</p>
+                          <span className="text-[10px] text-emerald-500/50 ml-2">{stage.message}</span>
                         )}
-                        {isDone && stage?.agent === "scraper" && (
-                          <p className="text-[11px] text-green-600/70">
-                            {stage.pagesFetched
-                              ? `Fetched ${stage.pagesFetched} page${stage.pagesFetched === 1 ? "" : "s"}`
-                              : "No URLs to fetch"}
-                          </p>
+                        {isDone && getStatusLine() && (
+                          <span className="text-[10px] text-emerald-500/30 ml-2">{getStatusLine()}</span>
                         )}
-                        {isDone && stage?.agent === "identifier" && stage.companyName && (
-                          <p className="text-[11px] text-green-600/70">
-                            Identified: {stage.companyName} ({stage.confidence} confidence)
-                          </p>
-                        )}
-                        {isDone && stage?.agent === "token_identifier" && (
-                          <p className="text-[11px] text-green-600/70">
-                            {stage.hasLiquidToken
-                              ? `Liquid token detected: ${stage.tokenTicker} (${stage.tokenTier})`
-                              : "No liquid token detected"}
-                          </p>
-                        )}
-                        {isDone && stage?.agent === "verify_clean" && (
-                          <p className="text-[11px] text-green-600/70">
-                            {stage.issuesFound === 0
-                              ? "All claims verified — output clean"
-                              : `${stage.issuesFound} issue${stage.issuesFound === 1 ? "" : "s"} found and cleaned`}
-                          </p>
-                        )}
-                        {isDone && stage?.agent === "dd_reads" && (
-                          <p className="text-[11px] text-green-600/70">
-                            {stage.readsFound || 0} adjacent reads found
-                          </p>
-                        )}
+                        {isActive && <span className="text-emerald-400 animate-pulse ml-1">_</span>}
                       </div>
-                      <span className="text-[10px] text-muted-foreground/40 tabular-nums">{idx + 1}/{stages.length}</span>
                     </div>
                   );
                 })}
@@ -416,40 +372,39 @@ export default function AddDeal() {
             )}
 
             {enrichError && (
-              <div className="text-sm text-destructive">
-                <p>{enrichError}</p>
-              </div>
+              <p className="font-mono text-[11px] text-red-400/70">{enrichError}</p>
             )}
 
-            <Button
+            <button
               type="button"
               onClick={handleEnrichStream}
               disabled={!enrichInput.trim() || isEnriching}
-              className="w-full"
+              className="w-full py-2 font-mono text-xs border border-emerald-500/20 text-emerald-500/70 hover:text-emerald-400 hover:border-emerald-500/40 transition-colors disabled:opacity-20 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               data-testid="button-enrich"
             >
               {isEnriching ? (
                 <>
-                  <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
-                  Researching...
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  running agent pipeline...
                 </>
               ) : (
                 <>
-                  <Sparkles className="w-4 h-4 mr-1.5" />
-                  Add &amp; Research with AI
+                  <span className="text-emerald-500/30">$</span>
+                  research --auto
                 </>
               )}
-            </Button>
+            </button>
           </div>
         </div>
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">
           <div>
-            <h3 className="text-xs uppercase tracking-wider text-muted-foreground font-medium mb-4 flex items-center gap-2">
-              <Building2 className="w-3.5 h-3.5" />
-              Company Info
-            </h3>
+            <div className="flex items-center gap-2 mb-4 font-mono">
+              <span className="text-muted-foreground/20 text-[10px]">{">"}</span>
+              <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground/30">manual entry</span>
+              <span className="flex-1 border-t border-border/10" />
+            </div>
             <div className="space-y-4">
               <FormField
                 control={form.control}

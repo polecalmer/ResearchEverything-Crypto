@@ -493,3 +493,20 @@
 .report-link:hover {
   color: #1557b0;
 }
+
+.terminal-scrollbar::-webkit-scrollbar {
+  width: 4px;
+}
+
+.terminal-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.terminal-scrollbar::-webkit-scrollbar-thumb {
+  background: hsl(142 70% 45% / 0.15);
+  border-radius: 0;
+}
+
+.terminal-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: hsl(142 70% 45% / 0.3);
+}
