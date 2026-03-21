@@ -123,14 +123,32 @@ const COINGECKO_TICKER_TO_ID: Record<string, string> = {
   near: "near",
   ftm: "fantom",
   inj: "injective-protocol",
+  pump: "pump-fun",
+  ena: "ethena",
+  syrup: "maple-finance",
+  hnt: "helium",
 };
 
 async function fetchViaCoinGeckoId(
   ticker: string,
 ): Promise<{ data: any; mppCost: number }> {
-  const coinId = COINGECKO_TICKER_TO_ID[ticker.toLowerCase()];
+  let coinId = COINGECKO_TICKER_TO_ID[ticker.toLowerCase()];
   if (!coinId) {
-    return { data: null, mppCost: 0 };
+    try {
+      const searchUrl = `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(ticker)}`;
+      const searchRes = await fetch(searchUrl, { headers: { accept: "application/json" } });
+      if (searchRes.ok) {
+        const searchData = await searchRes.json();
+        const match = searchData.coins?.find((c: any) => c.symbol?.toLowerCase() === ticker.toLowerCase());
+        if (match?.id) {
+          coinId = match.id;
+          console.log(`[CoinGecko] Resolved ticker ${ticker} → ${coinId} via search`);
+        }
+      }
+    } catch {}
+    if (!coinId) {
+      return { data: null, mppCost: 0 };
+    }
   }
 
   const url = `https://api.coingecko.com/api/v3/coins/${coinId}?localization=false&tickers=false&community_data=false&developer_data=false`;
@@ -174,6 +192,7 @@ async function fetchViaPublicApi(
     base: "base",
     avalanche: "avalanche",
     bsc: "binance-smart-chain",
+    solana: "solana",
   };
 
   const platform = coingeckoChainMap[chain];
