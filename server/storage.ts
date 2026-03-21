@@ -6,11 +6,12 @@ import {
   type Report,
   type Transaction,
   type TokenProfile, type InsertTokenProfile,
+  type MasterDuneQuery, type InsertMasterDuneQuery,
   type DuneQuery, type InsertDuneQuery,
   type TokenAnalysis,
   type DashboardChart, type InsertDashboardChart,
   users, companies, founders, notes, reports, transactions,
-  tokenProfiles, duneQueries, tokenAnalyses, dashboardCharts,
+  tokenProfiles, masterDuneQueries, duneQueries, tokenAnalyses, dashboardCharts,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, sql } from "drizzle-orm";
@@ -59,6 +60,12 @@ export interface IStorage {
   getTokenProfile(companyId: string): Promise<TokenProfile | undefined>;
   upsertTokenProfile(data: InsertTokenProfile): Promise<TokenProfile>;
   deleteTokenProfile(companyId: string): Promise<void>;
+
+  getMasterDuneQueries(): Promise<MasterDuneQuery[]>;
+  getMasterDuneQuery(id: string): Promise<MasterDuneQuery | undefined>;
+  upsertMasterDuneQuery(data: InsertMasterDuneQuery): Promise<MasterDuneQuery>;
+  deleteMasterDuneQuery(id: string): Promise<boolean>;
+  searchMasterDuneQueries(protocolTag?: string, chainTag?: string, category?: string): Promise<MasterDuneQuery[]>;
 
   getDuneQueries(companyId: string): Promise<DuneQuery[]>;
   addDuneQuery(data: InsertDuneQuery): Promise<DuneQuery>;
@@ -312,6 +319,51 @@ export class DatabaseStorage implements IStorage {
 
   async deleteTokenProfile(companyId: string): Promise<void> {
     await db.delete(tokenProfiles).where(eq(tokenProfiles.companyId, companyId));
+  }
+
+  async getMasterDuneQueries(): Promise<MasterDuneQuery[]> {
+    return db.select().from(masterDuneQueries).where(eq(masterDuneQueries.isActive, true)).orderBy(masterDuneQueries.category, masterDuneQueries.label);
+  }
+
+  async getMasterDuneQuery(id: string): Promise<MasterDuneQuery | undefined> {
+    const [q] = await db.select().from(masterDuneQueries).where(eq(masterDuneQueries.id, id));
+    return q;
+  }
+
+  async upsertMasterDuneQuery(data: InsertMasterDuneQuery): Promise<MasterDuneQuery> {
+    const [result] = await db.insert(masterDuneQueries).values(data)
+      .onConflictDoUpdate({
+        target: masterDuneQueries.queryId,
+        set: {
+          label: data.label,
+          description: data.description,
+          category: data.category,
+          protocolTags: data.protocolTags,
+          chainTags: data.chainTags,
+          visualizationType: data.visualizationType,
+          sourceUrl: data.sourceUrl,
+          isActive: data.isActive ?? true,
+          updatedAt: sql`NOW()`,
+        },
+      })
+      .returning();
+    return result;
+  }
+
+  async deleteMasterDuneQuery(id: string): Promise<boolean> {
+    const result = await db.delete(masterDuneQueries).where(eq(masterDuneQueries.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async searchMasterDuneQueries(protocolTag?: string, chainTag?: string, category?: string): Promise<MasterDuneQuery[]> {
+    let query = db.select().from(masterDuneQueries).where(eq(masterDuneQueries.isActive, true));
+    const results = await query;
+    return results.filter(q => {
+      if (protocolTag && !(q.protocolTags || []).some(t => t.toLowerCase() === protocolTag.toLowerCase())) return false;
+      if (chainTag && !(q.chainTags || []).some(t => t.toLowerCase() === chainTag.toLowerCase())) return false;
+      if (category && q.category?.toLowerCase() !== category.toLowerCase()) return false;
+      return true;
+    });
   }
 
   async getDuneQueries(companyId: string): Promise<DuneQuery[]> {

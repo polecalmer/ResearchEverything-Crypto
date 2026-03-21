@@ -33,7 +33,7 @@ import {
   Users,
   DollarSign,
 } from "lucide-react";
-import type { TokenProfile, DuneQuery, TokenAnalysis } from "@shared/schema";
+import type { TokenProfile, DuneQuery, MasterDuneQuery, TokenAnalysis } from "@shared/schema";
 import {
   BarChart, Bar, LineChart as ReLineChart, Line,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -188,9 +188,115 @@ function TokenProfileManager({ companyId }: { companyId: string }) {
   );
 }
 
+function MasterQueryBrowser({ companyId, existingQueryIds, onAttach, onClose }: {
+  companyId: string;
+  existingQueryIds: number[];
+  onAttach: () => void;
+  onClose: () => void;
+}) {
+  const { toast } = useToast();
+  const { data: masterQueries = [], isLoading } = useQuery<MasterDuneQuery[]>({
+    queryKey: ["/api/master-dune-queries"],
+  });
+
+  const attachMutation = useMutation({
+    mutationFn: async (mq: MasterDuneQuery) => {
+      await apiRequest("POST", `/api/companies/${companyId}/dune-queries`, {
+        queryId: mq.queryId,
+        label: mq.label,
+        visualizationType: mq.visualizationType,
+        displayOrder: existingQueryIds.length,
+        masterQueryId: mq.id,
+      });
+    },
+    onSuccess: () => {
+      toast({ title: "Query attached" });
+      onAttach();
+    },
+    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const available = masterQueries.filter(mq => !existingQueryIds.includes(mq.queryId));
+  const categories = [...new Set(available.map(q => q.category).filter(Boolean))];
+
+  if (isLoading) return <Skeleton className="h-16 w-full" />;
+
+  return (
+    <div className="space-y-2 pt-2 border-t border-border/30">
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Query Library</p>
+        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={onClose}>Close</Button>
+      </div>
+      {available.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-3">No unattached queries in library</p>
+      ) : (
+        <div className="space-y-1 max-h-48 overflow-y-auto">
+          {categories.map(cat => (
+            <div key={cat}>
+              <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mt-2 mb-1">{cat}</p>
+              {available.filter(q => q.category === cat).map(mq => (
+                <div key={mq.id} className="flex items-center justify-between py-1 px-2 rounded-md hover:bg-accent/20 transition-colors" data-testid={`master-query-${mq.id}`}>
+                  <div className="min-w-0">
+                    <p className="text-xs truncate">{mq.label}</p>
+                    <div className="flex gap-1 mt-0.5">
+                      {(mq.protocolTags || []).slice(0, 3).map(t => (
+                        <span key={t} className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400">{t}</span>
+                      ))}
+                      <span className="text-[9px] text-muted-foreground/50 font-mono">#{mq.queryId}</span>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs shrink-0"
+                    onClick={() => attachMutation.mutate(mq)}
+                    disabled={attachMutation.isPending}
+                    data-testid={`button-attach-${mq.id}`}
+                  >
+                    <Plus className="w-3 h-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          ))}
+          {available.filter(q => !q.category).length > 0 && (
+            <div>
+              <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mt-2 mb-1">Uncategorized</p>
+              {available.filter(q => !q.category).map(mq => (
+                <div key={mq.id} className="flex items-center justify-between py-1 px-2 rounded-md hover:bg-accent/20 transition-colors" data-testid={`master-query-${mq.id}`}>
+                  <div className="min-w-0">
+                    <p className="text-xs truncate">{mq.label}</p>
+                    <div className="flex gap-1 mt-0.5">
+                      {(mq.protocolTags || []).slice(0, 3).map(t => (
+                        <span key={t} className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400">{t}</span>
+                      ))}
+                      <span className="text-[9px] text-muted-foreground/50 font-mono">#{mq.queryId}</span>
+                    </div>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 text-xs shrink-0"
+                    onClick={() => attachMutation.mutate(mq)}
+                    disabled={attachMutation.isPending}
+                    data-testid={`button-attach-${mq.id}`}
+                  >
+                    <Plus className="w-3 h-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DuneQueryManager({ companyId }: { companyId: string }) {
   const { toast } = useToast();
   const [adding, setAdding] = useState(false);
+  const [browsing, setBrowsing] = useState(false);
   const [queryId, setQueryId] = useState("");
   const [label, setLabel] = useState("");
   const [vizType, setVizType] = useState("table");
@@ -231,6 +337,22 @@ function DuneQueryManager({ companyId }: { companyId: string }) {
       queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "dune-queries"] });
       toast({ title: "Query removed" });
     },
+  });
+
+  const autoAttachMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", `/api/companies/${companyId}/auto-attach-dune-queries`);
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "dune-queries"] });
+      if (data.attached > 0) {
+        toast({ title: `${data.attached} queries attached from library` });
+      } else {
+        toast({ title: "No matching queries found in library" });
+      }
+    },
+    onError: (err: any) => toast({ title: "Auto-attach failed", description: err.message, variant: "destructive" }),
   });
 
   if (isLoading) return <Skeleton className="h-16 w-full" />;
@@ -283,11 +405,37 @@ function DuneQueryManager({ companyId }: { companyId: string }) {
             </Button>
           </div>
         </div>
+      ) : browsing ? (
+        <MasterQueryBrowser
+          companyId={companyId}
+          existingQueryIds={queries.map(q => q.queryId)}
+          onAttach={() => {
+            queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "dune-queries"] });
+            setBrowsing(false);
+          }}
+          onClose={() => setBrowsing(false)}
+        />
       ) : (
-        <Button variant="outline" size="sm" className="w-full text-xs h-7" onClick={() => setAdding(true)} data-testid="button-add-dune-query">
-          <Plus className="w-3 h-3 mr-1.5" />
-          Add Dune Query
-        </Button>
+        <div className="flex gap-1.5">
+          <Button variant="outline" size="sm" className="flex-1 text-xs h-7" onClick={() => setAdding(true)} data-testid="button-add-dune-query">
+            <Plus className="w-3 h-3 mr-1.5" />
+            Manual Add
+          </Button>
+          <Button variant="outline" size="sm" className="flex-1 text-xs h-7" onClick={() => setBrowsing(true)} data-testid="button-browse-library">
+            <Database className="w-3 h-3 mr-1.5" />
+            From Library
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs h-7"
+            onClick={() => autoAttachMutation.mutate()}
+            disabled={autoAttachMutation.isPending}
+            data-testid="button-auto-attach"
+          >
+            {autoAttachMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+          </Button>
+        </div>
       )}
     </div>
   );

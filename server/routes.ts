@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertCompanySchema, insertFounderSchema, insertNoteSchema, insertTokenProfileSchema, insertDuneQuerySchema, PIPELINE_STAGES } from "@shared/schema";
+import { insertCompanySchema, insertFounderSchema, insertNoteSchema, insertTokenProfileSchema, insertDuneQuerySchema, insertMasterDuneQuerySchema, PIPELINE_STAGES } from "@shared/schema";
 import { z } from "zod";
 import {
   startEnrichmentSession, advanceEnrichmentSession,
@@ -43,6 +43,41 @@ const stepRequestSchema = z.object({
   }).optional(),
   mppCost: z.number().optional(),
 });
+
+async function autoAttachMasterQueries(company: { id: string; name: string; tokenTicker?: string | null; tokenChain?: string | null }) {
+  const existing = await storage.getDuneQueries(company.id);
+  const existingQueryIds = new Set(existing.map(q => q.queryId));
+  const allMaster = await storage.getMasterDuneQueries();
+
+  const companyNameLower = company.name.toLowerCase();
+  const ticker = company.tokenTicker?.toLowerCase();
+  const chain = company.tokenChain?.toLowerCase();
+
+  let attachCount = 0;
+  for (const mq of allMaster) {
+    if (existingQueryIds.has(mq.queryId)) continue;
+    const tags = (mq.protocolTags || []).map(t => t.toLowerCase());
+    const chains = (mq.chainTags || []).map(t => t.toLowerCase());
+
+    const tagMatch = tags.some(t => companyNameLower.includes(t) || (ticker && t === ticker));
+    const chainMatch = chain && chains.includes(chain);
+
+    if (tagMatch || chainMatch) {
+      await storage.addDuneQuery({
+        companyId: company.id,
+        queryId: mq.queryId,
+        label: mq.label,
+        visualizationType: mq.visualizationType,
+        displayOrder: existing.length + attachCount,
+        masterQueryId: mq.id,
+      });
+      attachCount++;
+    }
+  }
+  if (attachCount > 0) {
+    console.log(`[Auto] Attached ${attachCount} master Dune queries to ${company.name}`);
+  }
+}
 
 export async function registerRoutes(
   httpServer: Server,
@@ -502,6 +537,7 @@ export async function registerRoutes(
           tokenTicker: company.tokenTicker,
         });
         console.log(`[Auto] Created token profile for ${company.name} (${company.tokenTicker})`);
+        autoAttachMasterQueries(company).catch(err => console.warn(`[Auto] Failed to auto-attach queries:`, err));
       } catch (err) {
         console.warn(`[Auto] Failed to auto-create token profile:`, err);
       }
@@ -665,6 +701,107 @@ export async function registerRoutes(
     if (!company) return res.status(404).json({ message: "Company not found" });
     await storage.deleteTokenProfile(req.params.id);
     res.status(204).end();
+  });
+
+  app.get("/api/master-dune-queries", requireAuth, async (req, res) => {
+    try {
+      const { protocol, chain, category } = req.query;
+      if (protocol || chain || category) {
+        const results = await storage.searchMasterDuneQueries(
+          protocol as string | undefined,
+          chain as string | undefined,
+          category as string | undefined
+        );
+        return res.json(results);
+      }
+      const queries = await storage.getMasterDuneQueries();
+      res.json(queries);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to fetch master queries" });
+    }
+  });
+
+  app.post("/api/master-dune-queries", requireAuth, async (req, res) => {
+    try {
+      const parsed = insertMasterDuneQuerySchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.errors });
+      const query = await storage.upsertMasterDuneQuery(parsed.data);
+      res.status(201).json(query);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Failed to save master query" });
+    }
+  });
+
+  app.post("/api/master-dune-queries/sync", requireAuth, async (req, res) => {
+    try {
+      const { queries } = req.body;
+      if (!Array.isArray(queries)) return res.status(400).json({ message: "Expected { queries: [...] }" });
+      const results = [];
+      for (const q of queries) {
+        const parsed = insertMasterDuneQuerySchema.safeParse(q);
+        if (parsed.success) {
+          const saved = await storage.upsertMasterDuneQuery(parsed.data);
+          results.push(saved);
+        }
+      }
+      res.json({ synced: results.length, queries: results });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Sync failed" });
+    }
+  });
+
+  app.delete("/api/master-dune-queries/:id", requireAuth, async (req, res) => {
+    const deleted = await storage.deleteMasterDuneQuery(req.params.id);
+    if (!deleted) return res.status(404).json({ message: "Query not found" });
+    res.status(204).end();
+  });
+
+  app.post("/api/companies/:id/auto-attach-dune-queries", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const company = await storage.getCompany(req.params.id, userId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+
+      const existing = await storage.getDuneQueries(req.params.id);
+      const existingQueryIds = new Set(existing.map(q => q.queryId));
+
+      const allMaster = await storage.getMasterDuneQueries();
+      const matched: typeof allMaster = [];
+
+      const companyNameLower = company.name.toLowerCase();
+      const ticker = company.tokenTicker?.toLowerCase();
+      const chain = company.tokenChain?.toLowerCase();
+
+      for (const mq of allMaster) {
+        if (existingQueryIds.has(mq.queryId)) continue;
+
+        const tags = (mq.protocolTags || []).map(t => t.toLowerCase());
+        const chains = (mq.chainTags || []).map(t => t.toLowerCase());
+
+        if (tags.some(t => companyNameLower.includes(t) || (ticker && t === ticker))) {
+          matched.push(mq);
+        } else if (chain && chains.includes(chain)) {
+          matched.push(mq);
+        }
+      }
+
+      const attached = [];
+      for (const mq of matched) {
+        const added = await storage.addDuneQuery({
+          companyId: req.params.id,
+          queryId: mq.queryId,
+          label: mq.label,
+          visualizationType: mq.visualizationType,
+          displayOrder: existing.length + attached.length,
+          masterQueryId: mq.id,
+        });
+        attached.push(added);
+      }
+
+      res.json({ attached: attached.length, queries: attached, matchedFrom: matched.length });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message || "Auto-attach failed" });
+    }
   });
 
   app.get("/api/companies/:id/dune-queries", requireAuth, async (req, res) => {

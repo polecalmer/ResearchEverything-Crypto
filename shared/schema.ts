@@ -95,6 +95,21 @@ export const tokenProfiles = pgTable("token_profiles", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const masterDuneQueries = pgTable("master_dune_queries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  queryId: integer("query_id").notNull().unique(),
+  label: text("label").notNull(),
+  description: text("description"),
+  category: text("category"),
+  protocolTags: text("protocol_tags").array().default([]),
+  chainTags: text("chain_tags").array().default([]),
+  visualizationType: text("visualization_type").notNull().default("table"),
+  sourceUrl: text("source_url"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 export const duneQueries = pgTable("dune_queries", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   companyId: varchar("company_id").notNull(),
@@ -102,6 +117,7 @@ export const duneQueries = pgTable("dune_queries", {
   label: text("label").notNull(),
   visualizationType: text("visualization_type").notNull().default("table"),
   displayOrder: integer("display_order").notNull().default(0),
+  masterQueryId: varchar("master_query_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
@@ -161,6 +177,12 @@ export const insertTokenProfileSchema = createInsertSchema(tokenProfiles).omit({
   createdAt: true,
 });
 
+export const insertMasterDuneQuerySchema = createInsertSchema(masterDuneQueries).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
 export const insertDuneQuerySchema = createInsertSchema(duneQueries).omit({
   id: true,
   createdAt: true,
@@ -175,6 +197,8 @@ export type InsertNote = z.infer<typeof insertNoteSchema>;
 export type Report = typeof reports.$inferSelect;
 export type TokenProfile = typeof tokenProfiles.$inferSelect;
 export type InsertTokenProfile = z.infer<typeof insertTokenProfileSchema>;
+export type MasterDuneQuery = typeof masterDuneQueries.$inferSelect;
+export type InsertMasterDuneQuery = z.infer<typeof insertMasterDuneQuerySchema>;
 export type DuneQuery = typeof duneQueries.$inferSelect;
 export type InsertDuneQuery = z.infer<typeof insertDuneQuerySchema>;
 export type TokenAnalysis = typeof tokenAnalyses.$inferSelect;

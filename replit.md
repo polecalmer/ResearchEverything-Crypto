@@ -76,7 +76,8 @@ All AI agents use Claude Opus 4.6 with web search capabilities. Liquid token pro
 Company detail pages feature four tabs: "Project Intelligence" (deal content), "Token Intelligence" (profiles, snapshots, Dune queries), "Research Report" (full-page AI analysis, liquid-token companies only), and "Data" (AI-powered chart dashboard). The Token Intelligence tab includes:
 - Token profile management (contract address, chain, ticker)
 - Token snapshot card (price, market cap, 24h volume, holder count, price change) via Allium MPP (with CoinGecko fallback)
-- Dune Analytics query manager (add pre-built queries by ID, visualize as bar/line/area/table via Recharts)
+- Master Dune Query Library (`master_dune_queries` table) — centralized catalog of all Dune queries with protocol/chain tags, categories, descriptions. Synced from external database via `/api/master-dune-queries/sync` endpoint. Queries auto-attach to relevant companies based on tag matching when token profiles are created, or manually via "From Library" browser or auto-attach button.
+- Dune Analytics query manager (add pre-built queries by ID, browse from master library, auto-attach by protocol/chain tags, visualize as bar/line/area/table via Recharts)
 - AI token analysis agent with query selection logic (background job, same pattern as deep research — server runs async, client polls). Agent selects relevant Dune queries from user's attached set, fetches token snapshot, and produces structured analysis.
 - MPP paywall (user→owner): $0.50 flat fee on any AI feature
 - MPP deposit caps (server→Anthropic/Allium maxDeposit): enrichment $0.50, deep research $1.50, token analysis $1.50, Allium $0.50
