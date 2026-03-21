@@ -24,6 +24,7 @@ import {
   YAxis,
   Tooltip,
   CartesianGrid,
+  Legend,
 } from "recharts";
 import { format } from "date-fns";
 
@@ -33,27 +34,24 @@ interface DataTabProps {
 }
 
 const CHART_COLORS = [
-  "#4ade80", "#2dd4bf", "#38bdf8", "#818cf8",
-  "#a78bfa", "#f472b6", "#fb923c", "#facc15",
+  "#38bdf8", "#2dd4bf", "#818cf8", "#a78bfa",
+  "#4ade80", "#f472b6", "#fb923c", "#facc15",
 ];
 
 function smartFormat(value: number, fmt?: string): string {
   if (fmt === "currency") {
     const abs = Math.abs(value);
-    if (abs >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
-    if (abs >= 1e6) return `$${(value / 1e6).toFixed(1)}M`;
+    if (abs >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
+    if (abs >= 1e6) return `$${(value / 1e6).toFixed(2)}M`;
     if (abs >= 1e3) return `$${(value / 1e3).toFixed(1)}K`;
     return `$${value.toFixed(0)}`;
   }
   if (fmt === "percent") {
-    const abs = Math.abs(value);
-    if (abs >= 1e6) return `${(value / 1e6).toFixed(1)}M%`;
-    if (abs >= 1e3) return `${(value / 1e3).toFixed(1)}K%`;
     return `${value.toFixed(1)}%`;
   }
   const abs = Math.abs(value);
-  if (abs >= 1e9) return `${(value / 1e9).toFixed(1)}B`;
-  if (abs >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
+  if (abs >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
   if (abs >= 1e3) return `${(value / 1e3).toFixed(1)}K`;
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
@@ -64,31 +62,39 @@ function smartTooltip(value: number, fmt?: string): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 });
 }
 
+function toUnixSec(val: any): number | null {
+  if (typeof val === "number") {
+    if (val > 1e12) return val / 1000;
+    return val;
+  }
+  if (typeof val === "string") {
+    const d = new Date(val);
+    if (!isNaN(d.getTime())) return d.getTime() / 1000;
+  }
+  return null;
+}
+
 function buildDateFormatter(data: any[], xKey: string) {
   let minYear = Infinity;
   let maxYear = -Infinity;
   for (const d of data) {
-    let ts = d[xKey];
+    const ts = d[xKey];
     if (typeof ts !== "number") continue;
-    if (ts > 1e12) ts = ts / 1000;
     try {
       const yr = new Date(ts * 1000).getFullYear();
       if (yr < minYear) minYear = yr;
       if (yr > maxYear) maxYear = yr;
     } catch {}
   }
-  const spansYears = maxYear > minYear;
-  let lastYear = -1;
+  const spansYears = maxYear > minYear && minYear > 1970;
 
   return {
     tickFormatter: (ts: number) => {
-      if (ts > 1e12) ts = ts / 1000;
       try {
         const d = new Date(ts * 1000);
-        const yr = d.getFullYear();
-        if (spansYears && yr !== lastYear) {
-          lastYear = yr;
-          return `${format(d, "MMM d")}\n${yr}`;
+        if (d.getFullYear() < 1971) return "";
+        if (spansYears) {
+          return `${format(d, "MMM d")}\n${format(d, "yyyy")}`;
         }
         return format(d, "MMM d");
       } catch {
@@ -97,8 +103,11 @@ function buildDateFormatter(data: any[], xKey: string) {
     },
     tooltipFormatter: (ts: any) => {
       if (typeof ts !== "number") return String(ts);
-      if (ts > 1e12) ts = ts / 1000;
-      try { return format(new Date(ts * 1000), "MMM d, yyyy"); } catch { return String(ts); }
+      try {
+        const d = new Date(ts * 1000);
+        if (d.getFullYear() < 1971) return String(ts);
+        return format(d, "MMM d, yyyy");
+      } catch { return String(ts); }
     },
   };
 }
@@ -160,14 +169,16 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
     </div>
   );
 
+  const cardClass = "rounded-lg border border-white/[0.06] bg-[rgba(255,255,255,0.015)] p-5";
+
   if (chart.status === "pending") {
     return (
-      <div className="rounded-lg border border-white/[0.06] bg-white/[0.015] p-5" data-testid={`chart-card-${chart.id}`}>
+      <div className={cardClass} data-testid={`chart-card-${chart.id}`}>
         <div className="flex items-center justify-between mb-3">
           <p className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{chart.title}</p>
           {chartActions}
         </div>
-        <div className="flex flex-col items-center justify-center h-40 gap-2">
+        <div className="flex flex-col items-center justify-center h-48 gap-2">
           <RefreshCw className="w-4 h-4 text-white/10" />
           <span className="text-[11px] text-white/20">Click refresh to load data</span>
         </div>
@@ -177,11 +188,11 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
 
   if (chart.status === "generating") {
     return (
-      <div className="rounded-lg border border-white/[0.06] bg-white/[0.015] p-5" data-testid={`chart-card-${chart.id}`}>
+      <div className={cardClass} data-testid={`chart-card-${chart.id}`}>
         <div className="flex items-center justify-between mb-3">
           <p className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{chart.title}</p>
         </div>
-        <div className="flex items-center justify-center h-40 gap-2">
+        <div className="flex items-center justify-center h-48 gap-2">
           <Loader2 className="w-4 h-4 animate-spin text-white/20" />
           <span className="text-[11px] text-white/20">Fetching data...</span>
         </div>
@@ -191,12 +202,12 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
 
   if (chart.status === "failed") {
     return (
-      <div className="rounded-lg border border-white/[0.06] bg-white/[0.015] p-5" data-testid={`chart-card-${chart.id}`}>
+      <div className={cardClass} data-testid={`chart-card-${chart.id}`}>
         <div className="flex items-center justify-between mb-3">
           <p className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{chart.title}</p>
           {chartActions}
         </div>
-        <div className="flex items-center justify-center h-40 gap-2">
+        <div className="flex items-center justify-center h-48 gap-2">
           <AlertTriangle className="w-3.5 h-3.5 text-red-400/40" />
           <span className="text-[11px] text-red-400/50">{chart.errorMessage || "Failed to fetch data"}</span>
         </div>
@@ -219,10 +230,11 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
 
   const processedData = chartData.map((d: any) => {
     const processed = { ...d };
-    if (isDate && processed[xAxis.dataKey]) {
-      let ts = processed[xAxis.dataKey];
-      if (typeof ts === 'string') ts = new Date(ts).getTime() / 1000;
-      processed[xAxis.dataKey] = ts;
+    if (isDate && processed[xAxis.dataKey] != null) {
+      const converted = toUnixSec(processed[xAxis.dataKey]);
+      if (converted !== null) {
+        processed[xAxis.dataKey] = converted;
+      }
     }
     return processed;
   }).sort((a: any, b: any) => {
@@ -235,7 +247,7 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
   if (chart.chartType === "table") {
     const columns = chartConfig.columns || (chartData[0] ? Object.keys(chartData[0]) : []);
     return (
-      <div className="rounded-lg border border-white/[0.06] bg-white/[0.015] p-5" data-testid={`chart-card-${chart.id}`}>
+      <div className={cardClass} data-testid={`chart-card-${chart.id}`}>
         <div className="flex items-center justify-between mb-3">
           <p className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{chart.title}</p>
           {chartActions}
@@ -292,57 +304,60 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
   const primaryColor = primary.color || CHART_COLORS[0];
   const primaryFmt = primary.format;
   const cType = chart.chartType || "line";
-  const isBarType = cType === "bar";
   const numPoints = processedData.length;
+  const multiMetric = yAxes.length > 1;
 
   const dateFmt = isDate ? buildDateFormatter(processedData, xAxis.dataKey) : null;
 
-  const tickInterval = isBarType
+  const tickInterval = cType === "bar"
     ? (numPoints <= 24 ? 0 : Math.floor(numPoints / 12))
     : (numPoints <= 30 ? 0 : undefined);
 
-  const xAxisConfig = (
+  const xAxisEl = (
     <XAxis
       dataKey={xAxis.dataKey}
       tickFormatter={isDate ? dateFmt!.tickFormatter : undefined}
-      tick={{ fontSize: 10, fill: "rgba(255,255,255,0.35)" }}
+      tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)" }}
       axisLine={{ stroke: "rgba(255,255,255,0.06)" }}
       tickLine={false}
       interval={tickInterval}
       angle={numPoints > 20 ? -45 : 0}
       textAnchor={numPoints > 20 ? "end" : "middle"}
-      height={numPoints > 20 ? 60 : 30}
+      height={numPoints > 20 ? 55 : 30}
     />
   );
 
-  const yAxisConfig = (
+  const yAxisEl = (
     <YAxis
       tickFormatter={(v: number) => smartFormat(v, primaryFmt)}
-      tick={{ fontSize: 10, fill: "rgba(255,255,255,0.35)" }}
+      tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)" }}
       axisLine={false}
       tickLine={false}
       width={60}
     />
   );
 
-  const tooltipConfig = (
+  const tooltipEl = (
     <Tooltip
       contentStyle={{
-        backgroundColor: "rgba(10,10,12,0.95)",
+        backgroundColor: "rgba(8,8,12,0.95)",
         border: "1px solid rgba(255,255,255,0.1)",
         borderRadius: "6px",
         fontSize: "12px",
         padding: "8px 12px",
         color: "rgba(255,255,255,0.8)",
       }}
-      labelStyle={{ color: "rgba(255,255,255,0.4)", fontSize: "10px", marginBottom: "2px" }}
+      labelStyle={{ color: "rgba(255,255,255,0.35)", fontSize: "10px", marginBottom: "4px" }}
       labelFormatter={isDate ? dateFmt!.tooltipFormatter : (l: any) => String(l)}
-      formatter={(value: any) => [smartTooltip(value, primaryFmt), primary.label || primary.dataKey]}
+      formatter={(value: any, name: string) => {
+        const axis = yAxes.find((y: any) => y.dataKey === name);
+        return [smartTooltip(value, axis?.format || primaryFmt), axis?.label || name.replace(/_/g, " ")];
+      }}
       cursor={{ fill: "rgba(255,255,255,0.03)" }}
     />
   );
 
-  const gridConfig = (
+  const gridEl = (
     <CartesianGrid
       strokeDasharray="3 3"
       stroke="rgba(255,255,255,0.04)"
@@ -350,67 +365,87 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
     />
   );
 
-  const chartHeight = isBarType ? 280 : (numPoints > 100 ? 260 : 240);
+  const chartHeight = 280;
+
+  const legendEl = multiMetric ? (
+    <Legend
+      verticalAlign="top"
+      align="left"
+      height={28}
+      iconType="plainline"
+      iconSize={12}
+      wrapperStyle={{ fontSize: "10px", color: "rgba(255,255,255,0.4)", paddingBottom: "4px" }}
+      formatter={(value: string) => {
+        const axis = yAxes.find((y: any) => y.dataKey === value);
+        return axis?.label || value.replace(/_/g, " ");
+      }}
+    />
+  ) : null;
 
   const renderChart = () => {
     if (cType === "bar") {
       return (
-        <BarChart data={processedData} margin={{ top: 12, right: 16, left: 0, bottom: 4 }}>
-          {gridConfig}
-          {xAxisConfig}
-          {yAxisConfig}
-          {tooltipConfig}
-          <Bar
-            dataKey={primary.dataKey}
-            fill={primaryColor}
-            radius={[3, 3, 0, 0]}
-            maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20}
-          />
+        <BarChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+          {gridEl}
+          {xAxisEl}
+          {yAxisEl}
+          {tooltipEl}
+          {legendEl}
+          {yAxes.map((y: any, i: number) => (
+            <Bar
+              key={y.dataKey}
+              dataKey={y.dataKey}
+              fill={y.color || CHART_COLORS[i]}
+              radius={[3, 3, 0, 0]}
+              maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20}
+            />
+          ))}
         </BarChart>
       );
     }
     if (cType === "area") {
       return (
-        <AreaChart data={processedData} margin={{ top: 12, right: 16, left: 0, bottom: 4 }}>
-          {gridConfig}
-          {xAxisConfig}
-          {yAxisConfig}
-          {tooltipConfig}
-          <defs>
-            <linearGradient id={`grad-${chart.id}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={primaryColor} stopOpacity={0.25} />
-              <stop offset="100%" stopColor={primaryColor} stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <Area type="monotone" dataKey={primary.dataKey} stroke={primaryColor} strokeWidth={1.5} fill={`url(#grad-${chart.id})`} dot={false} />
+        <AreaChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+          {gridEl}
+          {xAxisEl}
+          {yAxisEl}
+          {tooltipEl}
+          {legendEl}
+          {yAxes.map((y: any, i: number) => {
+            const c = y.color || CHART_COLORS[i];
+            return (
+              <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={c} strokeWidth={1.5} fill={c} fillOpacity={0.1} dot={false} />
+            );
+          })}
         </AreaChart>
       );
     }
     return (
-      <LineChart data={processedData} margin={{ top: 12, right: 16, left: 0, bottom: 4 }}>
-        {gridConfig}
-        {xAxisConfig}
-        {yAxisConfig}
-        {tooltipConfig}
-        <Line
-          type="monotone"
-          dataKey={primary.dataKey}
-          stroke={primaryColor}
-          strokeWidth={1.5}
-          dot={false}
-          activeDot={{ r: 3, fill: primaryColor, stroke: "rgba(0,0,0,0.5)", strokeWidth: 1 }}
-        />
+      <LineChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+        {gridEl}
+        {xAxisEl}
+        {yAxisEl}
+        {tooltipEl}
+        {legendEl}
+        {yAxes.map((y: any, i: number) => (
+          <Line
+            key={y.dataKey}
+            type="monotone"
+            dataKey={y.dataKey}
+            stroke={y.color || CHART_COLORS[i]}
+            strokeWidth={1.5}
+            dot={false}
+            activeDot={{ r: 3, fill: y.color || CHART_COLORS[i], stroke: "rgba(0,0,0,0.5)", strokeWidth: 1 }}
+          />
+        ))}
       </LineChart>
     );
   };
 
   return (
-    <div className="rounded-lg border border-white/[0.06] bg-white/[0.015] p-5" data-testid={`chart-card-${chart.id}`}>
+    <div className={cardClass} data-testid={`chart-card-${chart.id}`}>
       <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-2">
-          <span className="w-3 h-[3px] rounded-full" style={{ backgroundColor: primaryColor }} />
-          <p className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{chart.title}</p>
-        </div>
+        <p className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{chart.title}</p>
         {chartActions}
       </div>
       <ResponsiveContainer width="100%" height={chartHeight}>
@@ -476,14 +511,14 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder={`What data do you want? e.g. "${companyName} TVL over 90 days" or "Price vs Revenue"`}
-              className="w-full h-9 px-3 pr-10 text-xs rounded-md border border-white/[0.06] bg-white/[0.02] text-foreground placeholder:text-white/20 focus:outline-none focus:border-teal-500/20 transition-colors"
+              className="w-full h-9 px-3 pr-10 text-xs rounded-md border border-white/[0.06] bg-white/[0.02] text-foreground placeholder:text-white/20 focus:outline-none focus:border-sky-500/20 transition-colors"
               disabled={generateMutation.isPending}
               data-testid="input-chart-prompt"
             />
             <button
               type="submit"
               disabled={!prompt.trim() || generateMutation.isPending}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded text-white/25 hover:text-teal-400 disabled:opacity-30 transition-colors"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded text-white/25 hover:text-sky-400 disabled:opacity-30 transition-colors"
               data-testid="button-submit-chart"
             >
               {generateMutation.isPending ? (
@@ -523,7 +558,7 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
               <button
                 key={s}
                 onClick={() => setPrompt(s)}
-                className="text-[11px] px-2.5 py-1 rounded-full border border-white/[0.06] text-white/25 hover:text-teal-400 hover:border-teal-500/20 transition-colors"
+                className="text-[11px] px-2.5 py-1 rounded-full border border-white/[0.06] text-white/25 hover:text-sky-400 hover:border-sky-500/20 transition-colors"
                 data-testid={`suggestion-${s.replace(/\s+/g, "-").toLowerCase()}`}
               >
                 {s}

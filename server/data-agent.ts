@@ -226,37 +226,7 @@ export async function refreshChartData(chartId: string): Promise<DashboardChart>
       errorMessage: null,
     };
 
-    if (existingChartConfig.autoDetect && chart.dataSource === "dune" && data.length > 0) {
-      const columns = Object.keys(data[0]);
-      const dateCol = columns.find(c => /date|time|day|week|month|block_time|period/i.test(c));
-      const numCols = columns.filter(c => c !== dateCol && typeof data[0][c] === "number");
-      const chartColors = ["#4ade80", "#2dd4bf", "#38bdf8", "#818cf8", "#a78bfa", "#f472b6", "#fb923c", "#facc15"];
-      const isCurrency = (col: string) => /usd|price|fee|revenue|volume|amount|cost|tvl|value|earnings|profit/i.test(col);
-      const isBarMetric = (col: string) => /volume|count|users|txn|transaction|trade|swap|deposit|withdraw|mint|burn|liquidat|revenue|fee/i.test(col);
-      const isGrowth = (col: string) => /growth|pct|percent|ratio|change|rate|apy|apr/i.test(col);
-
-      let finalChartConfig: any;
-      if (!dateCol || numCols.length === 0) {
-        finalChartConfig = { columns, autoDetect: true };
-        updates.chartConfig = JSON.stringify(finalChartConfig);
-      } else {
-        const primaryCol = numCols.find(c => !isGrowth(c) && !c.startsWith("prev_")) || numCols[0];
-        const fmt = isGrowth(primaryCol) ? "percent" : isCurrency(primaryCol) ? "currency" : "number";
-        finalChartConfig = {
-          autoDetect: true,
-          xAxis: { dataKey: dateCol, label: dateCol.replace(/_/g, " "), type: "date" },
-          yAxes: [{
-            dataKey: primaryCol,
-            label: primaryCol.replace(/_/g, " "),
-            color: chartColors[0],
-            yAxisId: "left",
-            format: fmt,
-          }],
-        };
-        if (isBarMetric(primaryCol)) updates.chartType = "bar";
-        updates.chartConfig = JSON.stringify(finalChartConfig);
-      }
-    }
+    // Preserve existing chart config on refresh — only update data, not chart type or config
 
     const updated = await storage.updateDashboardChart(chartId, updates);
     return updated || chart;
