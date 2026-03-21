@@ -115,6 +115,32 @@ export const tokenAnalyses = pgTable("token_analyses", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const dashboardCharts = pgTable("dashboard_charts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  chartType: text("chart_type").notNull().default("line"),
+  dataSource: text("data_source").notNull(),
+  dataSourceConfig: text("data_source_config").notNull(),
+  chartConfig: text("chart_config").notNull(),
+  data: text("data"),
+  status: text("status").notNull().default("generating"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertDashboardChartSchema = createInsertSchema(dashboardCharts).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type DashboardChart = typeof dashboardCharts.$inferSelect;
+export type InsertDashboardChart = z.infer<typeof insertDashboardChartSchema>;
+
 export const insertCompanySchema = createInsertSchema(companies).omit({
   id: true,
   userId: true,

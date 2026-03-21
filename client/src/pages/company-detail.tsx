@@ -20,6 +20,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { format } from "date-fns";
 import type { Report } from "@shared/schema";
 import TokenIntelligenceTab, { TokenReportTab } from "./token-intelligence";
+import DataTab from "./data-tab";
 
 const STAGE_COLORS: Record<PipelineStage, string> = {
   discovered: "text-blue-400",
@@ -416,7 +417,7 @@ export default function CompanyDetail() {
   const [, navigate] = useLocation();
   const [noteContent, setNoteContent] = useState("");
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<"deal" | "token" | "report">("deal");
+  const [activeTab, setActiveTab] = useState<"deal" | "token" | "report" | "data">("deal");
 
   const { data: company, isLoading: companyLoading } = useQuery<Company>({ queryKey: ["/api/companies", params.id] });
   const { data: founders = [] } = useQuery<Founder[]>({ queryKey: ["/api/companies", params.id, "founders"] });
@@ -591,6 +592,16 @@ export default function CompanyDetail() {
                 Research Report
               </button>
             )}
+            <button
+              role="tab"
+              aria-selected={activeTab === "data"}
+              aria-controls="panel-data"
+              onClick={() => setActiveTab("data")}
+              className={`text-xs px-3 py-1.5 rounded transition-colors ${activeTab === "data" ? "text-foreground bg-blue-500/15 dark:bg-blue-400/15" : "text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-accent/20"}`}
+              data-testid="tab-data"
+            >
+              Data
+            </button>
           </div>
         </div>
 
@@ -822,6 +833,10 @@ export default function CompanyDetail() {
         ) : activeTab === "report" ? (
           <div id="panel-report" role="tabpanel" aria-labelledby="tab-token-report">
             <TokenReportTab companyId={company.id} companyName={company.name} />
+          </div>
+        ) : activeTab === "data" ? (
+          <div id="panel-data" role="tabpanel" aria-labelledby="tab-data">
+            <DataTab companyId={company.id} companyName={company.name} />
           </div>
         ) : null}
       </div>

@@ -12,7 +12,8 @@ import {
   MARKUP_MULTIPLIER,
 } from "./enrichment";
 import { requireAuth } from "./auth";
-import { enrichmentPaywall, nextStepsPaywall, deepResearchPaywall, tokenIntelPaywall, duneQueryPaywall, tokenSnapshotPaywall } from "./mpp";
+import { enrichmentPaywall, nextStepsPaywall, deepResearchPaywall, tokenIntelPaywall, duneQueryPaywall, tokenSnapshotPaywall, dataChartPaywall } from "./mpp";
+import { runDataAgent, refreshChartData, DATA_CHART_CHARGE } from "./data-agent";
 import { fetchTokenSnapshot } from "./allium-client";
 import { executeDuneQuery, getLatestDuneResults, isDuneConfigured } from "./dune-client";
 import { runTokenAnalysis } from "./token-agent";
@@ -832,6 +833,94 @@ export async function registerRoutes(
 
   app.get("/api/dune/status", requireAuth, (_req, res) => {
     res.json({ configured: isDuneConfigured() });
+  });
+
+  // ─── DASHBOARD CHARTS ──────────────────────────────────────────────────
+
+  app.get("/api/companies/:id/charts", requireAuth, async (req, res) => {
+    try {
+      const charts = await storage.getDashboardChartsByCompany(req.params.id, req.user!.id);
+      res.json(charts);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/companies/:id/charts/generate", requireAuth, dataChartPaywall, async (req, res) => {
+    try {
+      const { prompt } = req.body;
+      if (!prompt || typeof prompt !== "string") {
+        return res.status(400).json({ message: "Prompt is required" });
+      }
+
+      const company = await storage.getCompany(req.params.id, req.user!.id);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+
+      const tokenProfile = await storage.getTokenProfile(company.id);
+      const duneQueries = await storage.getDuneQueries(company.id);
+
+      let tokenSnapshot = null;
+      if (tokenProfile) {
+        try {
+          const { snapshot } = await fetchTokenSnapshot(
+            tokenProfile.contractAddress || "",
+            tokenProfile.chain || "ethereum",
+            tokenProfile.tokenTicker || ""
+          );
+          tokenSnapshot = snapshot;
+        } catch {}
+      }
+
+      const result = await runDataAgent({
+        companyId: company.id,
+        companyName: company.name,
+        userId: req.user!.id,
+        userPrompt: prompt,
+        tokenProfile,
+        savedDuneQueries: duneQueries,
+        tokenSnapshot,
+      });
+
+      await storage.logTransaction({
+        userId: req.user!.id,
+        type: "data_chart",
+        description: `Chart generation: "${prompt.substring(0, 100)}"`,
+        amount: (result.totalCost * MARKUP_MULTIPLIER).toFixed(4),
+        apiCost: result.totalCost.toFixed(4),
+        companyName: company.name,
+      });
+
+      res.json({ charts: result.charts });
+    } catch (e: any) {
+      console.error("[Data Agent] Error:", e.message);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/charts/:id/refresh", requireAuth, async (req, res) => {
+    try {
+      const chart = await storage.getDashboardChart(req.params.id);
+      if (!chart) return res.status(404).json({ message: "Chart not found" });
+      if (chart.userId !== req.user!.id) return res.status(403).json({ message: "Not authorized" });
+
+      const updated = await refreshChartData(req.params.id);
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/charts/:id", requireAuth, async (req, res) => {
+    try {
+      const chart = await storage.getDashboardChart(req.params.id);
+      if (!chart) return res.status(404).json({ message: "Chart not found" });
+      if (chart.userId !== req.user!.id) return res.status(403).json({ message: "Not authorized" });
+
+      await storage.deleteDashboardChart(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
   });
 
   // ─── ADMIN ─────────────────────────────────────────────────────────────

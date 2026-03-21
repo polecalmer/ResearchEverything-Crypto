@@ -8,8 +8,9 @@ import {
   type TokenProfile, type InsertTokenProfile,
   type DuneQuery, type InsertDuneQuery,
   type TokenAnalysis,
+  type DashboardChart, type InsertDashboardChart,
   users, companies, founders, notes, reports, transactions,
-  tokenProfiles, duneQueries, tokenAnalyses,
+  tokenProfiles, duneQueries, tokenAnalyses, dashboardCharts,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, sql } from "drizzle-orm";
@@ -68,6 +69,12 @@ export interface IStorage {
   getTokenAnalysis(id: string): Promise<TokenAnalysis | undefined>;
   getTokenAnalysesByCompany(companyId: string, userId: string): Promise<TokenAnalysis[]>;
   deleteTokenAnalysis(id: string): Promise<void>;
+
+  createDashboardChart(data: InsertDashboardChart): Promise<DashboardChart>;
+  updateDashboardChart(id: string, data: Partial<Pick<DashboardChart, 'title' | 'description' | 'chartType' | 'chartConfig' | 'data' | 'status' | 'errorMessage' | 'updatedAt'>>): Promise<DashboardChart | undefined>;
+  getDashboardChart(id: string): Promise<DashboardChart | undefined>;
+  getDashboardChartsByCompany(companyId: string, userId: string): Promise<DashboardChart[]>;
+  deleteDashboardChart(id: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -350,6 +357,32 @@ export class DatabaseStorage implements IStorage {
 
   async deleteTokenAnalysis(id: string): Promise<void> {
     await db.delete(tokenAnalyses).where(eq(tokenAnalyses.id, id));
+  }
+
+  async createDashboardChart(data: InsertDashboardChart): Promise<DashboardChart> {
+    const [chart] = await db.insert(dashboardCharts).values(data).returning();
+    return chart;
+  }
+
+  async updateDashboardChart(id: string, data: Partial<Pick<DashboardChart, 'title' | 'description' | 'chartType' | 'chartConfig' | 'data' | 'status' | 'errorMessage' | 'updatedAt'>>): Promise<DashboardChart | undefined> {
+    const [updated] = await db.update(dashboardCharts).set({ ...data, updatedAt: new Date() }).where(eq(dashboardCharts.id, id)).returning();
+    return updated;
+  }
+
+  async getDashboardChart(id: string): Promise<DashboardChart | undefined> {
+    const [chart] = await db.select().from(dashboardCharts).where(eq(dashboardCharts.id, id));
+    return chart;
+  }
+
+  async getDashboardChartsByCompany(companyId: string, userId: string): Promise<DashboardChart[]> {
+    return db.select().from(dashboardCharts)
+      .where(and(eq(dashboardCharts.companyId, companyId), eq(dashboardCharts.userId, userId)))
+      .orderBy(desc(dashboardCharts.createdAt));
+  }
+
+  async deleteDashboardChart(id: string): Promise<boolean> {
+    const result = await db.delete(dashboardCharts).where(eq(dashboardCharts.id, id)).returning();
+    return result.length > 0;
   }
 }
 

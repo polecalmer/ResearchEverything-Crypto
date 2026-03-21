@@ -55,3 +55,10 @@ export const tokenSnapshotPaywall: RequestHandler = (req, res, next) => {
     description: `Token snapshot fetch ($${FLAT_FEE})`,
   })(req, res, next);
 };
+
+export const dataChartPaywall: RequestHandler = (req, res, next) => {
+  mppx.charge({
+    amount: FLAT_FEE,
+    description: `Data chart generation ($${FLAT_FEE})`,
+  })(req, res, next);
+};

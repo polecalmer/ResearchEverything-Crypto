@@ -73,14 +73,23 @@ All AI agents use Claude Opus 4.6 with web search capabilities. Liquid token pro
 4.  **Deep research architecture:** The `/reports/prepare` endpoint creates the report record, kicks off the Anthropic call as a background async task, and returns immediately. The client polls report status every 5s until complete. No HTTP timeout issues since the long AI call runs server-side.
 
 **Token Intelligence Dashboard:**
-Company detail pages feature two tabs: "Deal Intelligence" (existing content) and "Token Intelligence". The Token Intelligence tab includes:
+Company detail pages feature four tabs: "Project Intelligence" (deal content), "Token Intelligence" (profiles, snapshots, Dune queries), "Research Report" (full-page AI analysis, liquid-token companies only), and "Data" (AI-powered chart dashboard). The Token Intelligence tab includes:
 - Token profile management (contract address, chain, ticker)
 - Token snapshot card (price, market cap, 24h volume, holder count, price change) via Allium MPP (with CoinGecko fallback)
 - Dune Analytics query manager (add pre-built queries by ID, visualize as bar/line/area/table via Recharts)
 - AI token analysis agent with query selection logic (background job, same pattern as deep research — server runs async, client polls). Agent selects relevant Dune queries from user's attached set, fetches token snapshot, and produces structured analysis.
 - MPP paywall (user→owner): $0.50 flat fee on any AI feature
 - MPP deposit caps (server→Anthropic/Allium maxDeposit): enrichment $0.50, deep research $1.50, token analysis $1.50, Allium $0.50
-- Key files: `server/dune-client.ts`, `server/token-agent.ts`, `server/allium-client.ts`, `client/src/pages/token-intelligence.tsx`
+
+**Data Tab (AI Chart Dashboard):**
+The Data tab provides a chat-driven interface for building custom charts. Users describe what they want (e.g. "HYPE price vs revenue 90D"), and the Data Agent (Opus 4.6) determines the best data source, fetches data, and creates interactive Recharts visualizations. Supports:
+- Data sources: Dune Analytics (user's saved queries + public query IDs), DeFiLlama (TVL, fees, revenue), CoinGecko (price history via DeFiLlama coins API), Allium (real-time snapshots)
+- Chart types: line, bar, area, composed (multi-axis overlays)
+- Each chart is saved to `dashboard_charts` table with its data source config, so users can refresh for updated data anytime
+- Agent can create single or multiple charts from one request
+- Key files: `server/data-agent.ts`, `server/defillama-client.ts`, `client/src/pages/data-tab.tsx`
+
+Key files: `server/dune-client.ts`, `server/token-agent.ts`, `server/allium-client.ts`, `client/src/pages/token-intelligence.tsx`
 
 **Chrome Extension:** Manifest V3 extension facilitating quick capture. It creates a context menu item, injects content scripts for UI, and uses a background service worker to interact with the backend API.
 
@@ -92,6 +101,8 @@ Company detail pages feature two tabs: "Deal Intelligence" (existing content) an
 -   **ORM:** Drizzle ORM
 -   **Payments:** Stripe (for subscriptions and one-time credit purchases)
 -   **Blockchain/Wallet:** Tempo chain (chain ID 4217) for embedded wallets and USDC for transactions. Tempo MPP skill reference at `server/skills/tempo-mpp.md`.
+-   **DeFiLlama API:** Free public API for protocol TVL, fees, revenue, and coin price history
+-   **Dune Analytics:** On-chain data queries via API key (`DUNE_API_KEY`)
 -   **Telegram Bot Framework:** Grammy
 
 ## Skill Files
