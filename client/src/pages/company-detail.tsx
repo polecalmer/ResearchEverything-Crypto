@@ -40,6 +40,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import TokenIntelligenceTab from "./token-intelligence";
+import { Coins } from "lucide-react";
 
 const STAGE_DOT_COLORS: Record<PipelineStage, string> = {
   discovered: "bg-blue-500",
@@ -562,6 +565,19 @@ export default function CompanyDetail() {
               </div>
             </div>
 
+            <Tabs defaultValue="deal" className="w-full">
+              <TabsList className="w-full grid grid-cols-2 h-9 bg-accent/30 border border-border/50" data-testid="tabs-company-profile">
+                <TabsTrigger value="deal" className="text-xs gap-1.5 data-[state=active]:bg-background" data-testid="tab-deal-intelligence">
+                  <Building2 className="w-3 h-3" />
+                  Deal Intelligence
+                </TabsTrigger>
+                <TabsTrigger value="token" className="text-xs gap-1.5 data-[state=active]:bg-background" data-testid="tab-token-intelligence">
+                  <Coins className="w-3 h-3" />
+                  Token Intelligence
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="deal" className="mt-4 space-y-4">
             {company.description && (
               <Section title="About">
                 <p className="text-sm leading-relaxed text-foreground/90" data-testid="text-company-description">{company.description}</p>
@@ -707,6 +723,12 @@ export default function CompanyDetail() {
             <Section title="Deep Research">
               <DeepResearchSection companyId={company.id} companyName={company.name} />
             </Section>
+              </TabsContent>
+
+              <TabsContent value="token" className="mt-4">
+                <TokenIntelligenceTab companyId={company.id} companyName={company.name} />
+              </TabsContent>
+            </Tabs>
           </div>
 
           <div className="lg:w-72 flex-shrink-0 space-y-4">

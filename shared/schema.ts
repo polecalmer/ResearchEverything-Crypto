@@ -80,6 +80,35 @@ export const reports = pgTable("reports", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const tokenProfiles = pgTable("token_profiles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull(),
+  contractAddress: text("contract_address").notNull(),
+  chain: text("chain").notNull().default("ethereum"),
+  tokenTicker: text("token_ticker"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const duneQueries = pgTable("dune_queries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull(),
+  queryId: integer("query_id").notNull(),
+  label: text("label").notNull(),
+  visualizationType: text("visualization_type").notNull().default("table"),
+  displayOrder: integer("display_order").notNull().default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const tokenAnalyses = pgTable("token_analyses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  content: text("content").notNull(),
+  status: text("status").notNull().default("generating"),
+  duneData: text("dune_data"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const insertCompanySchema = createInsertSchema(companies).omit({
   id: true,
   userId: true,
@@ -95,6 +124,16 @@ export const insertNoteSchema = createInsertSchema(notes).omit({
   createdAt: true,
 });
 
+export const insertTokenProfileSchema = createInsertSchema(tokenProfiles).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertDuneQuerySchema = createInsertSchema(duneQueries).omit({
+  id: true,
+  createdAt: true,
+});
+
 export type Company = typeof companies.$inferSelect;
 export type InsertCompany = z.infer<typeof insertCompanySchema>;
 export type Founder = typeof founders.$inferSelect;
@@ -102,6 +141,11 @@ export type InsertFounder = z.infer<typeof insertFounderSchema>;
 export type Note = typeof notes.$inferSelect;
 export type InsertNote = z.infer<typeof insertNoteSchema>;
 export type Report = typeof reports.$inferSelect;
+export type TokenProfile = typeof tokenProfiles.$inferSelect;
+export type InsertTokenProfile = z.infer<typeof insertTokenProfileSchema>;
+export type DuneQuery = typeof duneQueries.$inferSelect;
+export type InsertDuneQuery = z.infer<typeof insertDuneQuerySchema>;
+export type TokenAnalysis = typeof tokenAnalyses.$inferSelect;
 
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

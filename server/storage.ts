@@ -5,7 +5,11 @@ import {
   type Note, type InsertNote,
   type Report,
   type Transaction,
+  type TokenProfile, type InsertTokenProfile,
+  type DuneQuery, type InsertDuneQuery,
+  type TokenAnalysis,
   users, companies, founders, notes, reports, transactions,
+  tokenProfiles, duneQueries, tokenAnalyses,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, sql } from "drizzle-orm";
@@ -50,6 +54,19 @@ export interface IStorage {
 
   logTransaction(data: { userId: string; type: string; description: string; amount: string; apiCost?: string; companyName?: string; inputTokens?: number; outputTokens?: number; txHash?: string; status?: string }): Promise<Transaction>;
   getTransactions(userId: string, limit?: number): Promise<Transaction[]>;
+
+  getTokenProfile(companyId: string): Promise<TokenProfile | undefined>;
+  upsertTokenProfile(data: InsertTokenProfile): Promise<TokenProfile>;
+  deleteTokenProfile(companyId: string): Promise<void>;
+
+  getDuneQueries(companyId: string): Promise<DuneQuery[]>;
+  addDuneQuery(data: InsertDuneQuery): Promise<DuneQuery>;
+  removeDuneQuery(id: string): Promise<boolean>;
+
+  createTokenAnalysis(data: { companyId: string; userId: string; content: string; status: string }): Promise<TokenAnalysis>;
+  updateTokenAnalysis(id: string, data: { content?: string; status?: string; duneData?: string }): Promise<TokenAnalysis | undefined>;
+  getTokenAnalysis(id: string): Promise<TokenAnalysis | undefined>;
+  getTokenAnalysesByCompany(companyId: string, userId: string): Promise<TokenAnalysis[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -174,6 +191,9 @@ export class DatabaseStorage implements IStorage {
     if (userId) conditions.push(eq(companies.userId, userId));
     const [company] = await db.select().from(companies).where(and(...conditions));
     if (!company) return;
+    await db.delete(tokenAnalyses).where(eq(tokenAnalyses.companyId, id));
+    await db.delete(duneQueries).where(eq(duneQueries.companyId, id));
+    await db.delete(tokenProfiles).where(eq(tokenProfiles.companyId, id));
     await db.delete(reports).where(eq(reports.companyId, id));
     await db.delete(notes).where(eq(notes.companyId, id));
     await db.delete(founders).where(eq(founders.companyId, id));
@@ -262,6 +282,69 @@ export class DatabaseStorage implements IStorage {
 
   async getTransactions(userId: string, limit: number = 50): Promise<Transaction[]> {
     return db.select().from(transactions).where(eq(transactions.userId, userId)).orderBy(desc(transactions.createdAt)).limit(limit);
+  }
+
+  async getTokenProfile(companyId: string): Promise<TokenProfile | undefined> {
+    const [profile] = await db.select().from(tokenProfiles).where(eq(tokenProfiles.companyId, companyId));
+    return profile;
+  }
+
+  async upsertTokenProfile(data: InsertTokenProfile): Promise<TokenProfile> {
+    const existing = await this.getTokenProfile(data.companyId);
+    if (existing) {
+      const [updated] = await db.update(tokenProfiles)
+        .set({ contractAddress: data.contractAddress, chain: data.chain, tokenTicker: data.tokenTicker })
+        .where(eq(tokenProfiles.companyId, data.companyId))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(tokenProfiles).values(data).returning();
+    return created;
+  }
+
+  async deleteTokenProfile(companyId: string): Promise<void> {
+    await db.delete(tokenProfiles).where(eq(tokenProfiles.companyId, companyId));
+  }
+
+  async getDuneQueries(companyId: string): Promise<DuneQuery[]> {
+    return db.select().from(duneQueries).where(eq(duneQueries.companyId, companyId)).orderBy(duneQueries.displayOrder);
+  }
+
+  async addDuneQuery(data: InsertDuneQuery): Promise<DuneQuery> {
+    const [created] = await db.insert(duneQueries).values(data).returning();
+    return created;
+  }
+
+  async removeDuneQuery(id: string): Promise<boolean> {
+    const result = await db.delete(duneQueries).where(eq(duneQueries.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getDuneQueryWithCompany(queryDbId: string): Promise<{ query: DuneQuery; companyId: string } | null> {
+    const [q] = await db.select().from(duneQueries).where(eq(duneQueries.id, queryDbId));
+    if (!q) return null;
+    return { query: q, companyId: q.companyId };
+  }
+
+  async createTokenAnalysis(data: { companyId: string; userId: string; content: string; status: string }): Promise<TokenAnalysis> {
+    const [analysis] = await db.insert(tokenAnalyses).values(data).returning();
+    return analysis;
+  }
+
+  async updateTokenAnalysis(id: string, data: { content?: string; status?: string; duneData?: string }): Promise<TokenAnalysis | undefined> {
+    const [updated] = await db.update(tokenAnalyses).set(data).where(eq(tokenAnalyses.id, id)).returning();
+    return updated;
+  }
+
+  async getTokenAnalysis(id: string): Promise<TokenAnalysis | undefined> {
+    const [analysis] = await db.select().from(tokenAnalyses).where(eq(tokenAnalyses.id, id));
+    return analysis;
+  }
+
+  async getTokenAnalysesByCompany(companyId: string, userId: string): Promise<TokenAnalysis[]> {
+    return db.select().from(tokenAnalyses)
+      .where(and(eq(tokenAnalyses.companyId, companyId), eq(tokenAnalyses.userId, userId)))
+      .orderBy(desc(tokenAnalyses.createdAt));
   }
 }
 

@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertCompanySchema, insertFounderSchema, insertNoteSchema, PIPELINE_STAGES } from "@shared/schema";
+import { insertCompanySchema, insertFounderSchema, insertNoteSchema, insertTokenProfileSchema, insertDuneQuerySchema, PIPELINE_STAGES } from "@shared/schema";
 import { z } from "zod";
 import {
   startEnrichmentSession, advanceEnrichmentSession,
@@ -11,7 +11,9 @@ import {
   MARKUP_MULTIPLIER,
 } from "./enrichment";
 import { requireAuth } from "./auth";
-import { enrichmentPaywall, nextStepsPaywall, deepResearchPaywall } from "./mpp";
+import { enrichmentPaywall, nextStepsPaywall, deepResearchPaywall, tokenIntelPaywall, duneQueryPaywall } from "./mpp";
+import { executeDuneQuery, getLatestDuneResults, isDuneConfigured } from "./dune-client";
+import { runTokenAnalysis } from "./token-agent";
 import { callAnthropicServer, isServerMppReady } from "./mpp-client";
 import { generateTelegramLinkCode } from "./telegram";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
@@ -549,6 +551,137 @@ export async function registerRoutes(
     const result = await storage.deleteReport(req.params.id, req.user!.id);
     if (!result) return res.status(404).json({ message: "Report not found" });
     res.json({ message: "Report deleted", companyId: result.companyId });
+  });
+
+  // ─── TOKEN INTELLIGENCE ──────────────────────────────────────────────
+
+  app.get("/api/companies/:id/token-profile", requireAuth, async (req, res) => {
+    const userId = req.user!.id;
+    const company = await storage.getCompany(req.params.id, userId);
+    if (!company) return res.status(404).json({ message: "Company not found" });
+    const profile = await storage.getTokenProfile(req.params.id);
+    res.json(profile || null);
+  });
+
+  app.put("/api/companies/:id/token-profile", requireAuth, async (req, res) => {
+    const userId = req.user!.id;
+    const company = await storage.getCompany(req.params.id, userId);
+    if (!company) return res.status(404).json({ message: "Company not found" });
+    const parsed = insertTokenProfileSchema.safeParse({ ...req.body, companyId: req.params.id });
+    if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.errors });
+    const profile = await storage.upsertTokenProfile(parsed.data);
+    res.json(profile);
+  });
+
+  app.delete("/api/companies/:id/token-profile", requireAuth, async (req, res) => {
+    const userId = req.user!.id;
+    const company = await storage.getCompany(req.params.id, userId);
+    if (!company) return res.status(404).json({ message: "Company not found" });
+    await storage.deleteTokenProfile(req.params.id);
+    res.status(204).end();
+  });
+
+  app.get("/api/companies/:id/dune-queries", requireAuth, async (req, res) => {
+    const userId = req.user!.id;
+    const company = await storage.getCompany(req.params.id, userId);
+    if (!company) return res.status(404).json({ message: "Company not found" });
+    const queries = await storage.getDuneQueries(req.params.id);
+    res.json(queries);
+  });
+
+  app.post("/api/companies/:id/dune-queries", requireAuth, async (req, res) => {
+    const userId = req.user!.id;
+    const company = await storage.getCompany(req.params.id, userId);
+    if (!company) return res.status(404).json({ message: "Company not found" });
+    const parsed = insertDuneQuerySchema.safeParse({ ...req.body, companyId: req.params.id });
+    if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.errors });
+    const query = await storage.addDuneQuery(parsed.data);
+    res.status(201).json(query);
+  });
+
+  app.delete("/api/dune-queries/:id", requireAuth, async (req, res) => {
+    const userId = req.user!.id;
+    const queryRecord = await storage.getDuneQueryWithCompany(req.params.id);
+    if (!queryRecord) return res.status(404).json({ message: "Query not found" });
+    const company = await storage.getCompany(queryRecord.companyId, userId);
+    if (!company) return res.status(404).json({ message: "Query not found" });
+    const deleted = await storage.removeDuneQuery(req.params.id);
+    if (!deleted) return res.status(404).json({ message: "Query not found" });
+    res.status(204).end();
+  });
+
+  app.post("/api/dune-queries/:queryId/execute", requireAuth, duneQueryPaywall, async (req, res) => {
+    try {
+      if (!isDuneConfigured()) return res.status(503).json({ message: "Dune API key not configured" });
+      const queryId = parseInt(req.params.queryId);
+      if (isNaN(queryId)) return res.status(400).json({ message: "Invalid query ID" });
+      const result = await getLatestDuneResults(queryId);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Dune query error:", error.message);
+      res.status(500).json({ message: error.message || "Dune query failed" });
+    }
+  });
+
+  app.post("/api/dune-queries/:queryId/refresh", requireAuth, duneQueryPaywall, async (req, res) => {
+    try {
+      if (!isDuneConfigured()) return res.status(503).json({ message: "Dune API key not configured" });
+      const queryId = parseInt(req.params.queryId);
+      if (isNaN(queryId)) return res.status(400).json({ message: "Invalid query ID" });
+      const result = await executeDuneQuery(queryId);
+      res.json(result);
+    } catch (error: any) {
+      console.error("Dune refresh error:", error.message);
+      res.status(500).json({ message: error.message || "Dune query refresh failed" });
+    }
+  });
+
+  app.get("/api/companies/:id/token-analyses", requireAuth, async (req, res) => {
+    const userId = req.user!.id;
+    const company = await storage.getCompany(req.params.id, userId);
+    if (!company) return res.status(404).json({ message: "Company not found" });
+    const analyses = await storage.getTokenAnalysesByCompany(req.params.id, userId);
+    res.json(analyses);
+  });
+
+  app.get("/api/token-analyses/:id", requireAuth, async (req, res) => {
+    const analysis = await storage.getTokenAnalysis(req.params.id);
+    if (!analysis) return res.status(404).json({ message: "Analysis not found" });
+    if (analysis.userId !== req.user!.id) return res.status(403).json({ message: "Not authorized" });
+    res.json(analysis);
+  });
+
+  app.post("/api/companies/:id/token-analyses/generate", requireAuth, tokenIntelPaywall, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const company = await storage.getCompany(req.params.id, userId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+
+      const tokenProfile = await storage.getTokenProfile(req.params.id);
+      if (!tokenProfile) return res.status(400).json({ message: "No token profile attached to this company" });
+
+      if (!isServerMppReady()) return res.status(503).json({ message: "AI service not configured" });
+
+      const duneQueryConfigs = await storage.getDuneQueries(req.params.id);
+
+      const analysis = await storage.createTokenAnalysis({
+        companyId: company.id,
+        userId,
+        content: "",
+        status: "generating",
+      });
+
+      res.json({ analysisId: analysis.id });
+
+      runTokenAnalysis(analysis.id, userId, company, tokenProfile, duneQueryConfigs);
+    } catch (error: any) {
+      console.error("Token analysis error:", error);
+      res.status(500).json({ message: "Failed to start token analysis" });
+    }
+  });
+
+  app.get("/api/dune/status", requireAuth, (_req, res) => {
+    res.json({ configured: isDuneConfigured() });
   });
 
   // ─── ADMIN ─────────────────────────────────────────────────────────────

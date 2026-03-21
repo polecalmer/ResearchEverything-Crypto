@@ -40,3 +40,19 @@ export const deepResearchPaywall: RequestHandler = (req, res, next) => {
     description: `Deep research report ($${amount})`,
   })(req, res, next);
 };
+
+export const tokenIntelPaywall: RequestHandler = (req, res, next) => {
+  const estimated = (0.15 * MARKUP_MULTIPLIER);
+  const amount = Math.max(0.01, estimated).toFixed(2);
+  mppx.charge({
+    amount,
+    description: `Token intelligence analysis ($${amount})`,
+  })(req, res, next);
+};
+
+export const duneQueryPaywall: RequestHandler = (req, res, next) => {
+  mppx.charge({
+    amount: "0.05",
+    description: "Dune query execution ($0.05)",
+  })(req, res, next);
+};

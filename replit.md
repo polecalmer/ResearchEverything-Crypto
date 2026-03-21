@@ -39,6 +39,9 @@ Focus on user experience and intuitive design.
 - **Founders:** Linked to companies, capturing founder details and social links.
 - **Notes:** Time-stamped notes associated with companies.
 - **Transactions:** Logs all payment activities, including AI service costs and platform fees.
+- **Token Profiles:** On-chain token data linked to companies (contract address, chain, ticker symbol).
+- **Dune Queries:** Saved Dune Analytics query configurations per company (query ID, label, visualization type).
+- **Token Analyses:** AI-generated on-chain intelligence reports per company (background job pattern, polls every 5s).
 
 **Pipeline Stages:** `Discovered -> Researching -> Reaching Out -> In Diligence -> Passed / Invested`
 
@@ -61,6 +64,14 @@ All AI agents use Claude Opus 4.6 with web search capabilities.
 2.  **User → Owner wallet (platform fee):** MPP paywalls on backend `prepare` endpoints charge a platform fee before AI sessions start. Owner wallet: `0x342fFFBcEbb761bC2c7B512333AF5E397b4cB72d`.
 3.  **Cost tracking:** Enrichment/next-steps pipelines: mppCost flows client→server via /api/enrich/step. Deep research: runs entirely server-side as background job, mppCost tracked internally. All pipelines apply 1.5x markup for user charge.
 4.  **Deep research architecture:** The `/reports/prepare` endpoint creates the report record, kicks off the Anthropic call as a background async task, and returns immediately. The client polls report status every 5s until complete. No HTTP timeout issues since the long AI call runs server-side.
+
+**Token Intelligence Dashboard:**
+Company detail pages feature two tabs: "Deal Intelligence" (existing content) and "Token Intelligence". The Token Intelligence tab includes:
+- Token profile management (contract address, chain, ticker)
+- Dune Analytics query manager (add pre-built queries by ID, visualize as bar/line/area/table via Recharts)
+- AI token analysis agent (background job, same pattern as deep research — server runs async, client polls)
+- MPP paywalls: token analysis $0.23, dune query execution $0.05
+- Key files: `server/dune-client.ts`, `server/token-agent.ts`, `client/src/pages/token-intelligence.tsx`
 
 **Chrome Extension:** Manifest V3 extension facilitating quick capture. It creates a context menu item, injects content scripts for UI, and uses a background service worker to interact with the backend API.
 
