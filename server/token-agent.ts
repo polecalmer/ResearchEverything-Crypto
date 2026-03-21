@@ -1,39 +1,70 @@
 import { callAnthropicServer, type AnthropicRequest } from "./mpp-client";
-import { executeDuneQuery, getLatestDuneResults, isDuneConfigured, type DuneQueryResult } from "./dune-client";
+import { getLatestDuneResults, isDuneConfigured, type DuneQueryResult } from "./dune-client";
 import { fetchTokenSnapshot, type TokenSnapshot } from "./allium-client";
 import { isServerMppReady } from "./mpp-client";
 import { storage } from "./storage";
 import { MARKUP_MULTIPLIER } from "./enrichment";
 import type { Company, DuneQuery, TokenProfile } from "@shared/schema";
 
-const TOKEN_ANALYSIS_SYSTEM = `You are the Token Intelligence Agent in a VC deal intelligence platform. You analyze on-chain data and market metrics to provide investment-grade token analysis.
+const TOKEN_ANALYSIS_SYSTEM = `You are the Liquid Token Research Agent in a VC deal intelligence platform. You analyze on-chain data, market metrics, and web-sourced information to produce investment-grade liquid token analysis applying a comprehensive analytical framework.
 
-You receive:
-1. Company context (name, sector, description)
-2. Token profile (contract address, chain, ticker)
-3. Real-time token snapshot (price, market cap, volume, holder count)
-4. Dune Analytics query results (charts, tables of on-chain data)
+YOU HAVE WEB SEARCH ACCESS. Use it aggressively to find:
+- Current token price, market cap, FDV from CoinGecko/CoinMarketCap
+- Protocol revenue data from Token Terminal, DefiLlama, or Dune
+- Token supply schedule, vesting details, unlock calendar
+- Staking rates, buyback data, fee distribution mechanisms
+- DEX liquidity depth, trading volume data
+- On-chain holder distribution data
 
-Your job is to produce a comprehensive token intelligence report covering:
+You also receive real-time data feeds (token snapshot, Dune query results) when available.
 
-## ANALYSIS FRAMEWORK
-1. **Token Overview** — Price action summary, market cap context, where it sits relative to peers
-2. **On-Chain Health** — Active addresses, transaction volume trends, holder distribution insights
-3. **Liquidity Analysis** — DEX/CEX liquidity depth, trading volume patterns, slippage risk
-4. **Holder Intelligence** — Whale concentration, smart money movements, holder growth/churn
-5. **Risk Flags** — Unusual patterns, concentration risks, liquidity concerns, regulatory exposure
-6. **Investment Thesis Impact** — How the on-chain data supports or contradicts the deal thesis
+YOUR ANALYSIS MUST COVER (use markdown formatting):
+
+## 1. Token Classification
+- Classify into Tier 1 (blue-chip), Tier 2 (established), Tier 3 (emerging), or Tier 4 (speculative)
+- Apply decision tree: Does protocol generate real revenue? → Is there genuine PMF? → Does token accrue value? → Is there sustainable distribution?
+
+## 2. Supply & Adjusted Market Cap
+- Calculate: Float Market Cap, Adjusted Market Cap, FDV
+- Identify Outstanding Supply vs excluded (treasury, unallocated, locked)
+- Note upcoming unlock events and their potential impact
+
+## 3. Valuation
+- Cashflow Yield Model: Base Yield = Total Protocol Revenue / Circulating Token Supply
+- P/E ratios on BOTH FDV and Adjusted MCAP basis
+- Revenue multiples comparison to peers
+- For Tier 2 tokens: Attempt bull/base/bear scenario analysis
+
+## 4. Liquidity Assessment
+- Average daily volume (filter wash trading if possible)
+- Estimate days to exit a $1M position at 10% participation rate
+- Apply liquidity discount tier (0-40%+ based on days to exit)
+- Primary trading venues
+
+## 5. Value Accrual Assessment
+- Classify mechanism: direct distribution / buyback & burn / buyback & hold / indirect / none
+- If buyback: note frequency, % of revenue allocated, verification status
+- If staking: note yield, lock requirements, distribution token
+
+## 6. Risk Flags
+- Token unlock overhang (upcoming large unlocks)
+- Concentration risk (whale dominance)
+- Regulatory exposure
+- Smart contract risk level
+- Single revenue stream dependency
+
+## 7. Investment Summary
+- 3-5 sentence thesis incorporating all analysis
+- Key monitoring metrics going forward
 
 ## RULES
-- Be SPECIFIC with numbers and trends from the data provided
-- Flag concerning patterns clearly with severity levels (🔴 critical, 🟡 caution, 🟢 healthy)
-- Compare metrics to typical ranges for the token's sector/stage when possible
-- Always note data limitations or gaps
-- Write for a VC audience — focus on what matters for investment decisions
-- Use markdown formatting with headers, bullet points, and bold for emphasis
-- If data is insufficient for a section, say so explicitly rather than speculating
+- Be SPECIFIC with numbers from both web search and provided data
+- Flag concerning patterns with severity levels (🔴 critical, 🟡 caution, 🟢 healthy)
+- Compare metrics to peers when possible
+- Note data limitations or gaps explicitly
+- Write for a VC audience — focus on investment decisions
+- Use markdown formatting with headers, bullet points, and bold for emphasis`;
 
-Return your analysis as a structured markdown report.`;
 
 const QUERY_SELECTION_SYSTEM = `You are a data query selector for a VC token analysis platform. Given a token profile and a list of available Dune Analytics queries, select the queries most relevant for analyzing this specific token.
 
@@ -191,7 +222,8 @@ Fetched At: ${tokenSnapshot.fetchedAt}
       model: "claude-opus-4-6",
       max_tokens: 8000,
       system: TOKEN_ANALYSIS_SYSTEM,
-      messages: [{ role: "user", content: `Analyze this token for investment due diligence:\n\n${dataContext}` }],
+      messages: [{ role: "user", content: `Analyze this token for investment due diligence:\n\n${dataContext}\n\nUse web search to supplement the data above with current market data, revenue metrics, supply schedules, and competitive context.` }],
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 15 }],
     };
 
     const result = await callAnthropicServer(request);
@@ -201,6 +233,14 @@ Fetched At: ${tokenSnapshot.fetchedAt}
       status: "complete",
       duneData: JSON.stringify({ snapshot: tokenSnapshot, duneResults }),
     });
+
+    try {
+      await storage.updateCompany(company.id, {
+        liquidTokenAnalysis: result.text,
+      } as any, company.userId ?? undefined);
+    } catch (err) {
+      console.warn("[TokenAgent] Failed to save liquidTokenAnalysis to company:", err);
+    }
 
     const totalMppCost = result.mppCost + snapshotCost;
     const charge = totalMppCost * MARKUP_MULTIPLIER;

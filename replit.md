@@ -45,15 +45,16 @@ Focus on user experience and intuitive design.
 
 **Pipeline Stages:** `Discovered -> Researching -> Reaching Out -> In Diligence -> Passed / Invested`
 
-**AI Enrichment Pipeline (6-7 Steps):**
+**AI Enrichment Pipeline (6 Steps):**
 1.  **Web Scraper:** Fetches content from URLs.
 2.  **Identifier Agent:** Identifies the company from input and scraped data.
 3.  **Token Identifier Agent:** Detects if the project has a liquid token. Classifies into Tier 1-4 using the liquid token analysis framework (revenue, PMF, distribution, value accrual). Stores: hasLiquidToken, tokenTicker, contractAddress, chain, tokenTier on the company record.
 4.  **Research Agent:** Builds a comprehensive deal card (VC research runs for ALL projects).
 5.  **Verify & Clean Agent:** Combines fact-checking and hallucination firewall, stripping unverified data.
 6.  **Due Diligence Reads Agent:** Finds 4-5 critical adjacent reads (research papers, whitepapers, regulatory docs, market analyses) relevant to the investment thesis. Stored as JSON in `adjacentReads` column.
-7.  **Liquid Token Research Agent (conditional):** Only runs if Token Identifier detected a liquid token. Produces comprehensive token analysis covering: supply & adjusted market cap, valuation models (P/E, DCF, cashflow yield), liquidity assessment, value accrual mechanisms, risk flags. Stored as JSON in `liquidTokenAnalysis` column.
 All AI agents use Claude Opus 4.6 with web search capabilities. Liquid token projects get a "Liquid Token" tag and stage automatically. Token profiles are auto-populated when a liquid token is detected. The liquid token analysis framework is stored in `server/skills/liquid-token-analysis.md`.
+
+**Standalone Liquid Token Research:** The deep token analysis (supply, valuation, liquidity, value accrual, risk flags) runs as a standalone background job via the "Generate AI Token Analysis" button on the Token Intelligence tab. Uses `server/token-agent.ts` with full web search (15 rounds) and 8000 max tokens. Runs as an async background task (same pattern as deep research reports) to avoid gateway timeouts. Results saved to both `token_analyses` table and `liquidTokenAnalysis` column on the company.
 
 **AI Next Steps Advisor (2 Stages):**
 1.  **Generator Agent:** Analyzes deal context to produce actionable recommendations.

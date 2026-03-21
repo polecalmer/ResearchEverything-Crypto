@@ -529,129 +529,6 @@ Search for the most important primary sources, research papers, technical deep-d
   return buildAnthropicRequest(DUE_DILIGENCE_READS_SYSTEM, prompt, true, 4000, 10);
 }
 
-// ─── AGENT 5: LIQUID TOKEN RESEARCH ──────────────────────────────────────────
-
-const LIQUID_TOKEN_RESEARCH_SYSTEM = `You are the Liquid Token Research Agent in a VC deal intelligence pipeline. You receive a verified deal card for a project that has been confirmed to have a liquid token, along with its token tier classification. Your job is to produce a comprehensive liquid token analysis applying the full analytical framework.
-
-YOU HAVE WEB SEARCH ACCESS. Use it aggressively to find:
-- Current token price, market cap, FDV from CoinGecko/CoinMarketCap
-- Protocol revenue data from Token Terminal, DefiLlama, or Dune
-- Token supply schedule, vesting details, unlock calendar
-- Staking rates, buyback data, fee distribution mechanisms
-- DEX liquidity depth, trading volume data
-- On-chain holder distribution data
-
-YOUR ANALYSIS MUST COVER:
-
-1. TOKEN CLASSIFICATION CONFIRMATION
-- Confirm or revise the initial tier classification (Tier 1-4)
-- Apply the full decision tree with evidence
-
-2. SUPPLY & ADJUSTED MARKET CAP
-- Calculate: Float Market Cap, Adjusted Market Cap, FDV
-- Identify what counts as Outstanding Supply vs excluded (treasury, unallocated)
-- Note upcoming unlock events and their potential impact
-
-3. VALUATION (for Tier 2/3 tokens)
-- Cashflow Yield Model: Base Yield = TPR / CTS
-- P/E ratios on BOTH FDV and Adj MCAP basis
-- Revenue multiples comparison to peers
-- If Tier 2: Attempt bull/base/bear DCF scenarios
-
-4. LIQUIDITY ASSESSMENT
-- Average daily volume (filter wash trading if possible)
-- Estimate days to exit a $1M position at 10% participation rate
-- Apply liquidity discount tier (0-40%+ based on days to exit)
-
-5. VALUE ACCRUAL ASSESSMENT
-- Classify mechanism: direct distribution / buyback & burn / buyback & hold / indirect / none
-- If buyback: note frequency, % of revenue allocated, verification status
-- If staking: note yield, lock requirements, distribution token
-
-6. RISK FLAGS
-- Token unlock overhang (upcoming large unlocks)
-- Concentration risk (whale dominance)
-- Regulatory exposure
-- Smart contract risk level
-- Single revenue stream dependency
-
-Return ONLY valid JSON:
-{
-  "tokenTierConfirmed": "Tier 1/Tier 2/Tier 3/Tier 4",
-  "tierRevised": true/false,
-  "tierRevisionReason": "Why tier was changed, or empty string",
-  "supplyAnalysis": {
-    "maxSupply": "number or 'unlimited'",
-    "circulatingSupply": "number string",
-    "adjustedSupply": "number string with rationale",
-    "adjustedSupplyPctOfMax": "percentage string",
-    "floatMarketCap": "USD string",
-    "adjustedMarketCap": "USD string",
-    "fdv": "USD string",
-    "upcomingUnlocks": "Description of next major unlock events"
-  },
-  "valuation": {
-    "annualizedRevenue": "USD string or 'N/A'",
-    "peRatioFDV": "number or 'N/A'",
-    "peRatioAdjMCAP": "number or 'N/A'",
-    "cashflowYield": "percentage string or 'N/A'",
-    "revenueMultiple": "number or 'N/A'",
-    "comparableProtocols": "Brief comparison to peer valuations",
-    "scenarioAnalysis": "Bull/Base/Bear price targets if Tier 2, or 'N/A'"
-  },
-  "liquidityAssessment": {
-    "avgDailyVolume": "USD string",
-    "daysToExit1M": "number estimate",
-    "liquidityDiscount": "percentage string",
-    "primaryVenues": "Where the token primarily trades"
-  },
-  "valueAccrual": {
-    "mechanism": "direct_distribution/buyback_burn/buyback_hold/indirect/none",
-    "details": "How fees flow to token holders",
-    "annualAccrualEstimate": "USD string estimate or 'N/A'",
-    "stakingYield": "percentage or 'N/A'"
-  },
-  "riskFlags": [
-    "Each risk flag as a string"
-  ],
-  "investmentSummary": "3-5 sentence investment thesis summary incorporating all analysis above",
-  "monitoringMetrics": ["Key metrics to track going forward"]
-}`;
-
-function buildLiquidTokenResearchRequest(companyName: string, verifiedData: any, tokenIdentification: TokenIdentification): AnthropicRequest {
-  const prompt = `Produce a comprehensive liquid token analysis for "${companyName}".
-
-TOKEN IDENTIFICATION:
-- Ticker: ${tokenIdentification.tokenTicker}
-- Chain: ${tokenIdentification.chain || "Unknown"}
-- Contract: ${tokenIdentification.contractAddress || "Unknown"}
-- Initial Tier Classification: ${tokenIdentification.tokenTier}
-- Classification Reasoning: ${tokenIdentification.classificationReasoning}
-- Value Accrual: ${tokenIdentification.valueAccrualMechanism}
-- Revenue Model: ${tokenIdentification.revenueModel}
-
-VERIFIED DEAL CARD:
-Company: ${companyName}
-Sector: ${verifiedData.sector || "Unknown"}
-Sub-sector: ${verifiedData.subSector || "Unknown"}
-Description: ${verifiedData.description || ""}
-Business Model: ${verifiedData.businessModel || ""}
-Stage: ${verifiedData.stage || ""}
-Competitive Landscape: ${verifiedData.competitiveLandscape || ""}
-Tags: ${(verifiedData.tags || []).join(", ")}
-
-Search for current market data on ${tokenIdentification.tokenTicker || companyName} token:
-1. Current price, market cap, FDV, 24h volume from CoinGecko/CoinMarketCap
-2. Protocol revenue data from Token Terminal, DefiLlama, or DeFi aggregators
-3. Token supply schedule, vesting, and unlock calendar
-4. Staking rates, buyback data if applicable
-5. DEX/CEX liquidity depth
-6. Holder distribution data
-
-Apply the full Liquid Token Analysis Framework to produce the comprehensive analysis.`;
-  return buildAnthropicRequest(LIQUID_TOKEN_RESEARCH_SYSTEM, prompt, true, 4000, 8);
-}
-
 // ─── UTILITY FUNCTIONS ──────────────────────────────────────────────────────
 
 function sanitizeUrl(url: any, expectedDomain?: string): string {
@@ -858,7 +735,7 @@ export async function advanceEnrichmentSession(
     session.mppCost += mppCost;
   }
 
-  const totalSteps = session.tokenIdentification?.hasLiquidToken ? 7 : 6;
+  const totalSteps = 6;
 
   // Step 0: Identifier complete → Token Identifier
   if (session.step === 0) {
@@ -906,20 +783,19 @@ export async function advanceEnrichmentSession(
     };
     session.step = 2;
 
-    const newTotal = hasToken ? 7 : 6;
     console.log(`[Enrichment] Token Identifier: hasLiquidToken=${hasToken}${hasToken ? ` (${tokenResult.tokenTicker}, ${tokenResult.tokenTier})` : ""}`);
     progress.push({
       type: "stage_complete",
       agent: "token_identifier",
       step: 2,
-      total: newTotal,
+      total: totalSteps,
       hasLiquidToken: hasToken,
       tokenTicker: tokenResult.tokenTicker || "",
       tokenTier: tokenResult.tokenTier || "",
     });
 
     const request = buildResearchRequest(session.identity.companyName, session.identity.domain, session.input, session.scrapedContent);
-    progress.push({ type: "stage", agent: "researcher", step: 3, total: newTotal, message: `Researching ${session.identity.companyName}...` });
+    progress.push({ type: "stage", agent: "researcher", step: 3, total: totalSteps, message: `Researching ${session.identity.companyName}...` });
     console.log("[Enrichment] Agent 3/5: Research — building deal card...");
 
     return { anthropicRequest: request, progress };
@@ -986,40 +862,7 @@ export async function advanceEnrichmentSession(
     session.verifiedData._adjacentReads = validReads;
     session.step = 5;
 
-    if (session.tokenIdentification?.hasLiquidToken) {
-      const request = buildLiquidTokenResearchRequest(
-        session.identity.companyName,
-        session.verifiedData,
-        session.tokenIdentification,
-      );
-      progress.push({ type: "stage", agent: "liquid_token_research", step: 6, total: 7, message: `Analyzing ${session.tokenIdentification.tokenTicker || session.identity.companyName} token...` });
-      console.log("[Enrichment] Agent 6 (bonus): Liquid Token Research — deep token analysis...");
-
-      return { anthropicRequest: request, progress };
-    }
-
     return finishEnrichmentSession(session, validReads, progress);
-  }
-
-  // Step 5: Liquid Token Research complete → finish
-  if (session.step === 5) {
-    const validReads = session.verifiedData._adjacentReads || [];
-
-    let liquidAnalysis: any = null;
-    try {
-      liquidAnalysis = parseJson(responseText);
-      console.log(`[Enrichment] Liquid Token Research complete. Tier confirmed: ${liquidAnalysis.tokenTierConfirmed}`);
-      progress.push({ type: "stage_complete", agent: "liquid_token_research", step: 6, total: 7, tokenTier: liquidAnalysis.tokenTierConfirmed });
-
-      if (liquidAnalysis.tierRevised && liquidAnalysis.tokenTierConfirmed) {
-        session.tokenIdentification!.tokenTier = liquidAnalysis.tokenTierConfirmed;
-      }
-    } catch (err) {
-      console.warn("[Enrichment] Liquid Token Research parsing failed:", err);
-      progress.push({ type: "stage_complete", agent: "liquid_token_research", step: 6, total: 7 });
-    }
-
-    return finishEnrichmentSession(session, validReads, progress, liquidAnalysis);
   }
 
   throw new Error("Session already completed");
@@ -1029,7 +872,6 @@ function finishEnrichmentSession(
   session: EnrichmentSession,
   validReads: AdjacentRead[],
   progress: any[],
-  liquidAnalysis?: any,
 ): { result: EnrichmentResult; progress: any[] } {
   const enrichedOutput = validateOutput(session.verifiedData);
   enrichedOutput.adjacentReads = validReads;
@@ -1047,10 +889,6 @@ function finishEnrichmentSession(
 
     if (enrichedOutput.stage !== "Liquid Token" && STAGES.includes("Liquid Token")) {
       enrichedOutput.stage = "Liquid Token";
-    }
-
-    if (liquidAnalysis) {
-      enrichedOutput.liquidTokenAnalysis = JSON.stringify(liquidAnalysis);
     }
   }
 

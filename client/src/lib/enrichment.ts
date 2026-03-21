@@ -24,7 +24,6 @@ const AGENT_LABELS: Record<string, string> = {
   researcher: "Research Agent",
   verify_clean: "Verify & Clean Agent",
   dd_reads: "Due Diligence Reads",
-  liquid_token_research: "Liquid Token Research",
 };
 
 const AGENT_DESCRIPTIONS: Record<string, string> = {
@@ -34,7 +33,6 @@ const AGENT_DESCRIPTIONS: Record<string, string> = {
   researcher: "Building a comprehensive deal card",
   verify_clean: "Fact-checking claims and stripping unverified data",
   dd_reads: "Finding critical adjacent reads for due diligence",
-  liquid_token_research: "Analyzing token valuation, liquidity, and value accrual",
 };
 
 export function getAgentLabel(agent: string): string {
@@ -59,7 +57,7 @@ function emitProgress(events: any[], onStage: (stage: EnrichmentStage) => void) 
       onStage({
         agent: event.agent,
         step: event.step,
-        total: event.total || 7,
+        total: event.total || 6,
         message: "",
         status: "complete",
         companyName: event.companyName,

@@ -175,7 +175,7 @@ export default function LandingPage() {
             <div>
               <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-3">How it works</p>
               <h2 className="text-2xl sm:text-3xl font-bold tracking-tight leading-snug">
-                Five agents.<br />Zero hallucinations.
+                AI agent team.<br />Zero hallucinations.
               </h2>
             </div>
 
