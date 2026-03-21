@@ -26,13 +26,13 @@ AVAILABLE DATA SOURCES:
 
 YOU MUST RESPOND WITH VALID JSON ONLY. No markdown, no explanation. Just the JSON array.
 
-Response format — array of chart definitions:
+Response format — array of chart/table definitions:
 [
   {
     "title": "Title Case Title",
     "subtitle": "Short context line — period, trend, or key insight. E.g. 'Last 90 Days', 'Weekly since Jan 2025', '+12% MoM'",
     "description": "One sentence",
-    "chartType": "line" | "bar" | "area",
+    "chartType": "line" | "bar" | "area" | "table",
     "dataSource": "dune" | "defillama" | "coingecko" | "allium" | "allium-prices" | "allium-sql",
     "dataSourceConfig": {
       // For dune: { "queryId": 12345, "params": {} }
@@ -40,9 +40,12 @@ Response format — array of chart definitions:
       // For coingecko: { "coinId": "hyperliquid", "daysBack": 90 }
       // For allium: { "ticker": "HYPE", "chain": "hyperliquid", "contractAddress": "" }
       // For allium-prices: { "chain": "hyperevm", "tokenAddress": "0x555...", "daysBack": 30, "granularity": "1d" }
-      // For allium-sql: { "sql": "SELECT address, balance FROM hyperevm.assets.fungible_balances_latest WHERE token_address = '0x555...' AND balance > 0 ORDER BY balance DESC LIMIT 50", "limit": 50 }
+      // For allium-sql: { "sql": "SELECT address, balance FROM hyperevm.assets.fungible_balances_latest WHERE token_address = '0x555...' AND balance > 0 ORDER BY balance DESC LIMIT 50", "limit": 5 }
     },
     "chartConfig": {
+      // For chartType "table": just provide "columns" array with column names to display
+      // e.g. { "columns": ["address", "balance", "pct_supply"] }
+      // For chart types: provide xAxis and yAxes as below
       "xAxis": { "dataKey": "the_actual_column_name", "label": "Date", "type": "date" },
       "yAxes": [
         { "dataKey": "actual_column_name", "label": "Revenue", "color": "#38bdf8", "format": "currency", "yAxisId": "left" }
@@ -50,6 +53,12 @@ Response format — array of chart definitions:
     }
   }
 ]
+
+TABLE MODE:
+- When the user's request ends with the word "table" (or clearly asks for a table), set chartType to "table".
+- Tables should return a MAXIMUM of 5 rows. Set LIMIT 5 in SQL queries. For non-SQL sources, the system will truncate.
+- chartConfig should contain a "columns" array listing which columns to display. Pick the most relevant 3-6 columns.
+- Tables are great for: top holders, comparison snapshots, ranked lists, current stats.
 
 ═══════════════════════════════════════════════════════════════
 CRITICAL CHART CONFIGURATION RULES — READ CAREFULLY
@@ -363,6 +372,10 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
           chartType: plan.chartType,
           chartConfig: JSON.stringify(plan.chartConfig),
         });
+      }
+
+      if (plan.chartType === "table" && data.length > 5) {
+        data = data.slice(0, 5);
       }
 
       const updatedChart = await storage.updateDashboardChart(chart.id, {
