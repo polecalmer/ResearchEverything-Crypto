@@ -177,8 +177,22 @@ setInterval(() => {
 function parseJson(text: string): any {
   let cleaned = text.trim();
   const fenceMatch = cleaned.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
-  if (fenceMatch) cleaned = fenceMatch[1];
-  return JSON.parse(cleaned);
+  if (fenceMatch) cleaned = fenceMatch[1].trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch {
+    const braceStart = cleaned.indexOf("{");
+    const braceEnd = cleaned.lastIndexOf("}");
+    if (braceStart !== -1 && braceEnd > braceStart) {
+      return JSON.parse(cleaned.slice(braceStart, braceEnd + 1));
+    }
+    const bracketStart = cleaned.indexOf("[");
+    const bracketEnd = cleaned.lastIndexOf("]");
+    if (bracketStart !== -1 && bracketEnd > bracketStart) {
+      return JSON.parse(cleaned.slice(bracketStart, bracketEnd + 1));
+    }
+    throw new Error("No valid JSON found in response");
+  }
 }
 
 // ─── AGENT 1: IDENTIFIER ────────────────────────────────────────────────────
