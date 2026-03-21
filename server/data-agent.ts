@@ -281,9 +281,15 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
       }
 
       if (!data || data.length === 0) {
+        let errorMsg = fetchError || "No data returned from source.";
+        if (/holder|wallet|whale|distribution/i.test(plan.title)) {
+          errorMsg = `Holder/distribution data requires a specific Dune Analytics query. Add a Dune query for this metric in Token Intelligence, then reference it here.`;
+        } else if (fetchError?.includes("404") || fetchError?.includes("not found")) {
+          errorMsg = `Data source not found. Try a different query or add the relevant Dune query in Token Intelligence first.`;
+        }
         const updatedChart = await storage.updateDashboardChart(chart.id, {
           status: "failed",
-          errorMessage: fetchError || "No data returned from source. The protocol or token may not be indexed.",
+          errorMessage: errorMsg,
         });
         charts.push(updatedChart || chart);
         continue;
@@ -371,50 +377,24 @@ async function attemptFallback(
 ): Promise<FallbackResult | null> {
   const title = plan.title.toLowerCase();
   const desc = (plan.description || "").toLowerCase();
-  const combined = `${title} ${desc} ${companyName.toLowerCase()}`;
+  const combined = `${title} ${desc}`;
   const ticker = tokenProfile?.tokenTicker?.toLowerCase() || "";
   const chain = tokenProfile?.chain || "ethereum";
   const contractAddress = tokenProfile?.contractAddress || "";
 
   console.log(`[Data Agent] Attempting fallback for "${plan.title}" (original: ${plan.dataSource}, error: ${error})`);
 
-  const fallbackSources: Array<() => Promise<FallbackResult | null>> = [];
+  const isPrice = /\bprice\b|price.?history|price.?chart/i.test(combined);
+  const isTvl = /\btvl\b|total.?value.?locked|liquidity/i.test(combined);
+  const isRevenue = /\brevenue\b|daily.?fees|protocol.?fees|earnings/i.test(combined);
+  const isHolder = /\bholder|wallet|whale|address|distribution|top.?\d/i.test(combined);
 
-  if (/holder|wallet|address|account|whale|distribution/i.test(combined) && (ticker || contractAddress)) {
-    fallbackSources.push(async () => {
-      try {
-        const { snapshot } = await fetchTokenSnapshot(contractAddress, chain, ticker.toUpperCase());
-        if (!snapshot.holderCount && !snapshot.price) return null;
-        const data = [{
-          metric: "Current Snapshot",
-          price: snapshot.price,
-          marketCap: snapshot.marketCap,
-          volume24h: snapshot.volume24h,
-          holderCount: snapshot.holderCount,
-          priceChange24h: snapshot.priceChange24h,
-          fetchedAt: snapshot.fetchedAt,
-        }];
-        return {
-          data,
-          dataSource: "allium",
-          dataSourceConfig: { ticker: ticker.toUpperCase(), chain, contractAddress },
-          chartConfig: { columns: Object.keys(data[0]) },
-          chartType: "table",
-          title: `${ticker.toUpperCase()} TOKEN SNAPSHOT`,
-        };
-      } catch (e: any) {
-        console.warn(`[Data Agent] Allium fallback failed: ${e.message}`);
-        return null;
-      }
-    });
-  }
-
-  if (/price|token|market|mcap|snapshot/i.test(combined) && ticker) {
-    fallbackSources.push(async () => {
-      try {
-        const priceData = await defillama.getCoinPriceHistory(ticker.toLowerCase(), 90);
-        if (!priceData.prices || priceData.prices.length === 0) return null;
+  if (isPrice && ticker) {
+    try {
+      const priceData = await defillama.getCoinPriceHistory(ticker.toLowerCase(), 90);
+      if (priceData.prices && priceData.prices.length > 0) {
         const data = priceData.prices.map((p) => ({ date: p.date, price: p.price }));
+        console.log(`[Data Agent] Price fallback succeeded via CoinGecko (${data.length} points)`);
         return {
           data,
           dataSource: "coingecko",
@@ -426,20 +406,19 @@ async function attemptFallback(
           chartType: "line",
           title: `${ticker.toUpperCase()} PRICE (90D)`,
         };
-      } catch (e: any) {
-        console.warn(`[Data Agent] CoinGecko fallback failed: ${e.message}`);
-        return null;
       }
-    });
+    } catch (e: any) {
+      console.warn(`[Data Agent] CoinGecko price fallback failed: ${e.message}`);
+    }
   }
 
-  if (/tvl|liquidity|locked/i.test(combined)) {
+  if (isTvl) {
     const slug = companyName.toLowerCase().replace(/\s+/g, "-");
-    fallbackSources.push(async () => {
-      try {
-        const tvlData = await defillama.getProtocolTvl(slug);
-        if (!tvlData || tvlData.length === 0) return null;
+    try {
+      const tvlData = await defillama.getProtocolTvl(slug);
+      if (tvlData && tvlData.length > 0) {
         const data = tvlData.map((d) => ({ date: d.date, totalLiquidityUSD: d.totalLiquidityUSD }));
+        console.log(`[Data Agent] TVL fallback succeeded via DeFiLlama (${data.length} points)`);
         return {
           data,
           dataSource: "defillama",
@@ -451,20 +430,19 @@ async function attemptFallback(
           chartType: "area",
           title: `${companyName.toUpperCase()} TVL`,
         };
-      } catch (e: any) {
-        console.warn(`[Data Agent] DeFiLlama TVL fallback failed: ${e.message}`);
-        return null;
       }
-    });
+    } catch (e: any) {
+      console.warn(`[Data Agent] DeFiLlama TVL fallback failed: ${e.message}`);
+    }
   }
 
-  if (/revenue|fee|earn|income/i.test(combined)) {
+  if (isRevenue) {
     const slug = companyName.toLowerCase().replace(/\s+/g, "-");
-    fallbackSources.push(async () => {
-      try {
-        const revData = await defillama.getProtocolRevenue(slug);
-        if (!revData.dailyRevenue || revData.dailyRevenue.length === 0) return null;
+    try {
+      const revData = await defillama.getProtocolRevenue(slug);
+      if (revData.dailyRevenue && revData.dailyRevenue.length > 0) {
         const data = revData.dailyRevenue.map((d) => ({ date: d.date, revenue: d.revenue }));
+        console.log(`[Data Agent] Revenue fallback succeeded via DeFiLlama (${data.length} points)`);
         return {
           data,
           dataSource: "defillama",
@@ -476,48 +454,18 @@ async function attemptFallback(
           chartType: "bar",
           title: `${companyName.toUpperCase()} DAILY REVENUE`,
         };
-      } catch (e: any) {
-        console.warn(`[Data Agent] DeFiLlama revenue fallback failed: ${e.message}`);
-        return null;
       }
-    });
+    } catch (e: any) {
+      console.warn(`[Data Agent] DeFiLlama revenue fallback failed: ${e.message}`);
+    }
   }
 
-  if (ticker) {
-    fallbackSources.push(async () => {
-      try {
-        const { snapshot } = await fetchTokenSnapshot(contractAddress, chain, ticker.toUpperCase());
-        if (!snapshot.price) return null;
-        const data = [{
-          metric: "Current Snapshot",
-          price: snapshot.price,
-          marketCap: snapshot.marketCap,
-          volume24h: snapshot.volume24h,
-          holderCount: snapshot.holderCount,
-          priceChange24h: snapshot.priceChange24h,
-          fetchedAt: snapshot.fetchedAt,
-        }];
-        return {
-          data,
-          dataSource: "allium",
-          dataSourceConfig: { ticker: ticker.toUpperCase(), chain, contractAddress },
-          chartConfig: { columns: Object.keys(data[0]) },
-          chartType: "table",
-          title: `${ticker.toUpperCase()} TOKEN SNAPSHOT`,
-        };
-      } catch (e: any) {
-        console.warn(`[Data Agent] Allium generic fallback failed: ${e.message}`);
-        return null;
-      }
-    });
+  if (isHolder) {
+    console.warn(`[Data Agent] No fallback available for holder/distribution queries — requires Dune Analytics`);
+    return null;
   }
 
-  for (const tryFallback of fallbackSources) {
-    const result = await tryFallback();
-    if (result && result.data.length > 0) return result;
-  }
-
-  console.warn(`[Data Agent] All fallback sources exhausted for "${plan.title}"`);
+  console.warn(`[Data Agent] No matching fallback for "${plan.title}"`);
   return null;
 }
 
