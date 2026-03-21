@@ -601,7 +601,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
     const renderSeriesElement = (y: any, i: number) => {
       const seriesType = y.chartType || cType;
       const axisId = useComposed ? (y.yAxisId || "left") : undefined;
-      const color = y.color || CHART_COLORS[i];
+      const color = CHART_COLORS[i % CHART_COLORS.length];
 
       if (seriesType === "bar") {
         return <Bar key={y.dataKey} dataKey={y.dataKey} yAxisId={axisId} fill={color} radius={[4, 4, 0, 0]} maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20} opacity={0.7} />;
@@ -626,7 +626,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
           <BarChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
             {gridEl}{xAxisEl}{singleYAxisEl}{tooltipEl}{legendEl}
             {yAxes.map((y: any, i: number) => (
-              <Bar key={y.dataKey} dataKey={y.dataKey} fill={y.color || CHART_COLORS[i]} radius={[4, 4, 0, 0]} maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20} opacity={0.7} />
+              <Bar key={y.dataKey} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[4, 4, 0, 0]} maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20} opacity={0.7} />
             ))}
           </BarChart>
         );
@@ -636,7 +636,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
           <AreaChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
             {gridEl}{xAxisEl}{singleYAxisEl}{tooltipEl}{legendEl}
             {yAxes.map((y: any, i: number) => (
-              <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={y.color || CHART_COLORS[i]} strokeWidth={1.5} fill={y.color || CHART_COLORS[i]} fillOpacity={0.08} dot={false} />
+              <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.5} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.08} dot={false} />
             ))}
           </AreaChart>
         );
@@ -645,7 +645,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
         <LineChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
           {gridEl}{xAxisEl}{singleYAxisEl}{tooltipEl}{legendEl}
           {yAxes.map((y: any, i: number) => (
-            <Line key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={y.color || CHART_COLORS[i]} strokeWidth={1.5} dot={false} activeDot={{ r: 3, fill: y.color || CHART_COLORS[i], stroke: "rgba(0,0,0,0.5)", strokeWidth: 1 }} />
+            <Line key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.5} dot={false} activeDot={{ r: 3, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "rgba(0,0,0,0.5)", strokeWidth: 1 }} />
           ))}
         </LineChart>
       );
