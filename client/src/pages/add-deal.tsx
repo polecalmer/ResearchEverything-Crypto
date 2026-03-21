@@ -33,6 +33,7 @@ import {
   Trash2,
   User,
   Loader2,
+  Check,
 } from "lucide-react";
 import { useState } from "react";
 import { runEnrichmentPipeline, type EnrichmentStage } from "@/lib/enrichment";
@@ -346,23 +347,28 @@ export default function AddDeal() {
                   return (
                     <div
                       key={key}
-                      className="flex items-start gap-2 py-0.5"
+                      className={`flex items-center gap-3 py-1.5 transition-opacity duration-300 ${isPending ? "opacity-[0.15]" : isDone ? "opacity-40" : "opacity-90"}`}
                       data-testid={`pipeline-stage-${key}`}
                     >
-                      <span className={`text-[11px] w-3 flex-shrink-0 ${isActive ? "text-foreground/70" : isDone ? "text-muted-foreground/40" : "text-muted-foreground/15"}`}>
-                        {isActive ? "●" : isDone ? "✓" : "○"}
-                      </span>
+                      <div className={`w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0 ${isDone ? "bg-emerald-500/15" : isActive ? "bg-white/[0.06]" : "bg-white/[0.03]"}`}>
+                        {isDone ? (
+                          <Check className="w-2.5 h-2.5 text-emerald-400" />
+                        ) : isActive ? (
+                          <Loader2 className="w-2.5 h-2.5 animate-spin text-white/50" />
+                        ) : (
+                          <div className="w-1 h-1 rounded-full bg-white/20" />
+                        )}
+                      </div>
                       <div className="flex-1 min-w-0">
-                        <span className={`text-[11px] ${isPending ? "text-muted-foreground/15" : isActive ? "text-foreground/80" : "text-muted-foreground/50"}`}>
+                        <span className={`text-[12px] tracking-tight ${isActive ? "text-white/80 font-medium" : "text-white/50"}`}>
                           {label}
                         </span>
                         {isActive && stage?.message && (
-                          <span className="text-[10px] text-muted-foreground/40 ml-2">{stage.message}</span>
+                          <span className="text-[11px] text-white/25 ml-2">{stage.message}</span>
                         )}
                         {isDone && getStatusLine() && (
-                          <span className="text-[10px] text-muted-foreground/30 ml-2">{getStatusLine()}</span>
+                          <span className="text-[11px] text-white/20 ml-2">{getStatusLine()}</span>
                         )}
-                        {isActive && <Loader2 className="w-2.5 h-2.5 animate-spin inline ml-1.5 text-muted-foreground/40" />}
                       </div>
                     </div>
                   );
@@ -378,7 +384,7 @@ export default function AddDeal() {
               type="button"
               onClick={handleEnrichStream}
               disabled={!enrichInput.trim() || isEnriching}
-              className="w-full py-2 text-xs rounded border border-border/20 text-foreground/60 hover:text-foreground hover:border-border/40 hover:bg-accent/20 transition-colors disabled:opacity-20 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="w-full py-2.5 text-[12px] tracking-tight rounded-lg border border-white/[0.06] text-white/50 hover:text-white/80 hover:border-white/[0.12] hover:bg-white/[0.03] transition-all disabled:opacity-15 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               data-testid="button-enrich"
             >
               {isEnriching ? (
