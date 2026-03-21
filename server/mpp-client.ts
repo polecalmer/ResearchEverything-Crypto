@@ -119,45 +119,77 @@ process.on("SIGINT", async () => {
   process.exit(0);
 });
 
+const MAX_RETRIES = 2;
+const RETRY_DELAY_MS = 3000;
+
+function isRetryable(status: number): boolean {
+  return status >= 500 || status === 429;
+}
+
 async function callWithTier(tier: DepositTier, request: AnthropicRequest): Promise<AnthropicResponse> {
-  const state = getMppClient(tier);
-  state.lastChallengeAmount = 0;
+  let lastError: Error | null = null;
 
-  const response = await state.client.fetch(ANTHROPIC_MPP_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "anthropic-version": "2023-06-01",
-      "x-api-key": "mpp",
-    },
-    body: JSON.stringify(request),
-  });
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const state = getMppClient(tier);
+    state.lastChallengeAmount = 0;
 
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "Unknown error");
-    throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
-  }
+    try {
+      const response = await state.client.fetch(ANTHROPIC_MPP_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "anthropic-version": "2023-06-01",
+          "x-api-key": "mpp",
+        },
+        body: JSON.stringify(request),
+      });
 
-  const mppCost = state.lastChallengeAmount;
-  const data = await response.json();
-
-  let text = "";
-  if (data.content) {
-    for (const block of data.content) {
-      if (block.type === "text") {
-        text += block.text;
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "Unknown error");
+        if (isRetryable(response.status) && attempt < MAX_RETRIES) {
+          const delay = RETRY_DELAY_MS * (attempt + 1);
+          console.log(`[MPP-Client:${tier}] Retryable error ${response.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
+          await new Promise((r) => setTimeout(r, delay));
+          clients[tier] = null;
+          continue;
+        }
+        throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
       }
+
+      const mppCost = state.lastChallengeAmount;
+      const data = await response.json();
+
+      let text = "";
+      if (data.content) {
+        for (const block of data.content) {
+          if (block.type === "text") {
+            text += block.text;
+          }
+        }
+      }
+
+      return {
+        text,
+        usage: {
+          input_tokens: data.usage?.input_tokens || 0,
+          output_tokens: data.usage?.output_tokens || 0,
+        },
+        mppCost,
+      };
+    } catch (err) {
+      lastError = err as Error;
+      if (attempt < MAX_RETRIES && (err as any)?.message?.includes("fetch")) {
+        const delay = RETRY_DELAY_MS * (attempt + 1);
+        console.log(`[MPP-Client:${tier}] Network error, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
+        await new Promise((r) => setTimeout(r, delay));
+        clients[tier] = null;
+        continue;
+      }
+      throw err;
     }
   }
 
-  return {
-    text,
-    usage: {
-      input_tokens: data.usage?.input_tokens || 0,
-      output_tokens: data.usage?.output_tokens || 0,
-    },
-    mppCost,
-  };
+  throw lastError || new Error("MPP call failed after retries");
 }
 
 export async function callAnthropicServer(request: AnthropicRequest): Promise<AnthropicResponse> {
