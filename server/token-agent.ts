@@ -63,7 +63,10 @@ YOUR ANALYSIS MUST COVER (use markdown formatting):
 - Compare metrics to peers when possible
 - Note data limitations or gaps explicitly
 - Write for a VC audience — focus on investment decisions
-- Use markdown formatting with headers, bullet points, and bold for emphasis`;
+- Use markdown formatting with headers, bullet points, and bold for emphasis
+- Use proper markdown tables (with | header | separators |) for all tabular data — never use ASCII art or dashed-line tables
+- NEVER write in first person ("I analyzed", "I use", "I found"). Write objectively in third person as a professional research report
+- Do NOT include your reasoning process, chain-of-thought, or methodology explanations. Present conclusions directly`;
 
 
 const QUERY_SELECTION_SYSTEM = `You are a data query selector for a VC token analysis platform. Given a token profile and a list of available Dune Analytics queries, select the queries most relevant for analyzing this specific token.
