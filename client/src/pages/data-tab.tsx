@@ -614,7 +614,15 @@ function DataCard({ chart }: { chart: DashboardChart }) {
           boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
         }}
         labelStyle={{ color: "rgba(255,255,255,0.3)", fontSize: "10px", marginBottom: "4px" }}
-        labelFormatter={isDate ? dateFmt!.tooltipFormatter : (l: any) => String(l)}
+        labelFormatter={isDate ? dateFmt!.tooltipFormatter : (l: any) => {
+          if (typeof l === "number") {
+            const xFmt = guessFormat(xKey);
+            if (xFmt === "currency") return `$${l.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+            if (xFmt === "percent") return `${l.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
+            return l.toLocaleString(undefined, { maximumFractionDigits: 4 });
+          }
+          return String(l);
+        }}
         formatter={(value: any, name: string) => {
           const ax = yAxes.find((y: any) => y.dataKey === name);
           return [smartTooltip(value, ax?.format || primaryFmt), ax?.label || name.replace(/_/g, " ")];
