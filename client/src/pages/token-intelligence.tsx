@@ -245,80 +245,91 @@ function MasterQueryBrowser({ companyId, existingQueryIds, onAttach, onClose }: 
     onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
   });
 
+  const [search, setSearch] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+
   const available = masterQueries.filter(mq => !existingQueryIds.includes(mq.queryId));
-  const categories = [...new Set(available.map(q => q.category).filter(Boolean))];
+  const categories = [...new Set(available.map(q => q.category).filter(Boolean))].sort();
+
+  const filtered = available.filter(mq => {
+    if (selectedCategory && mq.category !== selectedCategory) return false;
+    if (!search.trim()) return true;
+    const s = search.toLowerCase();
+    return mq.label.toLowerCase().includes(s) ||
+      mq.description?.toLowerCase().includes(s) ||
+      (mq.protocolTags || []).some(t => t.toLowerCase().includes(s)) ||
+      (mq.chainTags || []).some(t => t.toLowerCase().includes(s)) ||
+      String(mq.queryId).includes(s);
+  });
 
   if (isLoading) return <Skeleton className="h-16 w-full" />;
 
   return (
     <div className="space-y-2 pt-2 border-t border-border/30">
       <div className="flex items-center justify-between">
-        <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Query Library</p>
+        <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Query Library ({available.length})</p>
         <div className="flex gap-1">
           <SyncLibraryButton />
           <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={onClose}>Close</Button>
         </div>
       </div>
-      {available.length === 0 ? (
-        <p className="text-xs text-muted-foreground text-center py-3">No unattached queries in library</p>
-      ) : (
-        <div className="space-y-1 max-h-48 overflow-y-auto">
+      <Input
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder="Search queries by name, tag, or ID..."
+        className="h-7 text-xs"
+        data-testid="input-search-library"
+      />
+      {categories.length > 1 && (
+        <div className="flex flex-wrap gap-1">
+          <button
+            className={`text-[9px] px-1.5 py-0.5 rounded transition-colors ${!selectedCategory ? 'bg-blue-500/20 text-blue-400' : 'bg-accent/20 text-muted-foreground hover:text-foreground'}`}
+            onClick={() => setSelectedCategory(null)}
+          >
+            All
+          </button>
           {categories.map(cat => (
-            <div key={cat}>
-              <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mt-2 mb-1">{cat}</p>
-              {available.filter(q => q.category === cat).map(mq => (
-                <div key={mq.id} className="flex items-center justify-between py-1 px-2 rounded-md hover:bg-accent/20 transition-colors" data-testid={`master-query-${mq.id}`}>
-                  <div className="min-w-0">
-                    <p className="text-xs truncate">{mq.label}</p>
-                    <div className="flex gap-1 mt-0.5">
-                      {(mq.protocolTags || []).slice(0, 3).map(t => (
-                        <span key={t} className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400">{t}</span>
-                      ))}
-                      <span className="text-[9px] text-muted-foreground/50 font-mono">#{mq.queryId}</span>
-                    </div>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 text-xs shrink-0"
-                    onClick={() => attachMutation.mutate(mq)}
-                    disabled={attachMutation.isPending}
-                    data-testid={`button-attach-${mq.id}`}
-                  >
-                    <Plus className="w-3 h-3" />
-                  </Button>
+            <button
+              key={cat}
+              className={`text-[9px] px-1.5 py-0.5 rounded transition-colors capitalize ${selectedCategory === cat ? 'bg-blue-500/20 text-blue-400' : 'bg-accent/20 text-muted-foreground hover:text-foreground'}`}
+              onClick={() => setSelectedCategory(selectedCategory === cat ? null : cat!)}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+      )}
+      {filtered.length === 0 ? (
+        <p className="text-xs text-muted-foreground text-center py-3">
+          {search.trim() ? "No queries match your search" : "No unattached queries in library"}
+        </p>
+      ) : (
+        <div className="space-y-0.5 max-h-52 overflow-y-auto">
+          <p className="text-[10px] text-muted-foreground/40 mb-1">{filtered.length} results</p>
+          {filtered.map(mq => (
+            <div key={mq.id} className="flex items-center justify-between py-1 px-2 rounded-md hover:bg-accent/20 transition-colors" data-testid={`master-query-${mq.id}`}>
+              <div className="min-w-0">
+                <p className="text-xs truncate">{mq.label}</p>
+                <div className="flex gap-1 mt-0.5">
+                  {mq.category && <span className="text-[9px] px-1 py-0.5 rounded bg-accent/30 text-muted-foreground capitalize">{mq.category}</span>}
+                  {(mq.protocolTags || []).slice(0, 2).map(t => (
+                    <span key={t} className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400">{t}</span>
+                  ))}
+                  <span className="text-[9px] text-muted-foreground/50 font-mono">#{mq.queryId}</span>
                 </div>
-              ))}
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs shrink-0"
+                onClick={() => attachMutation.mutate(mq)}
+                disabled={attachMutation.isPending}
+                data-testid={`button-attach-${mq.id}`}
+              >
+                <Plus className="w-3 h-3" />
+              </Button>
             </div>
           ))}
-          {available.filter(q => !q.category).length > 0 && (
-            <div>
-              <p className="text-[10px] text-muted-foreground/60 uppercase tracking-wider mt-2 mb-1">Uncategorized</p>
-              {available.filter(q => !q.category).map(mq => (
-                <div key={mq.id} className="flex items-center justify-between py-1 px-2 rounded-md hover:bg-accent/20 transition-colors" data-testid={`master-query-${mq.id}`}>
-                  <div className="min-w-0">
-                    <p className="text-xs truncate">{mq.label}</p>
-                    <div className="flex gap-1 mt-0.5">
-                      {(mq.protocolTags || []).slice(0, 3).map(t => (
-                        <span key={t} className="text-[9px] px-1 py-0.5 rounded bg-blue-500/10 text-blue-400">{t}</span>
-                      ))}
-                      <span className="text-[9px] text-muted-foreground/50 font-mono">#{mq.queryId}</span>
-                    </div>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-6 text-xs shrink-0"
-                    onClick={() => attachMutation.mutate(mq)}
-                    disabled={attachMutation.isPending}
-                    data-testid={`button-attach-${mq.id}`}
-                  >
-                    <Plus className="w-3 h-3" />
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
       )}
     </div>
