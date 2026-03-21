@@ -45,7 +45,7 @@ function getAlliumMppClient(): ReturnType<typeof Mppx.create> {
   }
 
   const account = privateKeyToAccount(privateKey as `0x${string}`);
-  const sessionMethods = tempo({ account, maxDeposit: "2" });
+  const sessionMethods = tempo({ account, maxDeposit: "0.5" });
 
   alliumMppClient = Mppx.create({
     methods: [sessionMethods],

@@ -33,7 +33,7 @@ function getMppxClient() {
 
   const account = privateKeyToAccount(privateKey as `0x${string}`);
 
-  sessionMethods = tempo({ account, maxDeposit: "2" });
+  sessionMethods = tempo({ account, maxDeposit: "1.5" });
 
   mppxClient = Mppx.create({
     methods: [sessionMethods],
