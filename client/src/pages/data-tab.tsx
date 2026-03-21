@@ -23,6 +23,7 @@ import {
   XAxis,
   YAxis,
   Tooltip,
+  CartesianGrid,
 } from "recharts";
 import { format } from "date-fns";
 
@@ -63,72 +64,43 @@ function smartTooltip(value: number, fmt?: string): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 });
 }
 
-function formatDateTick(ts: number): string {
-  if (ts > 1e12) ts = ts / 1000;
-  try { return format(new Date(ts * 1000), "MMM d"); } catch { return String(ts); }
-}
+function buildDateFormatter(data: any[], xKey: string) {
+  let minYear = Infinity;
+  let maxYear = -Infinity;
+  for (const d of data) {
+    let ts = d[xKey];
+    if (typeof ts !== "number") continue;
+    if (ts > 1e12) ts = ts / 1000;
+    try {
+      const yr = new Date(ts * 1000).getFullYear();
+      if (yr < minYear) minYear = yr;
+      if (yr > maxYear) maxYear = yr;
+    } catch {}
+  }
+  const spansYears = maxYear > minYear;
+  let lastYear = -1;
 
-function formatDateLabel(ts: number): string {
-  if (ts > 1e12) ts = ts / 1000;
-  try { return format(new Date(ts * 1000), "MMM d, yyyy"); } catch { return String(ts); }
-}
-
-function MiniChart({ data, xKey, yKey, label, color, xType, fmt }: {
-  data: any[];
-  xKey: string;
-  yKey: string;
-  label: string;
-  color: string;
-  xType: string;
-  fmt?: string;
-}) {
-  return (
-    <div>
-      <div className="flex items-center gap-1.5 mb-1">
-        <span className="w-3 h-[2px] rounded-full" style={{ backgroundColor: color }} />
-        <span className="text-[9px] text-muted-foreground/50 lowercase">{label}</span>
-      </div>
-      <ResponsiveContainer width="100%" height={140}>
-        <LineChart data={data} margin={{ top: 4, right: 8, left: -5, bottom: 0 }}>
-          <XAxis
-            dataKey={xKey}
-            tickFormatter={xType === "date" ? formatDateTick : undefined}
-            tick={{ fontSize: 8, fill: "rgba(255,255,255,0.15)" }}
-            axisLine={false}
-            tickLine={false}
-            interval="preserveStartEnd"
-          />
-          <YAxis
-            tickFormatter={(v: number) => smartFormat(v, fmt)}
-            tick={{ fontSize: 8, fill: "rgba(255,255,255,0.15)" }}
-            axisLine={false}
-            tickLine={false}
-            width={48}
-          />
-          <Tooltip
-            contentStyle={{
-              backgroundColor: "rgba(0,0,0,0.85)",
-              border: "1px solid rgba(255,255,255,0.08)",
-              borderRadius: "4px",
-              fontSize: "10px",
-              padding: "4px 8px",
-            }}
-            labelFormatter={(l: any) => xType === "date" ? formatDateLabel(l) : String(l)}
-            formatter={(value: any) => [smartTooltip(value, fmt), label]}
-            cursor={false}
-          />
-          <Line
-            type="monotone"
-            dataKey={yKey}
-            stroke={color}
-            strokeWidth={1.5}
-            dot={false}
-            activeDot={{ r: 2, fill: color, stroke: "none" }}
-          />
-        </LineChart>
-      </ResponsiveContainer>
-    </div>
-  );
+  return {
+    tickFormatter: (ts: number) => {
+      if (ts > 1e12) ts = ts / 1000;
+      try {
+        const d = new Date(ts * 1000);
+        const yr = d.getFullYear();
+        if (spansYears && yr !== lastYear) {
+          lastYear = yr;
+          return `${format(d, "MMM d")}\n${yr}`;
+        }
+        return format(d, "MMM d");
+      } catch {
+        return String(ts);
+      }
+    },
+    tooltipFormatter: (ts: any) => {
+      if (typeof ts !== "number") return String(ts);
+      if (ts > 1e12) ts = ts / 1000;
+      try { return format(new Date(ts * 1000), "MMM d, yyyy"); } catch { return String(ts); }
+    },
+  };
 }
 
 function ChartRenderer({ chart }: { chart: DashboardChart }) {
@@ -169,35 +141,35 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
   });
 
   const chartActions = (
-    <div className="flex items-center gap-0.5">
+    <div className="flex items-center gap-1">
       <button
         onClick={() => refreshMutation.mutate()}
         disabled={refreshMutation.isPending}
-        className="p-1 rounded hover:bg-white/5 text-white/15 hover:text-white/40 transition-colors"
+        className="p-1.5 rounded hover:bg-white/5 text-white/20 hover:text-white/50 transition-colors"
         data-testid={`button-refresh-chart-${chart.id}`}
       >
-        <RefreshCw className={`w-3 h-3 ${refreshMutation.isPending ? 'animate-spin' : ''}`} />
+        <RefreshCw className={`w-3.5 h-3.5 ${refreshMutation.isPending ? 'animate-spin' : ''}`} />
       </button>
       <button
         onClick={() => deleteMutation.mutate()}
-        className="p-1 rounded hover:bg-red-500/10 text-white/15 hover:text-red-400/60 transition-colors"
+        className="p-1.5 rounded hover:bg-red-500/10 text-white/20 hover:text-red-400/60 transition-colors"
         data-testid={`button-delete-chart-${chart.id}`}
       >
-        <Trash2 className="w-3 h-3" />
+        <Trash2 className="w-3.5 h-3.5" />
       </button>
     </div>
   );
 
   if (chart.status === "pending") {
     return (
-      <div className="rounded-lg p-5 bg-white/[0.02]" data-testid={`chart-card-${chart.id}`}>
+      <div className="rounded-lg border border-white/[0.06] bg-white/[0.015] p-5" data-testid={`chart-card-${chart.id}`}>
         <div className="flex items-center justify-between mb-3">
-          <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">{chart.title}</p>
+          <p className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{chart.title}</p>
           {chartActions}
         </div>
-        <div className="flex flex-col items-center justify-center h-32 gap-2">
+        <div className="flex flex-col items-center justify-center h-40 gap-2">
           <RefreshCw className="w-4 h-4 text-white/10" />
-          <span className="text-[10px] text-white/20">Click refresh to load data</span>
+          <span className="text-[11px] text-white/20">Click refresh to load data</span>
         </div>
       </div>
     );
@@ -205,13 +177,13 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
 
   if (chart.status === "generating") {
     return (
-      <div className="rounded-lg p-5 bg-white/[0.02]" data-testid={`chart-card-${chart.id}`}>
+      <div className="rounded-lg border border-white/[0.06] bg-white/[0.015] p-5" data-testid={`chart-card-${chart.id}`}>
         <div className="flex items-center justify-between mb-3">
-          <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">{chart.title}</p>
+          <p className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{chart.title}</p>
         </div>
-        <div className="flex items-center justify-center h-32 gap-2">
+        <div className="flex items-center justify-center h-40 gap-2">
           <Loader2 className="w-4 h-4 animate-spin text-white/20" />
-          <span className="text-[10px] text-white/20">Fetching data...</span>
+          <span className="text-[11px] text-white/20">Fetching data...</span>
         </div>
       </div>
     );
@@ -219,14 +191,14 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
 
   if (chart.status === "failed") {
     return (
-      <div className="rounded-lg p-5 bg-white/[0.02]" data-testid={`chart-card-${chart.id}`}>
+      <div className="rounded-lg border border-white/[0.06] bg-white/[0.015] p-5" data-testid={`chart-card-${chart.id}`}>
         <div className="flex items-center justify-between mb-3">
-          <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">{chart.title}</p>
+          <p className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{chart.title}</p>
           {chartActions}
         </div>
-        <div className="flex items-center justify-center h-32 gap-2">
-          <AlertTriangle className="w-3.5 h-3.5 text-red-400/30" />
-          <span className="text-[10px] text-red-400/40">{chart.errorMessage || "Failed to fetch data"}</span>
+        <div className="flex items-center justify-center h-40 gap-2">
+          <AlertTriangle className="w-3.5 h-3.5 text-red-400/40" />
+          <span className="text-[11px] text-red-400/50">{chart.errorMessage || "Failed to fetch data"}</span>
         </div>
       </div>
     );
@@ -243,10 +215,11 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
 
   const xAxis = chartConfig.xAxis || { dataKey: "date", type: "date" };
   const yAxes: any[] = chartConfig.yAxes || [{ dataKey: "value", label: "Value", color: CHART_COLORS[0] }];
+  const isDate = xAxis.type === "date";
 
   const processedData = chartData.map((d: any) => {
     const processed = { ...d };
-    if (xAxis.type === "date" && processed[xAxis.dataKey]) {
+    if (isDate && processed[xAxis.dataKey]) {
       let ts = processed[xAxis.dataKey];
       if (typeof ts === 'string') ts = new Date(ts).getTime() / 1000;
       processed[xAxis.dataKey] = ts;
@@ -262,9 +235,9 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
   if (chart.chartType === "table") {
     const columns = chartConfig.columns || (chartData[0] ? Object.keys(chartData[0]) : []);
     return (
-      <div className="rounded-lg p-5 bg-white/[0.02]" data-testid={`chart-card-${chart.id}`}>
+      <div className="rounded-lg border border-white/[0.06] bg-white/[0.015] p-5" data-testid={`chart-card-${chart.id}`}>
         <div className="flex items-center justify-between mb-3">
-          <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">{chart.title}</p>
+          <p className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{chart.title}</p>
           {chartActions}
         </div>
         <div className="max-h-72 overflow-auto rounded">
@@ -272,7 +245,7 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
             <thead className="sticky top-0 bg-[hsl(var(--background))] z-10">
               <tr>
                 {columns.map((col: string) => (
-                  <th key={col} className="text-left px-3 py-2 text-[9px] font-semibold text-white/25 uppercase tracking-wider border-b border-white/5 whitespace-nowrap">
+                  <th key={col} className="text-left px-3 py-2 text-[10px] font-medium text-white/30 uppercase tracking-wider border-b border-white/[0.06] whitespace-nowrap">
                     {col.replace(/_/g, " ")}
                   </th>
                 ))}
@@ -294,7 +267,7 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
                       display = String(val ?? "—");
                     }
                     return (
-                      <td key={col} className="px-3 py-1.5 text-white/50 whitespace-nowrap font-mono">
+                      <td key={col} className="px-3 py-1.5 text-white/50 whitespace-nowrap font-mono text-[11px]">
                         {display}
                       </td>
                     );
@@ -304,10 +277,10 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
             </tbody>
           </table>
           {chartData.length > 100 && (
-            <p className="text-[9px] text-white/15 text-center py-1.5">Showing 100 of {chartData.length} rows</p>
+            <p className="text-[10px] text-white/15 text-center py-2">Showing 100 of {chartData.length} rows</p>
           )}
         </div>
-        <div className="flex items-center justify-between mt-2 text-[9px] text-white/10">
+        <div className="flex items-center justify-between mt-3 text-[10px] text-white/15">
           <span>{chart.dataSource} · {chartData.length} rows</span>
           <span>{format(new Date(chart.updatedAt), "MMM d, h:mm a")}</span>
         </div>
@@ -318,65 +291,94 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
   const primary = yAxes[0];
   const primaryColor = primary.color || CHART_COLORS[0];
   const primaryFmt = primary.format;
-  const xType = xAxis.type || "category";
   const cType = chart.chartType || "line";
+  const isBarType = cType === "bar";
+  const numPoints = processedData.length;
 
-  const sharedXAxis = (
+  const dateFmt = isDate ? buildDateFormatter(processedData, xAxis.dataKey) : null;
+
+  const tickInterval = isBarType
+    ? (numPoints <= 24 ? 0 : Math.floor(numPoints / 12))
+    : (numPoints <= 30 ? 0 : undefined);
+
+  const xAxisConfig = (
     <XAxis
       dataKey={xAxis.dataKey}
-      tickFormatter={xType === "date" ? formatDateTick : undefined}
-      tick={{ fontSize: 9, fill: "rgba(255,255,255,0.2)" }}
-      axisLine={false}
+      tickFormatter={isDate ? dateFmt!.tickFormatter : undefined}
+      tick={{ fontSize: 10, fill: "rgba(255,255,255,0.35)" }}
+      axisLine={{ stroke: "rgba(255,255,255,0.06)" }}
       tickLine={false}
-      interval="preserveStartEnd"
+      interval={tickInterval}
+      angle={numPoints > 20 ? -45 : 0}
+      textAnchor={numPoints > 20 ? "end" : "middle"}
+      height={numPoints > 20 ? 60 : 30}
     />
   );
 
-  const sharedYAxis = (
+  const yAxisConfig = (
     <YAxis
       tickFormatter={(v: number) => smartFormat(v, primaryFmt)}
-      tick={{ fontSize: 9, fill: "rgba(255,255,255,0.2)" }}
+      tick={{ fontSize: 10, fill: "rgba(255,255,255,0.35)" }}
       axisLine={false}
       tickLine={false}
-      width={52}
+      width={60}
     />
   );
 
-  const sharedTooltip = (
+  const tooltipConfig = (
     <Tooltip
       contentStyle={{
-        backgroundColor: "rgba(0,0,0,0.85)",
-        border: "1px solid rgba(255,255,255,0.08)",
-        borderRadius: "4px",
-        fontSize: "11px",
-        padding: "6px 10px",
+        backgroundColor: "rgba(10,10,12,0.95)",
+        border: "1px solid rgba(255,255,255,0.1)",
+        borderRadius: "6px",
+        fontSize: "12px",
+        padding: "8px 12px",
+        color: "rgba(255,255,255,0.8)",
       }}
-      labelFormatter={(l: any) => xType === "date" ? formatDateLabel(l) : String(l)}
+      labelStyle={{ color: "rgba(255,255,255,0.4)", fontSize: "10px", marginBottom: "2px" }}
+      labelFormatter={isDate ? dateFmt!.tooltipFormatter : (l: any) => String(l)}
       formatter={(value: any) => [smartTooltip(value, primaryFmt), primary.label || primary.dataKey]}
-      cursor={false}
+      cursor={{ fill: "rgba(255,255,255,0.03)" }}
     />
   );
+
+  const gridConfig = (
+    <CartesianGrid
+      strokeDasharray="3 3"
+      stroke="rgba(255,255,255,0.04)"
+      vertical={false}
+    />
+  );
+
+  const chartHeight = isBarType ? 280 : (numPoints > 100 ? 260 : 240);
 
   const renderChart = () => {
     if (cType === "bar") {
       return (
-        <BarChart data={processedData} margin={{ top: 8, right: 12, left: -5, bottom: 0 }}>
-          {sharedXAxis}
-          {sharedYAxis}
-          {sharedTooltip}
-          <Bar dataKey={primary.dataKey} fill={primaryColor} radius={[2, 2, 0, 0]} />
+        <BarChart data={processedData} margin={{ top: 12, right: 16, left: 0, bottom: 4 }}>
+          {gridConfig}
+          {xAxisConfig}
+          {yAxisConfig}
+          {tooltipConfig}
+          <Bar
+            dataKey={primary.dataKey}
+            fill={primaryColor}
+            radius={[3, 3, 0, 0]}
+            maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20}
+          />
         </BarChart>
       );
     }
     if (cType === "area") {
       return (
-        <AreaChart data={processedData} margin={{ top: 8, right: 12, left: -5, bottom: 0 }}>
-          {sharedXAxis}
-          {sharedYAxis}
-          {sharedTooltip}
+        <AreaChart data={processedData} margin={{ top: 12, right: 16, left: 0, bottom: 4 }}>
+          {gridConfig}
+          {xAxisConfig}
+          {yAxisConfig}
+          {tooltipConfig}
           <defs>
             <linearGradient id={`grad-${chart.id}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={primaryColor} stopOpacity={0.2} />
+              <stop offset="0%" stopColor={primaryColor} stopOpacity={0.25} />
               <stop offset="100%" stopColor={primaryColor} stopOpacity={0} />
             </linearGradient>
           </defs>
@@ -385,28 +387,36 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
       );
     }
     return (
-      <LineChart data={processedData} margin={{ top: 8, right: 12, left: -5, bottom: 0 }}>
-        {sharedXAxis}
-        {sharedYAxis}
-        {sharedTooltip}
-        <Line type="monotone" dataKey={primary.dataKey} stroke={primaryColor} strokeWidth={1.5} dot={false} activeDot={{ r: 3, fill: primaryColor, stroke: "none" }} />
+      <LineChart data={processedData} margin={{ top: 12, right: 16, left: 0, bottom: 4 }}>
+        {gridConfig}
+        {xAxisConfig}
+        {yAxisConfig}
+        {tooltipConfig}
+        <Line
+          type="monotone"
+          dataKey={primary.dataKey}
+          stroke={primaryColor}
+          strokeWidth={1.5}
+          dot={false}
+          activeDot={{ r: 3, fill: primaryColor, stroke: "rgba(0,0,0,0.5)", strokeWidth: 1 }}
+        />
       </LineChart>
     );
   };
 
   return (
-    <div className="rounded-lg p-5 bg-white/[0.02]" data-testid={`chart-card-${chart.id}`}>
-      <div className="flex items-center justify-between mb-3">
-        <div className="flex items-center gap-1.5">
-          <span className="w-3 h-[2px] rounded-full" style={{ backgroundColor: primaryColor }} />
-          <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">{chart.title}</p>
+    <div className="rounded-lg border border-white/[0.06] bg-white/[0.015] p-5" data-testid={`chart-card-${chart.id}`}>
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2">
+          <span className="w-3 h-[3px] rounded-full" style={{ backgroundColor: primaryColor }} />
+          <p className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{chart.title}</p>
         </div>
         {chartActions}
       </div>
-      <ResponsiveContainer width="100%" height={220}>
+      <ResponsiveContainer width="100%" height={chartHeight}>
         {renderChart()}
       </ResponsiveContainer>
-      <div className="flex items-center justify-between mt-3 text-[9px] text-white/10">
+      <div className="flex items-center justify-between mt-2 text-[10px] text-white/15">
         <span>{chart.dataSource} · {processedData.length} points</span>
         <span>{format(new Date(chart.updatedAt), "MMM d, h:mm a")}</span>
       </div>
@@ -466,14 +476,14 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder={`What data do you want? e.g. "${companyName} TVL over 90 days" or "Price vs Revenue"`}
-              className="w-full h-9 px-3 pr-10 text-xs rounded-md border border-white/[0.06] bg-white/[0.02] text-foreground placeholder:text-white/15 focus:outline-none focus:border-teal-500/20 transition-colors"
+              className="w-full h-9 px-3 pr-10 text-xs rounded-md border border-white/[0.06] bg-white/[0.02] text-foreground placeholder:text-white/20 focus:outline-none focus:border-teal-500/20 transition-colors"
               disabled={generateMutation.isPending}
               data-testid="input-chart-prompt"
             />
             <button
               type="submit"
               disabled={!prompt.trim() || generateMutation.isPending}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded text-white/20 hover:text-teal-400 disabled:opacity-30 transition-colors"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded text-white/25 hover:text-teal-400 disabled:opacity-30 transition-colors"
               data-testid="button-submit-chart"
             >
               {generateMutation.isPending ? (
@@ -485,7 +495,7 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
           </div>
         </div>
         {generateMutation.isPending && (
-          <p className="text-[10px] text-white/15 mt-2 flex items-center gap-1.5">
+          <p className="text-[11px] text-white/20 mt-2 flex items-center gap-1.5">
             <Loader2 className="w-3 h-3 animate-spin" />
             AI is analyzing your request and fetching data...
           </p>
@@ -494,13 +504,13 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-5 h-5 animate-spin text-white/10" />
+          <Loader2 className="w-5 h-5 animate-spin text-white/15" />
         </div>
       ) : charts.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <BarChart3 className="w-8 h-8 text-white/5 mb-3" />
-          <p className="text-sm text-white/20 font-medium">No charts yet</p>
-          <p className="text-[10px] text-white/10 mt-1 max-w-xs">
+          <BarChart3 className="w-8 h-8 text-white/[0.06] mb-3" />
+          <p className="text-sm text-white/25 font-medium">No charts yet</p>
+          <p className="text-[11px] text-white/15 mt-1 max-w-xs">
             Ask the AI to pull data from Dune, DeFiLlama, or CoinGecko — or add queries from the library in Token Intelligence
           </p>
           <div className="flex flex-wrap gap-1.5 mt-4 max-w-md justify-center">
@@ -513,7 +523,7 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
               <button
                 key={s}
                 onClick={() => setPrompt(s)}
-                className="text-[10px] px-2.5 py-1 rounded-full border border-white/[0.06] text-white/20 hover:text-teal-400 hover:border-teal-500/15 transition-colors"
+                className="text-[11px] px-2.5 py-1 rounded-full border border-white/[0.06] text-white/25 hover:text-teal-400 hover:border-teal-500/20 transition-colors"
                 data-testid={`suggestion-${s.replace(/\s+/g, "-").toLowerCase()}`}
               >
                 {s}
@@ -522,7 +532,7 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
           </div>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {charts.map((chart) => (
             <ChartRenderer key={chart.id} chart={chart} />
           ))}
