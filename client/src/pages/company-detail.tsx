@@ -528,7 +528,7 @@ export default function CompanyDetail() {
               </span>
             )}
             {company.hasLiquidToken && (
-              <span className="text-yellow-500/80" data-testid="badge-liquid-token">
+              <span className="text-teal-400/80" data-testid="badge-liquid-token">
                 {company.tokenTicker || "TOKEN"}{company.tokenTier ? ` · ${company.tokenTier}` : ""}
               </span>
             )}

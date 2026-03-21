@@ -176,7 +176,7 @@ export default function Companies() {
                           <div className="flex items-center gap-1.5">
                             <span className="text-sm font-medium truncate" data-testid={`text-company-name-${company.id}`}>{company.name}</span>
                             {company.hasLiquidToken && (
-                              <span className="inline-flex items-center gap-0.5 text-[9px] font-mono px-1.5 py-0.5 border border-yellow-500/30 text-yellow-500 flex-shrink-0" data-testid={`badge-liquid-token-${company.id}`}>
+                              <span className="inline-flex items-center gap-0.5 text-[9px] font-mono px-1.5 py-0.5 border border-teal-400/30 text-teal-400 flex-shrink-0" data-testid={`badge-liquid-token-${company.id}`}>
                                 <Coins className="w-2.5 h-2.5" />
                                 {company.tokenTicker || "TOKEN"}
                               </span>
