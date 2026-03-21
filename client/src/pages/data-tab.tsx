@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import type { DashboardChart } from "@shared/schema";
@@ -11,10 +10,7 @@ import {
   Trash2,
   Send,
   BarChart3,
-  TrendingUp,
   AlertTriangle,
-  Table2,
-  LineChart as LineChartIcon,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -27,9 +23,7 @@ import {
   ComposedChart,
   XAxis,
   YAxis,
-  CartesianGrid,
   Tooltip,
-  Legend,
 } from "recharts";
 import { format } from "date-fns";
 
@@ -43,196 +37,104 @@ const CHART_COLORS = [
   "#a78bfa", "#f472b6", "#fb923c", "#facc15",
 ];
 
-function formatAxisValue(value: number, fmt?: string): string {
+function smartFormat(value: number, fmt?: string): string {
   if (fmt === "currency") {
-    if (Math.abs(value) >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
-    if (Math.abs(value) >= 1e6) return `$${(value / 1e6).toFixed(1)}M`;
-    if (Math.abs(value) >= 1e3) return `$${(value / 1e3).toFixed(1)}K`;
+    const abs = Math.abs(value);
+    if (abs >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
+    if (abs >= 1e6) return `$${(value / 1e6).toFixed(1)}M`;
+    if (abs >= 1e3) return `$${(value / 1e3).toFixed(1)}K`;
     return `$${value.toFixed(0)}`;
   }
-  if (fmt === "percent") return `${(value * 100).toFixed(1)}%`;
-  if (Math.abs(value) >= 1e9) return `${(value / 1e9).toFixed(1)}B`;
-  if (Math.abs(value) >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
-  if (Math.abs(value) >= 1e3) return `${(value / 1e3).toFixed(1)}K`;
+  if (fmt === "percent") {
+    const abs = Math.abs(value);
+    if (abs >= 1e6) return `${(value / 1e6).toFixed(1)}M%`;
+    if (abs >= 1e3) return `${(value / 1e3).toFixed(1)}K%`;
+    return `${value.toFixed(1)}%`;
+  }
+  const abs = Math.abs(value);
+  if (abs >= 1e9) return `${(value / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return `${(value / 1e3).toFixed(1)}K`;
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-function formatTooltipValue(value: number, fmt?: string): string {
+function smartTooltip(value: number, fmt?: string): string {
   if (fmt === "currency") return `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-  if (fmt === "percent") return `${(value * 100).toFixed(2)}%`;
+  if (fmt === "percent") return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 });
 }
 
 function formatDateTick(ts: number): string {
   if (ts > 1e12) ts = ts / 1000;
-  try {
-    return format(new Date(ts * 1000), "MMM d");
-  } catch {
-    return String(ts);
-  }
+  try { return format(new Date(ts * 1000), "MMM d"); } catch { return String(ts); }
 }
 
 function formatDateLabel(ts: number): string {
   if (ts > 1e12) ts = ts / 1000;
-  try {
-    return format(new Date(ts * 1000), "MMM d, yyyy");
-  } catch {
-    return String(ts);
-  }
+  try { return format(new Date(ts * 1000), "MMM d, yyyy"); } catch { return String(ts); }
 }
 
-function DataTable({ data, columns }: { data: any[]; columns: string[] }) {
-  if (!data.length) return null;
-
-  return (
-    <div className="max-h-72 overflow-auto rounded border border-border/8">
-      <table className="w-full text-[11px]">
-        <thead className="sticky top-0 bg-[hsl(var(--card))] z-10">
-          <tr>
-            {columns.map((col) => (
-              <th key={col} className="text-left px-3 py-2 text-[10px] font-semibold text-muted-foreground/60 uppercase tracking-wider border-b border-border/10 whitespace-nowrap">
-                {col.replace(/_/g, " ")}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {data.slice(0, 100).map((row, i) => (
-            <tr key={i} className="border-b border-border/5 hover:bg-accent/5 transition-colors">
-              {columns.map((col) => {
-                const val = row[col];
-                const isDate = /date|time|day|week|month/i.test(col) && (typeof val === 'string' || typeof val === 'number');
-                let display: string;
-                if (isDate && typeof val === 'string') {
-                  try { display = format(new Date(val), "MMM d, yyyy"); } catch { display = String(val); }
-                } else if (typeof val === "number") {
-                  display = /usd|price|fee|revenue|volume|amount|cost/i.test(col)
-                    ? `$${val.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
-                    : val.toLocaleString(undefined, { maximumFractionDigits: 4 });
-                } else {
-                  display = String(val ?? "—");
-                }
-                return (
-                  <td key={col} className="px-3 py-1.5 text-foreground/70 whitespace-nowrap font-mono">
-                    {display}
-                  </td>
-                );
-              })}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      {data.length > 100 && (
-        <p className="text-[9px] text-muted-foreground/25 text-center py-1.5">Showing 100 of {data.length} rows</p>
-      )}
-    </div>
-  );
-}
-
-function SingleMetricChart({ data, xKey, yKey, label, color, chartType, xType, format: fmt }: {
+function MiniChart({ data, xKey, yKey, label, color, xType, fmt }: {
   data: any[];
   xKey: string;
   yKey: string;
   label: string;
   color: string;
-  chartType: string;
   xType: string;
-  format?: string;
+  fmt?: string;
 }) {
-  const commonProps = {
-    data,
-    margin: { top: 8, right: 12, left: 0, bottom: 4 },
-  };
-
-  const xAxisEl = (
-    <XAxis
-      dataKey={xKey}
-      tickFormatter={xType === "date" ? formatDateTick : undefined}
-      tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))", opacity: 0.35 }}
-      axisLine={false}
-      tickLine={false}
-      interval="preserveStartEnd"
-    />
-  );
-
-  const yAxisEl = (
-    <YAxis
-      tickFormatter={(v: number) => formatAxisValue(v, fmt)}
-      tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))", opacity: 0.35 }}
-      axisLine={false}
-      tickLine={false}
-      width={50}
-    />
-  );
-
-  const grid = <CartesianGrid vertical={false} stroke="hsl(var(--border))" opacity={0.06} />;
-
-  const tooltip = (
-    <Tooltip
-      contentStyle={{
-        backgroundColor: "hsl(var(--card))",
-        border: "1px solid hsl(var(--border))",
-        borderRadius: "6px",
-        fontSize: "11px",
-        padding: "6px 10px",
-      }}
-      labelFormatter={(l: any) => xType === "date" ? formatDateLabel(l) : String(l)}
-      formatter={(value: any) => [formatTooltipValue(value, fmt), label]}
-      cursor={{ fill: "hsl(var(--accent))", opacity: 0.05 }}
-    />
-  );
-
-  if (chartType === "bar") {
-    return (
-      <ResponsiveContainer width="100%" height={180}>
-        <BarChart {...commonProps}>
-          {grid}
-          {xAxisEl}
-          {yAxisEl}
-          {tooltip}
-          <Bar dataKey={yKey} fill={color} radius={[2, 2, 0, 0]} opacity={0.85} />
-        </BarChart>
-      </ResponsiveContainer>
-    );
-  }
-
-  if (chartType === "area") {
-    return (
-      <ResponsiveContainer width="100%" height={180}>
-        <AreaChart {...commonProps}>
-          {grid}
-          {xAxisEl}
-          {yAxisEl}
-          {tooltip}
-          <defs>
-            <linearGradient id={`grad-${yKey}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={color} stopOpacity={0.2} />
-              <stop offset="100%" stopColor={color} stopOpacity={0} />
-            </linearGradient>
-          </defs>
-          <Area type="monotone" dataKey={yKey} stroke={color} fill={`url(#grad-${yKey})`} strokeWidth={1.5} dot={false} />
-        </AreaChart>
-      </ResponsiveContainer>
-    );
-  }
-
   return (
-    <ResponsiveContainer width="100%" height={180}>
-      <LineChart {...commonProps}>
-        {grid}
-        {xAxisEl}
-        {yAxisEl}
-        {tooltip}
-        <Line type="monotone" dataKey={yKey} stroke={color} strokeWidth={2} dot={false} activeDot={{ r: 3, fill: color }} />
-      </LineChart>
-    </ResponsiveContainer>
+    <div>
+      <div className="flex items-center gap-1.5 mb-1">
+        <span className="w-3 h-[2px] rounded-full" style={{ backgroundColor: color }} />
+        <span className="text-[9px] text-muted-foreground/50 lowercase">{label}</span>
+      </div>
+      <ResponsiveContainer width="100%" height={140}>
+        <LineChart data={data} margin={{ top: 4, right: 8, left: -5, bottom: 0 }}>
+          <XAxis
+            dataKey={xKey}
+            tickFormatter={xType === "date" ? formatDateTick : undefined}
+            tick={{ fontSize: 8, fill: "rgba(255,255,255,0.15)" }}
+            axisLine={false}
+            tickLine={false}
+            interval="preserveStartEnd"
+          />
+          <YAxis
+            tickFormatter={(v: number) => smartFormat(v, fmt)}
+            tick={{ fontSize: 8, fill: "rgba(255,255,255,0.15)" }}
+            axisLine={false}
+            tickLine={false}
+            width={48}
+          />
+          <Tooltip
+            contentStyle={{
+              backgroundColor: "rgba(0,0,0,0.85)",
+              border: "1px solid rgba(255,255,255,0.08)",
+              borderRadius: "4px",
+              fontSize: "10px",
+              padding: "4px 8px",
+            }}
+            labelFormatter={(l: any) => xType === "date" ? formatDateLabel(l) : String(l)}
+            formatter={(value: any) => [smartTooltip(value, fmt), label]}
+            cursor={false}
+          />
+          <Line
+            type="monotone"
+            dataKey={yKey}
+            stroke={color}
+            strokeWidth={1.5}
+            dot={false}
+            activeDot={{ r: 2, fill: color, stroke: "none" }}
+          />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
 
 function ChartRenderer({ chart }: { chart: DashboardChart }) {
   const { toast } = useToast();
   const { getAccessToken } = useAuth();
-  const [viewMode, setViewMode] = useState<"chart" | "table">("chart");
 
   const refreshMutation = useMutation({
     mutationFn: async () => {
@@ -269,30 +171,18 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
 
   const chartActions = (
     <div className="flex items-center gap-0.5">
-      {chart.status === "completed" && chart.chartType !== "table" && (
-        <button
-          onClick={() => setViewMode(viewMode === "chart" ? "table" : "chart")}
-          className="p-1 rounded hover:bg-accent/20 text-muted-foreground/25 hover:text-muted-foreground transition-colors"
-          title={viewMode === "chart" ? "View as table" : "View as chart"}
-          data-testid={`button-toggle-view-${chart.id}`}
-        >
-          {viewMode === "chart" ? <Table2 className="w-3 h-3" /> : <LineChartIcon className="w-3 h-3" />}
-        </button>
-      )}
       <button
         onClick={() => refreshMutation.mutate()}
         disabled={refreshMutation.isPending}
-        className="p-1 rounded hover:bg-accent/20 text-muted-foreground/25 hover:text-muted-foreground transition-colors"
+        className="p-1 rounded hover:bg-white/5 text-white/15 hover:text-white/40 transition-colors"
         data-testid={`button-refresh-chart-${chart.id}`}
-        title="Refresh data"
       >
         <RefreshCw className={`w-3 h-3 ${refreshMutation.isPending ? 'animate-spin' : ''}`} />
       </button>
       <button
         onClick={() => deleteMutation.mutate()}
-        className="p-1 rounded hover:bg-destructive/20 text-muted-foreground/25 hover:text-destructive transition-colors"
+        className="p-1 rounded hover:bg-red-500/10 text-white/15 hover:text-red-400/60 transition-colors"
         data-testid={`button-delete-chart-${chart.id}`}
-        title="Delete"
       >
         <Trash2 className="w-3 h-3" />
       </button>
@@ -301,14 +191,14 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
 
   if (chart.status === "pending") {
     return (
-      <div className="rounded-lg p-5 bg-card/10 border border-border/8" data-testid={`chart-card-${chart.id}`}>
+      <div className="rounded-lg p-5 bg-white/[0.02]" data-testid={`chart-card-${chart.id}`}>
         <div className="flex items-center justify-between mb-3">
-          <p className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-wider">{chart.title}</p>
+          <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">{chart.title}</p>
           {chartActions}
         </div>
-        <div className="flex flex-col items-center justify-center h-36 gap-2">
-          <RefreshCw className="w-4 h-4 text-muted-foreground/20" />
-          <span className="text-[10px] text-muted-foreground/30">Click refresh to load data</span>
+        <div className="flex flex-col items-center justify-center h-32 gap-2">
+          <RefreshCw className="w-4 h-4 text-white/10" />
+          <span className="text-[10px] text-white/20">Click refresh to load data</span>
         </div>
       </div>
     );
@@ -316,13 +206,13 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
 
   if (chart.status === "generating") {
     return (
-      <div className="rounded-lg p-5 bg-card/10 border border-border/8" data-testid={`chart-card-${chart.id}`}>
+      <div className="rounded-lg p-5 bg-white/[0.02]" data-testid={`chart-card-${chart.id}`}>
         <div className="flex items-center justify-between mb-3">
-          <p className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-wider">{chart.title}</p>
+          <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">{chart.title}</p>
         </div>
-        <div className="flex items-center justify-center h-36 gap-2">
-          <Loader2 className="w-4 h-4 animate-spin text-muted-foreground/30" />
-          <span className="text-[10px] text-muted-foreground/30">Fetching data...</span>
+        <div className="flex items-center justify-center h-32 gap-2">
+          <Loader2 className="w-4 h-4 animate-spin text-white/20" />
+          <span className="text-[10px] text-white/20">Fetching data...</span>
         </div>
       </div>
     );
@@ -330,14 +220,14 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
 
   if (chart.status === "failed") {
     return (
-      <div className="rounded-lg p-5 bg-card/10 border border-destructive/10" data-testid={`chart-card-${chart.id}`}>
+      <div className="rounded-lg p-5 bg-white/[0.02]" data-testid={`chart-card-${chart.id}`}>
         <div className="flex items-center justify-between mb-3">
-          <p className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-wider">{chart.title}</p>
+          <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">{chart.title}</p>
           {chartActions}
         </div>
-        <div className="flex items-center justify-center h-36 gap-2">
-          <AlertTriangle className="w-3.5 h-3.5 text-destructive/40" />
-          <span className="text-[10px] text-destructive/50">{chart.errorMessage || "Failed to fetch data"}</span>
+        <div className="flex items-center justify-center h-32 gap-2">
+          <AlertTriangle className="w-3.5 h-3.5 text-red-400/30" />
+          <span className="text-[10px] text-red-400/40">{chart.errorMessage || "Failed to fetch data"}</span>
         </div>
       </div>
     );
@@ -354,7 +244,6 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
 
   const xAxis = chartConfig.xAxis || { dataKey: "date", type: "date" };
   const yAxes: any[] = chartConfig.yAxes || [{ dataKey: "value", label: "Value", color: CHART_COLORS[0] }];
-  const allColumns = chartConfig.columns || (chartData[0] ? Object.keys(chartData[0]) : []);
 
   const processedData = chartData.map((d: any) => {
     const processed = { ...d };
@@ -366,15 +255,55 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
     return processed;
   });
 
-  if (chart.chartType === "table" || viewMode === "table") {
+  if (chart.chartType === "table") {
+    const columns = chartConfig.columns || (chartData[0] ? Object.keys(chartData[0]) : []);
     return (
-      <div className="rounded-lg p-5 bg-card/10 border border-border/8" data-testid={`chart-card-${chart.id}`}>
+      <div className="rounded-lg p-5 bg-white/[0.02]" data-testid={`chart-card-${chart.id}`}>
         <div className="flex items-center justify-between mb-3">
-          <p className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-wider">{chart.title}</p>
+          <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">{chart.title}</p>
           {chartActions}
         </div>
-        <DataTable data={chartData} columns={allColumns} />
-        <div className="flex items-center justify-between mt-2 text-[9px] text-muted-foreground/20">
+        <div className="max-h-72 overflow-auto rounded">
+          <table className="w-full text-[11px]">
+            <thead className="sticky top-0 bg-[hsl(var(--background))] z-10">
+              <tr>
+                {columns.map((col: string) => (
+                  <th key={col} className="text-left px-3 py-2 text-[9px] font-semibold text-white/25 uppercase tracking-wider border-b border-white/5 whitespace-nowrap">
+                    {col.replace(/_/g, " ")}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {chartData.slice(0, 100).map((row: any, i: number) => (
+                <tr key={i} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+                  {columns.map((col: string) => {
+                    const val = row[col];
+                    let display: string;
+                    if (typeof val === "number") {
+                      display = /usd|price|fee|revenue|volume|amount|cost/i.test(col)
+                        ? `$${val.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
+                        : val.toLocaleString(undefined, { maximumFractionDigits: 4 });
+                    } else if (/date|time|day|week|month/i.test(col) && typeof val === 'string') {
+                      try { display = format(new Date(val), "MMM d, yyyy"); } catch { display = String(val); }
+                    } else {
+                      display = String(val ?? "—");
+                    }
+                    return (
+                      <td key={col} className="px-3 py-1.5 text-white/50 whitespace-nowrap font-mono">
+                        {display}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {chartData.length > 100 && (
+            <p className="text-[9px] text-white/15 text-center py-1.5">Showing 100 of {chartData.length} rows</p>
+          )}
+        </div>
+        <div className="flex items-center justify-between mt-2 text-[9px] text-white/10">
           <span>{chart.dataSource} · {chartData.length} rows</span>
           <span>{format(new Date(chart.updatedAt), "MMM d, h:mm a")}</span>
         </div>
@@ -382,93 +311,27 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
     );
   }
 
-  if (yAxes.length <= 2) {
-    return (
-      <div className="rounded-lg p-5 bg-card/10 border border-border/8" data-testid={`chart-card-${chart.id}`}>
-        <div className="flex items-center justify-between mb-1">
-          <p className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-wider">{chart.title}</p>
-          {chartActions}
-        </div>
-        {yAxes.length > 1 && (
-          <div className="flex gap-3 mb-2">
-            {yAxes.map((y: any, i: number) => (
-              <div key={i} className="flex items-center gap-1.5">
-                <span className="w-2.5 h-0.5 rounded-full" style={{ backgroundColor: y.color || CHART_COLORS[i] }} />
-                <span className="text-[9px] text-muted-foreground/40">{y.label || y.dataKey}</span>
-              </div>
-            ))}
-          </div>
-        )}
-        <ResponsiveContainer width="100%" height={200}>
-          {chart.chartType === "bar" ? (
-            <BarChart data={processedData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
-              <CartesianGrid vertical={false} stroke="hsl(var(--border))" opacity={0.06} />
-              <XAxis dataKey={xAxis.dataKey} tickFormatter={xAxis.type === "date" ? formatDateTick : undefined} tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))", opacity: 0.35 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-              <YAxis tickFormatter={(v: number) => formatAxisValue(v, yAxes[0]?.format)} tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))", opacity: 0.35 }} axisLine={false} tickLine={false} width={50} />
-              <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px", padding: "6px 10px" }} labelFormatter={(l: any) => xAxis.type === "date" ? formatDateLabel(l) : String(l)} formatter={(value: any, name: string) => { const ax = yAxes.find((y: any) => y.dataKey === name); return [formatTooltipValue(value, ax?.format), ax?.label || name]; }} cursor={{ fill: "hsl(var(--accent))", opacity: 0.05 }} />
-              {yAxes.map((y: any, i: number) => (
-                <Bar key={i} dataKey={y.dataKey} fill={y.color || CHART_COLORS[i]} radius={[2, 2, 0, 0]} opacity={0.85} />
-              ))}
-            </BarChart>
-          ) : chart.chartType === "composed" ? (
-            <ComposedChart data={processedData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
-              <CartesianGrid vertical={false} stroke="hsl(var(--border))" opacity={0.06} />
-              <XAxis dataKey={xAxis.dataKey} tickFormatter={xAxis.type === "date" ? formatDateTick : undefined} tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))", opacity: 0.35 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-              <YAxis yAxisId="left" tickFormatter={(v: number) => formatAxisValue(v, yAxes[0]?.format)} tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))", opacity: 0.35 }} axisLine={false} tickLine={false} width={50} />
-              {yAxes.some((y: any) => y.yAxisId === "right") && <YAxis yAxisId="right" orientation="right" tickFormatter={(v: number) => { const ra = yAxes.find((y: any) => y.yAxisId === "right"); return formatAxisValue(v, ra?.format); }} tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))", opacity: 0.35 }} axisLine={false} tickLine={false} width={50} />}
-              <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px", padding: "6px 10px" }} labelFormatter={(l: any) => xAxis.type === "date" ? formatDateLabel(l) : String(l)} formatter={(value: any, name: string) => { const ax = yAxes.find((y: any) => y.dataKey === name); return [formatTooltipValue(value, ax?.format), ax?.label || name]; }} cursor={{ fill: "hsl(var(--accent))", opacity: 0.05 }} />
-              {yAxes.map((y: any, i: number) => {
-                if (y.chartType === "bar") return <Bar key={i} dataKey={y.dataKey} fill={y.color || CHART_COLORS[i]} yAxisId={y.yAxisId || "left"} radius={[2, 2, 0, 0]} opacity={0.85} />;
-                return <Line key={i} type="monotone" dataKey={y.dataKey} stroke={y.color || CHART_COLORS[i]} yAxisId={y.yAxisId || "left"} strokeWidth={2} dot={false} />;
-              })}
-            </ComposedChart>
-          ) : (
-            <LineChart data={processedData} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
-              <CartesianGrid vertical={false} stroke="hsl(var(--border))" opacity={0.06} />
-              <XAxis dataKey={xAxis.dataKey} tickFormatter={xAxis.type === "date" ? formatDateTick : undefined} tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))", opacity: 0.35 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-              <YAxis tickFormatter={(v: number) => formatAxisValue(v, yAxes[0]?.format)} tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))", opacity: 0.35 }} axisLine={false} tickLine={false} width={50} />
-              <Tooltip contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: "6px", fontSize: "11px", padding: "6px 10px" }} labelFormatter={(l: any) => xAxis.type === "date" ? formatDateLabel(l) : String(l)} formatter={(value: any, name: string) => { const ax = yAxes.find((y: any) => y.dataKey === name); return [formatTooltipValue(value, ax?.format), ax?.label || name]; }} cursor={{ fill: "hsl(var(--accent))", opacity: 0.05 }} />
-              {yAxes.map((y: any, i: number) => (
-                <Line key={i} type="monotone" dataKey={y.dataKey} stroke={y.color || CHART_COLORS[i]} strokeWidth={2} dot={false} activeDot={{ r: 3, fill: y.color || CHART_COLORS[i] }} />
-              ))}
-            </LineChart>
-          )}
-        </ResponsiveContainer>
-        <div className="flex items-center justify-between mt-2 text-[9px] text-muted-foreground/20">
-          <span>{chart.dataSource} · {processedData.length} points</span>
-          <span>{format(new Date(chart.updatedAt), "MMM d, h:mm a")}</span>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="rounded-lg p-5 bg-card/10 border border-border/8" data-testid={`chart-card-${chart.id}`}>
+    <div className="rounded-lg p-5 bg-white/[0.02]" data-testid={`chart-card-${chart.id}`}>
       <div className="flex items-center justify-between mb-3">
-        <p className="text-[10px] font-semibold text-muted-foreground/50 uppercase tracking-wider">{chart.title}</p>
+        <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">{chart.title}</p>
         {chartActions}
       </div>
-      <div className="grid grid-cols-2 gap-3">
+      <div className={`grid gap-4 ${yAxes.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
         {yAxes.map((y: any, i: number) => (
-          <div key={i}>
-            <p className="text-[9px] text-muted-foreground/40 mb-1 flex items-center gap-1.5">
-              <span className="w-2 h-0.5 rounded-full" style={{ backgroundColor: y.color || CHART_COLORS[i] }} />
-              {y.label || y.dataKey}
-            </p>
-            <SingleMetricChart
-              data={processedData}
-              xKey={xAxis.dataKey}
-              yKey={y.dataKey}
-              label={y.label || y.dataKey}
-              color={y.color || CHART_COLORS[i]}
-              chartType={chart.chartType === "bar" ? "bar" : "line"}
-              xType={xAxis.type || "category"}
-              format={y.format}
-            />
-          </div>
+          <MiniChart
+            key={i}
+            data={processedData}
+            xKey={xAxis.dataKey}
+            yKey={y.dataKey}
+            label={y.label || y.dataKey}
+            color={y.color || CHART_COLORS[i]}
+            xType={xAxis.type || "category"}
+            fmt={y.format}
+          />
         ))}
       </div>
-      <div className="flex items-center justify-between mt-2 text-[9px] text-muted-foreground/20">
+      <div className="flex items-center justify-between mt-3 text-[9px] text-white/10">
         <span>{chart.dataSource} · {processedData.length} points</span>
         <span>{format(new Date(chart.updatedAt), "MMM d, h:mm a")}</span>
       </div>
@@ -528,14 +391,14 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder={`What data do you want? e.g. "${companyName} TVL over 90 days" or "Price vs Revenue"`}
-              className="w-full h-9 px-3 pr-10 text-xs rounded-md border border-border/15 bg-card/20 text-foreground placeholder:text-muted-foreground/25 focus:outline-none focus:border-teal-500/30 transition-colors"
+              className="w-full h-9 px-3 pr-10 text-xs rounded-md border border-white/[0.06] bg-white/[0.02] text-foreground placeholder:text-white/15 focus:outline-none focus:border-teal-500/20 transition-colors"
               disabled={generateMutation.isPending}
               data-testid="input-chart-prompt"
             />
             <button
               type="submit"
               disabled={!prompt.trim() || generateMutation.isPending}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded text-muted-foreground/30 hover:text-teal-400 disabled:opacity-30 transition-colors"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded text-white/20 hover:text-teal-400 disabled:opacity-30 transition-colors"
               data-testid="button-submit-chart"
             >
               {generateMutation.isPending ? (
@@ -547,7 +410,7 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
           </div>
         </div>
         {generateMutation.isPending && (
-          <p className="text-[10px] text-muted-foreground/25 mt-2 flex items-center gap-1.5">
+          <p className="text-[10px] text-white/15 mt-2 flex items-center gap-1.5">
             <Loader2 className="w-3 h-3 animate-spin" />
             AI is analyzing your request and fetching data...
           </p>
@@ -556,13 +419,13 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
 
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
-          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground/20" />
+          <Loader2 className="w-5 h-5 animate-spin text-white/10" />
         </div>
       ) : charts.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <BarChart3 className="w-8 h-8 text-muted-foreground/10 mb-3" />
-          <p className="text-sm text-muted-foreground/30 font-medium">No charts yet</p>
-          <p className="text-[10px] text-muted-foreground/20 mt-1 max-w-xs">
+          <BarChart3 className="w-8 h-8 text-white/5 mb-3" />
+          <p className="text-sm text-white/20 font-medium">No charts yet</p>
+          <p className="text-[10px] text-white/10 mt-1 max-w-xs">
             Ask the AI to pull data from Dune, DeFiLlama, or CoinGecko — or add queries from the library in Token Intelligence
           </p>
           <div className="flex flex-wrap gap-1.5 mt-4 max-w-md justify-center">
@@ -575,7 +438,7 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
               <button
                 key={s}
                 onClick={() => setPrompt(s)}
-                className="text-[10px] px-2.5 py-1 rounded-full border border-border/10 text-muted-foreground/30 hover:text-teal-400 hover:border-teal-500/20 transition-colors"
+                className="text-[10px] px-2.5 py-1 rounded-full border border-white/[0.06] text-white/20 hover:text-teal-400 hover:border-teal-500/15 transition-colors"
                 data-testid={`suggestion-${s.replace(/\s+/g, "-").toLowerCase()}`}
               >
                 {s}
