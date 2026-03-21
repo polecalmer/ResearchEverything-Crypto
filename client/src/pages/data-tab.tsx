@@ -126,6 +126,39 @@ function buildDateFormatter(data: any[], xKey: string) {
   };
 }
 
+function parseSubtitle(description: string | null | undefined): { subtitle: string; desc: string } {
+  if (!description) return { subtitle: "", desc: "" };
+  if (description.includes("|||")) {
+    const [sub, ...rest] = description.split("|||");
+    return { subtitle: sub, desc: rest.join("|||") };
+  }
+  return { subtitle: "", desc: description };
+}
+
+function computeHeadlineStat(data: any[], yAxes: any[]): { value: string; label: string } | null {
+  if (!data || data.length === 0 || !yAxes || yAxes.length === 0) return null;
+  const primary = yAxes[0];
+  const key = primary.dataKey;
+  const fmt = primary.format;
+
+  const values = data.map(d => d[key]).filter(v => typeof v === "number" && !isNaN(v));
+  if (values.length === 0) return null;
+
+  const latest = values[values.length - 1];
+  const sum = values.reduce((a: number, b: number) => a + b, 0);
+
+  if (/revenue|fee|volume|earnings|profit/i.test(key)) {
+    return { value: smartFormat(sum, fmt || "currency"), label: "Total" };
+  }
+  if (/price|tvl|market_cap|fdv/i.test(key)) {
+    return { value: smartFormat(latest, fmt || "currency"), label: "Latest" };
+  }
+  if (/holder|count|user|address/i.test(key)) {
+    return { value: smartFormat(latest, "number"), label: "Latest" };
+  }
+  return { value: smartFormat(latest, fmt), label: "Latest" };
+}
+
 function ColumnPicker({ label, columns, selected, onSelect, multi }: {
   label: string;
   columns: string[];
@@ -343,29 +376,33 @@ function DataCard({ chart }: { chart: DashboardChart }) {
     },
   });
 
-  const cardClass = "rounded-lg border border-white/[0.06] bg-[rgba(255,255,255,0.015)]";
+  const cardClass = "rounded-xl border border-white/[0.07] bg-[rgba(255,255,255,0.02)] overflow-hidden";
+  const { subtitle } = parseSubtitle(chart.description);
 
   if (chart.status === "pending" || chart.status === "generating") {
     return (
-      <div className={`${cardClass} p-5`} data-testid={`chart-card-${chart.id}`}>
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{chart.title}</p>
-          <div className="flex items-center gap-1">
+      <div className={`${cardClass} p-6`} data-testid={`chart-card-${chart.id}`}>
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-semibold text-white/80 tracking-tight">{chart.title}</h3>
+            {subtitle && <p className="text-[11px] text-white/25 mt-0.5">{subtitle}</p>}
+          </div>
+          <div className="flex items-center gap-0.5">
             {chart.status === "pending" && (
-              <button onClick={() => refreshMutation.mutate()} className="p-1.5 rounded hover:bg-white/5 text-white/20 hover:text-white/50 transition-colors" data-testid={`button-refresh-chart-${chart.id}`}>
+              <button onClick={() => refreshMutation.mutate()} className="p-1.5 rounded-lg hover:bg-white/[0.04] text-white/20 hover:text-white/50 transition-colors" data-testid={`button-refresh-chart-${chart.id}`}>
                 <RefreshCw className="w-3.5 h-3.5" />
               </button>
             )}
-            <button onClick={() => deleteMutation.mutate()} className="p-1.5 rounded hover:bg-red-500/10 text-white/20 hover:text-red-400/60 transition-colors" data-testid={`button-delete-chart-${chart.id}`}>
+            <button onClick={() => deleteMutation.mutate()} className="p-1.5 rounded-lg hover:bg-red-500/10 text-white/20 hover:text-red-400/60 transition-colors" data-testid={`button-delete-chart-${chart.id}`}>
               <Trash2 className="w-3.5 h-3.5" />
             </button>
           </div>
         </div>
-        <div className="flex items-center justify-center h-32 gap-2">
+        <div className="flex items-center justify-center h-40 gap-2">
           {chart.status === "generating" ? (
-            <><Loader2 className="w-4 h-4 animate-spin text-white/20" /><span className="text-[11px] text-white/20">Fetching data...</span></>
+            <><Loader2 className="w-4 h-4 animate-spin text-white/20" /><span className="text-[11px] text-white/25">Fetching data...</span></>
           ) : (
-            <><RefreshCw className="w-4 h-4 text-white/10" /><span className="text-[11px] text-white/20">Click refresh to load data</span></>
+            <><RefreshCw className="w-4 h-4 text-white/10" /><span className="text-[11px] text-white/25">Click refresh to load data</span></>
           )}
         </div>
       </div>
@@ -374,15 +411,18 @@ function DataCard({ chart }: { chart: DashboardChart }) {
 
   if (chart.status === "failed") {
     return (
-      <div className={`${cardClass} p-5`} data-testid={`chart-card-${chart.id}`}>
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{chart.title}</p>
-          <div className="flex items-center gap-1">
-            <button onClick={() => refreshMutation.mutate()} className="p-1.5 rounded hover:bg-white/5 text-white/20" data-testid={`button-refresh-chart-${chart.id}`}><RefreshCw className="w-3.5 h-3.5" /></button>
-            <button onClick={() => deleteMutation.mutate()} className="p-1.5 rounded hover:bg-red-500/10 text-white/20" data-testid={`button-delete-chart-${chart.id}`}><Trash2 className="w-3.5 h-3.5" /></button>
+      <div className={`${cardClass} p-6`} data-testid={`chart-card-${chart.id}`}>
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h3 className="text-sm font-semibold text-white/80 tracking-tight">{chart.title}</h3>
+            {subtitle && <p className="text-[11px] text-white/25 mt-0.5">{subtitle}</p>}
+          </div>
+          <div className="flex items-center gap-0.5">
+            <button onClick={() => refreshMutation.mutate()} className="p-1.5 rounded-lg hover:bg-white/[0.04] text-white/20 hover:text-white/50 transition-colors" data-testid={`button-refresh-chart-${chart.id}`}><RefreshCw className="w-3.5 h-3.5" /></button>
+            <button onClick={() => deleteMutation.mutate()} className="p-1.5 rounded-lg hover:bg-red-500/10 text-white/20 hover:text-red-400/60 transition-colors" data-testid={`button-delete-chart-${chart.id}`}><Trash2 className="w-3.5 h-3.5" /></button>
           </div>
         </div>
-        <div className="flex items-center justify-center h-32 gap-2">
+        <div className="flex items-center justify-center h-40 gap-2">
           <AlertTriangle className="w-3.5 h-3.5 text-red-400/40" />
           <span className="text-[11px] text-red-400/50">{chart.errorMessage || "Failed"}</span>
         </div>
@@ -401,6 +441,8 @@ function DataCard({ chart }: { chart: DashboardChart }) {
   const isTable = chart.chartType === "table" || !hasChartConfig;
   const currentView = view === "auto" ? (isTable ? "table" : "chart") : view;
 
+  const headlineStat = hasChartConfig ? computeHeadlineStat(chartData, chartConfig.yAxes) : null;
+
   const renderTable = () => {
     const columns = chartConfig.columns || (chartData[0] ? Object.keys(chartData[0]) : []);
     return (
@@ -410,7 +452,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
             <thead className="sticky top-0 bg-[rgb(14,14,18)] z-10">
               <tr>
                 {columns.map((col: string) => (
-                  <th key={col} className="text-left px-2.5 py-1.5 text-[9px] font-medium text-white/25 uppercase tracking-wider border-b border-white/[0.06] whitespace-nowrap">
+                  <th key={col} className="text-left px-3 py-2 text-[9px] font-medium text-white/25 uppercase tracking-wider border-b border-white/[0.06] whitespace-nowrap">
                     {col.replace(/_/g, " ")}
                   </th>
                 ))}
@@ -435,7 +477,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
                       display = String(val);
                     }
                     return (
-                      <td key={col} className="px-2.5 py-1 text-white/45 whitespace-nowrap font-mono text-[10px]">
+                      <td key={col} className="px-3 py-1.5 text-white/45 whitespace-nowrap font-mono text-[10px]">
                         {display}
                       </td>
                     );
@@ -446,7 +488,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
           </table>
         </div>
         {chartData.length > 50 && (
-          <p className="text-[9px] text-white/15 text-center py-1.5">Showing 50 of {chartData.length} rows</p>
+          <p className="text-[9px] text-white/15 text-center py-2">Showing 50 of {chartData.length} rows</p>
         )}
       </div>
     );
@@ -486,7 +528,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
       <XAxis
         dataKey={xAxis.dataKey}
         tickFormatter={isDate ? dateFmt!.tickFormatter : undefined}
-        tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)" }}
+        tick={{ fontSize: 10, fill: "rgba(255,255,255,0.25)" }}
         axisLine={{ stroke: "rgba(255,255,255,0.06)" }}
         tickLine={false}
         interval={tickInterval}
@@ -505,7 +547,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
       <YAxis
         yAxisId="left"
         tickFormatter={(v: number) => smartFormat(v, leftFmt)}
-        tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)" }}
+        tick={{ fontSize: 10, fill: "rgba(255,255,255,0.25)" }}
         axisLine={false}
         tickLine={false}
         width={65}
@@ -516,7 +558,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
         yAxisId="right"
         orientation="right"
         tickFormatter={(v: number) => smartFormat(v, rightFmt)}
-        tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)" }}
+        tick={{ fontSize: 10, fill: "rgba(255,255,255,0.25)" }}
         axisLine={false}
         tickLine={false}
         width={65}
@@ -526,7 +568,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
     const singleYAxisEl = (
       <YAxis
         tickFormatter={(v: number) => smartFormat(v, primaryFmt)}
-        tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)" }}
+        tick={{ fontSize: 10, fill: "rgba(255,255,255,0.25)" }}
         axisLine={false}
         tickLine={false}
         width={60}
@@ -535,20 +577,35 @@ function DataCard({ chart }: { chart: DashboardChart }) {
 
     const tooltipEl = (
       <Tooltip
-        contentStyle={{ backgroundColor: "rgba(8,8,12,0.95)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "6px", fontSize: "12px", padding: "8px 12px", color: "rgba(255,255,255,0.8)" }}
-        labelStyle={{ color: "rgba(255,255,255,0.35)", fontSize: "10px", marginBottom: "4px" }}
+        contentStyle={{
+          backgroundColor: "rgba(10,10,14,0.95)",
+          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: "8px",
+          fontSize: "12px",
+          padding: "8px 12px",
+          color: "rgba(255,255,255,0.8)",
+          backdropFilter: "blur(12px)",
+          boxShadow: "0 4px 20px rgba(0,0,0,0.4)",
+        }}
+        labelStyle={{ color: "rgba(255,255,255,0.3)", fontSize: "10px", marginBottom: "4px" }}
         labelFormatter={isDate ? dateFmt!.tooltipFormatter : (l: any) => String(l)}
         formatter={(value: any, name: string) => {
           const ax = yAxes.find((y: any) => y.dataKey === name);
           return [smartTooltip(value, ax?.format || primaryFmt), ax?.label || name.replace(/_/g, " ")];
         }}
-        cursor={{ fill: "rgba(255,255,255,0.03)" }}
+        cursor={{ fill: "rgba(255,255,255,0.02)" }}
       />
     );
-    const gridEl = <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />;
+    const gridEl = (
+      <CartesianGrid
+        strokeDasharray="2 6"
+        stroke="rgba(255,255,255,0.04)"
+        vertical={false}
+      />
+    );
     const legendEl = yAxes.length > 1 ? (
       <Legend verticalAlign="top" align="left" height={28} iconType="plainline" iconSize={12}
-        wrapperStyle={{ fontSize: "10px", color: "rgba(255,255,255,0.4)", paddingBottom: "4px" }}
+        wrapperStyle={{ fontSize: "10px", color: "rgba(255,255,255,0.35)", paddingBottom: "4px" }}
         formatter={(v: string) => { const ax = yAxes.find((y: any) => y.dataKey === v); return ax?.label || v.replace(/_/g, " "); }}
       />
     ) : null;
@@ -559,10 +616,10 @@ function DataCard({ chart }: { chart: DashboardChart }) {
       const color = y.color || CHART_COLORS[i];
 
       if (seriesType === "bar") {
-        return <Bar key={y.dataKey} dataKey={y.dataKey} yAxisId={axisId} fill={color} radius={[3, 3, 0, 0]} maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20} opacity={0.8} />;
+        return <Bar key={y.dataKey} dataKey={y.dataKey} yAxisId={axisId} fill={color} radius={[4, 4, 0, 0]} maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20} opacity={0.7} />;
       }
       if (seriesType === "area") {
-        return <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} yAxisId={axisId} stroke={color} strokeWidth={1.5} fill={color} fillOpacity={0.1} dot={false} />;
+        return <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} yAxisId={axisId} stroke={color} strokeWidth={1.5} fill={color} fillOpacity={0.08} dot={false} />;
       }
       return <Line key={y.dataKey} type="monotone" dataKey={y.dataKey} yAxisId={axisId} stroke={color} strokeWidth={2} dot={false} activeDot={{ r: 3, fill: color, stroke: "rgba(0,0,0,0.5)", strokeWidth: 1 }} />;
     };
@@ -581,7 +638,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
           <BarChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
             {gridEl}{xAxisEl}{singleYAxisEl}{tooltipEl}{legendEl}
             {yAxes.map((y: any, i: number) => (
-              <Bar key={y.dataKey} dataKey={y.dataKey} fill={y.color || CHART_COLORS[i]} radius={[3, 3, 0, 0]} maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20} />
+              <Bar key={y.dataKey} dataKey={y.dataKey} fill={y.color || CHART_COLORS[i]} radius={[4, 4, 0, 0]} maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20} opacity={0.7} />
             ))}
           </BarChart>
         );
@@ -591,7 +648,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
           <AreaChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
             {gridEl}{xAxisEl}{singleYAxisEl}{tooltipEl}{legendEl}
             {yAxes.map((y: any, i: number) => (
-              <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={y.color || CHART_COLORS[i]} strokeWidth={1.5} fill={y.color || CHART_COLORS[i]} fillOpacity={0.1} dot={false} />
+              <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={y.color || CHART_COLORS[i]} strokeWidth={1.5} fill={y.color || CHART_COLORS[i]} fillOpacity={0.08} dot={false} />
             ))}
           </AreaChart>
         );
@@ -607,73 +664,90 @@ function DataCard({ chart }: { chart: DashboardChart }) {
     })();
 
     return (
-      <ResponsiveContainer width="100%" height={280}>
-        {chartEl}
-      </ResponsiveContainer>
+      <div className="px-2 pb-1">
+        <ResponsiveContainer width="100%" height={280}>
+          {chartEl}
+        </ResponsiveContainer>
+      </div>
     );
   };
 
   return (
-    <div className={`${cardClass} p-4`} data-testid={`chart-card-${chart.id}`}>
-      <div className="flex items-center justify-between mb-2">
-        <p className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{chart.title}</p>
-        <div className="flex items-center gap-1">
-          {hasChartConfig && (
-            <>
-              <button
-                onClick={() => setView(currentView === "chart" ? "table" : "chart")}
-                className="p-1.5 rounded hover:bg-white/5 text-white/20 hover:text-white/50 transition-colors"
-                data-testid={`toggle-view-${chart.id}`}
-                title={currentView === "chart" ? "Show table" : "Show chart"}
-              >
-                {currentView === "chart" ? <Table2 className="w-3.5 h-3.5" /> : <LineChartIcon className="w-3.5 h-3.5" />}
-              </button>
-              <button
-                onClick={() => resetMutation.mutate()}
-                className="p-1.5 rounded hover:bg-white/5 text-white/20 hover:text-white/50 transition-colors text-[9px]"
-                data-testid={`reset-chart-${chart.id}`}
-                title="Reset to table"
-              >
-                <BarChart3 className="w-3.5 h-3.5" />
-              </button>
-            </>
-          )}
-          <button
-            onClick={() => refreshMutation.mutate()}
-            disabled={refreshMutation.isPending}
-            className="p-1.5 rounded hover:bg-white/5 text-white/20 hover:text-white/50 transition-colors"
-            data-testid={`button-refresh-chart-${chart.id}`}
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${refreshMutation.isPending ? 'animate-spin' : ''}`} />
-          </button>
-          <button
-            onClick={() => deleteMutation.mutate()}
-            className="p-1.5 rounded hover:bg-red-500/10 text-white/20 hover:text-red-400/60 transition-colors"
-            data-testid={`button-delete-chart-${chart.id}`}
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
+    <div className={cardClass} data-testid={`chart-card-${chart.id}`}>
+      <div className="p-5 pb-0">
+        <div className="flex items-start justify-between mb-4">
+          <div className="min-w-0 flex-1">
+            <h3 className="text-[15px] font-semibold text-white/90 tracking-tight leading-tight">{chart.title}</h3>
+            {subtitle && <p className="text-[11px] text-white/30 mt-1">{subtitle}</p>}
+          </div>
+          <div className="flex items-center gap-0 ml-4 shrink-0">
+            {headlineStat && currentView === "chart" && (
+              <div className="text-right mr-3">
+                <p className="text-lg font-semibold text-white/90 font-mono tracking-tight leading-none">{headlineStat.value}</p>
+                <p className="text-[10px] text-white/30 mt-0.5">{headlineStat.label}</p>
+              </div>
+            )}
+            {hasChartConfig && (
+              <>
+                <button
+                  onClick={() => setView(currentView === "chart" ? "table" : "chart")}
+                  className="p-1.5 rounded-lg hover:bg-white/[0.04] text-white/20 hover:text-white/50 transition-colors"
+                  data-testid={`toggle-view-${chart.id}`}
+                  title={currentView === "chart" ? "Show table" : "Show chart"}
+                >
+                  {currentView === "chart" ? <Table2 className="w-3.5 h-3.5" /> : <LineChartIcon className="w-3.5 h-3.5" />}
+                </button>
+                <button
+                  onClick={() => resetMutation.mutate()}
+                  className="p-1.5 rounded-lg hover:bg-white/[0.04] text-white/20 hover:text-white/50 transition-colors"
+                  data-testid={`reset-chart-${chart.id}`}
+                  title="Reset to table"
+                >
+                  <BarChart3 className="w-3.5 h-3.5" />
+                </button>
+              </>
+            )}
+            <button
+              onClick={() => refreshMutation.mutate()}
+              disabled={refreshMutation.isPending}
+              className="p-1.5 rounded-lg hover:bg-white/[0.04] text-white/20 hover:text-white/50 transition-colors"
+              data-testid={`button-refresh-chart-${chart.id}`}
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${refreshMutation.isPending ? 'animate-spin' : ''}`} />
+            </button>
+            <button
+              onClick={() => deleteMutation.mutate()}
+              className="p-1.5 rounded-lg hover:bg-red-500/10 text-white/20 hover:text-red-400/60 transition-colors"
+              data-testid={`button-delete-chart-${chart.id}`}
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
 
-      {currentView === "chart" ? renderChart() : renderTable()}
+      {currentView === "chart" ? renderChart() : <div className="px-5">{renderTable()}</div>}
 
       {currentView === "table" && !showBuilder && (
-        <button
-          onClick={() => setShowBuilder(true)}
-          className="mt-3 flex items-center gap-1.5 text-[10px] text-sky-400/60 hover:text-sky-400 transition-colors"
-          data-testid={`button-create-chart-${chart.id}`}
-        >
-          <LineChartIcon className="w-3 h-3" />
-          Create Chart
-        </button>
+        <div className="px-5 pb-3">
+          <button
+            onClick={() => setShowBuilder(true)}
+            className="mt-3 flex items-center gap-1.5 text-[10px] text-sky-400/60 hover:text-sky-400 transition-colors"
+            data-testid={`button-create-chart-${chart.id}`}
+          >
+            <LineChartIcon className="w-3 h-3" />
+            Create Chart
+          </button>
+        </div>
       )}
 
       {showBuilder && (
-        <ChartBuilder chart={chart} data={chartData} onClose={() => setShowBuilder(false)} />
+        <div className="px-5 pb-3">
+          <ChartBuilder chart={chart} data={chartData} onClose={() => setShowBuilder(false)} />
+        </div>
       )}
 
-      <div className="flex items-center justify-between mt-2 text-[9px] text-white/15">
+      <div className="flex items-center justify-between px-5 py-2.5 text-[9px] text-white/15 border-t border-white/[0.04]">
         <span>{chart.dataSource} · {chartData.length} {currentView === "chart" ? "points" : "rows"}</span>
         <span>{format(new Date(chart.updatedAt), "MMM d, h:mm a")}</span>
       </div>
@@ -725,7 +799,7 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
 
   return (
     <div>
-      <form onSubmit={handleSubmit} className="mb-5" data-testid="chart-prompt-form">
+      <form onSubmit={handleSubmit} className="mb-6" data-testid="chart-prompt-form">
         <div className="flex gap-2">
           <div className="flex-1 relative">
             <input
@@ -733,14 +807,14 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder={`Ask for data... "${companyName} revenue", "TVL history", or "Price chart"`}
-              className="w-full h-9 px-3 pr-10 text-xs rounded-md border border-white/[0.06] bg-white/[0.02] text-foreground placeholder:text-white/20 focus:outline-none focus:border-sky-500/20 transition-colors"
+              className="w-full h-10 px-4 pr-10 text-[13px] rounded-xl border border-white/[0.07] bg-white/[0.02] text-foreground placeholder:text-white/20 focus:outline-none focus:border-white/[0.15] transition-colors"
               disabled={generateMutation.isPending}
               data-testid="input-chart-prompt"
             />
             <button
               type="submit"
               disabled={!prompt.trim() || generateMutation.isPending}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded text-white/25 hover:text-sky-400 disabled:opacity-30 transition-colors"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-white/25 hover:text-sky-400 disabled:opacity-30 transition-colors"
               data-testid="button-submit-chart"
             >
               {generateMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
@@ -748,7 +822,7 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
           </div>
         </div>
         {generateMutation.isPending && (
-          <p className="text-[11px] text-white/20 mt-2 flex items-center gap-1.5">
+          <p className="text-[11px] text-white/20 mt-2.5 flex items-center gap-1.5">
             <Loader2 className="w-3 h-3 animate-spin" />
             Fetching data...
           </p>
@@ -776,7 +850,7 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
               <button
                 key={s}
                 onClick={() => setPrompt(s)}
-                className="text-[11px] px-2.5 py-1 rounded-full border border-white/[0.06] text-white/25 hover:text-sky-400 hover:border-sky-500/20 transition-colors"
+                className="text-[11px] px-3 py-1.5 rounded-full border border-white/[0.06] text-white/25 hover:text-sky-400 hover:border-sky-500/20 transition-colors"
                 data-testid={`suggestion-${s.replace(/\s+/g, "-").toLowerCase()}`}
               >
                 {s}

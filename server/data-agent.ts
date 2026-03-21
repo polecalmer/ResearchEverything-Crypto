@@ -27,7 +27,8 @@ YOU MUST RESPOND WITH VALID JSON ONLY. No markdown, no explanation. Just the JSO
 Response format — array of chart definitions:
 [
   {
-    "title": "TITLE IN UPPERCASE",
+    "title": "Title Case Title",
+    "subtitle": "Short context line — period, trend, or key insight. E.g. 'Last 90 Days', 'Weekly since Jan 2025', '+12% MoM'",
     "description": "One sentence",
     "chartType": "line" | "bar" | "area",
     "dataSource": "dune" | "defillama" | "coingecko" | "allium" | "allium-prices" | "allium-sql",
@@ -112,8 +113,9 @@ CRITICAL CHART CONFIGURATION RULES — READ CAREFULLY
    - count, users, transactions → "number"
 
 8. TITLES:
-   - ALL CAPS, concise. Examples: "MONTHLY REVENUE", "PRICE (90D)", "TVL HISTORY"
-   - For dual-axis: "PRICE VS MONTHLY REVENUE"
+   - Title Case, concise. Examples: "Monthly Revenue", "Price History", "TVL History"
+   - For dual-axis: "Price vs Monthly Revenue"
+   - NEVER use ALL CAPS for titles. Use Title Case only.
 
 9. DUNE QUERY COLUMN INSPECTION:
    - You are given sample data with actual column names and values. USE THEM EXACTLY.
@@ -165,6 +167,7 @@ interface DataAgentInput {
 
 interface ChartPlan {
   title: string;
+  subtitle?: string;
   description: string;
   chartType: string;
   dataSource: string;
@@ -270,7 +273,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
       companyId,
       userId,
       title: plan.title,
-      description: plan.description || null,
+      description: plan.subtitle ? `${plan.subtitle}|||${plan.description || ""}` : (plan.description || null),
       chartType: plan.chartType || "line",
       dataSource: plan.dataSource,
       dataSourceConfig: JSON.stringify(plan.dataSourceConfig),
@@ -435,7 +438,7 @@ async function attemptFallback(
             yAxes: [{ dataKey: "price", label: "Price (USD)", color: "#38bdf8", format: "currency", yAxisId: "left" }],
           },
           chartType: "line",
-          title: `${ticker.toUpperCase()} PRICE (90D)`,
+          title: `${ticker.toUpperCase()} Price History`,
         };
       }
     } catch (e: any) {
@@ -459,7 +462,7 @@ async function attemptFallback(
             yAxes: [{ dataKey: "totalLiquidityUSD", label: "TVL (USD)", color: "#2dd4bf", format: "currency", yAxisId: "left" }],
           },
           chartType: "area",
-          title: `${companyName.toUpperCase()} TVL`,
+          title: `${companyName} TVL History`,
         };
       }
     } catch (e: any) {
@@ -483,7 +486,7 @@ async function attemptFallback(
             yAxes: [{ dataKey: "revenue", label: "Daily Revenue", color: "#38bdf8", format: "currency", yAxisId: "left" }],
           },
           chartType: "bar",
-          title: `${companyName.toUpperCase()} DAILY REVENUE`,
+          title: `${companyName} Daily Revenue`,
         };
       }
     } catch (e: any) {
@@ -539,7 +542,7 @@ async function attemptFallback(
             columns: ["address", "balance"],
           },
           chartType: "table",
-          title: `${ticker.toUpperCase()} TOP HOLDERS`,
+          title: `${ticker.toUpperCase()} Top Holders`,
         };
       }
     } catch (e: any) {
