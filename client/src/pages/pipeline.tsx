@@ -185,11 +185,26 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
                         {company.subSector || company.sector}
                       </text>
                     )}
+                    {company.hasLiquidToken && showSector && !showDesc && (
+                      <text x={rect.x + px + 7} y={rect.y + px + 40} fill={isDark ? "#eab308" : "#a16207"} fontSize={8} fontFamily="ui-monospace, SFMono-Regular, monospace" opacity={0.7}>
+                        {company.tokenTicker || "Liquid Token"}
+                      </text>
+                    )}
                   </g>
                   {showDesc && company.oneLiner && (
-                    <foreignObject x={rect.x + px + 5} y={rect.y + px + 33} width={cw - 10} height={26}>
-                      <div style={{ fontSize: 9, fontFamily: "system-ui, -apple-system, sans-serif", color: isH && company.excitementReason ? (es ? excitementScoreColor(es, isDark) : C.muted) : C.muted, opacity: isH && company.excitementReason ? 0.7 : 0.4, lineHeight: "12px", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" as const }}>
+                    <foreignObject x={rect.x + px + 5} y={rect.y + px + 33} width={cw - 10} height={company.hasLiquidToken ? 16 : 26}>
+                      <div style={{ fontSize: 9, fontFamily: "system-ui, -apple-system, sans-serif", color: isH && company.excitementReason ? (es ? excitementScoreColor(es, isDark) : C.muted) : C.muted, opacity: isH && company.excitementReason ? 0.7 : 0.4, lineHeight: "12px", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: company.hasLiquidToken ? 1 : 2, WebkitBoxOrient: "vertical" as const }}>
                         {isH && company.excitementReason ? company.excitementReason : company.oneLiner}
+                      </div>
+                    </foreignObject>
+                  )}
+                  {company.hasLiquidToken && showDesc && (
+                    <foreignObject x={rect.x + px + 5} y={rect.y + px + 48} width={cw - 10} height={16}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                        <span style={{ fontSize: 8, fontFamily: "ui-monospace, SFMono-Regular, monospace", color: isDark ? "#eab308" : "#a16207", opacity: 0.8, border: `1px solid ${isDark ? "rgba(234,179,8,0.25)" : "rgba(161,98,7,0.25)"}`, borderRadius: 3, padding: "1px 4px", display: "inline-flex", alignItems: "center", gap: 2, lineHeight: "12px" }}>
+                          <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="8"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+                          {company.tokenTicker || "Liquid Token"}
+                        </span>
                       </div>
                     </foreignObject>
                   )}
