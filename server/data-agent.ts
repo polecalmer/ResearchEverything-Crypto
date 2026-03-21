@@ -3,6 +3,7 @@ import { getLatestDuneResults, executeDuneQuery, isDuneConfigured, type DuneQuer
 import { fetchTokenSnapshot, type TokenSnapshot } from "./allium-client";
 import { isServerMppReady } from "./mpp-client";
 import * as defillama from "./defillama-client";
+import * as alliumApi from "./allium-api";
 import { storage } from "./storage";
 import { MARKUP_MULTIPLIER } from "./enrichment";
 import type { Company, TokenProfile, DashboardChart, DuneQuery } from "@shared/schema";
@@ -18,6 +19,8 @@ AVAILABLE DATA SOURCES:
 2. "defillama" — DeFiLlama API for protocol TVL history, daily fees, daily revenue. Provide the protocol slug.
 3. "coingecko" — Price history for tokens. Provide the coingecko coin ID (e.g. "hyperliquid", "ethereum", "solana").
 4. "allium" — Real-time token snapshot (price, mcap, volume). Good for single-point current data.
+5. "allium-prices" — Allium on-chain price history (OHLCV). Better than CoinGecko for on-chain tokens. Provide chain and tokenAddress.
+6. "allium-sql" — Allium Explorer SQL for custom on-chain analytics. Run SQL against blockchain data warehouse. Supports holder distribution, balance queries, transaction analysis across 150+ chains. Use Snowflake SQL dialect. Tables: {chain}.assets.fungible_balances_latest (current balances), {chain}.assets.fungible_balances_daily (historical daily balances).
 
 YOU MUST RESPOND WITH VALID JSON ONLY. No markdown, no explanation. Just the JSON array.
 
@@ -27,12 +30,14 @@ Response format — array of chart definitions:
     "title": "TITLE IN UPPERCASE",
     "description": "One sentence",
     "chartType": "line" | "bar" | "area",
-    "dataSource": "dune" | "defillama" | "coingecko" | "allium",
+    "dataSource": "dune" | "defillama" | "coingecko" | "allium" | "allium-prices" | "allium-sql",
     "dataSourceConfig": {
       // For dune: { "queryId": 12345, "params": {} }
       // For defillama: { "endpoint": "tvl" | "fees" | "revenue", "slug": "hyperliquid" }
       // For coingecko: { "coinId": "hyperliquid", "daysBack": 90 }
       // For allium: { "ticker": "HYPE", "chain": "hyperliquid", "contractAddress": "" }
+      // For allium-prices: { "chain": "hyperevm", "tokenAddress": "0x555...", "daysBack": 30, "granularity": "1d" }
+      // For allium-sql: { "sql": "SELECT address, balance FROM hyperevm.assets.fungible_balances_latest WHERE token_address = '0x555...' AND balance > 0 ORDER BY balance DESC LIMIT 50", "limit": 50 }
     },
     "chartConfig": {
       "xAxis": { "dataKey": "the_actual_column_name", "label": "Date", "type": "date" },
@@ -117,12 +122,36 @@ CRITICAL CHART CONFIGURATION RULES — READ CAREFULLY
 
 10. FALLBACK BEHAVIOR:
    - If you specify a Dune query that fails (404, not found, etc.), the system will automatically attempt fallback:
-     → For holder/wallet requests → falls back to Allium token snapshot
+     → For holder/wallet requests → falls back to Allium SQL (on-chain holder data)
      → For price requests → falls back to CoinGecko price history
      → For TVL requests → falls back to DeFiLlama TVL
      → For revenue/fees requests → falls back to DeFiLlama revenue/fees
    - So it's OK to suggest a Dune query ID if you think it might work. The fallback will handle failures gracefully.
-   - However, if you KNOW there's no Dune query available, prefer using defillama/coingecko/allium directly instead of forcing a fallback.`;
+   - However, if you KNOW there's no Dune query available, prefer using defillama/coingecko/allium directly instead of forcing a fallback.
+
+11. ALLIUM-SQL FOR HOLDER/WALLET QUERIES:
+   - When the user asks about token holders, whale wallets, balance distribution, or holder trends — USE "allium-sql".
+   - Available tables (Snowflake SQL dialect):
+     → {chain}.assets.fungible_balances_latest — current token balances per address
+       Columns: address (varchar), token_address (varchar), balance (float)
+     → {chain}.assets.fungible_balances_daily — daily historical balances
+       Columns: date, address, token_address, balance
+   - Chain names: ethereum, hyperevm, base, arbitrum, optimism, polygon, bsc, avalanche, solana
+   - ALWAYS lowercase token_address in WHERE clauses.
+   - Example holder distribution SQL:
+     SELECT address, balance FROM hyperevm.assets.fungible_balances_latest WHERE token_address = '0x5555555555555555555555555555555555555555' AND balance > 0 ORDER BY balance DESC LIMIT 50
+   - Example holder count distribution:
+     SELECT COUNT(*) as total_holders, COUNT(CASE WHEN balance >= 10000 THEN 1 END) as whales FROM {chain}.assets.fungible_balances_latest WHERE token_address = '{addr}' AND balance > 0
+   - Example daily holder trend:
+     SELECT date, COUNT(DISTINCT CASE WHEN balance > 0 THEN address END) as holder_count FROM {chain}.assets.fungible_balances_daily WHERE token_address = '{addr}' AND date >= DATEADD(day, -30, CURRENT_DATE()) GROUP BY date ORDER BY date
+   - For holder tables: chartType should be "table" (shows as data table) or "bar" (for distribution buckets).
+   - For holder trends over time: chartType should be "line".
+
+12. ALLIUM-PRICES FOR ON-CHAIN PRICE DATA:
+   - Use "allium-prices" when you want price history from on-chain DEX data (more accurate for newer/smaller tokens).
+   - Provides OHLCV data. Response columns: timestamp, price, open, high, low, close.
+   - Better than CoinGecko for tokens like HYPE on HyperEVM that may not be listed on CoinGecko.
+   - Granularity options: "1m", "5m", "15m", "1h", "4h", "1d".`;
 
 interface DataAgentInput {
   companyId: string;
@@ -190,6 +219,8 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
 
   contextParts.push(`\nDeFiLlama: AVAILABLE (TVL, fees, revenue for most DeFi protocols)`);
   contextParts.push(`CoinGecko: AVAILABLE (price history)`);
+  contextParts.push(`Allium Prices: AVAILABLE (on-chain OHLCV price history via DEX data)`);
+  contextParts.push(`Allium SQL: AVAILABLE (custom SQL analytics — holder distribution, balance queries, on-chain data across 150+ chains)`);
 
   const dataContext = contextParts.join('\n');
 
@@ -216,8 +247,8 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
     throw new Error(`AI returned invalid chart plan: ${response.text.substring(0, 200)}`);
   }
 
-  const validSources = ["dune", "defillama", "coingecko", "allium"];
-  const validChartTypes = ["line", "bar", "area", "composed"];
+  const validSources = ["dune", "defillama", "coingecko", "allium", "allium-prices", "allium-sql"];
+  const validChartTypes = ["line", "bar", "area", "composed", "table"];
 
   chartPlans = chartPlans.filter(plan => {
     if (!plan.title || typeof plan.title !== "string") return false;
@@ -283,7 +314,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
       if (!data || data.length === 0) {
         let errorMsg = fetchError || "No data returned from source.";
         if (/holder|wallet|whale|distribution/i.test(plan.title)) {
-          errorMsg = `Holder/distribution data requires a specific Dune Analytics query. Add a Dune query for this metric in Token Intelligence, then reference it here.`;
+          errorMsg = `Could not fetch holder/distribution data. Ensure the token has a valid contract address and chain configured in Token Intelligence.`;
         } else if (fetchError?.includes("404") || fetchError?.includes("not found")) {
           errorMsg = `Data source not found. Try a different query or add the relevant Dune query in Token Intelligence first.`;
         }
@@ -460,9 +491,30 @@ async function attemptFallback(
     }
   }
 
-  if (isHolder) {
-    console.warn(`[Data Agent] No fallback available for holder/distribution queries — requires Dune Analytics`);
-    return null;
+  if (isHolder && contractAddress && chain) {
+    try {
+      const normalizedChain = chain === "hyperliquid" ? "hyperevm" : chain.toLowerCase();
+      const sql = alliumApi.buildHolderDistributionSql(normalizedChain, contractAddress, undefined, 50);
+      console.log(`[Data Agent] Holder fallback via Allium SQL: ${sql.substring(0, 80)}...`);
+      const result = await alliumApi.runAlliumSql(sql, 50);
+      if (result.data && result.data.length > 0) {
+        console.log(`[Data Agent] Holder fallback succeeded via Allium SQL (${result.data.length} holders)`);
+        return {
+          data: result.data,
+          dataSource: "allium-sql",
+          dataSourceConfig: { sql, limit: 50 },
+          chartConfig: {
+            columns: ["address", "balance"],
+          },
+          chartType: "table",
+          title: `${ticker.toUpperCase()} TOP HOLDERS`,
+        };
+      }
+    } catch (e: any) {
+      console.warn(`[Data Agent] Allium SQL holder fallback failed: ${e.message}`);
+    }
+  } else if (isHolder) {
+    console.warn(`[Data Agent] No contract address/chain for holder fallback`);
   }
 
   console.warn(`[Data Agent] No matching fallback for "${plan.title}"`);
@@ -482,6 +534,10 @@ async function fetchChartData(
       return fetchCoinGeckoData(config);
     case "allium":
       return fetchAlliumData(config);
+    case "allium-prices":
+      return fetchAlliumPricesData(config);
+    case "allium-sql":
+      return fetchAlliumSqlData(config);
     default:
       throw new Error(`Unknown data source: ${dataSource}`);
   }
@@ -574,6 +630,60 @@ async function fetchAlliumData(config: Record<string, any>): Promise<any[]> {
     holderCount: snapshot.holderCount,
     priceChange24h: snapshot.priceChange24h,
   }];
+}
+
+async function fetchAlliumPricesData(config: Record<string, any>): Promise<any[]> {
+  const chain = config.chain;
+  const tokenAddress = config.tokenAddress;
+  if (!chain || !tokenAddress) throw new Error("allium-prices requires chain and tokenAddress");
+
+  const daysBack = config.daysBack || 30;
+  const granularity = config.granularity || "1d";
+
+  const endDate = new Date().toISOString().split("T")[0] + "T00:00:00Z";
+  const startDate = new Date(Date.now() - daysBack * 86400000).toISOString().split("T")[0] + "T00:00:00Z";
+
+  const prices = await alliumApi.fetchAlliumPriceHistory(
+    chain, tokenAddress, startDate, endDate, granularity
+  );
+
+  return prices.map((p) => ({
+    date: new Date(p.timestamp).getTime() / 1000,
+    price: p.price,
+    open: p.open,
+    high: p.high,
+    low: p.low,
+    close: p.close,
+  }));
+}
+
+async function fetchAlliumSqlData(config: Record<string, any>): Promise<any[]> {
+  const sql = config.sql;
+  if (!sql) throw new Error("allium-sql requires a SQL query");
+
+  const limit = config.limit || 100;
+  console.log(`[Data Agent] Running Allium SQL: ${sql.substring(0, 100)}...`);
+
+  const result = await alliumApi.runAlliumSql(sql, limit);
+
+  if (!result.data || result.data.length === 0) {
+    throw new Error("Allium SQL query returned no results");
+  }
+
+  console.log(`[Data Agent] Allium SQL returned ${result.data.length} rows, columns: ${result.meta.columns.map(c => c.name).join(", ")}`);
+
+  return result.data.map((row) => {
+    const processed: Record<string, any> = {};
+    for (const [key, value] of Object.entries(row)) {
+      if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}/.test(value)) {
+        processed[key] = new Date(value).getTime() / 1000;
+        processed.date = processed[key];
+      } else {
+        processed[key] = value;
+      }
+    }
+    return processed;
+  });
 }
 
 export { DATA_CHART_CHARGE };

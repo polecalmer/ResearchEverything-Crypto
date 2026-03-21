@@ -84,7 +84,7 @@ Company detail pages feature four tabs: "Project Intelligence" (deal content), "
 
 **Data Tab (AI Chart Dashboard):**
 The Data tab provides a chat-driven interface for building custom charts. Users describe what they want (e.g. "HYPE price vs revenue 90D"), and the Data Agent (Opus 4.6) determines the best data source, fetches data, and creates interactive Recharts visualizations. Supports:
-- Data sources: Dune Analytics (user's saved queries + public query IDs), DeFiLlama (TVL, fees, revenue), CoinGecko (price history via DeFiLlama coins API), Allium (real-time snapshots)
+- Data sources: Dune Analytics (user's saved queries + public query IDs), DeFiLlama (TVL, fees, revenue), CoinGecko (price history via DeFiLlama coins API), Allium (real-time snapshots), Allium Prices (on-chain OHLCV price history), Allium SQL (custom on-chain analytics — holder distribution, balance queries across 150+ chains)
 - Chart types: line, bar, area, composed (multi-axis overlays)
 - Each chart is saved to `dashboard_charts` table with its data source config, so users can refresh for updated data anytime
 - Agent can create single or multiple charts from one request
@@ -104,6 +104,7 @@ Key files: `server/dune-client.ts`, `server/token-agent.ts`, `server/allium-clie
 -   **Blockchain/Wallet:** Tempo chain (chain ID 4217) for embedded wallets and USDC for transactions. Tempo MPP skill reference at `server/skills/tempo-mpp.md`.
 -   **DeFiLlama API:** Free public API for protocol TVL, fees, revenue, and coin price history
 -   **Dune Analytics:** On-chain data queries via API key (`DUNE_API_KEY`)
+-   **Allium API:** On-chain analytics via CLI (`allium` installed at `~/.local/share/../bin/allium`). Authenticated with Tempo wallet (chain-id 4217, uses `MPP_SERVER_WALLET_KEY`). Endpoints: realtime prices, wallet balances, Explorer SQL for custom analytics. Costs: $0.01-0.03 per call, paid from server wallet PathUSD.
 -   **Telegram Bot Framework:** Grammy
 
 ## Skill Files
