@@ -515,7 +515,7 @@ export async function registerRoutes(
       const company = await storage.getCompany(req.params.id, userId);
       if (!company) return res.status(404).json({ message: "Company not found" });
 
-      if (!company.hasLiquidToken || !company.tokenContractAddress) {
+      if (!company.hasLiquidToken || !company.tokenTicker) {
         return res.status(400).json({ message: "Company does not have liquid token data" });
       }
 
@@ -524,9 +524,9 @@ export async function registerRoutes(
 
       const profile = await storage.upsertTokenProfile({
         companyId: company.id,
-        contractAddress: company.tokenContractAddress,
-        chain: company.tokenChain || "ethereum",
-        tokenTicker: company.tokenTicker || undefined,
+        contractAddress: company.tokenContractAddress || "",
+        chain: company.tokenChain || "unknown",
+        tokenTicker: company.tokenTicker,
       });
       console.log(`[Auto] Retroactively created token profile for ${company.name} (${company.tokenTicker})`);
       res.json(profile);
