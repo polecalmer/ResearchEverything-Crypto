@@ -353,10 +353,10 @@ function ExcitementBar({ companyId, score, reason }: { companyId: string; score:
 
   const getBarColor = (v: number) => {
     if (!score || v > score) return "bg-border/20";
-    if (score <= 3) return "bg-blue-500/50";
-    if (score <= 6) return "bg-amber-500/50";
-    if (score <= 8) return "bg-orange-500/50";
-    return "bg-red-500/50";
+    if (score <= 3) return "bg-blue-400/40";
+    if (score <= 6) return "bg-blue-500/50";
+    if (score <= 8) return "bg-emerald-500/50";
+    return "bg-green-500/60";
   };
 
   const getLabel = () => {
