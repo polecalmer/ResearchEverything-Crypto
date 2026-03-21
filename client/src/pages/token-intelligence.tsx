@@ -635,6 +635,7 @@ function TokenSnapshotCard({ companyId }: { companyId: string }) {
   const { toast } = useToast();
   const [snapshot, setSnapshot] = useState<TokenSnapshotData | null>(null);
   const [loading, setLoading] = useState(false);
+  const [autoFetched, setAutoFetched] = useState(false);
 
   const { data: tokenProfile } = useQuery<TokenProfile>({
     queryKey: ["/api/companies", companyId, "token-profile"],
@@ -666,6 +667,13 @@ function TokenSnapshotCard({ companyId }: { companyId: string }) {
     }
   };
 
+  useEffect(() => {
+    if (tokenProfile && !autoFetched && !snapshot) {
+      setAutoFetched(true);
+      fetchSnapshot();
+    }
+  }, [tokenProfile, autoFetched, snapshot]);
+
   if (!tokenProfile) {
     return (
       <div className="text-xs text-muted-foreground/60 py-4 text-center" data-testid="snapshot-no-profile">
@@ -676,6 +684,12 @@ function TokenSnapshotCard({ companyId }: { companyId: string }) {
 
   return (
     <div className="space-y-3" data-testid="token-snapshot-section">
+      {loading && !snapshot && (
+        <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground py-4">
+          <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading market data...
+        </div>
+      )}
+
       {snapshot && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="snapshot-metrics">
           <div className="border border-border/30 p-3 bg-background/30">
@@ -725,25 +739,18 @@ function TokenSnapshotCard({ companyId }: { companyId: string }) {
       {snapshot && (
         <div className="text-[10px] text-muted-foreground/40 flex items-center justify-between">
           <span>Source: {snapshot.source} | Fetched: {new Date(snapshot.fetchedAt).toLocaleTimeString()}</span>
+          <Button
+            onClick={fetchSnapshot}
+            disabled={loading}
+            variant="ghost"
+            size="sm"
+            className="text-[10px] h-5 px-1.5 text-muted-foreground/40 hover:text-muted-foreground"
+            data-testid="button-refresh-snapshot"
+          >
+            {loading ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
+          </Button>
         </div>
       )}
-
-      <Button
-        onClick={fetchSnapshot}
-        disabled={loading}
-        variant="outline"
-        size="sm"
-        className="text-xs h-7 w-full"
-        data-testid="button-fetch-snapshot"
-      >
-        {loading ? (
-          <><Loader2 className="w-3 h-3 animate-spin" /> Fetching snapshot...</>
-        ) : snapshot ? (
-          <><RefreshCw className="w-3 h-3" /> Refresh Snapshot (~$0.15)</>
-        ) : (
-          <><Activity className="w-3 h-3" /> Fetch Token Snapshot (~$0.15)</>
-        )}
-      </Button>
     </div>
   );
 }

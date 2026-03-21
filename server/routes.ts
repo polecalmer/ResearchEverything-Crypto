@@ -770,7 +770,7 @@ export async function registerRoutes(
     res.json({ success: true });
   });
 
-  app.post("/api/companies/:id/token-snapshot", requireAuth, tokenSnapshotPaywall, async (req, res) => {
+  app.post("/api/companies/:id/token-snapshot", requireAuth, async (req, res) => {
     try {
       const userId = req.user!.id;
       const company = await storage.getCompany(req.params.id, userId);
