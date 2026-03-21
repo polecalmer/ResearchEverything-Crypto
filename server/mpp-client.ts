@@ -119,8 +119,8 @@ process.on("SIGINT", async () => {
   process.exit(0);
 });
 
-const MAX_RETRIES = 2;
-const RETRY_DELAY_MS = 3000;
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 4000;
 
 function isRetryable(status: number): boolean {
   return status >= 500 || status === 429;

@@ -31,6 +31,7 @@ const CHAIN_MAP: Record<string, string> = {
   avax: "avalanche",
   bsc: "bsc",
   bnb: "bsc",
+  hyperliquid: "hyperliquid",
 };
 
 let alliumMppClient: ReturnType<typeof Mppx.create> | null = null;
