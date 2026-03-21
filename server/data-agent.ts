@@ -113,7 +113,16 @@ CRITICAL CHART CONFIGURATION RULES — READ CAREFULLY
 9. DUNE QUERY COLUMN INSPECTION:
    - You are given sample data with actual column names and values. USE THEM EXACTLY.
    - Do NOT guess column names. If sample shows {month_start: "2026-03-01...", monthly_revenue: 47517317}, use EXACTLY "month_start" and "monthly_revenue".
-   - If no saved query matches, suggest a known public query ID or create separate charts from other sources.`;
+   - If no saved query matches, suggest a known public query ID or create separate charts from other sources.
+
+10. FALLBACK BEHAVIOR:
+   - If you specify a Dune query that fails (404, not found, etc.), the system will automatically attempt fallback:
+     → For holder/wallet requests → falls back to Allium token snapshot
+     → For price requests → falls back to CoinGecko price history
+     → For TVL requests → falls back to DeFiLlama TVL
+     → For revenue/fees requests → falls back to DeFiLlama revenue/fees
+   - So it's OK to suggest a Dune query ID if you think it might work. The fallback will handle failures gracefully.
+   - However, if you KNOW there's no Dune query available, prefer using defillama/coingecko/allium directly instead of forcing a fallback.`;
 
 interface DataAgentInput {
   companyId: string;
@@ -241,11 +250,40 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
     });
 
     try {
-      const data = await fetchChartData(plan.dataSource, plan.dataSourceConfig);
+      let data: any[] | null = null;
+      let fetchError: string | null = null;
+
+      try {
+        data = await fetchChartData(plan.dataSource, plan.dataSourceConfig);
+      } catch (err: any) {
+        fetchError = err.message || "Failed to fetch data";
+        console.warn(`[Data Agent] Primary source "${plan.dataSource}" failed for "${plan.title}": ${fetchError}`);
+      }
+
+      if ((!data || data.length === 0) && fetchError) {
+        const fallbackResult = await attemptFallback(plan, fetchError, tokenProfile, companyName);
+        if (fallbackResult) {
+          data = fallbackResult.data;
+          plan.dataSource = fallbackResult.dataSource;
+          plan.dataSourceConfig = fallbackResult.dataSourceConfig;
+          plan.chartConfig = fallbackResult.chartConfig || plan.chartConfig;
+          plan.chartType = fallbackResult.chartType || plan.chartType;
+          plan.title = fallbackResult.title || plan.title;
+          console.log(`[Data Agent] Fallback succeeded: re-routed "${plan.title}" via ${plan.dataSource}`);
+          await storage.updateDashboardChart(chart.id, {
+            title: plan.title,
+            dataSource: plan.dataSource,
+            dataSourceConfig: JSON.stringify(plan.dataSourceConfig),
+            chartType: plan.chartType,
+            chartConfig: JSON.stringify(plan.chartConfig),
+          });
+        }
+      }
+
       if (!data || data.length === 0) {
         const updatedChart = await storage.updateDashboardChart(chart.id, {
           status: "failed",
-          errorMessage: "No data returned from source. The protocol or token may not be indexed.",
+          errorMessage: fetchError || "No data returned from source. The protocol or token may not be indexed.",
         });
         charts.push(updatedChart || chart);
         continue;
@@ -314,6 +352,173 @@ export async function refreshChartData(chartId: string): Promise<DashboardChart>
     });
     return updated || chart;
   }
+}
+
+interface FallbackResult {
+  data: any[];
+  dataSource: string;
+  dataSourceConfig: Record<string, any>;
+  chartConfig?: Record<string, any>;
+  chartType?: string;
+  title?: string;
+}
+
+async function attemptFallback(
+  plan: ChartPlan,
+  error: string,
+  tokenProfile: TokenProfile | null,
+  companyName: string,
+): Promise<FallbackResult | null> {
+  const title = plan.title.toLowerCase();
+  const desc = (plan.description || "").toLowerCase();
+  const combined = `${title} ${desc} ${companyName.toLowerCase()}`;
+  const ticker = tokenProfile?.tokenTicker?.toLowerCase() || "";
+  const chain = tokenProfile?.chain || "ethereum";
+  const contractAddress = tokenProfile?.contractAddress || "";
+
+  console.log(`[Data Agent] Attempting fallback for "${plan.title}" (original: ${plan.dataSource}, error: ${error})`);
+
+  const fallbackSources: Array<() => Promise<FallbackResult | null>> = [];
+
+  if (/holder|wallet|address|account|whale|distribution/i.test(combined) && (ticker || contractAddress)) {
+    fallbackSources.push(async () => {
+      try {
+        const { snapshot } = await fetchTokenSnapshot(contractAddress, chain, ticker.toUpperCase());
+        if (!snapshot.holderCount && !snapshot.price) return null;
+        const data = [{
+          metric: "Current Snapshot",
+          price: snapshot.price,
+          marketCap: snapshot.marketCap,
+          volume24h: snapshot.volume24h,
+          holderCount: snapshot.holderCount,
+          priceChange24h: snapshot.priceChange24h,
+          fetchedAt: snapshot.fetchedAt,
+        }];
+        return {
+          data,
+          dataSource: "allium",
+          dataSourceConfig: { ticker: ticker.toUpperCase(), chain, contractAddress },
+          chartConfig: { columns: Object.keys(data[0]) },
+          chartType: "table",
+          title: `${ticker.toUpperCase()} TOKEN SNAPSHOT`,
+        };
+      } catch (e: any) {
+        console.warn(`[Data Agent] Allium fallback failed: ${e.message}`);
+        return null;
+      }
+    });
+  }
+
+  if (/price|token|market|mcap|snapshot/i.test(combined) && ticker) {
+    fallbackSources.push(async () => {
+      try {
+        const priceData = await defillama.getCoinPriceHistory(ticker.toLowerCase(), 90);
+        if (!priceData.prices || priceData.prices.length === 0) return null;
+        const data = priceData.prices.map((p) => ({ date: p.date, price: p.price }));
+        return {
+          data,
+          dataSource: "coingecko",
+          dataSourceConfig: { coinId: ticker.toLowerCase(), daysBack: 90 },
+          chartConfig: {
+            xAxis: { dataKey: "date", label: "Date", type: "date" },
+            yAxes: [{ dataKey: "price", label: "Price (USD)", color: "#38bdf8", format: "currency", yAxisId: "left" }],
+          },
+          chartType: "line",
+          title: `${ticker.toUpperCase()} PRICE (90D)`,
+        };
+      } catch (e: any) {
+        console.warn(`[Data Agent] CoinGecko fallback failed: ${e.message}`);
+        return null;
+      }
+    });
+  }
+
+  if (/tvl|liquidity|locked/i.test(combined)) {
+    const slug = companyName.toLowerCase().replace(/\s+/g, "-");
+    fallbackSources.push(async () => {
+      try {
+        const tvlData = await defillama.getProtocolTvl(slug);
+        if (!tvlData || tvlData.length === 0) return null;
+        const data = tvlData.map((d) => ({ date: d.date, totalLiquidityUSD: d.totalLiquidityUSD }));
+        return {
+          data,
+          dataSource: "defillama",
+          dataSourceConfig: { endpoint: "tvl", slug },
+          chartConfig: {
+            xAxis: { dataKey: "date", label: "Date", type: "date" },
+            yAxes: [{ dataKey: "totalLiquidityUSD", label: "TVL (USD)", color: "#2dd4bf", format: "currency", yAxisId: "left" }],
+          },
+          chartType: "area",
+          title: `${companyName.toUpperCase()} TVL`,
+        };
+      } catch (e: any) {
+        console.warn(`[Data Agent] DeFiLlama TVL fallback failed: ${e.message}`);
+        return null;
+      }
+    });
+  }
+
+  if (/revenue|fee|earn|income/i.test(combined)) {
+    const slug = companyName.toLowerCase().replace(/\s+/g, "-");
+    fallbackSources.push(async () => {
+      try {
+        const revData = await defillama.getProtocolRevenue(slug);
+        if (!revData.dailyRevenue || revData.dailyRevenue.length === 0) return null;
+        const data = revData.dailyRevenue.map((d) => ({ date: d.date, revenue: d.revenue }));
+        return {
+          data,
+          dataSource: "defillama",
+          dataSourceConfig: { endpoint: "revenue", slug },
+          chartConfig: {
+            xAxis: { dataKey: "date", label: "Date", type: "date" },
+            yAxes: [{ dataKey: "revenue", label: "Daily Revenue", color: "#38bdf8", format: "currency", yAxisId: "left" }],
+          },
+          chartType: "bar",
+          title: `${companyName.toUpperCase()} DAILY REVENUE`,
+        };
+      } catch (e: any) {
+        console.warn(`[Data Agent] DeFiLlama revenue fallback failed: ${e.message}`);
+        return null;
+      }
+    });
+  }
+
+  if (ticker) {
+    fallbackSources.push(async () => {
+      try {
+        const { snapshot } = await fetchTokenSnapshot(contractAddress, chain, ticker.toUpperCase());
+        if (!snapshot.price) return null;
+        const data = [{
+          metric: "Current Snapshot",
+          price: snapshot.price,
+          marketCap: snapshot.marketCap,
+          volume24h: snapshot.volume24h,
+          holderCount: snapshot.holderCount,
+          priceChange24h: snapshot.priceChange24h,
+          fetchedAt: snapshot.fetchedAt,
+        }];
+        return {
+          data,
+          dataSource: "allium",
+          dataSourceConfig: { ticker: ticker.toUpperCase(), chain, contractAddress },
+          chartConfig: { columns: Object.keys(data[0]) },
+          chartType: "table",
+          title: `${ticker.toUpperCase()} TOKEN SNAPSHOT`,
+        };
+      } catch (e: any) {
+        console.warn(`[Data Agent] Allium generic fallback failed: ${e.message}`);
+        return null;
+      }
+    });
+  }
+
+  for (const tryFallback of fallbackSources) {
+    const result = await tryFallback();
+    if (result && result.data.length > 0) return result;
+  }
+
+  console.warn(`[Data Agent] All fallback sources exhausted for "${plan.title}"`);
+  return null;
 }
 
 async function fetchChartData(
