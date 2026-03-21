@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import {
   ResponsiveContainer,
+  ComposedChart,
   LineChart,
   Line,
   BarChart,
@@ -474,6 +475,11 @@ function DataCard({ chart }: { chart: DashboardChart }) {
     const numPoints = processedData.length;
     const dateFmt = isDate ? buildDateFormatter(processedData, xAxis.dataKey) : null;
     const cType = chart.chartType || "line";
+
+    const hasDualAxis = yAxes.some((y: any) => y.yAxisId === "right");
+    const hasMixedTypes = yAxes.some((y: any) => y.chartType && y.chartType !== cType);
+    const useComposed = hasDualAxis || hasMixedTypes;
+
     const tickInterval = cType === "bar" ? (numPoints <= 24 ? 0 : Math.floor(numPoints / 12)) : (numPoints <= 30 ? 0 : undefined);
 
     const xAxisEl = (
@@ -489,7 +495,35 @@ function DataCard({ chart }: { chart: DashboardChart }) {
         height={numPoints > 20 ? 55 : 30}
       />
     );
-    const yAxisEl = (
+
+    const leftAxes = yAxes.filter((y: any) => !y.yAxisId || y.yAxisId === "left");
+    const rightAxes = yAxes.filter((y: any) => y.yAxisId === "right");
+    const leftFmt = leftAxes[0]?.format || primaryFmt;
+    const rightFmt = rightAxes[0]?.format || primaryFmt;
+
+    const yAxisLeftEl = (
+      <YAxis
+        yAxisId="left"
+        tickFormatter={(v: number) => smartFormat(v, leftFmt)}
+        tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)" }}
+        axisLine={false}
+        tickLine={false}
+        width={65}
+      />
+    );
+    const yAxisRightEl = hasDualAxis ? (
+      <YAxis
+        yAxisId="right"
+        orientation="right"
+        tickFormatter={(v: number) => smartFormat(v, rightFmt)}
+        tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)" }}
+        axisLine={false}
+        tickLine={false}
+        width={65}
+      />
+    ) : null;
+
+    const singleYAxisEl = (
       <YAxis
         tickFormatter={(v: number) => smartFormat(v, primaryFmt)}
         tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)" }}
@@ -498,6 +532,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
         width={60}
       />
     );
+
     const tooltipEl = (
       <Tooltip
         contentStyle={{ backgroundColor: "rgba(8,8,12,0.95)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "6px", fontSize: "12px", padding: "8px 12px", color: "rgba(255,255,255,0.8)" }}
@@ -518,11 +553,33 @@ function DataCard({ chart }: { chart: DashboardChart }) {
       />
     ) : null;
 
+    const renderSeriesElement = (y: any, i: number) => {
+      const seriesType = y.chartType || cType;
+      const axisId = useComposed ? (y.yAxisId || "left") : undefined;
+      const color = y.color || CHART_COLORS[i];
+
+      if (seriesType === "bar") {
+        return <Bar key={y.dataKey} dataKey={y.dataKey} yAxisId={axisId} fill={color} radius={[3, 3, 0, 0]} maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20} opacity={0.8} />;
+      }
+      if (seriesType === "area") {
+        return <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} yAxisId={axisId} stroke={color} strokeWidth={1.5} fill={color} fillOpacity={0.1} dot={false} />;
+      }
+      return <Line key={y.dataKey} type="monotone" dataKey={y.dataKey} yAxisId={axisId} stroke={color} strokeWidth={2} dot={false} activeDot={{ r: 3, fill: color, stroke: "rgba(0,0,0,0.5)", strokeWidth: 1 }} />;
+    };
+
     const chartEl = (() => {
+      if (useComposed) {
+        return (
+          <ComposedChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+            {gridEl}{xAxisEl}{yAxisLeftEl}{yAxisRightEl}{tooltipEl}{legendEl}
+            {yAxes.map((y: any, i: number) => renderSeriesElement(y, i))}
+          </ComposedChart>
+        );
+      }
       if (cType === "bar") {
         return (
           <BarChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
-            {gridEl}{xAxisEl}{yAxisEl}{tooltipEl}{legendEl}
+            {gridEl}{xAxisEl}{singleYAxisEl}{tooltipEl}{legendEl}
             {yAxes.map((y: any, i: number) => (
               <Bar key={y.dataKey} dataKey={y.dataKey} fill={y.color || CHART_COLORS[i]} radius={[3, 3, 0, 0]} maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20} />
             ))}
@@ -532,7 +589,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
       if (cType === "area") {
         return (
           <AreaChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
-            {gridEl}{xAxisEl}{yAxisEl}{tooltipEl}{legendEl}
+            {gridEl}{xAxisEl}{singleYAxisEl}{tooltipEl}{legendEl}
             {yAxes.map((y: any, i: number) => (
               <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={y.color || CHART_COLORS[i]} strokeWidth={1.5} fill={y.color || CHART_COLORS[i]} fillOpacity={0.1} dot={false} />
             ))}
@@ -541,7 +598,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
       }
       return (
         <LineChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
-          {gridEl}{xAxisEl}{yAxisEl}{tooltipEl}{legendEl}
+          {gridEl}{xAxisEl}{singleYAxisEl}{tooltipEl}{legendEl}
           {yAxes.map((y: any, i: number) => (
             <Line key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={y.color || CHART_COLORS[i]} strokeWidth={1.5} dot={false} activeDot={{ r: 3, fill: y.color || CHART_COLORS[i], stroke: "rgba(0,0,0,0.5)", strokeWidth: 1 }} />
           ))}

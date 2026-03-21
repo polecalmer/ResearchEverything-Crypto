@@ -19,16 +19,14 @@ AVAILABLE DATA SOURCES:
 3. "coingecko" — Price history for tokens. Provide the coingecko coin ID (e.g. "hyperliquid", "ethereum", "solana").
 4. "allium" — Real-time token snapshot (price, mcap, volume). Good for single-point current data.
 
-CHART TYPES: "line", "bar", "area", "composed" (for multi-axis overlays like price vs revenue)
-
 YOU MUST RESPOND WITH VALID JSON ONLY. No markdown, no explanation. Just the JSON array.
 
-Response format — an array of chart definitions:
+Response format — array of chart definitions:
 [
   {
-    "title": "Short descriptive title",
-    "description": "One sentence explaining what the chart shows",
-    "chartType": "line" | "bar" | "area" | "composed",
+    "title": "TITLE IN UPPERCASE",
+    "description": "One sentence",
+    "chartType": "line" | "bar" | "area",
     "dataSource": "dune" | "defillama" | "coingecko" | "allium",
     "dataSourceConfig": {
       // For dune: { "queryId": 12345, "params": {} }
@@ -37,25 +35,85 @@ Response format — an array of chart definitions:
       // For allium: { "ticker": "HYPE", "chain": "hyperliquid", "contractAddress": "" }
     },
     "chartConfig": {
-      "xAxis": { "dataKey": "date", "label": "Date", "type": "date" },
+      "xAxis": { "dataKey": "the_actual_column_name", "label": "Date", "type": "date" },
       "yAxes": [
-        { "dataKey": "value", "label": "TVL (USD)", "color": "#3b82f6", "type": "number", "format": "currency" | "number" | "percent", "yAxisId": "left" | "right" }
+        { "dataKey": "actual_column_name", "label": "Revenue", "color": "#38bdf8", "format": "currency", "yAxisId": "left" }
       ]
     }
   }
 ]
 
-RULES:
-- For composed charts with different scales (e.g. price AND revenue), use yAxisId "left" and "right" to separate axes.
-- For DeFiLlama revenue/fees charts, dataKey options are "revenue" or "fees" depending on the endpoint.
-- For DeFiLlama TVL, the dataKey is "totalLiquidityUSD".
-- For CoinGecko price history, the dataKey is "price".
-- For Dune queries, examine the column names from the provided query results to set correct dataKeys.
-- Always pick meaningful colors: blue (#3b82f6) for primary, green (#10b981) for positive metrics, orange (#f59e0b) for secondary, red (#ef4444) for risk.
-- Use "composed" chartType when overlaying two different data types on the same chart.
-- Keep titles concise and professional. Example: "HYPE Price vs Protocol Revenue (30D)"
-- If the user asks for something requiring multiple charts, return multiple items in the array.
-- If a Dune query is needed but none of the user's saved queries match, suggest a well-known public query ID if you know one, or explain in the title that a Dune query ID is needed.`;
+═══════════════════════════════════════════════════════════════
+CRITICAL CHART CONFIGURATION RULES — READ CAREFULLY
+═══════════════════════════════════════════════════════════════
+
+1. X-AXIS COLUMN SELECTION:
+   - For Dune queries: Look at the sample data columns. Pick the column that contains ACTUAL DATE STRINGS (e.g. "2025-01-01 00:00:00.000 UTC"), NOT bare integers.
+   - Common pattern: Dune data has "date" (often just a day number like 20) and "month_start" (actual date string). ALWAYS use the string date column like "month_start", "day", "block_date", "week" etc.
+   - NEVER use a column named "date" if its sample value is a small integer (like 1-31) — that's a day-of-month, not a date.
+   - For DeFiLlama/CoinGecko: use "date" (these return proper unix timestamps).
+
+2. Y-AXIS — PICK THE RIGHT METRIC:
+   - When data has monthly_revenue AND annualized_revenue AND prev_month_revenue AND mom_growth_pct:
+     → For a "revenue" chart: use "monthly_revenue" (the actual metric), NOT annualized, NOT prev_month.
+   - Skip derivative/secondary columns: anything starting with "prev_", "annualized_", "cumulative_", "running_".
+   - Exception: "totalLiquidityUSD" and other canonical aggregate fields are fine — only skip "total_" prefix when it's clearly a running total.
+   - Skip growth/rate columns for primary metric: "mom_growth_pct", "pe_ratio_*", "*_change_*".
+   - The user wants to see the core business metric, not derived calculations.
+
+3. CHART TYPE SELECTION:
+   - "bar" → periodic aggregates (monthly revenue, weekly volume, daily fees, TVL snapshots)
+   - "line" → continuous time series (price, TVL over time, daily metrics with 100+ points)
+   - "area" → cumulative or smooth continuous data (cumulative revenue, TVL growth)
+   - For bar charts with ≤24 bars, every bar gets a tick label. Perfect for monthly data.
+   - NEVER use "bar" for daily price data — always "line".
+
+4. DUAL Y-AXIS CHARTS (when user asks for "X vs Y"):
+   - ONLY possible when BOTH metrics exist in the SAME data source/query result.
+   - If the metrics come from different sources (e.g. CoinGecko price + DeFiLlama revenue), create TWO SEPARATE charts instead.
+   - When a single Dune query or data source returns both columns (e.g. a query with both "monthly_revenue" and "price"):
+     → Create ONE chart with TWO yAxes entries with DIFFERENT yAxisId values ("left" and "right")
+   - Price-type metrics → yAxisId: "right", format: "currency", color: "#38bdf8" (light blue)
+   - Revenue/volume-type metrics → yAxisId: "left", format: "currency", color: "#2dd4bf" (teal)
+   - Set chartType to "line" for dual-axis overlays
+   - Example for "Price vs 30D MA Revenue" (when BOTH columns exist in one query):
+     yAxes: [
+       { "dataKey": "monthly_revenue", "label": "Revenue", "color": "#2dd4bf", "format": "currency", "yAxisId": "left", "chartType": "bar" },
+       { "dataKey": "price", "label": "Price", "color": "#38bdf8", "format": "currency", "yAxisId": "right", "chartType": "line" }
+     ]
+   - Each yAxis can have its own "chartType" field to mix bar+line in the same chart.
+   - If you're unsure both columns exist in the same source, create separate charts — never reference columns that don't exist in the data.
+
+5. SINGLE METRIC CHARTS:
+   - Only ONE yAxis entry. Pick the most relevant column.
+   - Revenue chart → "monthly_revenue", chartType "bar", color "#38bdf8"
+   - Price chart → "price", chartType "line", color "#38bdf8"
+   - TVL chart → "totalLiquidityUSD", chartType "area", color "#2dd4bf"
+   - Volume chart → "volume" or "daily_volume", chartType "bar", color "#818cf8"
+
+6. COLOR PALETTE (in order of preference):
+   - Primary: "#38bdf8" (sky blue)
+   - Secondary: "#2dd4bf" (teal)
+   - Tertiary: "#818cf8" (indigo)
+   - Fourth: "#a78bfa" (violet)
+   - NEVER use red, harsh green, or bright yellow for primary metrics.
+
+7. FORMAT RULES:
+   - "currency" → values displayed as $1.2M, $450K, $3.5B
+   - "percent" → values are ALREADY in percentage form (150 means 150%). Display as 150.0%
+   - "number" → plain numbers with abbreviation (1.2M, 450K)
+   - Revenue, fees, TVL, price, volume, market_cap, fdv → "currency"
+   - growth_pct, apy, apr, rate → "percent"
+   - count, users, transactions → "number"
+
+8. TITLES:
+   - ALL CAPS, concise. Examples: "MONTHLY REVENUE", "PRICE (90D)", "TVL HISTORY"
+   - For dual-axis: "PRICE VS MONTHLY REVENUE"
+
+9. DUNE QUERY COLUMN INSPECTION:
+   - You are given sample data with actual column names and values. USE THEM EXACTLY.
+   - Do NOT guess column names. If sample shows {month_start: "2026-03-01...", monthly_revenue: 47517317}, use EXACTLY "month_start" and "monthly_revenue".
+   - If no saved query matches, suggest a known public query ID or create separate charts from other sources.`;
 
 interface DataAgentInput {
   companyId: string;
@@ -192,6 +250,25 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
         charts.push(updatedChart || chart);
         continue;
       }
+
+      const availableCols = data[0] ? Object.keys(data[0]) : [];
+      const requestedCols = (plan.chartConfig?.yAxes || []).map((y: any) => y.dataKey);
+      const missingCols = requestedCols.filter((col: string) => !availableCols.includes(col));
+      if (missingCols.length > 0) {
+        console.warn(`[Data Agent] Chart "${plan.title}" references missing columns: ${missingCols.join(", ")}. Available: ${availableCols.join(", ")}`);
+        const fixedYAxes = (plan.chartConfig.yAxes || []).filter((y: any) => availableCols.includes(y.dataKey));
+        if (fixedYAxes.length === 0) {
+          plan.chartConfig = { columns: availableCols };
+          plan.chartType = "table";
+        } else {
+          plan.chartConfig.yAxes = fixedYAxes;
+        }
+        await storage.updateDashboardChart(chart.id, {
+          chartType: plan.chartType,
+          chartConfig: JSON.stringify(plan.chartConfig),
+        });
+      }
+
       const updatedChart = await storage.updateDashboardChart(chart.id, {
         data: JSON.stringify(data),
         status: "completed",
