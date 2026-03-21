@@ -67,6 +67,7 @@ export interface IStorage {
   updateTokenAnalysis(id: string, data: { content?: string; status?: string; duneData?: string }): Promise<TokenAnalysis | undefined>;
   getTokenAnalysis(id: string): Promise<TokenAnalysis | undefined>;
   getTokenAnalysesByCompany(companyId: string, userId: string): Promise<TokenAnalysis[]>;
+  deleteTokenAnalysis(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -345,6 +346,10 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(tokenAnalyses)
       .where(and(eq(tokenAnalyses.companyId, companyId), eq(tokenAnalyses.userId, userId)))
       .orderBy(desc(tokenAnalyses.createdAt));
+  }
+
+  async deleteTokenAnalysis(id: string): Promise<void> {
+    await db.delete(tokenAnalyses).where(eq(tokenAnalyses.id, id));
   }
 }
 

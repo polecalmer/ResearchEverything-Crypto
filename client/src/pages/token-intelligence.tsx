@@ -532,6 +532,17 @@ function TokenAnalysisSection({ companyId, companyName }: { companyId: string; c
     onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
   });
 
+  const deleteMutation = useMutation({
+    mutationFn: async (analysisId: string) => {
+      await apiRequest("DELETE", `/api/token-analyses/${analysisId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "token-analyses"] });
+      toast({ title: "Report deleted" });
+    },
+    onError: (err: any) => toast({ title: "Failed to delete", description: err.message, variant: "destructive" }),
+  });
+
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   return (
@@ -553,11 +564,23 @@ function TokenAnalysisSection({ companyId, companyName }: { companyId: string; c
                     </p>
                   </div>
                 </div>
-                {analysis.status === "generating" ? (
-                  <Loader2 className="w-3 h-3 animate-spin text-muted-foreground shrink-0" />
-                ) : (
-                  <ChevronRight className={`w-3 h-3 text-muted-foreground/30 transition-transform shrink-0 ${expandedId === analysis.id ? "rotate-90" : ""}`} />
-                )}
+                <div className="flex items-center gap-1 shrink-0">
+                  {analysis.status !== "generating" && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(analysis.id); }}
+                      className="p-1 rounded hover:bg-destructive/20 text-muted-foreground/30 hover:text-destructive transition-colors"
+                      data-testid={`button-delete-analysis-${analysis.id}`}
+                      title="Delete report"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  )}
+                  {analysis.status === "generating" ? (
+                    <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
+                  ) : (
+                    <ChevronRight className={`w-3 h-3 text-muted-foreground/30 transition-transform ${expandedId === analysis.id ? "rotate-90" : ""}`} />
+                  )}
+                </div>
               </button>
               {expandedId === analysis.id && analysis.content && (
                 <div className="px-3 pb-3 border-t border-border/30">

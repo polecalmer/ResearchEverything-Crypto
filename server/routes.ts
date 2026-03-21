@@ -762,6 +762,14 @@ export async function registerRoutes(
     res.json(analysis);
   });
 
+  app.delete("/api/token-analyses/:id", requireAuth, async (req, res) => {
+    const analysis = await storage.getTokenAnalysis(req.params.id);
+    if (!analysis) return res.status(404).json({ message: "Analysis not found" });
+    if (analysis.userId !== req.user!.id) return res.status(403).json({ message: "Not authorized" });
+    await storage.deleteTokenAnalysis(req.params.id);
+    res.json({ success: true });
+  });
+
   app.post("/api/companies/:id/token-snapshot", requireAuth, tokenSnapshotPaywall, async (req, res) => {
     try {
       const userId = req.user!.id;
