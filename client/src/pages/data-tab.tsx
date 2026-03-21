@@ -739,9 +739,9 @@ function DataCard({ chart }: { chart: DashboardChart }) {
         </div>
       )}
 
-      <div className="flex items-center justify-between px-3 py-1 text-[8px] text-white/20">
-        <span>{chart.dataSource} · {chartData.length} {currentView === "chart" ? "points" : "rows"}</span>
-        <span>{format(new Date(chart.updatedAt), "MMM d, h:mm a")}</span>
+      <div className="flex items-center justify-between px-3 py-1.5 text-[9px] text-white/25 italic">
+        <span>Source: {chart.dataSource === "dune" ? "Dune Analytics" : chart.dataSource === "defillama" ? "DeFiLlama" : chart.dataSource === "coingecko" ? "CoinGecko" : chart.dataSource === "allium-sql" ? "Allium SQL" : chart.dataSource === "allium-prices" ? "Allium" : chart.dataSource === "allium" ? "Allium" : chart.dataSource} <span className="not-italic text-white/15">· {chartData.length} {currentView === "chart" ? "pts" : "rows"}</span></span>
+        <span className="not-italic text-white/15">{format(new Date(chart.updatedAt), "MMM d, h:mm a")}</span>
       </div>
     </div>
   );
