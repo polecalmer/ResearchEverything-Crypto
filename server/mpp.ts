@@ -15,8 +15,7 @@ export const mppx = Mppx.create({
 });
 
 export const enrichmentPaywall: RequestHandler = (req, res, next) => {
-  const isLiquidToken = req.body?.hasLiquidToken === true;
-  const amount = getEstimatedEnrichmentCost(isLiquidToken).toFixed(2);
+  const amount = getEstimatedEnrichmentCost().toFixed(2);
   mppx.charge({
     amount,
     description: `BookMark AI research ($${amount})`,
