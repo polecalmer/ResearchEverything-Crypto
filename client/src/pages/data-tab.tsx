@@ -58,7 +58,8 @@ function smartFormat(value: number, fmt?: string): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-function axisFormat(value: number, fmt?: string): string {
+function axisFormat(value: number, fmt?: string, isRatio?: boolean): string {
+  const suffix = isRatio ? "x" : "";
   if (fmt === "currency") {
     const abs = Math.abs(value);
     if (abs >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
@@ -67,6 +68,7 @@ function axisFormat(value: number, fmt?: string): string {
     return `$${value.toFixed(0)}`;
   }
   if (fmt === "percent") return `${value.toFixed(0)}%`;
+  if (isRatio) return `${value.toFixed(0)}${suffix}`;
   const abs = Math.abs(value);
   if (abs >= 1e9) return `${(value / 1e9).toFixed(1)}B`;
   if (abs >= 1e6) return `${(value / 1e6).toFixed(0)}M`;
@@ -150,17 +152,27 @@ function parseSubtitle(description: string | null | undefined): { subtitle: stri
   return { subtitle: "", desc: description };
 }
 
-function computeHeadlineStat(data: any[], yAxes: any[], title?: string): { value: string; label: string } | null {
+function computeHeadlineStat(data: any[], yAxes: any[], title?: string, xAxisKey?: string): { value: string; label: string } | null {
   if (!data || data.length === 0 || !yAxes || yAxes.length === 0) return null;
   const primary = yAxes[0];
   const key = primary.dataKey;
   const fmt = primary.format;
 
-  const values = data.map(d => d[key]).filter(v => typeof v === "number" && !isNaN(v));
-  if (values.length === 0) return null;
+  const validRows = data.filter(d => typeof d[key] === "number" && !isNaN(d[key]));
+  if (validRows.length === 0) return null;
 
-  const latest = values[values.length - 1];
+  let latestRow = validRows[validRows.length - 1];
+  if (xAxisKey) {
+    const sorted = [...validRows].sort((a, b) => {
+      const aVal = a[xAxisKey], bVal = b[xAxisKey];
+      if (typeof aVal === "number" && typeof bVal === "number") return aVal - bVal;
+      if (typeof aVal === "string" && typeof bVal === "string") return aVal.localeCompare(bVal);
+      return 0;
+    });
+    latestRow = sorted[sorted.length - 1];
+  }
 
+  const latest = latestRow[key];
   const titleLower = (title || "").toLowerCase();
   const keyLower = key.toLowerCase();
   const isRatio = /ratio|p\/e|pe_ratio|multiple|p_e/i.test(keyLower) || /ratio|p\/e|multiple/i.test(titleLower);
@@ -445,7 +457,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
   const isTable = chart.chartType === "table" || !hasChartConfig;
   const currentView = view === "auto" ? (isTable ? "table" : "chart") : view;
 
-  const headlineStat = hasChartConfig ? computeHeadlineStat(chartData, chartConfig.yAxes, chart.title) : null;
+  const headlineStat = hasChartConfig ? computeHeadlineStat(chartData, chartConfig.yAxes, chart.title, chartConfig.xAxis?.dataKey) : null;
 
   const renderTable = () => {
     const columns = chartConfig.columns || (chartData[0] ? Object.keys(chartData[0]) : []);
@@ -526,6 +538,10 @@ function DataCard({ chart }: { chart: DashboardChart }) {
     const hasMixedTypes = yAxes.some((y: any) => y.chartType && y.chartType !== cType);
     const useComposed = hasDualAxis || hasMixedTypes;
 
+    const titleLower = (chart.title || "").toLowerCase();
+    const primaryKeyLower = (primary.dataKey || "").toLowerCase();
+    const isRatioChart = /ratio|p\/e|pe_ratio|multiple|p_e/i.test(primaryKeyLower) || /ratio|p\/e|multiple/i.test(titleLower);
+
     const maxTicks = 6;
     const tickInterval = cType === "bar"
       ? (numPoints <= maxTicks ? 0 : Math.floor(numPoints / maxTicks))
@@ -553,7 +569,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
     const yAxisLeftEl = (
       <YAxis
         yAxisId="left"
-        tickFormatter={(v: number) => axisFormat(v, leftFmt)}
+        tickFormatter={(v: number) => axisFormat(v, leftFmt, isRatioChart)}
         tick={{ fontSize: 9, fill: "rgba(255,255,255,0.55)" }}
         axisLine={false}
         tickLine={false}
@@ -576,7 +592,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
 
     const singleYAxisEl = (
       <YAxis
-        tickFormatter={(v: number) => axisFormat(v, primaryFmt)}
+        tickFormatter={(v: number) => axisFormat(v, primaryFmt, isRatioChart)}
         tick={{ fontSize: 9, fill: "rgba(255,255,255,0.55)" }}
         axisLine={false}
         tickLine={false}
