@@ -895,6 +895,66 @@ export async function registerRoutes(
     const parsed = insertDuneQuerySchema.safeParse({ ...req.body, companyId: req.params.id });
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.errors });
     const query = await storage.addDuneQuery(parsed.data);
+
+    const vizType = query.visualizationType || "table";
+    const chartType = vizType === "line" ? "line" : vizType === "bar" ? "bar" : vizType === "area" ? "area" : "table";
+
+    const chart = await storage.createDashboardChart({
+      companyId: req.params.id,
+      userId,
+      title: query.label,
+      description: `Dune query #${query.queryId}`,
+      chartType,
+      dataSource: "dune",
+      dataSourceConfig: JSON.stringify({ queryId: query.queryId }),
+      chartConfig: JSON.stringify({ autoDetect: true }),
+      data: null,
+      status: "pending",
+      errorMessage: null,
+    });
+
+    if (isDuneConfigured()) {
+      (async () => {
+        try {
+          const result = await getLatestDuneResults(query.queryId);
+          const columns = result.columns || [];
+          const rows = result.rows || [];
+
+          let finalChartConfig: any;
+          if (chartType === "table") {
+            finalChartConfig = { columns };
+          } else {
+            const dateCol = columns.find((c: string) => /date|time|day|week|month|block_time/i.test(c));
+            const valueCols = columns.filter((c: string) => c !== dateCol);
+            const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
+            finalChartConfig = {
+              xAxis: { dataKey: dateCol || columns[0], label: dateCol || columns[0], type: dateCol ? "date" : "category" },
+              yAxes: valueCols.slice(0, 4).map((col: string, i: number) => ({
+                dataKey: col,
+                label: col.replace(/_/g, " "),
+                color: colors[i % colors.length],
+                yAxisId: "left",
+                format: /usd|price|fee|revenue|volume|amount/i.test(col) ? "currency" : "number",
+              })),
+            };
+          }
+
+          await storage.updateDashboardChart(chart.id, {
+            chartConfig: JSON.stringify(finalChartConfig),
+            data: JSON.stringify(rows),
+            status: "completed",
+          });
+          console.log(`[Auto] Created dashboard chart for Dune query #${query.queryId} (${rows.length} rows)`);
+        } catch (err: any) {
+          await storage.updateDashboardChart(chart.id, {
+            status: "failed",
+            errorMessage: err.message || "Failed to fetch Dune data",
+          });
+          console.warn(`[Auto] Failed to populate chart for Dune #${query.queryId}:`, err.message);
+        }
+      })();
+    }
+
     res.status(201).json(query);
   });
 

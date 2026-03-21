@@ -217,14 +217,41 @@ export async function refreshChartData(chartId: string): Promise<DashboardChart>
 
   try {
     const config = JSON.parse(chart.dataSourceConfig);
-    const data = await fetchChartData(chart.dataSource, config);
+    const existingChartConfig = JSON.parse(chart.chartConfig || "{}");
+    const data = await fetchChartData(chart.dataSource, { ...config, forceRefresh: true });
 
-    const updated = await storage.updateDashboardChart(chartId, {
+    const updates: any = {
       data: JSON.stringify(data),
       status: "completed",
       errorMessage: null,
-    });
+    };
 
+    if (existingChartConfig.autoDetect && chart.dataSource === "dune" && data.length > 0) {
+      const columns = Object.keys(data[0]);
+      const chartType = chart.chartType;
+      let finalChartConfig: any;
+
+      if (chartType === "table") {
+        finalChartConfig = { columns };
+      } else {
+        const dateCol = columns.find(c => /date|time|day|week|month|block_time/i.test(c));
+        const valueCols = columns.filter(c => c !== dateCol);
+        const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
+        finalChartConfig = {
+          xAxis: { dataKey: dateCol || columns[0], label: dateCol || columns[0], type: dateCol ? "date" : "category" },
+          yAxes: valueCols.slice(0, 4).map((col, i) => ({
+            dataKey: col,
+            label: col.replace(/_/g, " "),
+            color: colors[i % colors.length],
+            yAxisId: "left",
+            format: /usd|price|fee|revenue|volume|amount/i.test(col) ? "currency" : "number",
+          })),
+        };
+      }
+      updates.chartConfig = JSON.stringify(finalChartConfig);
+    }
+
+    const updated = await storage.updateDashboardChart(chartId, updates);
     return updated || chart;
   } catch (err: any) {
     const updated = await storage.updateDashboardChart(chartId, {

@@ -102,6 +102,37 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
     onError: (err: any) => toast({ title: "Delete failed", description: err.message, variant: "destructive" }),
   });
 
+  if (chart.status === "pending") {
+    return (
+      <div className="border border-border/10 rounded-lg p-6 bg-card/20" data-testid={`chart-card-${chart.id}`}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-medium text-foreground/80">{chart.title}</h3>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => refreshMutation.mutate()}
+              disabled={refreshMutation.isPending}
+              className="p-1 rounded hover:bg-accent/20 text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+              data-testid={`button-refresh-chart-${chart.id}`}
+            >
+              <RefreshCw className={`w-3 h-3 ${refreshMutation.isPending ? 'animate-spin' : ''}`} />
+            </button>
+            <button
+              onClick={() => deleteMutation.mutate()}
+              className="p-1 rounded hover:bg-destructive/20 text-muted-foreground/30 hover:text-destructive transition-colors"
+              data-testid={`button-delete-chart-${chart.id}`}
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+        <div className="flex flex-col items-center justify-center h-48 gap-2">
+          <RefreshCw className="w-4 h-4 text-muted-foreground/30" />
+          <span className="text-xs text-muted-foreground/50">Click refresh to load data</span>
+        </div>
+      </div>
+    );
+  }
+
   if (chart.status === "generating") {
     return (
       <div className="border border-border/10 rounded-lg p-6 bg-card/20" data-testid={`chart-card-${chart.id}`}>
@@ -344,13 +375,45 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
       {chart.description && (
         <p className="text-[10px] text-muted-foreground/30 mb-3">{chart.description}</p>
       )}
-      <div className="h-56">
-        <ResponsiveContainer width="100%" height="100%">
-          {renderChart()}
-        </ResponsiveContainer>
-      </div>
+      {chart.chartType === "table" ? (
+        <div className="max-h-64 overflow-auto border border-border/10 rounded">
+          <table className="w-full text-xs">
+            <thead className="sticky top-0 bg-card">
+              <tr>
+                {(chartConfig.columns || Object.keys(chartData[0] || {})).map((col: string) => (
+                  <th key={col} className="text-left px-2 py-1.5 text-[10px] font-medium text-muted-foreground border-b border-border/10 whitespace-nowrap">
+                    {col.replace(/_/g, " ")}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {chartData.slice(0, 100).map((row: any, i: number) => (
+                <tr key={i} className="border-b border-border/5 hover:bg-accent/10">
+                  {(chartConfig.columns || Object.keys(row)).map((col: string) => (
+                    <td key={col} className="px-2 py-1 text-[11px] text-foreground/70 whitespace-nowrap font-mono">
+                      {typeof row[col] === "number"
+                        ? row[col].toLocaleString(undefined, { maximumFractionDigits: 4 })
+                        : String(row[col] ?? "")}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {chartData.length > 100 && (
+            <p className="text-[9px] text-muted-foreground/30 text-center py-1">Showing 100 of {chartData.length} rows</p>
+          )}
+        </div>
+      ) : (
+        <div className="h-56">
+          <ResponsiveContainer width="100%" height="100%">
+            {renderChart()}
+          </ResponsiveContainer>
+        </div>
+      )}
       <div className="flex items-center justify-between mt-2 text-[9px] text-muted-foreground/20">
-        <span>{chart.dataSource} · {processedData.length} points</span>
+        <span>{chart.dataSource} · {chart.chartType === "table" ? `${chartData.length} rows` : `${processedData.length} points`}</span>
         <span>{format(new Date(chart.updatedAt), "MMM d, h:mm a")}</span>
       </div>
     </div>
