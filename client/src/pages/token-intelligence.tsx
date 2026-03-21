@@ -316,8 +316,8 @@ function DuneQueryResultCard({ query }: { query: DuneQuery }) {
         headers["X-Privy-Token"] = token;
       }
       const endpoint = refresh
-        ? `/api/dune-queries/${query.queryId}/refresh`
-        : `/api/dune-queries/${query.queryId}/execute`;
+        ? `/api/dune-queries/${query.id}/refresh`
+        : `/api/dune-queries/${query.id}/execute`;
       const res = await fetch(endpoint, { method: "POST", headers });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ message: "Failed" }));

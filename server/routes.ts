@@ -610,12 +610,15 @@ export async function registerRoutes(
     res.status(204).end();
   });
 
-  app.post("/api/dune-queries/:queryId/execute", requireAuth, duneQueryPaywall, async (req, res) => {
+  app.post("/api/dune-queries/:id/execute", requireAuth, duneQueryPaywall, async (req, res) => {
     try {
       if (!isDuneConfigured()) return res.status(503).json({ message: "Dune API key not configured" });
-      const queryId = parseInt(req.params.queryId);
-      if (isNaN(queryId)) return res.status(400).json({ message: "Invalid query ID" });
-      const result = await getLatestDuneResults(queryId);
+      const userId = req.user!.id;
+      const queryRecord = await storage.getDuneQueryWithCompany(req.params.id);
+      if (!queryRecord) return res.status(404).json({ message: "Query not found" });
+      const company = await storage.getCompany(queryRecord.companyId, userId);
+      if (!company) return res.status(404).json({ message: "Query not found" });
+      const result = await getLatestDuneResults(queryRecord.query.queryId);
       res.json(result);
     } catch (error: any) {
       console.error("Dune query error:", error.message);
@@ -623,12 +626,15 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/dune-queries/:queryId/refresh", requireAuth, duneQueryPaywall, async (req, res) => {
+  app.post("/api/dune-queries/:id/refresh", requireAuth, duneQueryPaywall, async (req, res) => {
     try {
       if (!isDuneConfigured()) return res.status(503).json({ message: "Dune API key not configured" });
-      const queryId = parseInt(req.params.queryId);
-      if (isNaN(queryId)) return res.status(400).json({ message: "Invalid query ID" });
-      const result = await executeDuneQuery(queryId);
+      const userId = req.user!.id;
+      const queryRecord = await storage.getDuneQueryWithCompany(req.params.id);
+      if (!queryRecord) return res.status(404).json({ message: "Query not found" });
+      const company = await storage.getCompany(queryRecord.companyId, userId);
+      if (!company) return res.status(404).json({ message: "Query not found" });
+      const result = await executeDuneQuery(queryRecord.query.queryId);
       res.json(result);
     } catch (error: any) {
       console.error("Dune refresh error:", error.message);
