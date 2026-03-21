@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": {
+    "allium-onchain-data": {
+      "source": "allium-labs/skills",
+      "sourceType": "github",
+      "computedHash": "57424fe3e214a4ff7f70fba3123c7bd1acea81ff8e7d690b1e63c170b9bfe63b"
+    },
+    "allium-x402": {
+      "source": "allium-labs/skills",
+      "sourceType": "github",
+      "computedHash": "dee69327d333aa9c2c5406e3d8909326ae9ef8df34e9e7b3c43f48f76f4d631e"
+    }
+  }
+}
