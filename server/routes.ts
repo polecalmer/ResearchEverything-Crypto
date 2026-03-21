@@ -23,54 +23,8 @@ import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClie
 import { db } from "./db";
 import { sql } from "drizzle-orm";
 
-const DUNE_CHART_COLORS = ["#38bdf8", "#2dd4bf", "#818cf8", "#a78bfa", "#4ade80", "#f472b6", "#fb923c", "#facc15"];
-
-function buildDuneChartConfig(columns: string[], rows: any[], vizType?: string | null): any {
-  if (!columns.length || !rows.length) {
-    return { columns, _chartType: "table" };
-  }
-
-  const dateColCandidates = columns.filter(c => /date|time|day|week|month|block_time|period/i.test(c));
-  const dateCol = dateColCandidates.find(c => {
-    const val = rows[0][c];
-    if (typeof val === "string" && /\d{4}/.test(val)) return true;
-    if (typeof val === "number" && val > 1e8) return true;
-    return false;
-  }) || dateColCandidates[0];
-  const stringCols = columns.filter(c => c !== dateCol && rows[0] && typeof rows[0][c] === "string");
-  const numCols = columns.filter(c => c !== dateCol && !stringCols.includes(c) && rows[0] && typeof rows[0][c] === "number");
-
-  if (!dateCol || numCols.length === 0) {
-    return { columns, _chartType: "table" };
-  }
-
-  const isCurrency = (col: string) => /usd|price|fee|revenue|volume|amount|cost|tvl|value|earnings|profit/i.test(col);
-  const isBarMetric = (col: string) => /volume|count|users|txn|transaction|trade|swap|deposit|withdraw|mint|burn|liquidat/i.test(col);
-  const isGrowth = (col: string) => /growth|pct|percent|ratio|change|rate|apy|apr/i.test(col);
-  const isSecondary = (col: string) => /^prev_|annualized|cumulative|running|total_/i.test(col);
-
-  const displayCols = numCols.filter(c => !isGrowth(c) && !isSecondary(c));
-  const finalCols = displayCols.length > 0 ? displayCols.slice(0, 4) : [numCols[0]];
-  const primaryCol = finalCols[0];
-
-  let chartType: string;
-  if (vizType === "bar") chartType = "bar";
-  else if (vizType === "area") chartType = "area";
-  else if (vizType === "line") chartType = "line";
-  else if (finalCols.length === 1 && isBarMetric(primaryCol)) chartType = "bar";
-  else chartType = "line";
-
-  return {
-    _chartType: chartType,
-    xAxis: { dataKey: dateCol, label: dateCol.replace(/_/g, " "), type: "date" },
-    yAxes: finalCols.map((col, i) => ({
-      dataKey: col,
-      label: col.replace(/_/g, " "),
-      color: DUNE_CHART_COLORS[i % DUNE_CHART_COLORS.length],
-      yAxisId: "left",
-      format: isGrowth(col) ? "percent" : isCurrency(col) ? "currency" : "number",
-    })),
-  };
+function buildDuneChartConfig(columns: string[], rows: any[]): any {
+  return { columns, _chartType: "table" };
 }
 
 const updateCompanySchema = insertCompanySchema.partial().extend({
@@ -967,7 +921,7 @@ export async function registerRoutes(
           const columns = result.columns || [];
           const rows = result.rows || [];
 
-          const finalChartConfig = buildDuneChartConfig(columns, rows, query.visualizationType);
+          const finalChartConfig = buildDuneChartConfig(columns, rows);
 
           await storage.updateDashboardChart(chart.id, {
             chartType: finalChartConfig._chartType || "line",
@@ -1209,6 +1163,25 @@ export async function registerRoutes(
       if (chart.userId !== req.user!.id) return res.status(403).json({ message: "Not authorized" });
 
       const updated = await refreshChartData(req.params.id);
+      res.json(updated);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/charts/:id", requireAuth, async (req, res) => {
+    try {
+      const chart = await storage.getDashboardChart(req.params.id);
+      if (!chart) return res.status(404).json({ message: "Chart not found" });
+      if (chart.userId !== req.user!.id) return res.status(403).json({ message: "Not authorized" });
+
+      const { chartType, chartConfig, title } = req.body;
+      const updates: any = {};
+      if (chartType) updates.chartType = chartType;
+      if (chartConfig) updates.chartConfig = typeof chartConfig === "string" ? chartConfig : JSON.stringify(chartConfig);
+      if (title) updates.title = title;
+
+      const updated = await storage.updateDashboardChart(req.params.id, updates);
       res.json(updated);
     } catch (e: any) {
       res.status(500).json({ message: e.message });

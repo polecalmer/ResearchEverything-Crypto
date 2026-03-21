@@ -11,6 +11,10 @@ import {
   Send,
   BarChart3,
   AlertTriangle,
+  Table2,
+  LineChart as LineChartIcon,
+  ChevronDown,
+  Check,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -46,9 +50,7 @@ function smartFormat(value: number, fmt?: string): string {
     if (abs >= 1e3) return `$${(value / 1e3).toFixed(1)}K`;
     return `$${value.toFixed(0)}`;
   }
-  if (fmt === "percent") {
-    return `${value.toFixed(1)}%`;
-  }
+  if (fmt === "percent") return `${value.toFixed(1)}%`;
   const abs = Math.abs(value);
   if (abs >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
   if (abs >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
@@ -65,13 +67,28 @@ function smartTooltip(value: number, fmt?: string): string {
 function toUnixSec(val: any): number | null {
   if (typeof val === "number") {
     if (val > 1e12) return val / 1000;
-    return val;
+    if (val > 1e8) return val;
+    return null;
   }
   if (typeof val === "string") {
     const d = new Date(val);
-    if (!isNaN(d.getTime())) return d.getTime() / 1000;
+    if (!isNaN(d.getTime()) && d.getFullYear() > 1970) return d.getTime() / 1000;
   }
   return null;
+}
+
+function isDateColumn(col: string, rows: any[]): boolean {
+  if (!/date|time|day|week|month|block_time|period/i.test(col)) return false;
+  const sample = rows[0]?.[col];
+  if (typeof sample === "string" && /\d{4}/.test(sample)) return true;
+  if (typeof sample === "number" && sample > 1e8) return true;
+  return false;
+}
+
+function guessFormat(col: string): string {
+  if (/usd|price|fee|revenue|volume|amount|cost|tvl|value|earnings|profit|market_cap|fdv/i.test(col)) return "currency";
+  if (/pct|percent|ratio|apy|apr|growth|change|rate/i.test(col)) return "percent";
+  return "number";
 }
 
 function buildDateFormatter(data: any[], xKey: string) {
@@ -93,13 +110,9 @@ function buildDateFormatter(data: any[], xKey: string) {
       try {
         const d = new Date(ts * 1000);
         if (d.getFullYear() < 1971) return "";
-        if (spansYears) {
-          return `${format(d, "MMM d")}\n${format(d, "yyyy")}`;
-        }
+        if (spansYears) return `${format(d, "MMM d")}\n${format(d, "yyyy")}`;
         return format(d, "MMM d");
-      } catch {
-        return String(ts);
-      }
+      } catch { return String(ts); }
     },
     tooltipFormatter: (ts: any) => {
       if (typeof ts !== "number") return String(ts);
@@ -112,9 +125,167 @@ function buildDateFormatter(data: any[], xKey: string) {
   };
 }
 
-function ChartRenderer({ chart }: { chart: DashboardChart }) {
+function ColumnPicker({ label, columns, selected, onSelect, multi }: {
+  label: string;
+  columns: string[];
+  selected: string | string[];
+  onSelect: (val: string | string[]) => void;
+  multi?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const selectedArr = Array.isArray(selected) ? selected : [selected];
+  const displayText = selectedArr.length > 0
+    ? selectedArr.map(s => s.replace(/_/g, " ")).join(", ")
+    : "Select...";
+
+  return (
+    <div className="relative">
+      <label className="text-[9px] text-white/25 uppercase tracking-wider block mb-1">{label}</label>
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className="w-full flex items-center justify-between gap-1 px-2 py-1.5 text-[11px] rounded border border-white/[0.08] bg-white/[0.02] text-white/60 hover:border-white/[0.15] transition-colors text-left"
+        data-testid={`picker-${label.toLowerCase().replace(/\s+/g, "-")}`}
+      >
+        <span className="truncate">{displayText}</span>
+        <ChevronDown className="w-3 h-3 shrink-0 text-white/20" />
+      </button>
+      {open && (
+        <div className="absolute z-20 mt-1 w-full max-h-40 overflow-auto rounded border border-white/[0.1] bg-[rgb(18,18,22)] shadow-lg">
+          {columns.map(col => {
+            const isSelected = selectedArr.includes(col);
+            return (
+              <button
+                key={col}
+                type="button"
+                className={`w-full text-left px-2 py-1.5 text-[11px] hover:bg-white/[0.04] flex items-center gap-1.5 ${isSelected ? 'text-sky-400' : 'text-white/50'}`}
+                onClick={() => {
+                  if (multi) {
+                    const newArr = isSelected
+                      ? selectedArr.filter(s => s !== col)
+                      : [...selectedArr, col];
+                    onSelect(newArr);
+                  } else {
+                    onSelect(col);
+                    setOpen(false);
+                  }
+                }}
+              >
+                {multi && isSelected && <Check className="w-3 h-3" />}
+                {multi && !isSelected && <span className="w-3" />}
+                {col.replace(/_/g, " ")}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChartBuilder({ chart, data, onClose }: {
+  chart: DashboardChart;
+  data: any[];
+  onClose: () => void;
+}) {
+  const { getAccessToken } = useAuth();
+  const { toast } = useToast();
+  const columns = data[0] ? Object.keys(data[0]) : [];
+  const dateCols = columns.filter(c => isDateColumn(c, data));
+  const numCols = columns.filter(c => typeof data[0]?.[c] === "number" && data[0][c] > 0 ? true : typeof data[0]?.[c] === "number");
+
+  const [xCol, setXCol] = useState(dateCols[0] || columns[0] || "");
+  const [yCols, setYCols] = useState<string[]>(numCols.length > 0 ? [numCols[0]] : []);
+  const [chartType, setChartType] = useState<string>("line");
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const token = await getAccessToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+        headers["X-Privy-Token"] = token;
+      }
+      const isXDate = isDateColumn(xCol, data);
+      const chartConfig = {
+        xAxis: { dataKey: xCol, label: xCol.replace(/_/g, " "), type: isXDate ? "date" : "category" },
+        yAxes: yCols.map((col, i) => ({
+          dataKey: col,
+          label: col.replace(/_/g, " "),
+          color: CHART_COLORS[i % CHART_COLORS.length],
+          yAxisId: "left",
+          format: guessFormat(col),
+        })),
+      };
+      const res = await fetch(`/api/charts/${chart.id}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ chartType, chartConfig }),
+      });
+      if (!res.ok) throw new Error("Failed to save chart config");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", chart.companyId, "charts"] });
+      toast({ title: "Chart created" });
+      onClose();
+    },
+    onError: () => toast({ title: "Failed to save", variant: "destructive" }),
+  });
+
+  return (
+    <div className="border-t border-white/[0.06] mt-3 pt-3">
+      <p className="text-[10px] text-white/30 uppercase tracking-wider font-medium mb-3">Chart Builder</p>
+      <div className="grid grid-cols-4 gap-3 mb-3">
+        <ColumnPicker
+          label="X Axis"
+          columns={columns}
+          selected={xCol}
+          onSelect={(v) => setXCol(v as string)}
+        />
+        <ColumnPicker
+          label="Y Axis (values)"
+          columns={numCols}
+          selected={yCols}
+          onSelect={(v) => setYCols(v as string[])}
+          multi
+        />
+        <div>
+          <label className="text-[9px] text-white/25 uppercase tracking-wider block mb-1">Chart Type</label>
+          <div className="flex gap-1">
+            {(["line", "bar", "area"] as const).map(t => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setChartType(t)}
+                className={`px-2 py-1.5 text-[10px] rounded border transition-colors ${chartType === t ? 'border-sky-500/30 bg-sky-500/10 text-sky-400' : 'border-white/[0.08] text-white/30 hover:text-white/50'}`}
+                data-testid={`charttype-${t}`}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="flex items-end">
+          <button
+            onClick={() => saveMutation.mutate()}
+            disabled={!xCol || yCols.length === 0 || saveMutation.isPending}
+            className="px-3 py-1.5 text-[10px] rounded bg-sky-500/20 text-sky-400 hover:bg-sky-500/30 border border-sky-500/20 disabled:opacity-30 transition-colors"
+            data-testid="button-save-chart"
+          >
+            {saveMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : "Create Chart"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DataCard({ chart }: { chart: DashboardChart }) {
   const { toast } = useToast();
   const { getAccessToken } = useAuth();
+  const [view, setView] = useState<"auto" | "table" | "chart">("auto");
+  const [showBuilder, setShowBuilder] = useState(false);
 
   const refreshMutation = useMutation({
     mutationFn: async () => {
@@ -144,57 +315,57 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies", chart.companyId, "charts"] });
-      toast({ title: "Chart deleted" });
+      toast({ title: "Deleted" });
     },
-    onError: (err: any) => toast({ title: "Delete failed", description: err.message, variant: "destructive" }),
   });
 
-  const chartActions = (
-    <div className="flex items-center gap-1">
-      <button
-        onClick={() => refreshMutation.mutate()}
-        disabled={refreshMutation.isPending}
-        className="p-1.5 rounded hover:bg-white/5 text-white/20 hover:text-white/50 transition-colors"
-        data-testid={`button-refresh-chart-${chart.id}`}
-      >
-        <RefreshCw className={`w-3.5 h-3.5 ${refreshMutation.isPending ? 'animate-spin' : ''}`} />
-      </button>
-      <button
-        onClick={() => deleteMutation.mutate()}
-        className="p-1.5 rounded hover:bg-red-500/10 text-white/20 hover:text-red-400/60 transition-colors"
-        data-testid={`button-delete-chart-${chart.id}`}
-      >
-        <Trash2 className="w-3.5 h-3.5" />
-      </button>
-    </div>
-  );
+  const resetMutation = useMutation({
+    mutationFn: async () => {
+      const token = await getAccessToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+        headers["X-Privy-Token"] = token;
+      }
+      const res = await fetch(`/api/charts/${chart.id}`, {
+        method: "PATCH",
+        headers,
+        body: JSON.stringify({ chartType: "table", chartConfig: JSON.stringify({ columns: [] }) }),
+      });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", chart.companyId, "charts"] });
+      setView("table");
+      setShowBuilder(false);
+    },
+  });
 
-  const cardClass = "rounded-lg border border-white/[0.06] bg-[rgba(255,255,255,0.015)] p-5";
+  const cardClass = "rounded-lg border border-white/[0.06] bg-[rgba(255,255,255,0.015)]";
 
-  if (chart.status === "pending") {
+  if (chart.status === "pending" || chart.status === "generating") {
     return (
-      <div className={cardClass} data-testid={`chart-card-${chart.id}`}>
+      <div className={`${cardClass} p-5`} data-testid={`chart-card-${chart.id}`}>
         <div className="flex items-center justify-between mb-3">
           <p className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{chart.title}</p>
-          {chartActions}
+          <div className="flex items-center gap-1">
+            {chart.status === "pending" && (
+              <button onClick={() => refreshMutation.mutate()} className="p-1.5 rounded hover:bg-white/5 text-white/20 hover:text-white/50 transition-colors" data-testid={`button-refresh-chart-${chart.id}`}>
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            )}
+            <button onClick={() => deleteMutation.mutate()} className="p-1.5 rounded hover:bg-red-500/10 text-white/20 hover:text-red-400/60 transition-colors" data-testid={`button-delete-chart-${chart.id}`}>
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
-        <div className="flex flex-col items-center justify-center h-48 gap-2">
-          <RefreshCw className="w-4 h-4 text-white/10" />
-          <span className="text-[11px] text-white/20">Click refresh to load data</span>
-        </div>
-      </div>
-    );
-  }
-
-  if (chart.status === "generating") {
-    return (
-      <div className={cardClass} data-testid={`chart-card-${chart.id}`}>
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{chart.title}</p>
-        </div>
-        <div className="flex items-center justify-center h-48 gap-2">
-          <Loader2 className="w-4 h-4 animate-spin text-white/20" />
-          <span className="text-[11px] text-white/20">Fetching data...</span>
+        <div className="flex items-center justify-center h-32 gap-2">
+          {chart.status === "generating" ? (
+            <><Loader2 className="w-4 h-4 animate-spin text-white/20" /><span className="text-[11px] text-white/20">Fetching data...</span></>
+          ) : (
+            <><RefreshCw className="w-4 h-4 text-white/10" /><span className="text-[11px] text-white/20">Click refresh to load data</span></>
+          )}
         </div>
       </div>
     );
@@ -202,14 +373,17 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
 
   if (chart.status === "failed") {
     return (
-      <div className={cardClass} data-testid={`chart-card-${chart.id}`}>
+      <div className={`${cardClass} p-5`} data-testid={`chart-card-${chart.id}`}>
         <div className="flex items-center justify-between mb-3">
           <p className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{chart.title}</p>
-          {chartActions}
+          <div className="flex items-center gap-1">
+            <button onClick={() => refreshMutation.mutate()} className="p-1.5 rounded hover:bg-white/5 text-white/20" data-testid={`button-refresh-chart-${chart.id}`}><RefreshCw className="w-3.5 h-3.5" /></button>
+            <button onClick={() => deleteMutation.mutate()} className="p-1.5 rounded hover:bg-red-500/10 text-white/20" data-testid={`button-delete-chart-${chart.id}`}><Trash2 className="w-3.5 h-3.5" /></button>
+          </div>
         </div>
-        <div className="flex items-center justify-center h-48 gap-2">
+        <div className="flex items-center justify-center h-32 gap-2">
           <AlertTriangle className="w-3.5 h-3.5 text-red-400/40" />
-          <span className="text-[11px] text-red-400/50">{chart.errorMessage || "Failed to fetch data"}</span>
+          <span className="text-[11px] text-red-400/50">{chart.errorMessage || "Failed"}</span>
         </div>
       </div>
     );
@@ -220,66 +394,47 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
   try {
     chartData = chart.data ? JSON.parse(chart.data) : [];
     chartConfig = chart.chartConfig ? JSON.parse(chart.chartConfig) : {};
-  } catch {
-    chartData = [];
-  }
+  } catch { chartData = []; }
 
-  const xAxis = chartConfig.xAxis || { dataKey: "date", type: "date" };
-  const yAxes: any[] = chartConfig.yAxes || [{ dataKey: "value", label: "Value", color: CHART_COLORS[0] }];
-  const isDate = xAxis.type === "date";
+  const hasChartConfig = chartConfig.xAxis && chartConfig.yAxes && chartConfig.yAxes.length > 0;
+  const isTable = chart.chartType === "table" || !hasChartConfig;
+  const currentView = view === "auto" ? (isTable ? "table" : "chart") : view;
 
-  const processedData = chartData.map((d: any) => {
-    const processed = { ...d };
-    if (isDate && processed[xAxis.dataKey] != null) {
-      const converted = toUnixSec(processed[xAxis.dataKey]);
-      if (converted !== null) {
-        processed[xAxis.dataKey] = converted;
-      }
-    }
-    return processed;
-  }).sort((a: any, b: any) => {
-    const aVal = a[xAxis.dataKey];
-    const bVal = b[xAxis.dataKey];
-    if (typeof aVal === 'number' && typeof bVal === 'number') return aVal - bVal;
-    return 0;
-  });
-
-  if (chart.chartType === "table") {
+  const renderTable = () => {
     const columns = chartConfig.columns || (chartData[0] ? Object.keys(chartData[0]) : []);
     return (
-      <div className={cardClass} data-testid={`chart-card-${chart.id}`}>
-        <div className="flex items-center justify-between mb-3">
-          <p className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{chart.title}</p>
-          {chartActions}
-        </div>
-        <div className="max-h-72 overflow-auto rounded">
+      <div>
+        <div className="max-h-64 overflow-auto">
           <table className="w-full text-[11px]">
-            <thead className="sticky top-0 bg-[hsl(var(--background))] z-10">
+            <thead className="sticky top-0 bg-[rgb(14,14,18)] z-10">
               <tr>
                 {columns.map((col: string) => (
-                  <th key={col} className="text-left px-3 py-2 text-[10px] font-medium text-white/30 uppercase tracking-wider border-b border-white/[0.06] whitespace-nowrap">
+                  <th key={col} className="text-left px-2.5 py-1.5 text-[9px] font-medium text-white/25 uppercase tracking-wider border-b border-white/[0.06] whitespace-nowrap">
                     {col.replace(/_/g, " ")}
                   </th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {chartData.slice(0, 100).map((row: any, i: number) => (
-                <tr key={i} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+              {chartData.slice(0, 50).map((row: any, i: number) => (
+                <tr key={i} className="border-b border-white/[0.03] hover:bg-white/[0.015]">
                   {columns.map((col: string) => {
                     const val = row[col];
                     let display: string;
-                    if (typeof val === "number") {
-                      display = /usd|price|fee|revenue|volume|amount|cost/i.test(col)
-                        ? `$${val.toLocaleString(undefined, { maximumFractionDigits: 2 })}`
-                        : val.toLocaleString(undefined, { maximumFractionDigits: 4 });
-                    } else if (/date|time|day|week|month/i.test(col) && typeof val === 'string') {
+                    if (val == null) display = "—";
+                    else if (typeof val === "number") {
+                      display = /usd|price|fee|revenue|volume|amount|cost|market_cap|fdv|tvl/i.test(col)
+                        ? smartFormat(val, "currency")
+                        : /pct|percent|growth|rate|apy|apr/i.test(col)
+                        ? smartFormat(val, "percent")
+                        : val.toLocaleString(undefined, { maximumFractionDigits: 2 });
+                    } else if (/\d{4}.*\d{2}.*\d{2}/.test(String(val))) {
                       try { display = format(new Date(val), "MMM d, yyyy"); } catch { display = String(val); }
                     } else {
-                      display = String(val ?? "—");
+                      display = String(val);
                     }
                     return (
-                      <td key={col} className="px-3 py-1.5 text-white/50 whitespace-nowrap font-mono text-[11px]">
+                      <td key={col} className="px-2.5 py-1 text-white/45 whitespace-nowrap font-mono text-[10px]">
                         {display}
                       </td>
                     );
@@ -288,171 +443,181 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
               ))}
             </tbody>
           </table>
-          {chartData.length > 100 && (
-            <p className="text-[10px] text-white/15 text-center py-2">Showing 100 of {chartData.length} rows</p>
-          )}
         </div>
-        <div className="flex items-center justify-between mt-3 text-[10px] text-white/15">
-          <span>{chart.dataSource} · {chartData.length} rows</span>
-          <span>{format(new Date(chart.updatedAt), "MMM d, h:mm a")}</span>
-        </div>
+        {chartData.length > 50 && (
+          <p className="text-[9px] text-white/15 text-center py-1.5">Showing 50 of {chartData.length} rows</p>
+        )}
       </div>
     );
-  }
-
-  const primary = yAxes[0];
-  const primaryColor = primary.color || CHART_COLORS[0];
-  const primaryFmt = primary.format;
-  const cType = chart.chartType || "line";
-  const numPoints = processedData.length;
-  const multiMetric = yAxes.length > 1;
-
-  const dateFmt = isDate ? buildDateFormatter(processedData, xAxis.dataKey) : null;
-
-  const tickInterval = cType === "bar"
-    ? (numPoints <= 24 ? 0 : Math.floor(numPoints / 12))
-    : (numPoints <= 30 ? 0 : undefined);
-
-  const xAxisEl = (
-    <XAxis
-      dataKey={xAxis.dataKey}
-      tickFormatter={isDate ? dateFmt!.tickFormatter : undefined}
-      tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)" }}
-      axisLine={{ stroke: "rgba(255,255,255,0.06)" }}
-      tickLine={false}
-      interval={tickInterval}
-      angle={numPoints > 20 ? -45 : 0}
-      textAnchor={numPoints > 20 ? "end" : "middle"}
-      height={numPoints > 20 ? 55 : 30}
-    />
-  );
-
-  const yAxisEl = (
-    <YAxis
-      tickFormatter={(v: number) => smartFormat(v, primaryFmt)}
-      tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)" }}
-      axisLine={false}
-      tickLine={false}
-      width={60}
-    />
-  );
-
-  const tooltipEl = (
-    <Tooltip
-      contentStyle={{
-        backgroundColor: "rgba(8,8,12,0.95)",
-        border: "1px solid rgba(255,255,255,0.1)",
-        borderRadius: "6px",
-        fontSize: "12px",
-        padding: "8px 12px",
-        color: "rgba(255,255,255,0.8)",
-      }}
-      labelStyle={{ color: "rgba(255,255,255,0.35)", fontSize: "10px", marginBottom: "4px" }}
-      labelFormatter={isDate ? dateFmt!.tooltipFormatter : (l: any) => String(l)}
-      formatter={(value: any, name: string) => {
-        const axis = yAxes.find((y: any) => y.dataKey === name);
-        return [smartTooltip(value, axis?.format || primaryFmt), axis?.label || name.replace(/_/g, " ")];
-      }}
-      cursor={{ fill: "rgba(255,255,255,0.03)" }}
-    />
-  );
-
-  const gridEl = (
-    <CartesianGrid
-      strokeDasharray="3 3"
-      stroke="rgba(255,255,255,0.04)"
-      vertical={false}
-    />
-  );
-
-  const chartHeight = 280;
-
-  const legendEl = multiMetric ? (
-    <Legend
-      verticalAlign="top"
-      align="left"
-      height={28}
-      iconType="plainline"
-      iconSize={12}
-      wrapperStyle={{ fontSize: "10px", color: "rgba(255,255,255,0.4)", paddingBottom: "4px" }}
-      formatter={(value: string) => {
-        const axis = yAxes.find((y: any) => y.dataKey === value);
-        return axis?.label || value.replace(/_/g, " ");
-      }}
-    />
-  ) : null;
+  };
 
   const renderChart = () => {
-    if (cType === "bar") {
+    if (!hasChartConfig) return null;
+    const xAxis = chartConfig.xAxis;
+    const yAxes = chartConfig.yAxes;
+    const isDate = xAxis.type === "date";
+    const primary = yAxes[0];
+    const primaryFmt = primary.format;
+
+    const processedData = chartData.map((d: any) => {
+      const processed = { ...d };
+      if (isDate && processed[xAxis.dataKey] != null) {
+        const converted = toUnixSec(processed[xAxis.dataKey]);
+        if (converted !== null) processed[xAxis.dataKey] = converted;
+      }
+      return processed;
+    }).sort((a: any, b: any) => {
+      const aV = a[xAxis.dataKey], bV = b[xAxis.dataKey];
+      return typeof aV === 'number' && typeof bV === 'number' ? aV - bV : 0;
+    });
+
+    const numPoints = processedData.length;
+    const dateFmt = isDate ? buildDateFormatter(processedData, xAxis.dataKey) : null;
+    const cType = chart.chartType || "line";
+    const tickInterval = cType === "bar" ? (numPoints <= 24 ? 0 : Math.floor(numPoints / 12)) : (numPoints <= 30 ? 0 : undefined);
+
+    const xAxisEl = (
+      <XAxis
+        dataKey={xAxis.dataKey}
+        tickFormatter={isDate ? dateFmt!.tickFormatter : undefined}
+        tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)" }}
+        axisLine={{ stroke: "rgba(255,255,255,0.06)" }}
+        tickLine={false}
+        interval={tickInterval}
+        angle={numPoints > 20 ? -45 : 0}
+        textAnchor={numPoints > 20 ? "end" : "middle"}
+        height={numPoints > 20 ? 55 : 30}
+      />
+    );
+    const yAxisEl = (
+      <YAxis
+        tickFormatter={(v: number) => smartFormat(v, primaryFmt)}
+        tick={{ fontSize: 10, fill: "rgba(255,255,255,0.3)" }}
+        axisLine={false}
+        tickLine={false}
+        width={60}
+      />
+    );
+    const tooltipEl = (
+      <Tooltip
+        contentStyle={{ backgroundColor: "rgba(8,8,12,0.95)", border: "1px solid rgba(255,255,255,0.1)", borderRadius: "6px", fontSize: "12px", padding: "8px 12px", color: "rgba(255,255,255,0.8)" }}
+        labelStyle={{ color: "rgba(255,255,255,0.35)", fontSize: "10px", marginBottom: "4px" }}
+        labelFormatter={isDate ? dateFmt!.tooltipFormatter : (l: any) => String(l)}
+        formatter={(value: any, name: string) => {
+          const ax = yAxes.find((y: any) => y.dataKey === name);
+          return [smartTooltip(value, ax?.format || primaryFmt), ax?.label || name.replace(/_/g, " ")];
+        }}
+        cursor={{ fill: "rgba(255,255,255,0.03)" }}
+      />
+    );
+    const gridEl = <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />;
+    const legendEl = yAxes.length > 1 ? (
+      <Legend verticalAlign="top" align="left" height={28} iconType="plainline" iconSize={12}
+        wrapperStyle={{ fontSize: "10px", color: "rgba(255,255,255,0.4)", paddingBottom: "4px" }}
+        formatter={(v: string) => { const ax = yAxes.find((y: any) => y.dataKey === v); return ax?.label || v.replace(/_/g, " "); }}
+      />
+    ) : null;
+
+    const chartEl = (() => {
+      if (cType === "bar") {
+        return (
+          <BarChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+            {gridEl}{xAxisEl}{yAxisEl}{tooltipEl}{legendEl}
+            {yAxes.map((y: any, i: number) => (
+              <Bar key={y.dataKey} dataKey={y.dataKey} fill={y.color || CHART_COLORS[i]} radius={[3, 3, 0, 0]} maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20} />
+            ))}
+          </BarChart>
+        );
+      }
+      if (cType === "area") {
+        return (
+          <AreaChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+            {gridEl}{xAxisEl}{yAxisEl}{tooltipEl}{legendEl}
+            {yAxes.map((y: any, i: number) => (
+              <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={y.color || CHART_COLORS[i]} strokeWidth={1.5} fill={y.color || CHART_COLORS[i]} fillOpacity={0.1} dot={false} />
+            ))}
+          </AreaChart>
+        );
+      }
       return (
-        <BarChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
-          {gridEl}
-          {xAxisEl}
-          {yAxisEl}
-          {tooltipEl}
-          {legendEl}
+        <LineChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+          {gridEl}{xAxisEl}{yAxisEl}{tooltipEl}{legendEl}
           {yAxes.map((y: any, i: number) => (
-            <Bar
-              key={y.dataKey}
-              dataKey={y.dataKey}
-              fill={y.color || CHART_COLORS[i]}
-              radius={[3, 3, 0, 0]}
-              maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20}
-            />
+            <Line key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={y.color || CHART_COLORS[i]} strokeWidth={1.5} dot={false} activeDot={{ r: 3, fill: y.color || CHART_COLORS[i], stroke: "rgba(0,0,0,0.5)", strokeWidth: 1 }} />
           ))}
-        </BarChart>
+        </LineChart>
       );
-    }
-    if (cType === "area") {
-      return (
-        <AreaChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
-          {gridEl}
-          {xAxisEl}
-          {yAxisEl}
-          {tooltipEl}
-          {legendEl}
-          {yAxes.map((y: any, i: number) => {
-            const c = y.color || CHART_COLORS[i];
-            return (
-              <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={c} strokeWidth={1.5} fill={c} fillOpacity={0.1} dot={false} />
-            );
-          })}
-        </AreaChart>
-      );
-    }
+    })();
+
     return (
-      <LineChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
-        {gridEl}
-        {xAxisEl}
-        {yAxisEl}
-        {tooltipEl}
-        {legendEl}
-        {yAxes.map((y: any, i: number) => (
-          <Line
-            key={y.dataKey}
-            type="monotone"
-            dataKey={y.dataKey}
-            stroke={y.color || CHART_COLORS[i]}
-            strokeWidth={1.5}
-            dot={false}
-            activeDot={{ r: 3, fill: y.color || CHART_COLORS[i], stroke: "rgba(0,0,0,0.5)", strokeWidth: 1 }}
-          />
-        ))}
-      </LineChart>
+      <ResponsiveContainer width="100%" height={280}>
+        {chartEl}
+      </ResponsiveContainer>
     );
   };
 
   return (
-    <div className={cardClass} data-testid={`chart-card-${chart.id}`}>
-      <div className="flex items-center justify-between mb-1">
+    <div className={`${cardClass} p-4`} data-testid={`chart-card-${chart.id}`}>
+      <div className="flex items-center justify-between mb-2">
         <p className="text-[11px] font-medium text-white/40 uppercase tracking-wider">{chart.title}</p>
-        {chartActions}
+        <div className="flex items-center gap-1">
+          {hasChartConfig && (
+            <>
+              <button
+                onClick={() => setView(currentView === "chart" ? "table" : "chart")}
+                className="p-1.5 rounded hover:bg-white/5 text-white/20 hover:text-white/50 transition-colors"
+                data-testid={`toggle-view-${chart.id}`}
+                title={currentView === "chart" ? "Show table" : "Show chart"}
+              >
+                {currentView === "chart" ? <Table2 className="w-3.5 h-3.5" /> : <LineChartIcon className="w-3.5 h-3.5" />}
+              </button>
+              <button
+                onClick={() => resetMutation.mutate()}
+                className="p-1.5 rounded hover:bg-white/5 text-white/20 hover:text-white/50 transition-colors text-[9px]"
+                data-testid={`reset-chart-${chart.id}`}
+                title="Reset to table"
+              >
+                <BarChart3 className="w-3.5 h-3.5" />
+              </button>
+            </>
+          )}
+          <button
+            onClick={() => refreshMutation.mutate()}
+            disabled={refreshMutation.isPending}
+            className="p-1.5 rounded hover:bg-white/5 text-white/20 hover:text-white/50 transition-colors"
+            data-testid={`button-refresh-chart-${chart.id}`}
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${refreshMutation.isPending ? 'animate-spin' : ''}`} />
+          </button>
+          <button
+            onClick={() => deleteMutation.mutate()}
+            className="p-1.5 rounded hover:bg-red-500/10 text-white/20 hover:text-red-400/60 transition-colors"
+            data-testid={`button-delete-chart-${chart.id}`}
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
-      <ResponsiveContainer width="100%" height={chartHeight}>
-        {renderChart()}
-      </ResponsiveContainer>
-      <div className="flex items-center justify-between mt-2 text-[10px] text-white/15">
-        <span>{chart.dataSource} · {processedData.length} points</span>
+
+      {currentView === "chart" ? renderChart() : renderTable()}
+
+      {currentView === "table" && !showBuilder && (
+        <button
+          onClick={() => setShowBuilder(true)}
+          className="mt-3 flex items-center gap-1.5 text-[10px] text-sky-400/60 hover:text-sky-400 transition-colors"
+          data-testid={`button-create-chart-${chart.id}`}
+        >
+          <LineChartIcon className="w-3 h-3" />
+          Create Chart
+        </button>
+      )}
+
+      {showBuilder && (
+        <ChartBuilder chart={chart} data={chartData} onClose={() => setShowBuilder(false)} />
+      )}
+
+      <div className="flex items-center justify-between mt-2 text-[9px] text-white/15">
+        <span>{chart.dataSource} · {chartData.length} {currentView === "chart" ? "points" : "rows"}</span>
         <span>{format(new Date(chart.updatedAt), "MMM d, h:mm a")}</span>
       </div>
     </div>
@@ -490,9 +655,9 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "charts"] });
       setPrompt("");
-      toast({ title: "Charts created" });
+      toast({ title: "Data loaded" });
     },
-    onError: (err: any) => toast({ title: "Failed to create chart", description: err.message, variant: "destructive" }),
+    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -503,14 +668,14 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
 
   return (
     <div>
-      <form onSubmit={handleSubmit} className="mb-6" data-testid="chart-prompt-form">
+      <form onSubmit={handleSubmit} className="mb-5" data-testid="chart-prompt-form">
         <div className="flex gap-2">
           <div className="flex-1 relative">
             <input
               type="text"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              placeholder={`What data do you want? e.g. "${companyName} TVL over 90 days" or "Price vs Revenue"`}
+              placeholder={`Ask for data... "${companyName} revenue", "TVL history", or "Price chart"`}
               className="w-full h-9 px-3 pr-10 text-xs rounded-md border border-white/[0.06] bg-white/[0.02] text-foreground placeholder:text-white/20 focus:outline-none focus:border-sky-500/20 transition-colors"
               disabled={generateMutation.isPending}
               data-testid="input-chart-prompt"
@@ -521,18 +686,14 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
               className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 rounded text-white/25 hover:text-sky-400 disabled:opacity-30 transition-colors"
               data-testid="button-submit-chart"
             >
-              {generateMutation.isPending ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                <Send className="w-3.5 h-3.5" />
-              )}
+              {generateMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
             </button>
           </div>
         </div>
         {generateMutation.isPending && (
           <p className="text-[11px] text-white/20 mt-2 flex items-center gap-1.5">
             <Loader2 className="w-3 h-3 animate-spin" />
-            AI is analyzing your request and fetching data...
+            Fetching data...
           </p>
         )}
       </form>
@@ -544,16 +705,16 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
       ) : charts.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
           <BarChart3 className="w-8 h-8 text-white/[0.06] mb-3" />
-          <p className="text-sm text-white/25 font-medium">No charts yet</p>
+          <p className="text-sm text-white/25 font-medium">No data yet</p>
           <p className="text-[11px] text-white/15 mt-1 max-w-xs">
-            Ask the AI to pull data from Dune, DeFiLlama, or CoinGecko — or add queries from the library in Token Intelligence
+            Ask for data or add Dune queries from Token Intelligence. Data loads as a table — you build the chart.
           </p>
           <div className="flex flex-wrap gap-1.5 mt-4 max-w-md justify-center">
             {[
-              `${companyName} TVL history`,
+              `${companyName} revenue`,
               `Daily active users`,
-              `Revenue vs fees trend`,
-              `Price chart 90 days`,
+              `Price history`,
+              `TVL over time`,
             ].map((s) => (
               <button
                 key={s}
@@ -567,9 +728,9 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="space-y-4">
           {charts.map((chart) => (
-            <ChartRenderer key={chart.id} chart={chart} />
+            <DataCard key={chart.id} chart={chart} />
           ))}
         </div>
       )}
