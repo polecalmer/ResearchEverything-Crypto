@@ -144,6 +144,7 @@ export const dashboardCharts = pgTable("dashboard_charts", {
   data: text("data"),
   status: text("status").notNull().default("generating"),
   errorMessage: text("error_message"),
+  sortOrder: integer("sort_order").default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

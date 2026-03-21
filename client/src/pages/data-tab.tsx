@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -341,7 +341,13 @@ function ChartBuilder({ chart, data, onClose }: {
   );
 }
 
-function DataCard({ chart }: { chart: DashboardChart }) {
+function DataCard({ chart, onDragStart, onDragOver, onDrop, isDragOver }: {
+  chart: DashboardChart;
+  onDragStart?: (e: React.DragEvent) => void;
+  onDragOver?: (e: React.DragEvent) => void;
+  onDrop?: (e: React.DragEvent) => void;
+  isDragOver?: boolean;
+}) {
   const { toast } = useToast();
   const { getAccessToken } = useAuth();
   const [view, setView] = useState<"auto" | "table" | "chart">("auto");
@@ -380,12 +386,13 @@ function DataCard({ chart }: { chart: DashboardChart }) {
   });
 
 
-  const cardClass = "group rounded border border-white/[0.04] bg-transparent overflow-hidden";
+  const dragBorder = isDragOver ? "border-sky-500/40" : "border-white/[0.04]";
+  const cardClass = `group rounded border ${dragBorder} bg-transparent overflow-hidden cursor-grab active:cursor-grabbing`;
   const { subtitle } = parseSubtitle(chart.description);
 
   if (chart.status === "pending" || chart.status === "generating") {
     return (
-      <div className={`${cardClass} px-4 py-3`} data-testid={`chart-card-${chart.id}`}>
+      <div className={`${cardClass} px-4 py-3`} data-testid={`chart-card-${chart.id}`} draggable onDragStart={onDragStart} onDragOver={onDragOver} onDrop={onDrop}>
         <div className="flex items-start justify-between">
           <div>
             <h3 className="text-[13px] font-semibold text-white/80 tracking-tight">{chart.title}</h3>
@@ -415,7 +422,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
 
   if (chart.status === "failed") {
     return (
-      <div className={`${cardClass} px-4 py-3`} data-testid={`chart-card-${chart.id}`}>
+      <div className={`${cardClass} px-4 py-3`} data-testid={`chart-card-${chart.id}`} draggable onDragStart={onDragStart} onDragOver={onDragOver} onDrop={onDrop}>
         <div className="flex items-start justify-between">
           <div>
             <h3 className="text-[13px] font-semibold text-white/80 tracking-tight">{chart.title}</h3>
@@ -699,7 +706,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
   };
 
   return (
-    <div className={cardClass} data-testid={`chart-card-${chart.id}`}>
+    <div className={cardClass} data-testid={`chart-card-${chart.id}`} draggable onDragStart={onDragStart} onDragOver={onDragOver} onDrop={onDrop}>
       <div className="px-3 pt-3 pb-1">
         <div className="flex items-start justify-between">
           <div className="min-w-0 flex-1">
@@ -767,6 +774,8 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
   const [prompt, setPrompt] = useState("");
   const { toast } = useToast();
   const { getAccessToken } = useAuth();
+  const dragItemRef = useRef<string | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   const { data: charts = [], isLoading } = useQuery<DashboardChart[]>({
     queryKey: ["/api/companies", companyId, "charts"],
@@ -805,6 +814,55 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
       toast({ title: "Failed", description: desc, variant: "destructive" });
     },
   });
+
+  const reorderMutation = useMutation({
+    mutationFn: async (orderedIds: string[]) => {
+      const token = await getAccessToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) { headers["Authorization"] = `Bearer ${token}`; headers["X-Privy-Token"] = token; }
+      await fetch(`/api/companies/${companyId}/charts/reorder`, { method: "POST", headers, body: JSON.stringify({ orderedIds }) });
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "charts"] }),
+  });
+
+  const handleDragStart = useCallback((chartId: string) => (e: React.DragEvent) => {
+    dragItemRef.current = chartId;
+    e.dataTransfer.effectAllowed = "move";
+    (e.currentTarget as HTMLElement).style.opacity = "0.4";
+  }, []);
+
+  const handleDragOver = useCallback((chartId: string) => (e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    setDragOverId(chartId);
+  }, []);
+
+  const handleDrop = useCallback((targetId: string) => (e: React.DragEvent) => {
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).style.opacity = "1";
+    setDragOverId(null);
+    const sourceId = dragItemRef.current;
+    if (!sourceId || sourceId === targetId) return;
+    const ids = charts.map(c => c.id);
+    const srcIdx = ids.indexOf(sourceId);
+    const tgtIdx = ids.indexOf(targetId);
+    if (srcIdx === -1 || tgtIdx === -1) return;
+    ids.splice(srcIdx, 1);
+    ids.splice(tgtIdx, 0, sourceId);
+    queryClient.setQueryData<DashboardChart[]>(["/api/companies", companyId, "charts"], (old) => {
+      if (!old) return old;
+      const map = new Map(old.map(c => [c.id, c]));
+      return ids.map(id => map.get(id)!).filter(Boolean);
+    });
+    reorderMutation.mutate(ids);
+    dragItemRef.current = null;
+  }, [charts, companyId, reorderMutation]);
+
+  const handleDragEnd = useCallback((e: React.DragEvent) => {
+    (e.currentTarget as HTMLElement).style.opacity = "1";
+    setDragOverId(null);
+    dragItemRef.current = null;
+  }, []);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -876,7 +934,15 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
       ) : (
         <div className="grid grid-cols-2 gap-2">
           {charts.map((chart) => (
-            <DataCard key={chart.id} chart={chart} />
+            <div key={chart.id} onDragEnd={handleDragEnd}>
+              <DataCard
+                chart={chart}
+                onDragStart={handleDragStart(chart.id)}
+                onDragOver={handleDragOver(chart.id)}
+                onDrop={handleDrop(chart.id)}
+                isDragOver={dragOverId === chart.id}
+              />
+            </div>
           ))}
         </div>
       )}

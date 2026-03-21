@@ -1205,6 +1205,19 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/companies/:id/charts/reorder", requireAuth, async (req, res) => {
+    try {
+      const { orderedIds } = req.body as { orderedIds: string[] };
+      if (!Array.isArray(orderedIds)) return res.status(400).json({ message: "orderedIds required" });
+      await Promise.all(orderedIds.map((chartId, i) =>
+        storage.updateDashboardChart(chartId, { sortOrder: i })
+      ));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   // ─── ADMIN ─────────────────────────────────────────────────────────────
 
   app.get("/api/admin/analytics", requireAuth, async (req, res) => {
