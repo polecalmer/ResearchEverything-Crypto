@@ -55,6 +55,7 @@ export interface TokenUsage {
 }
 
 export const MARKUP_MULTIPLIER = 1.5;
+export const ENRICHMENT_CHARGE = 0.25;
 
 const enrichmentCostHistory: number[] = [];
 const MAX_HISTORY = 50;
@@ -64,11 +65,7 @@ export function calculateChargeAmount(apiCost: number): number {
 }
 
 export function getEstimatedEnrichmentCost(): number {
-  if (enrichmentCostHistory.length === 0) {
-    return 0.50 * MARKUP_MULTIPLIER;
-  }
-  const avg = enrichmentCostHistory.reduce((a, b) => a + b, 0) / enrichmentCostHistory.length;
-  return avg * MARKUP_MULTIPLIER;
+  return ENRICHMENT_CHARGE;
 }
 
 export function recordEnrichmentCost(apiCost: number): void {
