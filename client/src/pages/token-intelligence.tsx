@@ -575,9 +575,12 @@ function TokenAnalysisSection({ companyId, companyName }: { companyId: string; c
                 </div>
               </button>
               {expandedId === analysis.id && analysis.content && (
-                <div className="pl-6 pb-3 border-l border-border/15 ml-1.5">
-                  <div className="prose prose-sm prose-invert max-w-none text-xs leading-relaxed [&_h1]:text-sm [&_h1]:font-semibold [&_h1]:mb-2 [&_h2]:text-xs [&_h2]:font-semibold [&_h2]:mb-1.5 [&_h2]:mt-3 [&_h3]:text-xs [&_h3]:font-medium [&_h3]:mb-1 [&_ul]:space-y-0.5 [&_li]:text-xs [&_p]:text-xs [&_p]:mb-1.5 [&_strong]:text-foreground" data-testid={`token-analysis-content-${analysis.id}`}>
-                    <MarkdownContent content={analysis.content} />
+                <div className="mt-2 mb-4 rounded-md border border-border/15 bg-card/30" data-testid={`token-analysis-content-${analysis.id}`}>
+                  <div className="px-5 py-4 max-w-none">
+                    <ResearchReport content={analysis.content} />
+                  </div>
+                  <div className="px-5 py-2 border-t border-border/10 text-[10px] text-muted-foreground/30">
+                    Generated {format(new Date(analysis.createdAt), "MMM d, yyyy 'at' h:mm a")}
                   </div>
                 </div>
               )}
@@ -730,7 +733,7 @@ function TokenSnapshotCard({ companyId }: { companyId: string }) {
   );
 }
 
-function MarkdownContent({ content }: { content: string }) {
+function ResearchReport({ content }: { content: string }) {
   let cleaned = content
     .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
     .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
@@ -740,24 +743,28 @@ function MarkdownContent({ content }: { content: string }) {
 
   const lines = cleaned.split('\n');
   const elements: JSX.Element[] = [];
-  let listItems: string[] = [];
+  let listItems: { text: string; ordered: boolean }[] = [];
   let i = 0;
+  let sectionCount = 0;
 
   const flushList = () => {
-    if (listItems.length > 0) {
-      elements.push(
-        <ul key={`ul-${elements.length}`} className="list-disc pl-4 space-y-0.5">
-          {listItems.map((item, j) => <li key={j}>{renderInline(item)}</li>)}
-        </ul>
-      );
-      listItems = [];
-    }
+    if (listItems.length === 0) return;
+    const isOrdered = listItems[0].ordered;
+    const Tag = isOrdered ? 'ol' : 'ul';
+    elements.push(
+      <Tag key={`list-${elements.length}`} className={`${isOrdered ? 'list-decimal' : 'list-disc'} pl-5 space-y-1 my-2`}>
+        {listItems.map((item, j) => (
+          <li key={j} className="text-[13px] leading-relaxed text-foreground/80">{renderInline(item.text)}</li>
+        ))}
+      </Tag>
+    );
+    listItems = [];
   };
 
-  const renderInline = (text: string) => {
+  const renderInline = (text: string): JSX.Element => {
     const parts: (string | JSX.Element)[] = [];
     let idx = 0;
-    const regex = /\*\*(.+?)\*\*|\*(.+?)\*/g;
+    const regex = /\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`/g;
     let match;
     let lastIndex = 0;
     while ((match = regex.exec(text)) !== null) {
@@ -765,9 +772,11 @@ function MarkdownContent({ content }: { content: string }) {
         parts.push(text.slice(lastIndex, match.index));
       }
       if (match[1]) {
-        parts.push(<strong key={idx++}>{match[1]}</strong>);
+        parts.push(<strong key={idx++} className="text-foreground font-semibold">{match[1]}</strong>);
       } else if (match[2]) {
-        parts.push(<em key={idx++}>{match[2]}</em>);
+        parts.push(<em key={idx++} className="text-foreground/70 italic">{match[2]}</em>);
+      } else if (match[3]) {
+        parts.push(<code key={idx++} className="text-[11px] font-mono bg-muted/30 px-1 py-0.5 rounded">{match[3]}</code>);
       }
       lastIndex = regex.lastIndex;
     }
@@ -799,12 +808,12 @@ function MarkdownContent({ content }: { content: string }) {
         const bodyRows = dataRows.slice(1);
 
         elements.push(
-          <div key={`tbl-${elements.length}`} className="overflow-x-auto my-2">
-            <table className="w-full text-xs border-collapse">
+          <div key={`tbl-${elements.length}`} className="overflow-x-auto my-3 rounded-md border border-border/20">
+            <table className="w-full text-[12px] border-collapse">
               <thead>
-                <tr className="border-b border-border/30">
+                <tr className="bg-muted/20">
                   {headerCells.map((cell, ci) => (
-                    <th key={ci} className="text-left py-1.5 px-2 text-[10px] uppercase tracking-wider text-muted-foreground/50 font-medium">
+                    <th key={ci} className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium border-b border-border/20">
                       {renderInline(cell)}
                     </th>
                   ))}
@@ -814,9 +823,9 @@ function MarkdownContent({ content }: { content: string }) {
                 {bodyRows.map((row, ri) => {
                   const cells = parseTableCells(row);
                   return (
-                    <tr key={ri} className="border-b border-border/15">
+                    <tr key={ri} className={ri % 2 === 0 ? "" : "bg-muted/5"}>
                       {cells.map((cell, ci) => (
-                        <td key={ci} className="py-1.5 px-2 text-[11px] text-foreground/80">
+                        <td key={ci} className="py-1.5 px-3 text-[12px] text-foreground/80 border-b border-border/10">
                           {renderInline(cell)}
                         </td>
                       ))}
@@ -831,54 +840,67 @@ function MarkdownContent({ content }: { content: string }) {
       continue;
     }
 
-    const listMatch = line.match(/^(\s*)[-*] (.+)$/);
-    if (listMatch) {
-      listItems.push(listMatch[2]);
+    const bulletMatch = line.match(/^(\s*)[-*•] (.+)$/);
+    if (bulletMatch) {
+      listItems.push({ text: bulletMatch[2], ordered: false });
       i++;
       continue;
     }
 
-    const numListMatch = line.match(/^\d+\.\s+(.+)$/);
-    if (numListMatch) {
-      flushList();
-      listItems.push(numListMatch[1]);
+    const numMatch = line.match(/^(\d+)\.\s+(.+)$/);
+    if (numMatch) {
+      if (listItems.length > 0 && !listItems[0].ordered) flushList();
+      listItems.push({ text: numMatch[2], ordered: true });
       i++;
-      while (i < lines.length && lines[i].match(/^\d+\.\s+(.+)$/)) {
-        const m = lines[i].match(/^\d+\.\s+(.+)$/);
-        if (m) listItems.push(m[1]);
-        i++;
-      }
-      if (listItems.length > 0) {
-        elements.push(
-          <ol key={`ol-${elements.length}`} className="list-decimal pl-4 space-y-0.5">
-            {listItems.map((item, j) => <li key={j}>{renderInline(item)}</li>)}
-          </ol>
-        );
-        listItems = [];
-      }
       continue;
     }
 
     flushList();
 
     if (line.match(/^---+$/)) {
-      elements.push(<hr key={`hr-${i}`} className="border-border/15 my-3" />);
-    } else if (line.match(/^### (.+)$/)) {
-      elements.push(<h3 key={`h3-${i}`}>{renderInline(line.replace(/^### /, ''))}</h3>);
-    } else if (line.match(/^## (.+)$/)) {
-      elements.push(<h2 key={`h2-${i}`}>{renderInline(line.replace(/^## /, ''))}</h2>);
-    } else if (line.match(/^# (.+)$/)) {
-      elements.push(<h1 key={`h1-${i}`}>{renderInline(line.replace(/^# /, ''))}</h1>);
+      elements.push(<div key={`div-${i}`} className="my-4 border-t border-border/10" />);
+    } else if (line.match(/^#{1,3}\s/)) {
+      const level = line.match(/^(#{1,3})\s/)![1].length;
+      const text = line.replace(/^#{1,3}\s+/, '');
+      sectionCount++;
+
+      if (level === 1) {
+        elements.push(
+          <h1 key={`h-${i}`} className="text-base font-semibold tracking-tight text-foreground mt-1 mb-3">
+            {renderInline(text)}
+          </h1>
+        );
+      } else if (level === 2) {
+        elements.push(
+          <div key={`h-${i}`} className={`${sectionCount > 1 ? 'mt-5' : 'mt-2'} mb-2`}>
+            <h2 className="text-[13px] font-semibold text-foreground tracking-tight">
+              {renderInline(text)}
+            </h2>
+            <div className="mt-1 border-t border-border/15 w-12" />
+          </div>
+        );
+      } else {
+        elements.push(
+          <h3 key={`h-${i}`} className="text-[12px] font-semibold text-foreground/90 mt-3 mb-1.5">
+            {renderInline(text)}
+          </h3>
+        );
+      }
     } else if (line.trim() === '') {
-      // skip
+      i++;
+      continue;
     } else {
-      elements.push(<p key={`p-${i}`}>{renderInline(line)}</p>);
+      elements.push(
+        <p key={`p-${i}`} className="text-[13px] leading-[1.7] text-foreground/75 mb-2">
+          {renderInline(line)}
+        </p>
+      );
     }
     i++;
   }
   flushList();
 
-  return <div>{elements}</div>;
+  return <div className="space-y-0">{elements}</div>;
 }
 
 export default function TokenIntelligenceTab({ companyId, companyName, hasLiquidToken }: { companyId: string; companyName: string; hasLiquidToken?: boolean }) {
