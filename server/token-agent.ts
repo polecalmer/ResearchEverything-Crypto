@@ -1,4 +1,4 @@
-import { callAnthropicServer, type AnthropicRequest } from "./mpp-client";
+import { callAnthropicServerHeavy, type AnthropicRequest } from "./mpp-client";
 import { getLatestDuneResults, isDuneConfigured, type DuneQueryResult } from "./dune-client";
 import { fetchTokenSnapshot, type TokenSnapshot } from "./allium-client";
 import { isServerMppReady } from "./mpp-client";
@@ -86,7 +86,7 @@ async function selectRelevantQueries(
       visualizationType: q.visualizationType,
     }));
 
-    const result = await callAnthropicServer({
+    const result = await callAnthropicServerHeavy({
       model: "claude-opus-4-6",
       max_tokens: 512,
       system: QUERY_SELECTION_SYSTEM,
@@ -226,7 +226,7 @@ Fetched At: ${tokenSnapshot.fetchedAt}
       messages: [{ role: "user", content: `PHASE 1 — MARKET DATA RESEARCH for ${tokenProfile.tokenTicker || company.name}.\n\n${dataContext}\n\nFocus your web searches on gathering:\n- Current token price, market cap, FDV from CoinGecko/CoinMarketCap\n- Token supply schedule, vesting details, unlock calendar\n- DEX/CEX liquidity depth, trading volume data\n- On-chain holder distribution\n- Staking rates and lock-up data\n\nCompile ALL findings as detailed research notes. Do NOT write the final analysis report yet — just gather and organize the raw data.` }],
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 8 }],
     };
-    const phase1Result = await callAnthropicServer(phase1Request);
+    const phase1Result = await callAnthropicServerHeavy(phase1Request);
     const phase1Notes = phase1Result.text;
     let totalAiCost = phase1Result.mppCost;
     let totalInput = phase1Result.usage.input_tokens;
@@ -241,7 +241,7 @@ Fetched At: ${tokenSnapshot.fetchedAt}
       messages: [{ role: "user", content: `PHASE 2 — VALUATION & RISK RESEARCH for ${tokenProfile.tokenTicker || company.name}.\n\nToken: ${tokenProfile.tokenTicker || "Unknown"} on ${tokenProfile.chain}\nContract: ${tokenProfile.contractAddress}\nCompany: ${company.name} (${company.sector || "Unknown"})\n\nFocus your web searches on:\n- Protocol revenue data from Token Terminal, DefiLlama\n- Revenue multiples, P/E ratios vs comparable tokens\n- Value accrual mechanisms (buyback, burn, staking rewards, fee distribution)\n- Competitive landscape — similar protocols and their valuations\n- Regulatory risks and exposure\n- Recent governance proposals or tokenomics changes\n- Any red flags (exploit history, insider selling, concentration)\n\nCompile ALL findings as detailed research notes. Do NOT write the final analysis report yet.` }],
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 8 }],
     };
-    const phase2Result = await callAnthropicServer(phase2Request);
+    const phase2Result = await callAnthropicServerHeavy(phase2Request);
     const phase2Notes = phase2Result.text;
     totalAiCost += phase2Result.mppCost;
     totalInput += phase2Result.usage.input_tokens;
@@ -255,7 +255,7 @@ Fetched At: ${tokenSnapshot.fetchedAt}
       system: TOKEN_ANALYSIS_SYSTEM,
       messages: [{ role: "user", content: `PHASE 3 — FINAL SYNTHESIS for ${tokenProfile.tokenTicker || company.name}.\n\nYou have completed two research phases. Now synthesize ALL research into the final Markdown analysis report following the exact 7-section structure specified in your system instructions (Token Classification, Supply & Adjusted Market Cap, Valuation, Liquidity Assessment, Value Accrual Assessment, Risk Flags, Investment Summary).\n\nORIGINAL DATA CONTEXT:\n${dataContext}\n\nPHASE 1 RESEARCH NOTES (Market Data):\n${phase1Notes}\n\nPHASE 2 RESEARCH NOTES (Valuation & Risk):\n${phase2Notes}\n\nProduce the FINAL complete Markdown analysis report now. Use ALL the research gathered above. Do NOT search again — just write the comprehensive analysis.` }],
     };
-    const phase3Result = await callAnthropicServer(phase3Request);
+    const phase3Result = await callAnthropicServerHeavy(phase3Request);
     totalAiCost += phase3Result.mppCost;
     totalInput += phase3Result.usage.input_tokens;
     totalOutput += phase3Result.usage.output_tokens;

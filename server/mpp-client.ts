@@ -18,98 +18,112 @@ export interface AnthropicResponse {
   mppCost: number;
 }
 
-let mppxClient: ReturnType<typeof Mppx.create> | null = null;
-let lastChallengeAmount = 0;
-let sessionMethods: ReturnType<typeof tempo> | null = null;
-let lastChallenge: any = null;
+type DepositTier = "enrichment" | "heavy";
 
-function getMppxClient() {
-  if (mppxClient) return mppxClient;
+const DEPOSIT_CAPS: Record<DepositTier, string> = {
+  enrichment: "0.5",
+  heavy: "1.5",
+};
 
+interface MppClientState {
+  client: ReturnType<typeof Mppx.create>;
+  sessionMethods: ReturnType<typeof tempo>;
+  lastChallenge: any;
+  lastChallengeAmount: number;
+}
+
+const clients: Record<DepositTier, MppClientState | null> = {
+  enrichment: null,
+  heavy: null,
+};
+
+function getAccount() {
   const privateKey = process.env.MPP_SERVER_WALLET_KEY;
   if (!privateKey) {
     throw new Error("MPP_SERVER_WALLET_KEY not set — server cannot pay Anthropic");
   }
+  return privateKeyToAccount(privateKey as `0x${string}`);
+}
 
-  const account = privateKeyToAccount(privateKey as `0x${string}`);
+function getMppClient(tier: DepositTier): MppClientState {
+  if (clients[tier]) return clients[tier]!;
 
-  sessionMethods = tempo({ account, maxDeposit: "1.5" });
+  const account = getAccount();
+  const maxDeposit = DEPOSIT_CAPS[tier];
+  const sessionMethods = tempo({ account, maxDeposit });
 
-  mppxClient = Mppx.create({
-    methods: [sessionMethods],
-    polyfill: false,
-    onChallenge: async (challenge, helpers) => {
-      lastChallenge = challenge;
-      const rawAmount = challenge.request?.amount;
-      if (rawAmount) {
-        const amountNum = typeof rawAmount === "string" ? parseInt(rawAmount, 10) : Number(rawAmount);
-        lastChallengeAmount = amountNum / Math.pow(10, USDC_DECIMALS);
-        console.log(`[MPP-Client] Challenge amount: ${rawAmount} raw = $${lastChallengeAmount.toFixed(6)} USDC`);
-      } else {
-        lastChallengeAmount = 0;
-        console.log(`[MPP-Client] Challenge received (no amount field)`);
-      }
-      return helpers.createCredential();
-    },
-  });
+  const state: MppClientState = {
+    sessionMethods,
+    lastChallenge: null,
+    lastChallengeAmount: 0,
+    client: Mppx.create({
+      methods: [sessionMethods],
+      polyfill: false,
+      onChallenge: async (challenge, helpers) => {
+        state.lastChallenge = challenge;
+        const rawAmount = challenge.request?.amount;
+        if (rawAmount) {
+          const amountNum = typeof rawAmount === "string" ? parseInt(rawAmount, 10) : Number(rawAmount);
+          state.lastChallengeAmount = amountNum / Math.pow(10, USDC_DECIMALS);
+          console.log(`[MPP-Client:${tier}] Challenge: $${state.lastChallengeAmount.toFixed(6)} USDC (deposit cap: $${maxDeposit})`);
+        } else {
+          state.lastChallengeAmount = 0;
+        }
+        return helpers.createCredential();
+      },
+    }),
+  };
 
-  console.log(`[MPP-Client] Server wallet initialized: ${account.address}`);
-  return mppxClient;
+  clients[tier] = state;
+  console.log(`[MPP-Client:${tier}] Initialized (maxDeposit: $${maxDeposit}): ${account.address}`);
+  return state;
 }
 
 export function isServerMppReady(): boolean {
   return !!process.env.MPP_SERVER_WALLET_KEY;
 }
 
-async function closeMppSession() {
-  if (!mppxClient || !sessionMethods || !lastChallenge) {
-    console.log("[MPP-Client] No active session to close.");
-    mppxClient = null;
-    sessionMethods = null;
-    lastChallenge = null;
-    return;
-  }
+async function closeAllSessions() {
+  for (const tier of Object.keys(clients) as DepositTier[]) {
+    const state = clients[tier];
+    if (!state || !state.lastChallenge) continue;
 
-  try {
-    console.log("[MPP-Client] Closing session, returning unspent funds...");
-    const sessionMethod = sessionMethods.flat().find((m: any) => m?.createCredential);
-    if (sessionMethod) {
-      const credential = await sessionMethod.createCredential({
-        challenge: lastChallenge,
-        context: { action: "close" as const },
-      });
-
-      const response = await fetch(ANTHROPIC_MPP_URL, {
-        method: "POST",
-        headers: { Authorization: credential },
-      });
-      console.log(`[MPP-Client] Close response: ${response.status}`);
+    try {
+      console.log(`[MPP-Client:${tier}] Closing session...`);
+      const sessionMethod = state.sessionMethods.flat().find((m: any) => m?.createCredential);
+      if (sessionMethod) {
+        const credential = await sessionMethod.createCredential({
+          challenge: state.lastChallenge,
+          context: { action: "close" as const },
+        });
+        await fetch(ANTHROPIC_MPP_URL, {
+          method: "POST",
+          headers: { Authorization: credential },
+        });
+      }
+      console.log(`[MPP-Client:${tier}] Session closed.`);
+    } catch (err) {
+      console.error(`[MPP-Client:${tier}] Error closing:`, err);
     }
-    console.log("[MPP-Client] Session closed, funds returned.");
-  } catch (err) {
-    console.error("[MPP-Client] Error closing session:", err);
+    clients[tier] = null;
   }
-  mppxClient = null;
-  sessionMethods = null;
-  lastChallenge = null;
 }
 
 process.on("SIGTERM", async () => {
-  await closeMppSession();
+  await closeAllSessions();
   process.exit(0);
 });
 
 process.on("SIGINT", async () => {
-  await closeMppSession();
+  await closeAllSessions();
   process.exit(0);
 });
 
-export async function callAnthropicServer(request: AnthropicRequest): Promise<AnthropicResponse> {
-  const client = getMppxClient();
+async function callWithTier(tier: DepositTier, request: AnthropicRequest): Promise<AnthropicResponse> {
+  const state = getMppClient(tier);
+  state.lastChallengeAmount = 0;
 
-  lastChallengeAmount = 0;
-
-  const response = await client.fetch(ANTHROPIC_MPP_URL, {
+  const response = await state.client.fetch(ANTHROPIC_MPP_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -124,8 +138,7 @@ export async function callAnthropicServer(request: AnthropicRequest): Promise<An
     throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
   }
 
-  const mppCost = lastChallengeAmount;
-
+  const mppCost = state.lastChallengeAmount;
   const data = await response.json();
 
   let text = "";
@@ -145,4 +158,12 @@ export async function callAnthropicServer(request: AnthropicRequest): Promise<An
     },
     mppCost,
   };
+}
+
+export async function callAnthropicServer(request: AnthropicRequest): Promise<AnthropicResponse> {
+  return callWithTier("enrichment", request);
+}
+
+export async function callAnthropicServerHeavy(request: AnthropicRequest): Promise<AnthropicResponse> {
+  return callWithTier("heavy", request);
 }

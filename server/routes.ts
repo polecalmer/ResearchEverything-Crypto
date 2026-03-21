@@ -16,7 +16,7 @@ import { enrichmentPaywall, nextStepsPaywall, deepResearchPaywall, tokenIntelPay
 import { fetchTokenSnapshot } from "./allium-client";
 import { executeDuneQuery, getLatestDuneResults, isDuneConfigured } from "./dune-client";
 import { runTokenAnalysis } from "./token-agent";
-import { callAnthropicServer, isServerMppReady } from "./mpp-client";
+import { callAnthropicServer, callAnthropicServerHeavy, isServerMppReady } from "./mpp-client";
 import { generateTelegramLinkCode } from "./telegram";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { db } from "./db";
@@ -388,7 +388,7 @@ export async function registerRoutes(
       (async () => {
         try {
           console.log(`[DeepResearch] Phase 1/3: Gathering research for ${company.name}`);
-          const phase1Result = await callAnthropicServer(anthropicRequest);
+          const phase1Result = await callAnthropicServerHeavy(anthropicRequest);
           const phase1Notes = phase1Result.text;
           let totalMppCost = phase1Result.mppCost;
           let totalInput = phase1Result.usage.input_tokens;
@@ -396,7 +396,7 @@ export async function registerRoutes(
           console.log(`[DeepResearch] Phase 1 complete. Cost: $${phase1Result.mppCost.toFixed(6)}`);
 
           console.log(`[DeepResearch] Phase 2/3: Competitive & risk research for ${company.name}`);
-          const phase2Result = await callAnthropicServer(phase2Request);
+          const phase2Result = await callAnthropicServerHeavy(phase2Request);
           const phase2Notes = phase2Result.text;
           totalMppCost += phase2Result.mppCost;
           totalInput += phase2Result.usage.input_tokens;
@@ -410,7 +410,7 @@ export async function registerRoutes(
           );
 
           console.log(`[DeepResearch] Phase 3/3: Synthesizing final report for ${company.name}`);
-          const phase3Result = await callAnthropicServer(synthesisRequest);
+          const phase3Result = await callAnthropicServerHeavy(synthesisRequest);
           totalMppCost += phase3Result.mppCost;
           totalInput += phase3Result.usage.input_tokens;
           totalOutput += phase3Result.usage.output_tokens;
