@@ -684,11 +684,11 @@ function DataCard({ chart }: { chart: DashboardChart }) {
 
   return (
     <div className={cardClass} data-testid={`chart-card-${chart.id}`}>
-      <div className="px-3 pt-2.5 pb-0">
+      <div className="px-3 pt-3 pb-1">
         <div className="flex items-start justify-between">
           <div className="min-w-0 flex-1">
             <h3 className="text-[12px] font-medium text-white/80 tracking-tight leading-tight">{chart.title}</h3>
-            {subtitle && <p className="text-[9px] text-white/30 mt-0.5">{subtitle}</p>}
+            {subtitle && <p className="text-[10px] text-white/40 mt-1">{subtitle}</p>}
           </div>
           <div className="flex items-center gap-1 ml-3 shrink-0">
             {headlineStat && currentView === "chart" && (
