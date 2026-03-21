@@ -218,31 +218,64 @@ Fetched At: ${tokenSnapshot.fetchedAt}
       dataContext += "\n## Note\nNo Dune queries attached to this company. Analysis is based on company context and token data only. Recommend attaching relevant Dune queries for deeper on-chain analysis.\n";
     }
 
-    const request: AnthropicRequest = {
+    console.log(`[TokenAgent] Phase 1/3: Market data research for ${company.name}`);
+    const phase1Request: AnthropicRequest = {
+      model: "claude-opus-4-6",
+      max_tokens: 5000,
+      system: TOKEN_ANALYSIS_SYSTEM,
+      messages: [{ role: "user", content: `PHASE 1 — MARKET DATA RESEARCH for ${tokenProfile.tokenTicker || company.name}.\n\n${dataContext}\n\nFocus your web searches on gathering:\n- Current token price, market cap, FDV from CoinGecko/CoinMarketCap\n- Token supply schedule, vesting details, unlock calendar\n- DEX/CEX liquidity depth, trading volume data\n- On-chain holder distribution\n- Staking rates and lock-up data\n\nCompile ALL findings as detailed research notes. Do NOT write the final analysis report yet — just gather and organize the raw data.` }],
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 8 }],
+    };
+    const phase1Result = await callAnthropicServer(phase1Request);
+    const phase1Notes = phase1Result.text;
+    let totalAiCost = phase1Result.mppCost;
+    let totalInput = phase1Result.usage.input_tokens;
+    let totalOutput = phase1Result.usage.output_tokens;
+    console.log(`[TokenAgent] Phase 1 complete. Cost: $${phase1Result.mppCost.toFixed(6)}`);
+
+    console.log(`[TokenAgent] Phase 2/3: Valuation & risk research for ${company.name}`);
+    const phase2Request: AnthropicRequest = {
+      model: "claude-opus-4-6",
+      max_tokens: 5000,
+      system: TOKEN_ANALYSIS_SYSTEM,
+      messages: [{ role: "user", content: `PHASE 2 — VALUATION & RISK RESEARCH for ${tokenProfile.tokenTicker || company.name}.\n\nToken: ${tokenProfile.tokenTicker || "Unknown"} on ${tokenProfile.chain}\nContract: ${tokenProfile.contractAddress}\nCompany: ${company.name} (${company.sector || "Unknown"})\n\nFocus your web searches on:\n- Protocol revenue data from Token Terminal, DefiLlama\n- Revenue multiples, P/E ratios vs comparable tokens\n- Value accrual mechanisms (buyback, burn, staking rewards, fee distribution)\n- Competitive landscape — similar protocols and their valuations\n- Regulatory risks and exposure\n- Recent governance proposals or tokenomics changes\n- Any red flags (exploit history, insider selling, concentration)\n\nCompile ALL findings as detailed research notes. Do NOT write the final analysis report yet.` }],
+      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 8 }],
+    };
+    const phase2Result = await callAnthropicServer(phase2Request);
+    const phase2Notes = phase2Result.text;
+    totalAiCost += phase2Result.mppCost;
+    totalInput += phase2Result.usage.input_tokens;
+    totalOutput += phase2Result.usage.output_tokens;
+    console.log(`[TokenAgent] Phase 2 complete. Cost: $${phase2Result.mppCost.toFixed(6)}`);
+
+    console.log(`[TokenAgent] Phase 3/3: Synthesizing final analysis for ${company.name}`);
+    const phase3Request: AnthropicRequest = {
       model: "claude-opus-4-6",
       max_tokens: 8000,
       system: TOKEN_ANALYSIS_SYSTEM,
-      messages: [{ role: "user", content: `Analyze this token for investment due diligence:\n\n${dataContext}\n\nUse web search to supplement the data above with current market data, revenue metrics, supply schedules, and competitive context.` }],
-      tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 15 }],
+      messages: [{ role: "user", content: `PHASE 3 — FINAL SYNTHESIS for ${tokenProfile.tokenTicker || company.name}.\n\nYou have completed two research phases. Now synthesize ALL research into the final Markdown analysis report following the exact 7-section structure specified in your system instructions (Token Classification, Supply & Adjusted Market Cap, Valuation, Liquidity Assessment, Value Accrual Assessment, Risk Flags, Investment Summary).\n\nORIGINAL DATA CONTEXT:\n${dataContext}\n\nPHASE 1 RESEARCH NOTES (Market Data):\n${phase1Notes}\n\nPHASE 2 RESEARCH NOTES (Valuation & Risk):\n${phase2Notes}\n\nProduce the FINAL complete Markdown analysis report now. Use ALL the research gathered above. Do NOT search again — just write the comprehensive analysis.` }],
     };
-
-    const result = await callAnthropicServer(request);
+    const phase3Result = await callAnthropicServer(phase3Request);
+    totalAiCost += phase3Result.mppCost;
+    totalInput += phase3Result.usage.input_tokens;
+    totalOutput += phase3Result.usage.output_tokens;
+    console.log(`[TokenAgent] Phase 3 complete. Cost: $${phase3Result.mppCost.toFixed(6)}`);
 
     await storage.updateTokenAnalysis(analysisId, {
-      content: result.text,
+      content: phase3Result.text,
       status: "complete",
       duneData: JSON.stringify({ snapshot: tokenSnapshot, duneResults }),
     });
 
     try {
       await storage.updateCompany(company.id, {
-        liquidTokenAnalysis: result.text,
+        liquidTokenAnalysis: phase3Result.text,
       } as any, company.userId ?? undefined);
     } catch (err) {
       console.warn("[TokenAgent] Failed to save liquidTokenAnalysis to company:", err);
     }
 
-    const totalMppCost = result.mppCost + snapshotCost;
+    const totalMppCost = totalAiCost + snapshotCost;
     const charge = totalMppCost * MARKUP_MULTIPLIER;
     try {
       await storage.logTransaction({
@@ -252,19 +285,34 @@ Fetched At: ${tokenSnapshot.fetchedAt}
         amount: charge.toFixed(4),
         apiCost: totalMppCost.toFixed(4),
         companyName: company.name,
-        inputTokens: result.usage.input_tokens,
-        outputTokens: result.usage.output_tokens,
+        inputTokens: totalInput,
+        outputTokens: totalOutput,
       });
     } catch (err) {
       console.error("[TokenAgent] Failed to log transaction:", err);
     }
 
-    console.log(`[TokenAgent] Analysis complete for ${company.name} (${analysisId}). Cost: $${totalMppCost.toFixed(6)}`);
+    console.log(`[TokenAgent] Analysis complete for ${company.name} (${analysisId}). Total cost: $${totalMppCost.toFixed(6)}`);
   } catch (error: any) {
     console.error(`[TokenAgent] Analysis failed for ${company.name}:`, error.message);
     await storage.updateTokenAnalysis(analysisId, {
       content: `# Token Analysis Failed\n\nError: ${error.message}\n\nPlease try again.`,
       status: "failed",
     }).catch(() => {});
+    if (typeof totalAiCost === "number" && totalAiCost > 0) {
+      try {
+        const partialMppCost = totalAiCost + snapshotCost;
+        await storage.logTransaction({
+          userId,
+          type: "token_analysis",
+          description: `Token analysis FAILED (partial): ${company.name}`,
+          amount: (partialMppCost * MARKUP_MULTIPLIER).toFixed(4),
+          apiCost: partialMppCost.toFixed(4),
+          companyName: company.name,
+          inputTokens: totalInput || 0,
+          outputTokens: totalOutput || 0,
+        });
+      } catch {}
+    }
   }
 }

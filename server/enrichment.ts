@@ -95,7 +95,7 @@ export interface AnthropicRequest {
   tools?: Array<{ type: string; name: string; max_uses?: number }>;
 }
 
-function buildAnthropicRequest(systemPrompt: string, userMessage: string, useWebSearch: boolean = false, maxTokens: number = 16000, maxSearchUses: number = 10): AnthropicRequest {
+export function buildAnthropicRequest(systemPrompt: string, userMessage: string, useWebSearch: boolean = false, maxTokens: number = 16000, maxSearchUses: number = 10): AnthropicRequest {
   const request: AnthropicRequest = {
     model: "claude-opus-4-6",
     max_tokens: maxTokens,
@@ -1219,7 +1219,7 @@ export interface DeepResearchResult {
   outputTokens: number;
 }
 
-const DEEP_RESEARCH_SYSTEM = `You are a Deep Research Agent producing investment-grade research reports for venture capital investors. You have web search access and must use it extensively.
+export const DEEP_RESEARCH_SYSTEM = `You are a Deep Research Agent producing investment-grade research reports for venture capital investors. You have web search access and must use it extensively.
 
 Your goal: Take all known information about a company/project (deal card data, founder info, notes) and conduct deep, independent research to produce a comprehensive Markdown research document.
 
@@ -1525,10 +1525,25 @@ Produce the full Markdown research document now. Use web search extensively to f
   };
   sessions.set(session.id, session);
 
-  const request = buildAnthropicRequest(DEEP_RESEARCH_SYSTEM, userMessage, true, 16000, 20);
+  const phase1Request = buildAnthropicRequest(
+    DEEP_RESEARCH_SYSTEM,
+    `${userMessage}\n\nPHASE 1 INSTRUCTIONS: Focus on information gathering. Conduct extensive web searches to research this company/project. Cover: product mechanics, team/founders background, business model, traction metrics, and recent developments. Compile your findings as detailed research notes organized by topic. Do NOT write the final report yet — just gather and organize the raw research.`,
+    true, 6000, 10,
+  );
 
-  console.log(`[DeepResearch] Session started for ${company.name}`);
-  return { sessionId: session.id, anthropicRequest: request };
+  const phase2Request = buildAnthropicRequest(
+    DEEP_RESEARCH_SYSTEM,
+    `Continue researching "${company.name}". PHASE 2 INSTRUCTIONS: Focus on competitive landscape, token economics (if applicable), risk analysis, and investment considerations. Search for: competitors by category (not by name), regulatory landscape, market sizing, and any red flags or concerns. Compile findings as detailed research notes. Do NOT write the final report yet.`,
+    true, 6000, 10,
+  );
+
+  console.log(`[DeepResearch] Session started for ${company.name} (multi-turn: 3 phases)`);
+  return {
+    sessionId: session.id,
+    anthropicRequest: phase1Request,
+    phase2Request,
+    userMessage,
+  };
 }
 
 export function completeDeepResearchSession(

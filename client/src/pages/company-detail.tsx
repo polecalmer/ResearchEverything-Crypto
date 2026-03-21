@@ -731,7 +731,7 @@ export default function CompanyDetail() {
               </TabsContent>
 
               <TabsContent value="token" className="mt-4">
-                <TokenIntelligenceTab companyId={company.id} companyName={company.name} />
+                <TokenIntelligenceTab companyId={company.id} companyName={company.name} hasLiquidToken={company.hasLiquidToken ?? false} />
               </TabsContent>
             </Tabs>
           </div>

@@ -7,6 +7,7 @@ import {
   startEnrichmentSession, advanceEnrichmentSession,
   startNextStepsSession, advanceNextStepsSession,
   startDeepResearchSession, completeDeepResearchSession,
+  buildAnthropicRequest, DEEP_RESEARCH_SYSTEM,
   getEstimatedEnrichmentCost, getLastEnrichmentCost,
   MARKUP_MULTIPLIER,
 } from "./enrichment";
@@ -372,7 +373,7 @@ export async function registerRoutes(
         status: "generating",
       });
 
-      const { sessionId, anthropicRequest } = startDeepResearchSession(
+      const { sessionId, anthropicRequest, phase2Request, userMessage } = startDeepResearchSession(
         userId,
         company.id,
         report.id,
@@ -386,15 +387,43 @@ export async function registerRoutes(
 
       (async () => {
         try {
-          console.log(`[DeepResearch] Background AI call started for ${company.name} (${report.id})`);
-          const aiResult = await callAnthropicServer(anthropicRequest);
+          console.log(`[DeepResearch] Phase 1/3: Gathering research for ${company.name}`);
+          const phase1Result = await callAnthropicServer(anthropicRequest);
+          const phase1Notes = phase1Result.text;
+          let totalMppCost = phase1Result.mppCost;
+          let totalInput = phase1Result.usage.input_tokens;
+          let totalOutput = phase1Result.usage.output_tokens;
+          console.log(`[DeepResearch] Phase 1 complete. Cost: $${phase1Result.mppCost.toFixed(6)}`);
+
+          console.log(`[DeepResearch] Phase 2/3: Competitive & risk research for ${company.name}`);
+          const phase2Result = await callAnthropicServer(phase2Request);
+          const phase2Notes = phase2Result.text;
+          totalMppCost += phase2Result.mppCost;
+          totalInput += phase2Result.usage.input_tokens;
+          totalOutput += phase2Result.usage.output_tokens;
+          console.log(`[DeepResearch] Phase 2 complete. Cost: $${phase2Result.mppCost.toFixed(6)}`);
+
+          const synthesisRequest = buildAnthropicRequest(
+            DEEP_RESEARCH_SYSTEM,
+            `You have completed two research phases on "${company.name}". Now synthesize ALL research into the final Markdown report following the exact report structure specified in your system instructions.\n\nORIGINAL CONTEXT:\n${userMessage}\n\nPHASE 1 RESEARCH NOTES:\n${phase1Notes}\n\nPHASE 2 RESEARCH NOTES:\n${phase2Notes}\n\nProduce the FINAL complete Markdown research report now. Use ALL the research gathered above. Do NOT search again — just write the report.`,
+            false, 16000,
+          );
+
+          console.log(`[DeepResearch] Phase 3/3: Synthesizing final report for ${company.name}`);
+          const phase3Result = await callAnthropicServer(synthesisRequest);
+          totalMppCost += phase3Result.mppCost;
+          totalInput += phase3Result.usage.input_tokens;
+          totalOutput += phase3Result.usage.output_tokens;
+          console.log(`[DeepResearch] Phase 3 complete. Cost: $${phase3Result.mppCost.toFixed(6)}`);
+
           const result = completeDeepResearchSession(
-            sessionId, userId, aiResult.text,
-            aiResult.usage, aiResult.mppCost,
+            sessionId, userId, phase3Result.text,
+            { input_tokens: totalInput, output_tokens: totalOutput },
+            totalMppCost,
           );
 
           await storage.updateReport(report.id, { content: result.content, status: "complete" });
-          console.log(`[DeepResearch] Report complete for ${company.name} (${report.id}). MPP cost: $${result.apiCost.toFixed(6)}`);
+          console.log(`[DeepResearch] Report complete for ${company.name} (${report.id}). Total MPP cost: $${result.apiCost.toFixed(6)}`);
 
           try {
             await storage.logTransaction({
@@ -416,6 +445,20 @@ export async function registerRoutes(
             content: `# Report Generation Failed\n\nError: ${error.message}\n\nPlease try generating again.`,
             status: "failed",
           }).catch(() => {});
+          if (typeof totalMppCost === "number" && totalMppCost > 0) {
+            try {
+              await storage.logTransaction({
+                userId,
+                type: "deep_research",
+                description: `Deep research FAILED (partial): ${company.name}`,
+                amount: (totalMppCost * MARKUP_MULTIPLIER).toFixed(4),
+                apiCost: totalMppCost.toFixed(4),
+                companyName: company.name,
+                inputTokens: totalInput || 0,
+                outputTokens: totalOutput || 0,
+              });
+            } catch {}
+          }
         }
       })();
     } catch (error: any) {
@@ -464,6 +507,32 @@ export async function registerRoutes(
     }
 
     res.status(201).json(company);
+  });
+
+  app.post("/api/companies/:id/ensure-token-profile", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const company = await storage.getCompany(req.params.id, userId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+
+      if (!company.hasLiquidToken || !company.tokenContractAddress) {
+        return res.status(400).json({ message: "Company does not have liquid token data" });
+      }
+
+      const existing = await storage.getTokenProfile(company.id);
+      if (existing) return res.json(existing);
+
+      const profile = await storage.upsertTokenProfile({
+        companyId: company.id,
+        contractAddress: company.tokenContractAddress,
+        chain: company.tokenChain || "ethereum",
+        tokenTicker: company.tokenTicker || undefined,
+      });
+      console.log(`[Auto] Retroactively created token profile for ${company.name} (${company.tokenTicker})`);
+      res.json(profile);
+    } catch (error: any) {
+      res.status(500).json({ message: "Failed to ensure token profile" });
+    }
   });
 
   app.patch("/api/companies/:id", requireAuth, async (req, res) => {

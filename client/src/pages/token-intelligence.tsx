@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { format } from "date-fns";
 import {
   Select,
@@ -793,7 +793,28 @@ function MarkdownContent({ content }: { content: string }) {
   return <div>{elements}</div>;
 }
 
-export default function TokenIntelligenceTab({ companyId, companyName }: { companyId: string; companyName: string }) {
+export default function TokenIntelligenceTab({ companyId, companyName, hasLiquidToken }: { companyId: string; companyName: string; hasLiquidToken?: boolean }) {
+  const { getAccessToken } = useAuth();
+
+  useEffect(() => {
+    if (hasLiquidToken) {
+      (async () => {
+        try {
+          const token = await getAccessToken();
+          const headers: Record<string, string> = { "Content-Type": "application/json" };
+          if (token) {
+            headers["Authorization"] = `Bearer ${token}`;
+            headers["X-Privy-Token"] = token;
+          }
+          const res = await fetch(`/api/companies/${companyId}/ensure-token-profile`, { method: "POST", headers });
+          if (res.ok) {
+            queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "token-profile"] });
+          }
+        } catch {}
+      })();
+    }
+  }, [companyId, hasLiquidToken]);
+
   const { data: queries = [] } = useQuery<DuneQuery[]>({
     queryKey: ["/api/companies", companyId, "dune-queries"],
   });
