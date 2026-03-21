@@ -52,7 +52,7 @@ async function selectRelevantQueries(
     const queryList = queries.map(q => ({
       id: q.queryId,
       label: q.label,
-      vizType: q.vizType,
+      visualizationType: q.visualizationType,
     }));
 
     const result = await callAnthropicServer({

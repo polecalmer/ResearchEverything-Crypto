@@ -620,6 +620,15 @@ export async function registerRoutes(
       const company = await storage.getCompany(queryRecord.companyId, userId);
       if (!company) return res.status(404).json({ message: "Query not found" });
       const result = await getLatestDuneResults(queryRecord.query.queryId);
+
+      await storage.logTransaction({
+        userId,
+        type: "dune_query",
+        amount: "0.05",
+        description: `Dune query: ${queryRecord.query.label} (${queryRecord.query.queryId})`,
+        companyName: company.name,
+      }).catch(err => console.error("[Dune] Failed to log transaction:", err));
+
       res.json(result);
     } catch (error: any) {
       console.error("Dune query error:", error.message);
@@ -636,6 +645,15 @@ export async function registerRoutes(
       const company = await storage.getCompany(queryRecord.companyId, userId);
       if (!company) return res.status(404).json({ message: "Query not found" });
       const result = await executeDuneQuery(queryRecord.query.queryId);
+
+      await storage.logTransaction({
+        userId,
+        type: "dune_refresh",
+        amount: "0.05",
+        description: `Dune refresh: ${queryRecord.query.label} (${queryRecord.query.queryId})`,
+        companyName: company.name,
+      }).catch(err => console.error("[Dune] Failed to log transaction:", err));
+
       res.json(result);
     } catch (error: any) {
       console.error("Dune refresh error:", error.message);
