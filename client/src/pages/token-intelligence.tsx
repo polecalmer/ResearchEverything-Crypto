@@ -188,6 +188,35 @@ function TokenProfileManager({ companyId }: { companyId: string }) {
   );
 }
 
+function SyncLibraryButton() {
+  const { toast } = useToast();
+  const syncMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/master-dune-queries/sync", { fromExternal: true });
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/master-dune-queries"] });
+      toast({ title: `Synced ${data.synced} queries from library` });
+    },
+    onError: (err: any) => toast({ title: "Sync failed", description: err.message, variant: "destructive" }),
+  });
+
+  return (
+    <Button
+      variant="ghost"
+      size="sm"
+      className="h-6 text-[10px] text-muted-foreground/60 hover:text-muted-foreground"
+      onClick={() => syncMutation.mutate()}
+      disabled={syncMutation.isPending}
+      data-testid="button-sync-library"
+    >
+      {syncMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <RefreshCw className="w-3 h-3 mr-1" />}
+      Sync Library
+    </Button>
+  );
+}
+
 function MasterQueryBrowser({ companyId, existingQueryIds, onAttach, onClose }: {
   companyId: string;
   existingQueryIds: number[];
@@ -225,7 +254,10 @@ function MasterQueryBrowser({ companyId, existingQueryIds, onAttach, onClose }: 
     <div className="space-y-2 pt-2 border-t border-border/30">
       <div className="flex items-center justify-between">
         <p className="text-[10px] text-muted-foreground font-medium uppercase tracking-wider">Query Library</p>
-        <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={onClose}>Close</Button>
+        <div className="flex gap-1">
+          <SyncLibraryButton />
+          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={onClose}>Close</Button>
+        </div>
       </div>
       {available.length === 0 ? (
         <p className="text-xs text-muted-foreground text-center py-3">No unattached queries in library</p>

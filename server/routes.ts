@@ -734,8 +734,83 @@ export async function registerRoutes(
 
   app.post("/api/master-dune-queries/sync", requireAuth, async (req, res) => {
     try {
-      const { queries } = req.body;
-      if (!Array.isArray(queries)) return res.status(400).json({ message: "Expected { queries: [...] }" });
+      const { queries, fromExternal } = req.body;
+
+      if (fromExternal) {
+        const externalRes = await fetch("https://dune-data-copier.replit.app/api/queries");
+        if (!externalRes.ok) throw new Error(`External API returned ${externalRes.status}`);
+        const externalData: any[] = await externalRes.json();
+
+        const results = [];
+        for (const eq of externalData) {
+          if (eq.isArchived) continue;
+
+          const nameLower = eq.name?.toLowerCase() || "";
+          const descLower = eq.description?.toLowerCase() || "";
+          const combinedText = `${nameLower} ${descLower}`;
+          const externalTags: string[] = eq.tags || [];
+
+          const protocolTags: string[] = [...externalTags];
+          const chainTags: string[] = [];
+          let category = "general";
+
+          const protocolPatterns: [RegExp, string][] = [
+            [/\bhyperliquid\b|^hl[_\s]|[_\s]hl[_\s]|[_\s]hl$/i, "hyperliquid"],
+            [/\buniswap\b/i, "uniswap"],
+            [/\baave\b/i, "aave"],
+            [/\blido\b/i, "lido"],
+            [/\bmaker\b|\bsky\b|\bdai\b/i, "maker"],
+            [/\bcurve\b/i, "curve"],
+            [/\bcompound\b/i, "compound"],
+            [/\barbitrum\b|\barb\b/i, "arbitrum"],
+            [/\boptimism\b|\bop\b/i, "optimism"],
+            [/\bjupiter\b|\bjup\b/i, "jupiter"],
+            [/\bjito\b/i, "jito"],
+            [/\braydium\b/i, "raydium"],
+            [/\blighter\b/i, "lighter"],
+            [/\bpump\b/i, "pump"],
+            [/\b1inch\b/i, "1inch"],
+          ];
+
+          for (const [pattern, tag] of protocolPatterns) {
+            if (pattern.test(combinedText) && !protocolTags.includes(tag)) {
+              protocolTags.push(tag);
+            }
+          }
+
+          if (/\bsol[_\s]|solana/i.test(combinedText)) chainTags.push("solana");
+          if (/\beth[_\s]|ethereum/i.test(combinedText)) chainTags.push("ethereum");
+          if (/\bbase[_\s]/i.test(combinedText)) chainTags.push("base");
+          if (/\bavax|avalanche/i.test(combinedText)) chainTags.push("avalanche");
+
+          if (/revenue|fee|pnl|earnings/i.test(combinedText)) category = "revenue";
+          else if (/volume|vol[_\s]|trade/i.test(combinedText)) category = "trading";
+          else if (/tvl|liquidity|pool/i.test(combinedText)) category = "tvl";
+          else if (/user|active|dau|mau|address/i.test(combinedText)) category = "users";
+          else if (/price|market|cap/i.test(combinedText)) category = "market";
+          else if (/flow|transfer|bridge/i.test(combinedText)) category = "flows";
+          else if (/supply|mint|burn|stablecoin/i.test(combinedText)) category = "supply";
+
+          const vizType = /chart|line|area|trend|daily|weekly|monthly/i.test(nameLower) ? "line" :
+                         /bar|distribution|tier/i.test(nameLower) ? "bar" : "table";
+
+          const saved = await storage.upsertMasterDuneQuery({
+            queryId: eq.id,
+            label: eq.name,
+            description: eq.description || null,
+            category,
+            protocolTags,
+            chainTags,
+            visualizationType: vizType,
+            sourceUrl: `https://dune.com/queries/${eq.id}`,
+            isActive: !eq.isPrivate,
+          });
+          results.push(saved);
+        }
+        return res.json({ synced: results.length, total: externalData.length });
+      }
+
+      if (!Array.isArray(queries)) return res.status(400).json({ message: "Expected { queries: [...] } or { fromExternal: true }" });
       const results = [];
       for (const q of queries) {
         const parsed = insertMasterDuneQuerySchema.safeParse(q);
@@ -746,6 +821,7 @@ export async function registerRoutes(
       }
       res.json({ synced: results.length, queries: results });
     } catch (error: any) {
+      console.error("[MasterSync] Error:", error.message);
       res.status(500).json({ message: error.message || "Sync failed" });
     }
   });
