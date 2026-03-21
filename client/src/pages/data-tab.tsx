@@ -535,7 +535,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
       <XAxis
         dataKey={xAxis.dataKey}
         tickFormatter={isDate ? dateFmt!.tickFormatter : undefined}
-        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.35)" }}
+        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.55)" }}
         axisLine={{ stroke: "rgba(255,255,255,0.06)" }}
         tickLine={false}
         interval={tickInterval}
@@ -554,7 +554,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
       <YAxis
         yAxisId="left"
         tickFormatter={(v: number) => axisFormat(v, leftFmt)}
-        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.35)" }}
+        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.55)" }}
         axisLine={false}
         tickLine={false}
         width={44}
@@ -566,7 +566,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
         yAxisId="right"
         orientation="right"
         tickFormatter={(v: number) => axisFormat(v, rightFmt)}
-        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.35)" }}
+        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.55)" }}
         axisLine={false}
         tickLine={false}
         width={40}
@@ -577,7 +577,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
     const singleYAxisEl = (
       <YAxis
         tickFormatter={(v: number) => axisFormat(v, primaryFmt)}
-        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.35)" }}
+        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.55)" }}
         axisLine={false}
         tickLine={false}
         width={44}
@@ -615,7 +615,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
     );
     const legendEl = yAxes.length > 1 ? (
       <Legend verticalAlign="top" align="left" height={22} iconType="plainline" iconSize={10}
-        wrapperStyle={{ fontSize: "9px", color: "rgba(255,255,255,0.45)", paddingBottom: "2px" }}
+        wrapperStyle={{ fontSize: "9px", color: "rgba(255,255,255,0.7)", paddingBottom: "2px" }}
         formatter={(v: string) => { const ax = yAxes.find((y: any) => y.dataKey === v); return ax?.label || v.replace(/_/g, " "); }}
       />
     ) : null;
@@ -739,9 +739,9 @@ function DataCard({ chart }: { chart: DashboardChart }) {
         </div>
       )}
 
-      <div className="flex items-center justify-between px-3 py-1.5 text-[9px] text-white/25 italic">
-        <span>Source: {chart.dataSource === "dune" ? "Dune Analytics" : chart.dataSource === "defillama" ? "DeFiLlama" : chart.dataSource === "coingecko" ? "CoinGecko" : chart.dataSource === "allium-sql" ? "Allium SQL" : chart.dataSource === "allium-prices" ? "Allium" : chart.dataSource === "allium" ? "Allium" : chart.dataSource} <span className="not-italic text-white/15">· {chartData.length} {currentView === "chart" ? "pts" : "rows"}</span></span>
-        <span className="not-italic text-white/15">{format(new Date(chart.updatedAt), "MMM d, h:mm a")}</span>
+      <div className="flex items-center justify-between px-3 py-1.5 text-[9px] text-white italic">
+        <span>Source: {chart.dataSource === "dune" ? "Dune Analytics" : chart.dataSource === "defillama" ? "DeFiLlama" : chart.dataSource === "coingecko" ? "CoinGecko" : chart.dataSource === "allium-sql" ? "Allium SQL" : chart.dataSource === "allium-prices" ? "Allium" : chart.dataSource === "allium" ? "Allium" : chart.dataSource}</span>
+        <span className="not-italic text-white/30">{format(new Date(chart.updatedAt), "MMM d, h:mm a")}</span>
       </div>
     </div>
   );
