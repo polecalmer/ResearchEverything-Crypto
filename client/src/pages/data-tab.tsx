@@ -352,7 +352,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
   });
 
 
-  const cardClass = "group rounded-xl border border-white/[0.06] bg-[rgba(255,255,255,0.02)] overflow-hidden";
+  const cardClass = "group rounded border border-white/[0.04] bg-transparent overflow-hidden";
   const { subtitle } = parseSubtitle(chart.description);
 
   if (chart.status === "pending" || chart.status === "generating") {
@@ -662,11 +662,11 @@ function DataCard({ chart }: { chart: DashboardChart }) {
 
   return (
     <div className={cardClass} data-testid={`chart-card-${chart.id}`}>
-      <div className="px-4 pt-3 pb-0">
+      <div className="px-3 pt-2.5 pb-0">
         <div className="flex items-start justify-between">
           <div className="min-w-0 flex-1">
-            <h3 className="text-[13px] font-semibold text-white/90 tracking-tight leading-tight">{chart.title}</h3>
-            {subtitle && <p className="text-[10px] text-white/25 mt-0.5">{subtitle}</p>}
+            <h3 className="text-[12px] font-medium text-white/80 tracking-tight leading-tight">{chart.title}</h3>
+            {subtitle && <p className="text-[9px] text-white/20 mt-0.5">{subtitle}</p>}
           </div>
           <div className="flex items-center gap-1 ml-3 shrink-0">
             {headlineStat && currentView === "chart" && (
@@ -717,7 +717,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
         </div>
       )}
 
-      <div className="flex items-center justify-between px-4 py-1.5 text-[8px] text-white/12 border-t border-white/[0.03]">
+      <div className="flex items-center justify-between px-3 py-1 text-[8px] text-white/10">
         <span>{chart.dataSource} · {chartData.length} {currentView === "chart" ? "points" : "rows"}</span>
         <span>{format(new Date(chart.updatedAt), "MMM d, h:mm a")}</span>
       </div>
@@ -836,7 +836,7 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-2">
           {charts.map((chart) => (
             <DataCard key={chart.id} chart={chart} />
           ))}
