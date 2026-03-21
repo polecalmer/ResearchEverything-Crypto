@@ -11,7 +11,6 @@ import {
   Send,
   BarChart3,
   AlertTriangle,
-  Table2,
   LineChart as LineChartIcon,
   ChevronDown,
   Check,
@@ -352,28 +351,6 @@ function DataCard({ chart }: { chart: DashboardChart }) {
     },
   });
 
-  const resetMutation = useMutation({
-    mutationFn: async () => {
-      const token = await getAccessToken();
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) {
-        headers["Authorization"] = `Bearer ${token}`;
-        headers["X-Privy-Token"] = token;
-      }
-      const res = await fetch(`/api/charts/${chart.id}`, {
-        method: "PATCH",
-        headers,
-        body: JSON.stringify({ chartType: "table", chartConfig: JSON.stringify({ columns: [] }) }),
-      });
-      if (!res.ok) throw new Error("Failed");
-      return res.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/companies", chart.companyId, "charts"] });
-      setView("table");
-      setShowBuilder(false);
-    },
-  });
 
   const cardClass = "group rounded-xl border border-white/[0.06] bg-[rgba(255,255,255,0.02)] overflow-hidden";
   const { subtitle } = parseSubtitle(chart.description);
@@ -699,26 +676,6 @@ function DataCard({ chart }: { chart: DashboardChart }) {
               </div>
             )}
             <div className="flex items-center gap-0">
-              {hasChartConfig && (
-                <>
-                  <button
-                    onClick={() => setView(currentView === "chart" ? "table" : "chart")}
-                    className="p-1 rounded hover:bg-white/[0.04] text-white/20 hover:text-white/50 transition-colors"
-                    data-testid={`toggle-view-${chart.id}`}
-                    title={currentView === "chart" ? "Show table" : "Show chart"}
-                  >
-                    {currentView === "chart" ? <Table2 className="w-3 h-3" /> : <LineChartIcon className="w-3 h-3" />}
-                  </button>
-                  <button
-                    onClick={() => resetMutation.mutate()}
-                    className="p-1 rounded hover:bg-white/[0.04] text-white/20 hover:text-white/50 transition-colors"
-                    data-testid={`reset-chart-${chart.id}`}
-                    title="Reset to table"
-                  >
-                    <BarChart3 className="w-3 h-3" />
-                  </button>
-                </>
-              )}
               <button
                 onClick={() => refreshMutation.mutate()}
                 disabled={refreshMutation.isPending}
