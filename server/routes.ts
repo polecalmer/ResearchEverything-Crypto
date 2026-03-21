@@ -1119,6 +1119,7 @@ export async function registerRoutes(
 
       await autoAttachMasterQueries(company);
       const duneQueries = await storage.getDuneQueries(company.id);
+      const allMasterQueries = await storage.getMasterDuneQueries();
 
       let tokenSnapshot = null;
       if (tokenProfile) {
@@ -1139,6 +1140,7 @@ export async function registerRoutes(
         userPrompt: prompt,
         tokenProfile,
         savedDuneQueries: duneQueries,
+        masterDuneQueries: allMasterQueries,
         tokenSnapshot,
       });
 

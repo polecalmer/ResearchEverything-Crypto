@@ -6,7 +6,7 @@ import * as defillama from "./defillama-client";
 import * as alliumApi from "./allium-api";
 import { storage } from "./storage";
 import { MARKUP_MULTIPLIER } from "./enrichment";
-import type { Company, TokenProfile, DashboardChart, DuneQuery } from "@shared/schema";
+import type { Company, TokenProfile, DashboardChart, DuneQuery, MasterDuneQuery } from "@shared/schema";
 
 const DATA_CHART_CHARGE = 0.50;
 
@@ -162,6 +162,7 @@ interface DataAgentInput {
   userPrompt: string;
   tokenProfile: TokenProfile | null;
   savedDuneQueries: DuneQuery[];
+  masterDuneQueries?: MasterDuneQuery[];
   tokenSnapshot: TokenSnapshot | null;
 }
 
@@ -179,7 +180,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
   charts: DashboardChart[];
   totalCost: number;
 }> {
-  const { companyId, companyName, userId, userPrompt, tokenProfile, savedDuneQueries, tokenSnapshot } = input;
+  const { companyId, companyName, userId, userPrompt, tokenProfile, savedDuneQueries, masterDuneQueries, tokenSnapshot } = input;
 
   let contextParts: string[] = [];
   contextParts.push(`Company: ${companyName}`);
@@ -213,6 +214,21 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
         } catch {}
       }
       contextParts.push(`  - Query ID ${q.queryId}: "${q.label}" (viz: ${q.visualizationType})${columnInfo}`);
+    }
+  }
+
+  if (masterDuneQueries && masterDuneQueries.length > 0) {
+    const relevantMaster = masterDuneQueries.filter(mq => mq.isActive);
+    if (relevantMaster.length > 0) {
+      contextParts.push(`\nMaster Dune Query Library (all available queries you can use):`);
+      for (const mq of relevantMaster) {
+        const tags = [
+          ...(mq.protocolTags || []).map(t => `protocol:${t}`),
+          ...(mq.chainTags || []).map(t => `chain:${t}`),
+        ].join(', ');
+        contextParts.push(`  - Query ID ${mq.queryId}: "${mq.label}" (category: ${mq.category || 'general'}, viz: ${mq.visualizationType}${tags ? `, tags: ${tags}` : ''}${mq.description ? ` — ${mq.description}` : ''})`);
+      }
+      contextParts.push(`  NOTE: These master queries are pre-built and available. Prefer using these over raw API calls when they match the user's request. Use source "dune" with the query ID.`);
     }
   }
 
