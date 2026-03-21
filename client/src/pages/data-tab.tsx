@@ -58,6 +58,22 @@ function smartFormat(value: number, fmt?: string): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+function axisFormat(value: number, fmt?: string): string {
+  if (fmt === "currency") {
+    const abs = Math.abs(value);
+    if (abs >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
+    if (abs >= 1e6) return `$${(value / 1e6).toFixed(0)}M`;
+    if (abs >= 1e3) return `$${(value / 1e3).toFixed(0)}K`;
+    return `$${value.toFixed(0)}`;
+  }
+  if (fmt === "percent") return `${value.toFixed(0)}%`;
+  const abs = Math.abs(value);
+  if (abs >= 1e9) return `${(value / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `${(value / 1e6).toFixed(0)}M`;
+  if (abs >= 1e3) return `${(value / 1e3).toFixed(0)}K`;
+  return value.toFixed(0);
+}
+
 function smartTooltip(value: number, fmt?: string): string {
   if (fmt === "currency") return `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
   if (fmt === "percent") return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
@@ -110,7 +126,7 @@ function buildDateFormatter(data: any[], xKey: string) {
       try {
         const d = new Date(ts * 1000);
         if (d.getFullYear() < 1971) return "";
-        if (spansYears) return `${format(d, "MMM d")}\n${format(d, "yyyy")}`;
+        if (spansYears) return format(d, "MMM ''yy");
         return format(d, "MMM d");
       } catch { return String(ts); }
     },
@@ -510,19 +526,22 @@ function DataCard({ chart }: { chart: DashboardChart }) {
     const hasMixedTypes = yAxes.some((y: any) => y.chartType && y.chartType !== cType);
     const useComposed = hasDualAxis || hasMixedTypes;
 
-    const tickInterval = cType === "bar" ? (numPoints <= 24 ? 0 : Math.floor(numPoints / 12)) : (numPoints <= 30 ? 0 : undefined);
+    const maxTicks = 6;
+    const tickInterval = cType === "bar"
+      ? (numPoints <= maxTicks ? 0 : Math.floor(numPoints / maxTicks))
+      : (numPoints <= maxTicks ? 0 : Math.max(1, Math.floor(numPoints / maxTicks)));
 
     const xAxisEl = (
       <XAxis
         dataKey={xAxis.dataKey}
         tickFormatter={isDate ? dateFmt!.tickFormatter : undefined}
-        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.20)" }}
-        axisLine={{ stroke: "rgba(255,255,255,0.06)" }}
+        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.18)" }}
+        axisLine={{ stroke: "rgba(255,255,255,0.04)" }}
         tickLine={false}
         interval={tickInterval}
-        angle={numPoints > 12 ? -45 : 0}
-        textAnchor={numPoints > 12 ? "end" : "middle"}
-        height={numPoints > 12 ? 45 : 24}
+        angle={0}
+        textAnchor="middle"
+        height={22}
       />
     );
 
@@ -534,32 +553,35 @@ function DataCard({ chart }: { chart: DashboardChart }) {
     const yAxisLeftEl = (
       <YAxis
         yAxisId="left"
-        tickFormatter={(v: number) => smartFormat(v, leftFmt)}
-        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.20)" }}
+        tickFormatter={(v: number) => axisFormat(v, leftFmt)}
+        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.18)" }}
         axisLine={false}
         tickLine={false}
-        width={50}
+        width={44}
+        tickCount={5}
       />
     );
     const yAxisRightEl = hasDualAxis ? (
       <YAxis
         yAxisId="right"
         orientation="right"
-        tickFormatter={(v: number) => smartFormat(v, rightFmt)}
-        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.20)" }}
+        tickFormatter={(v: number) => axisFormat(v, rightFmt)}
+        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.18)" }}
         axisLine={false}
         tickLine={false}
-        width={45}
+        width={40}
+        tickCount={5}
       />
     ) : null;
 
     const singleYAxisEl = (
       <YAxis
-        tickFormatter={(v: number) => smartFormat(v, primaryFmt)}
-        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.20)" }}
+        tickFormatter={(v: number) => axisFormat(v, primaryFmt)}
+        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.18)" }}
         axisLine={false}
         tickLine={false}
-        width={50}
+        width={44}
+        tickCount={5}
       />
     );
 
