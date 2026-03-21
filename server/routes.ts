@@ -627,6 +627,7 @@ export async function registerRoutes(
         amount: "0.05",
         description: `Dune query: ${queryRecord.query.label} (${queryRecord.query.queryId})`,
         companyName: company.name,
+        apiCost: "0.00",
       }).catch(err => console.error("[Dune] Failed to log transaction:", err));
 
       res.json(result);
@@ -652,6 +653,7 @@ export async function registerRoutes(
         amount: "0.05",
         description: `Dune refresh: ${queryRecord.query.label} (${queryRecord.query.queryId})`,
         companyName: company.name,
+        apiCost: "0.00",
       }).catch(err => console.error("[Dune] Failed to log transaction:", err));
 
       res.json(result);
@@ -684,8 +686,6 @@ export async function registerRoutes(
 
       const tokenProfile = await storage.getTokenProfile(req.params.id);
       if (!tokenProfile) return res.status(400).json({ message: "No token profile attached to this company" });
-
-      if (!isServerMppReady()) return res.status(503).json({ message: "AI service not configured" });
 
       const { snapshot, mppCost } = await fetchTokenSnapshot(
         tokenProfile.contractAddress,
