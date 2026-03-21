@@ -30,7 +30,7 @@ Response format — array of chart/table definitions:
 [
   {
     "title": "Title Case Title",
-    "subtitle": "Short context line — period, trend, or key insight. E.g. 'Last 90 Days', 'Weekly since Jan 2025', '+12% MoM'",
+    "subtitle": "ALL CAPS analytical insight about the data — a smart observation, not just a time period. E.g. 'REVENUE DOUBLED IN H2 2025 VS H1', 'CONSISTENT EARNINGS DESPITE PRICE VOLATILITY', 'TVL RECOVERED TO ATH AFTER Q3 DIP'. Should read like a research analyst's headline takeaway.",
     "description": "One sentence",
     "chartType": "line" | "bar" | "area" | "table",
     "dataSource": "dune" | "defillama" | "coingecko" | "allium" | "allium-prices" | "allium-sql",

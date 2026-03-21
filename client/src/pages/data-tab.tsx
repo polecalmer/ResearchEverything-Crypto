@@ -688,7 +688,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
         <div className="flex items-start justify-between">
           <div className="min-w-0 flex-1">
             <h3 className="text-[12px] font-medium text-white/80 tracking-tight leading-tight">{chart.title}</h3>
-            {subtitle && <p className="text-[10px] text-white/40 mt-1">{subtitle}</p>}
+            {subtitle && <p className="text-[9px] text-emerald-400/70 mt-1.5 uppercase tracking-wide font-medium leading-tight">{subtitle}</p>}
           </div>
           <div className="flex items-center gap-1 ml-3 shrink-0">
             {headlineStat && currentView === "chart" && (
