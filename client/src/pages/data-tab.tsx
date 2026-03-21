@@ -535,8 +535,8 @@ function DataCard({ chart }: { chart: DashboardChart }) {
       <XAxis
         dataKey={xAxis.dataKey}
         tickFormatter={isDate ? dateFmt!.tickFormatter : undefined}
-        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.18)" }}
-        axisLine={{ stroke: "rgba(255,255,255,0.04)" }}
+        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.35)" }}
+        axisLine={{ stroke: "rgba(255,255,255,0.06)" }}
         tickLine={false}
         interval={tickInterval}
         angle={0}
@@ -554,7 +554,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
       <YAxis
         yAxisId="left"
         tickFormatter={(v: number) => axisFormat(v, leftFmt)}
-        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.18)" }}
+        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.35)" }}
         axisLine={false}
         tickLine={false}
         width={44}
@@ -566,7 +566,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
         yAxisId="right"
         orientation="right"
         tickFormatter={(v: number) => axisFormat(v, rightFmt)}
-        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.18)" }}
+        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.35)" }}
         axisLine={false}
         tickLine={false}
         width={40}
@@ -577,7 +577,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
     const singleYAxisEl = (
       <YAxis
         tickFormatter={(v: number) => axisFormat(v, primaryFmt)}
-        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.18)" }}
+        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.35)" }}
         axisLine={false}
         tickLine={false}
         width={44}
@@ -615,7 +615,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
     );
     const legendEl = yAxes.length > 1 ? (
       <Legend verticalAlign="top" align="left" height={22} iconType="plainline" iconSize={10}
-        wrapperStyle={{ fontSize: "9px", color: "rgba(255,255,255,0.30)", paddingBottom: "2px" }}
+        wrapperStyle={{ fontSize: "9px", color: "rgba(255,255,255,0.45)", paddingBottom: "2px" }}
         formatter={(v: string) => { const ax = yAxes.find((y: any) => y.dataKey === v); return ax?.label || v.replace(/_/g, " "); }}
       />
     ) : null;
@@ -688,7 +688,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
         <div className="flex items-start justify-between">
           <div className="min-w-0 flex-1">
             <h3 className="text-[12px] font-medium text-white/80 tracking-tight leading-tight">{chart.title}</h3>
-            {subtitle && <p className="text-[9px] text-white/20 mt-0.5">{subtitle}</p>}
+            {subtitle && <p className="text-[9px] text-white/30 mt-0.5">{subtitle}</p>}
           </div>
           <div className="flex items-center gap-1 ml-3 shrink-0">
             {headlineStat && currentView === "chart" && (
@@ -739,7 +739,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
         </div>
       )}
 
-      <div className="flex items-center justify-between px-3 py-1 text-[8px] text-white/10">
+      <div className="flex items-center justify-between px-3 py-1 text-[8px] text-white/20">
         <span>{chart.dataSource} · {chartData.length} {currentView === "chart" ? "points" : "rows"}</span>
         <span>{format(new Date(chart.updatedAt), "MMM d, h:mm a")}</span>
       </div>
