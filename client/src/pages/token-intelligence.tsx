@@ -59,17 +59,15 @@ const VIZ_TYPES = [
   { value: "area", label: "Area Chart", icon: BarChart3 },
 ];
 
-function Section({ title, icon: Icon, children, action }: { title: string; icon?: any; children: React.ReactNode; action?: React.ReactNode }) {
+function Section({ title, children, action }: { title: string; icon?: any; children: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <div className="rounded-lg border border-border overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-border/50 flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          {Icon && <Icon className="w-3 h-3 text-muted-foreground" />}
-          <h3 className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">{title}</h3>
-        </div>
+    <div className="mb-0">
+      <div className="flex items-center gap-2 mb-3 select-none">
+        <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/50">{title}</span>
+        <span className="flex-1 border-t border-border/15" />
         {action}
       </div>
-      <div className="p-4">{children}</div>
+      <div className="pl-1">{children}</div>
     </div>
   );
 }
@@ -340,15 +338,13 @@ function DuneQueryResultCard({ query }: { query: DuneQuery }) {
 
   if (!data && !loading && !error) {
     return (
-      <div className="rounded-lg border border-border overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-border/50 flex items-center justify-between">
-          <div className="flex items-center gap-1.5">
-            <Database className="w-3 h-3 text-muted-foreground" />
-            <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">{query.label}</h4>
-          </div>
-          <span className="text-[10px] font-mono text-muted-foreground/40">#{query.queryId}</span>
+      <div className="mb-0">
+        <div className="flex items-center gap-2 mb-3 select-none">
+          <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/50">{query.label}</span>
+          <span className="text-[10px] font-mono text-muted-foreground/30">#{query.queryId}</span>
+          <span className="flex-1 border-t border-border/15" />
         </div>
-        <div className="p-4 text-center">
+        <div className="pl-1 text-center">
           <Button variant="outline" size="sm" className="text-xs" onClick={() => fetchData()} data-testid={`button-load-query-${query.queryId}`}>
             <BarChart3 className="w-3 h-3 mr-1.5" />
             Load Data (~$0.05)
@@ -359,20 +355,16 @@ function DuneQueryResultCard({ query }: { query: DuneQuery }) {
   }
 
   return (
-    <div className="rounded-lg border border-border overflow-hidden">
-      <div className="px-4 py-2.5 border-b border-border/50 flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <Database className="w-3 h-3 text-muted-foreground" />
-          <h4 className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium">{query.label}</h4>
-        </div>
-        <div className="flex items-center gap-1.5">
-          {data && <span className="text-[10px] font-mono text-muted-foreground/40">{data.metadata.rowCount} rows</span>}
-          <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => fetchData(true)} disabled={loading} data-testid={`button-refresh-query-${query.queryId}`}>
-            <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
-          </Button>
-        </div>
+    <div className="mb-0">
+      <div className="flex items-center gap-2 mb-3 select-none">
+        <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/50">{query.label}</span>
+        {data && <span className="text-[10px] font-mono text-muted-foreground/30">{data.metadata.rowCount} rows</span>}
+        <span className="flex-1 border-t border-border/15" />
+        <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => fetchData(true)} disabled={loading} data-testid={`button-refresh-query-${query.queryId}`}>
+          <RefreshCw className={`w-3 h-3 ${loading ? "animate-spin" : ""}`} />
+        </Button>
       </div>
-      <div className="p-4">
+      <div className="pl-1">
         {loading && (
           <div className="flex items-center gap-2 justify-center py-6">
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -550,16 +542,16 @@ function TokenAnalysisSection({ companyId, companyName }: { companyId: string; c
       {analyses.length > 0 && (
         <div className="space-y-2 mb-3">
           {analyses.map((analysis) => (
-            <div key={analysis.id} className="rounded-md border border-border/50 overflow-hidden" data-testid={`token-analysis-${analysis.id}`}>
+            <div key={analysis.id} data-testid={`token-analysis-${analysis.id}`}>
               <button
-                className="flex items-center justify-between w-full px-3 py-2.5 hover:bg-accent/20 transition-colors"
+                className="flex items-center justify-between w-full py-2 hover:text-foreground transition-colors"
                 onClick={() => setExpandedId(expandedId === analysis.id ? null : analysis.id)}
               >
                 <div className="flex items-center gap-2 min-w-0">
-                  <Brain className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  <Brain className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
                   <div className="min-w-0 text-left">
                     <p className="text-xs font-medium truncate">Token Intelligence Report</p>
-                    <p className="text-[10px] text-muted-foreground">
+                    <p className="text-[10px] text-muted-foreground/50">
                       {analysis.status === "generating" ? "Generating..." : analysis.status === "failed" ? "Failed" : format(new Date(analysis.createdAt), "MMM d, yyyy h:mm a")}
                     </p>
                   </div>
@@ -583,8 +575,8 @@ function TokenAnalysisSection({ companyId, companyName }: { companyId: string; c
                 </div>
               </button>
               {expandedId === analysis.id && analysis.content && (
-                <div className="px-3 pb-3 border-t border-border/30">
-                  <div className="prose prose-sm prose-invert max-w-none mt-3 text-xs leading-relaxed [&_h1]:text-sm [&_h1]:font-semibold [&_h1]:mb-2 [&_h2]:text-xs [&_h2]:font-semibold [&_h2]:mb-1.5 [&_h2]:mt-3 [&_h3]:text-xs [&_h3]:font-medium [&_h3]:mb-1 [&_ul]:space-y-0.5 [&_li]:text-xs [&_p]:text-xs [&_p]:mb-1.5 [&_strong]:text-foreground" data-testid={`token-analysis-content-${analysis.id}`}>
+                <div className="pl-6 pb-3 border-l border-border/15 ml-1.5">
+                  <div className="prose prose-sm prose-invert max-w-none text-xs leading-relaxed [&_h1]:text-sm [&_h1]:font-semibold [&_h1]:mb-2 [&_h2]:text-xs [&_h2]:font-semibold [&_h2]:mb-1.5 [&_h2]:mt-3 [&_h3]:text-xs [&_h3]:font-medium [&_h3]:mb-1 [&_ul]:space-y-0.5 [&_li]:text-xs [&_p]:text-xs [&_p]:mb-1.5 [&_strong]:text-foreground" data-testid={`token-analysis-content-${analysis.id}`}>
                     <MarkdownContent content={analysis.content} />
                   </div>
                 </div>
@@ -691,11 +683,9 @@ function TokenSnapshotCard({ companyId }: { companyId: string }) {
       )}
 
       {snapshot && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="snapshot-metrics">
-          <div className="border border-border/30 p-3 bg-background/30">
-            <div className="flex items-center gap-1.5 text-muted-foreground/60 text-[10px] uppercase tracking-wider mb-1">
-              <DollarSign className="w-3 h-3" /> Price
-            </div>
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4" data-testid="snapshot-metrics">
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/40 mb-1">Price</div>
             <div className="text-sm font-mono font-medium" data-testid="snapshot-price">
               {snapshot.price !== null ? `$${snapshot.price < 0.01 ? snapshot.price.toFixed(6) : snapshot.price.toFixed(2)}` : "—"}
             </div>
@@ -707,28 +697,22 @@ function TokenSnapshotCard({ companyId }: { companyId: string }) {
             )}
           </div>
 
-          <div className="border border-border/30 p-3 bg-background/30">
-            <div className="flex items-center gap-1.5 text-muted-foreground/60 text-[10px] uppercase tracking-wider mb-1">
-              <BarChart3 className="w-3 h-3" /> Market Cap
-            </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/40 mb-1">Market Cap</div>
             <div className="text-sm font-mono font-medium" data-testid="snapshot-mcap">
               {formatLargeNumber(snapshot.marketCap)}
             </div>
           </div>
 
-          <div className="border border-border/30 p-3 bg-background/30">
-            <div className="flex items-center gap-1.5 text-muted-foreground/60 text-[10px] uppercase tracking-wider mb-1">
-              <Activity className="w-3 h-3" /> 24h Volume
-            </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/40 mb-1">24h Volume</div>
             <div className="text-sm font-mono font-medium" data-testid="snapshot-volume">
               {formatLargeNumber(snapshot.volume24h)}
             </div>
           </div>
 
-          <div className="border border-border/30 p-3 bg-background/30">
-            <div className="flex items-center gap-1.5 text-muted-foreground/60 text-[10px] uppercase tracking-wider mb-1">
-              <Users className="w-3 h-3" /> Holders
-            </div>
+          <div>
+            <div className="text-[10px] uppercase tracking-wider text-muted-foreground/40 mb-1">Holders</div>
             <div className="text-sm font-mono font-medium" data-testid="snapshot-holders">
               {snapshot.holderCount !== null ? snapshot.holderCount.toLocaleString() : "—"}
             </div>
@@ -850,28 +834,28 @@ export default function TokenIntelligenceTab({ companyId, companyName, hasLiquid
   });
 
   return (
-    <div className="space-y-4">
-      <Section title="Token Profile" icon={Coins}>
+    <div className="space-y-6">
+      <Section title="Token Profile">
         <TokenProfileManager companyId={companyId} />
       </Section>
 
-      <Section title="Token Snapshot" icon={Activity}>
+      <Section title="Token Snapshot">
         <TokenSnapshotCard companyId={companyId} />
       </Section>
 
-      <Section title="Dune Queries" icon={Database}>
+      <Section title="Dune Queries">
         <DuneQueryManager companyId={companyId} />
       </Section>
 
       {queries.length > 0 && (
-        <div className="space-y-4">
+        <div className="space-y-6">
           {queries.map((q) => (
             <DuneQueryResultCard key={q.id} query={q} />
           ))}
         </div>
       )}
 
-      <Section title="AI Token Analysis" icon={Brain}>
+      <Section title="AI Token Analysis">
         <TokenAnalysisSection companyId={companyId} companyName={companyName} />
       </Section>
     </div>
