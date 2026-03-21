@@ -15,33 +15,55 @@ const STAGE_ACCENT: Record<PipelineStage, string> = {
   invested: "#22c55e",
 };
 
-function excitementFill(score: number | null | undefined, isDark: boolean, base: string): string {
+function excitementFill(score: number | null | undefined, isDark: boolean, base: string, isToken: boolean): string {
   if (!score) return base;
-  const dark: Record<number, string> = {
-    1: "#1a1420", 2: "#1c1622", 3: "#1e1826",
-    4: "#18202a", 5: "#1a2430", 6: "#1c2836",
-    7: "#162a30", 8: "#143028", 9: "#123624", 10: "#103c20",
+  const blueDark: Record<number, string> = {
+    1: "#181c2a", 2: "#181e2e", 3: "#182032",
+    4: "#172438", 5: "#16283e", 6: "#152c44",
+    7: "#14304c", 8: "#133454", 9: "#12385c", 10: "#113c64",
   };
-  const light: Record<number, string> = {
-    1: "#f4f0f6", 2: "#f2eef5", 3: "#f0ecf4",
-    4: "#eaf0f4", 5: "#e6eef2", 6: "#e0eaf0",
-    7: "#daf0ec", 8: "#d4f0e4", 9: "#cef0dc", 10: "#c8f0d4",
+  const blueLight: Record<number, string> = {
+    1: "#f0f4fa", 2: "#ecf0f8", 3: "#e8ecf6",
+    4: "#e2e8f4", 5: "#dce4f2", 6: "#d4def0",
+    7: "#ccd8ee", 8: "#c4d2ec", 9: "#bcccec", 10: "#b4c6ec",
   };
-  return (isDark ? dark : light)[score] || base;
+  const greenDark: Record<number, string> = {
+    1: "#181e1a", 2: "#18201c", 3: "#18221e",
+    4: "#162620", 5: "#142a22", 6: "#122e24",
+    7: "#103426", 8: "#0e3a28", 9: "#0c402a", 10: "#0a462c",
+  };
+  const greenLight: Record<number, string> = {
+    1: "#f0f6f0", 2: "#ecf4ec", 3: "#e8f2e8",
+    4: "#e0f0e0", 5: "#d8eed8", 6: "#d0ecd0",
+    7: "#c8eac8", 8: "#c0e8c0", 9: "#b8e6b8", 10: "#b0e4b0",
+  };
+  const palette = isToken ? (isDark ? blueDark : blueLight) : (isDark ? greenDark : greenLight);
+  return palette[score] || base;
 }
 
-function excitementBorder(score: number | null | undefined, isDark: boolean): string | null {
+function excitementBorder(score: number | null | undefined, isDark: boolean, isToken: boolean): string | null {
   if (!score || score < 4) return null;
-  if (score <= 6) return isDark ? "#2a4a5a" : "#90b8d4";
-  if (score <= 8) return isDark ? "#1e5a4a" : "#60b890";
-  return isDark ? "#1e7a4a" : "#50c878";
+  if (isToken) {
+    if (score <= 6) return isDark ? "#2a3a5a" : "#90a8d4";
+    if (score <= 8) return isDark ? "#2a4a7a" : "#6090c8";
+    return isDark ? "#2a5a9a" : "#4080c0";
+  }
+  if (score <= 6) return isDark ? "#2a4a3a" : "#90c8a8";
+  if (score <= 8) return isDark ? "#1e5a3a" : "#60b880";
+  return isDark ? "#1e7a4a" : "#50c870";
 }
 
-function excitementScoreColor(score: number, isDark: boolean): string {
-  if (score <= 3) return isDark ? "#8a7090" : "#705080";
-  if (score <= 6) return isDark ? "#5090b0" : "#3070a0";
-  if (score <= 8) return isDark ? "#40a080" : "#208060";
-  return isDark ? "#30c070" : "#109050";
+function excitementScoreColor(score: number, isDark: boolean, isToken: boolean): string {
+  if (isToken) {
+    if (score <= 3) return isDark ? "#7090b0" : "#506080";
+    if (score <= 6) return isDark ? "#5090c0" : "#3070b0";
+    if (score <= 8) return isDark ? "#40a0e0" : "#2080c0";
+    return isDark ? "#50b0f0" : "#1070d0";
+  }
+  if (score <= 3) return isDark ? "#709080" : "#506050";
+  if (score <= 6) return isDark ? "#50a070" : "#308050";
+  if (score <= 8) return isDark ? "#40b060" : "#209040";
+  return isDark ? "#30c050" : "#10a030";
 }
 
 interface Rect { x: number; y: number; w: number; h: number }
@@ -163,8 +185,9 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
               if (cw < 3 || ch < 3) return null;
               const accent = STAGE_ACCENT[stage];
               const es = company.excitementScore;
-              const cellFill = isH ? C.accent : excitementFill(es, isDark, C.card);
-              const eBorder = excitementBorder(es, isDark);
+              const isToken = !!company.hasLiquidToken;
+              const cellFill = isH ? C.accent : excitementFill(es, isDark, C.card, isToken);
+              const eBorder = excitementBorder(es, isDark, isToken);
               const showSector = cw > 70 && ch > 34;
               const showDesc = cw > 100 && ch > 58;
               const maxChars = Math.floor((cw - 10) / 5.5);
@@ -172,7 +195,7 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
                 <g key={company.id} className="cursor-pointer" onClick={() => navigate(`/companies/${company.id}`)} onMouseEnter={() => setHovered(company.id)} onMouseLeave={() => setHovered(null)} data-testid={`treemap-cell-${company.id}`}>
                   <rect x={rect.x + px} y={rect.y + px} width={cw} height={ch} fill={cellFill} stroke={eBorder || C.border} strokeWidth={eBorder ? 1.5 : 1} />
                   {isH && <line x1={rect.x + px} y1={rect.y + px} x2={rect.x + px} y2={rect.y + px + ch} stroke={accent} strokeWidth={2} />}
-                  {es && es >= 7 && ch > 14 && <text x={rect.x + px + cw - 5} y={rect.y + px + 11} fill={excitementScoreColor(es, isDark)} fontSize={8} fontFamily="ui-monospace, SFMono-Regular, monospace" textAnchor="end" opacity={0.8}>{es}</text>}
+                  {es && es >= 7 && ch > 14 && <text x={rect.x + px + cw - 5} y={rect.y + px + 11} fill={excitementScoreColor(es, isDark, isToken)} fontSize={8} fontFamily="ui-monospace, SFMono-Regular, monospace" textAnchor="end" opacity={0.8}>{es}</text>}
                   <clipPath id={`c-${company.id}`}>
                     <rect x={rect.x + px + 5} y={rect.y + px + 3} width={cw - 10} height={ch - 6} />
                   </clipPath>
@@ -193,7 +216,7 @@ function TreemapView({ byStage }: { byStage: Record<PipelineStage, Company[]> })
                   </g>
                   {showDesc && company.oneLiner && (
                     <foreignObject x={rect.x + px + 5} y={rect.y + px + 33} width={cw - 10} height={company.hasLiquidToken ? 16 : 26}>
-                      <div style={{ fontSize: 9, fontFamily: "system-ui, -apple-system, sans-serif", color: isH && company.excitementReason ? (es ? excitementScoreColor(es, isDark) : C.muted) : C.muted, opacity: isH && company.excitementReason ? 0.7 : 0.4, lineHeight: "12px", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: company.hasLiquidToken ? 1 : 2, WebkitBoxOrient: "vertical" as const }}>
+                      <div style={{ fontSize: 9, fontFamily: "system-ui, -apple-system, sans-serif", color: isH && company.excitementReason ? (es ? excitementScoreColor(es, isDark, isToken) : C.muted) : C.muted, opacity: isH && company.excitementReason ? 0.7 : 0.4, lineHeight: "12px", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: company.hasLiquidToken ? 1 : 2, WebkitBoxOrient: "vertical" as const }}>
                         {isH && company.excitementReason ? company.excitementReason : company.oneLiner}
                       </div>
                     </foreignObject>
