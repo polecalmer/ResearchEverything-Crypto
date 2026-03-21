@@ -341,13 +341,7 @@ function ChartBuilder({ chart, data, onClose }: {
   );
 }
 
-function DataCard({ chart, onDragStart, onDragOver, onDrop, isDragOver }: {
-  chart: DashboardChart;
-  onDragStart?: (e: React.DragEvent) => void;
-  onDragOver?: (e: React.DragEvent) => void;
-  onDrop?: (e: React.DragEvent) => void;
-  isDragOver?: boolean;
-}) {
+function DataCard({ chart }: { chart: DashboardChart }) {
   const { toast } = useToast();
   const { getAccessToken } = useAuth();
   const [view, setView] = useState<"auto" | "table" | "chart">("auto");
@@ -386,13 +380,12 @@ function DataCard({ chart, onDragStart, onDragOver, onDrop, isDragOver }: {
   });
 
 
-  const dragBorder = isDragOver ? "border-sky-500/40" : "border-white/[0.04]";
-  const cardClass = `group rounded border ${dragBorder} bg-transparent overflow-hidden cursor-grab active:cursor-grabbing`;
+  const cardClass = "group rounded border border-white/[0.04] bg-transparent overflow-hidden";
   const { subtitle } = parseSubtitle(chart.description);
 
   if (chart.status === "pending" || chart.status === "generating") {
     return (
-      <div className={`${cardClass} px-4 py-3`} data-testid={`chart-card-${chart.id}`} draggable onDragStart={onDragStart} onDragOver={onDragOver} onDrop={onDrop}>
+      <div className={`${cardClass} px-4 py-3`} data-testid={`chart-card-${chart.id}`}>
         <div className="flex items-start justify-between">
           <div>
             <h3 className="text-[13px] font-semibold text-white/80 tracking-tight">{chart.title}</h3>
@@ -422,7 +415,7 @@ function DataCard({ chart, onDragStart, onDragOver, onDrop, isDragOver }: {
 
   if (chart.status === "failed") {
     return (
-      <div className={`${cardClass} px-4 py-3`} data-testid={`chart-card-${chart.id}`} draggable onDragStart={onDragStart} onDragOver={onDragOver} onDrop={onDrop}>
+      <div className={`${cardClass} px-4 py-3`} data-testid={`chart-card-${chart.id}`}>
         <div className="flex items-start justify-between">
           <div>
             <h3 className="text-[13px] font-semibold text-white/80 tracking-tight">{chart.title}</h3>
@@ -706,7 +699,7 @@ function DataCard({ chart, onDragStart, onDragOver, onDrop, isDragOver }: {
   };
 
   return (
-    <div className={cardClass} data-testid={`chart-card-${chart.id}`} draggable onDragStart={onDragStart} onDragOver={onDragOver} onDrop={onDrop}>
+    <div className={cardClass} data-testid={`chart-card-${chart.id}`}>
       <div className="px-3 pt-3 pb-1">
         <div className="flex items-start justify-between">
           <div className="min-w-0 flex-1">
@@ -822,7 +815,6 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
       if (token) { headers["Authorization"] = `Bearer ${token}`; headers["X-Privy-Token"] = token; }
       await fetch(`/api/companies/${companyId}/charts/reorder`, { method: "POST", headers, body: JSON.stringify({ orderedIds }) });
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "charts"] }),
   });
 
   const handleDragStart = useCallback((chartId: string) => (e: React.DragEvent) => {
@@ -934,14 +926,16 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
       ) : (
         <div className="grid grid-cols-2 gap-2">
           {charts.map((chart) => (
-            <div key={chart.id} onDragEnd={handleDragEnd}>
-              <DataCard
-                chart={chart}
-                onDragStart={handleDragStart(chart.id)}
-                onDragOver={handleDragOver(chart.id)}
-                onDrop={handleDrop(chart.id)}
-                isDragOver={dragOverId === chart.id}
-              />
+            <div
+              key={chart.id}
+              draggable
+              onDragStart={handleDragStart(chart.id)}
+              onDragOver={handleDragOver(chart.id)}
+              onDrop={handleDrop(chart.id)}
+              onDragEnd={handleDragEnd}
+              className={`cursor-grab active:cursor-grabbing rounded transition-colors ${dragOverId === chart.id ? "ring-1 ring-sky-500/40" : ""}`}
+            >
+              <DataCard chart={chart} />
             </div>
           ))}
         </div>
