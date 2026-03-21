@@ -22,7 +22,6 @@ import {
   BarChart3,
   RefreshCw,
   Brain,
-  ChevronRight,
   AlertTriangle,
   Link2,
   Database,
@@ -535,59 +534,38 @@ function TokenAnalysisSection({ companyId, companyName }: { companyId: string; c
     onError: (err: any) => toast({ title: "Failed to delete", description: err.message, variant: "destructive" }),
   });
 
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-
   return (
     <div>
       {analyses.length > 0 && (
-        <div className="space-y-2 mb-3">
+        <div className="space-y-1.5 mb-3">
           {analyses.map((analysis) => (
-            <div key={analysis.id} data-testid={`token-analysis-${analysis.id}`}>
-              <button
-                className="flex items-center justify-between w-full py-2 hover:text-foreground transition-colors"
-                onClick={() => setExpandedId(expandedId === analysis.id ? null : analysis.id)}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <Brain className="w-3.5 h-3.5 text-muted-foreground/50 shrink-0" />
-                  <div className="min-w-0 text-left">
-                    <p className="text-xs font-medium truncate">Token Intelligence Report</p>
-                    <p className="text-[10px] text-muted-foreground/50">
-                      {analysis.status === "generating" ? "Generating..." : analysis.status === "failed" ? "Failed" : format(new Date(analysis.createdAt), "MMM d, yyyy h:mm a")}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  {analysis.status !== "generating" && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); deleteMutation.mutate(analysis.id); }}
-                      className="p-1 rounded hover:bg-destructive/20 text-muted-foreground/30 hover:text-destructive transition-colors"
-                      data-testid={`button-delete-analysis-${analysis.id}`}
-                      title="Delete report"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  )}
-                  {analysis.status === "generating" ? (
-                    <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
-                  ) : (
-                    <ChevronRight className={`w-3 h-3 text-muted-foreground/30 transition-transform ${expandedId === analysis.id ? "rotate-90" : ""}`} />
-                  )}
-                </div>
-              </button>
-              {expandedId === analysis.id && analysis.content && (
-                <div className="mt-2 mb-4 rounded-md border border-border/15 bg-card/30" data-testid={`token-analysis-content-${analysis.id}`}>
-                  <div className="px-5 py-4 max-w-none">
-                    <ResearchReport content={analysis.content} />
-                  </div>
-                  <div className="px-5 py-2 border-t border-border/10 text-[10px] text-muted-foreground/30">
-                    Generated {format(new Date(analysis.createdAt), "MMM d, yyyy 'at' h:mm a")}
-                  </div>
-                </div>
+            <div key={analysis.id} className="flex items-center justify-between py-1.5" data-testid={`token-analysis-${analysis.id}`}>
+              <div className="flex items-center gap-2 min-w-0">
+                {analysis.status === "generating" ? (
+                  <Loader2 className="w-3 h-3 animate-spin text-muted-foreground shrink-0" />
+                ) : analysis.status === "failed" ? (
+                  <AlertTriangle className="w-3 h-3 text-destructive/50 shrink-0" />
+                ) : (
+                  <Brain className="w-3 h-3 text-muted-foreground/40 shrink-0" />
+                )}
+                <span className="text-xs text-foreground/60">
+                  {analysis.status === "generating" ? "Generating..." : analysis.status === "failed" ? "Failed" : format(new Date(analysis.createdAt), "MMM d, yyyy h:mm a")}
+                </span>
+              </div>
+              {analysis.status !== "generating" && (
+                <button
+                  onClick={() => deleteMutation.mutate(analysis.id)}
+                  className="p-1 rounded hover:bg-destructive/20 text-muted-foreground/20 hover:text-destructive transition-colors"
+                  data-testid={`button-delete-analysis-${analysis.id}`}
+                >
+                  <Trash2 className="w-2.5 h-2.5" />
+                </button>
               )}
             </div>
           ))}
         </div>
       )}
+      <p className="text-[11px] text-muted-foreground/30 mb-2">Reports appear in the Research Report tab</p>
       <Button
         variant="outline"
         className="w-full gap-2 text-xs h-8"
@@ -600,7 +578,7 @@ function TokenAnalysisSection({ companyId, companyName }: { companyId: string; c
         ) : !tokenProfile ? (
           <><Brain className="w-3 h-3" /> Attach a token first</>
         ) : (
-          <><Brain className="w-3 h-3" /> Generate AI Token Analysis (~$0.23)</>
+          <><Brain className="w-3 h-3" /> Generate Research Report (~$0.23)</>
         )}
       </Button>
     </div>
@@ -733,7 +711,24 @@ function TokenSnapshotCard({ companyId }: { companyId: string }) {
   );
 }
 
-function ResearchReport({ content }: { content: string }) {
+function renderInline(text: string): JSX.Element {
+  const parts: (string | JSX.Element)[] = [];
+  let idx = 0;
+  const regex = /\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`/g;
+  let match;
+  let lastIndex = 0;
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
+    if (match[1]) parts.push(<strong key={idx++} className="font-semibold text-foreground">{match[1]}</strong>);
+    else if (match[2]) parts.push(<em key={idx++} className="italic">{match[2]}</em>);
+    else if (match[3]) parts.push(<code key={idx++} className="text-[0.85em] font-mono px-1 py-0.5 rounded bg-muted/40">{match[3]}</code>);
+    lastIndex = regex.lastIndex;
+  }
+  if (lastIndex < text.length) parts.push(text.slice(lastIndex));
+  return <>{parts}</>;
+}
+
+function ResearchReport({ content, compact }: { content: string; compact?: boolean }) {
   let cleaned = content
     .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
     .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, '')
@@ -742,54 +737,52 @@ function ResearchReport({ content }: { content: string }) {
     .trim();
 
   const lines = cleaned.split('\n');
-  const elements: JSX.Element[] = [];
+  const sections: JSX.Element[] = [];
+  let currentSection: JSX.Element[] = [];
   let listItems: { text: string; ordered: boolean }[] = [];
   let i = 0;
-  let sectionCount = 0;
+  let sectionIdx = 0;
+  let title = '';
+  let subtitle = '';
 
   const flushList = () => {
     if (listItems.length === 0) return;
     const isOrdered = listItems[0].ordered;
     const Tag = isOrdered ? 'ol' : 'ul';
-    elements.push(
-      <Tag key={`list-${elements.length}`} className={`${isOrdered ? 'list-decimal' : 'list-disc'} pl-5 space-y-1 my-2`}>
+    currentSection.push(
+      <Tag key={`l-${sectionIdx}-${currentSection.length}`} className={`${isOrdered ? 'list-decimal' : 'list-disc'} pl-4 space-y-1.5 my-3`}>
         {listItems.map((item, j) => (
-          <li key={j} className="text-[13px] leading-relaxed text-foreground/80">{renderInline(item.text)}</li>
+          <li key={j} className="text-[13px] leading-[1.75] text-foreground/70 pl-1">
+            {renderInline(item.text)}
+          </li>
         ))}
       </Tag>
     );
     listItems = [];
   };
 
-  const renderInline = (text: string): JSX.Element => {
-    const parts: (string | JSX.Element)[] = [];
-    let idx = 0;
-    const regex = /\*\*(.+?)\*\*|\*(.+?)\*|`(.+?)`/g;
-    let match;
-    let lastIndex = 0;
-    while ((match = regex.exec(text)) !== null) {
-      if (match.index > lastIndex) {
-        parts.push(text.slice(lastIndex, match.index));
-      }
-      if (match[1]) {
-        parts.push(<strong key={idx++} className="text-foreground font-semibold">{match[1]}</strong>);
-      } else if (match[2]) {
-        parts.push(<em key={idx++} className="text-foreground/70 italic">{match[2]}</em>);
-      } else if (match[3]) {
-        parts.push(<code key={idx++} className="text-[11px] font-mono bg-muted/30 px-1 py-0.5 rounded">{match[3]}</code>);
-      }
-      lastIndex = regex.lastIndex;
-    }
-    if (lastIndex < text.length) {
-      parts.push(text.slice(lastIndex));
-    }
-    return <>{parts}</>;
-  };
-
   const isTableRow = (line: string) => line.trim().startsWith('|') && line.trim().endsWith('|');
   const isSeparatorRow = (line: string) => /^\|[\s\-:|]+\|$/.test(line.trim());
-  const parseTableCells = (line: string) =>
-    line.trim().slice(1, -1).split('|').map(c => c.trim());
+  const parseTableCells = (line: string) => line.trim().slice(1, -1).split('|').map(c => c.trim());
+
+  const flushSection = () => {
+    flushList();
+    if (currentSection.length > 0) {
+      sections.push(<div key={`sec-${sectionIdx}`} className="mb-0">{currentSection}</div>);
+      sectionIdx++;
+      currentSection = [];
+    }
+  };
+
+  if (lines.length > 0 && lines[0].match(/^#\s/)) {
+    title = lines[0].replace(/^#\s+/, '');
+    i = 1;
+  }
+
+  if (i < lines.length && !lines[i].match(/^#/) && lines[i].trim() !== '' && lines[i].trim() !== '---') {
+    subtitle = lines[i].trim();
+    i++;
+  }
 
   while (i < lines.length) {
     const line = lines[i];
@@ -801,19 +794,17 @@ function ResearchReport({ content }: { content: string }) {
         tableRows.push(lines[i]);
         i++;
       }
-
       const dataRows = tableRows.filter(r => !isSeparatorRow(r));
       if (dataRows.length > 0) {
         const headerCells = parseTableCells(dataRows[0]);
         const bodyRows = dataRows.slice(1);
-
-        elements.push(
-          <div key={`tbl-${elements.length}`} className="overflow-x-auto my-3 rounded-md border border-border/20">
-            <table className="w-full text-[12px] border-collapse">
+        currentSection.push(
+          <div key={`t-${sectionIdx}-${currentSection.length}`} className="my-4 overflow-x-auto">
+            <table className="w-full border-collapse text-[12px]">
               <thead>
-                <tr className="bg-muted/20">
+                <tr>
                   {headerCells.map((cell, ci) => (
-                    <th key={ci} className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-muted-foreground/60 font-medium border-b border-border/20">
+                    <th key={ci} className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-muted-foreground/50 font-medium border-b-2 border-border/20 whitespace-nowrap">
                       {renderInline(cell)}
                     </th>
                   ))}
@@ -823,9 +814,9 @@ function ResearchReport({ content }: { content: string }) {
                 {bodyRows.map((row, ri) => {
                   const cells = parseTableCells(row);
                   return (
-                    <tr key={ri} className={ri % 2 === 0 ? "" : "bg-muted/5"}>
+                    <tr key={ri} className="border-b border-border/8 hover:bg-muted/5 transition-colors">
                       {cells.map((cell, ci) => (
-                        <td key={ci} className="py-1.5 px-3 text-[12px] text-foreground/80 border-b border-border/10">
+                        <td key={ci} className={`py-2 px-3 text-[12px] whitespace-nowrap ${ci === 0 ? 'text-foreground/80 font-medium' : 'text-foreground/60'}`}>
                           {renderInline(cell)}
                         </td>
                       ))}
@@ -840,7 +831,7 @@ function ResearchReport({ content }: { content: string }) {
       continue;
     }
 
-    const bulletMatch = line.match(/^(\s*)[-*•] (.+)$/);
+    const bulletMatch = line.match(/^(\s*)[-*•]\s+(.+)$/);
     if (bulletMatch) {
       listItems.push({ text: bulletMatch[2], ordered: false });
       i++;
@@ -858,49 +849,198 @@ function ResearchReport({ content }: { content: string }) {
     flushList();
 
     if (line.match(/^---+$/)) {
-      elements.push(<div key={`div-${i}`} className="my-4 border-t border-border/10" />);
-    } else if (line.match(/^#{1,3}\s/)) {
-      const level = line.match(/^(#{1,3})\s/)![1].length;
-      const text = line.replace(/^#{1,3}\s+/, '');
-      sectionCount++;
-
-      if (level === 1) {
-        elements.push(
-          <h1 key={`h-${i}`} className="text-base font-semibold tracking-tight text-foreground mt-1 mb-3">
-            {renderInline(text)}
-          </h1>
-        );
-      } else if (level === 2) {
-        elements.push(
-          <div key={`h-${i}`} className={`${sectionCount > 1 ? 'mt-5' : 'mt-2'} mb-2`}>
-            <h2 className="text-[13px] font-semibold text-foreground tracking-tight">
-              {renderInline(text)}
-            </h2>
-            <div className="mt-1 border-t border-border/15 w-12" />
-          </div>
-        );
-      } else {
-        elements.push(
-          <h3 key={`h-${i}`} className="text-[12px] font-semibold text-foreground/90 mt-3 mb-1.5">
-            {renderInline(text)}
-          </h3>
-        );
-      }
-    } else if (line.trim() === '') {
+      flushSection();
       i++;
       continue;
-    } else {
-      elements.push(
-        <p key={`p-${i}`} className="text-[13px] leading-[1.7] text-foreground/75 mb-2">
-          {renderInline(line)}
-        </p>
-      );
     }
+
+    if (line.match(/^##\s/)) {
+      flushSection();
+      const text = line.replace(/^##\s+/, '').replace(/^\d+\.\s*/, '');
+      currentSection.push(
+        <div key={`h2-${sectionIdx}-${currentSection.length}`} className="pt-5 pb-2 first:pt-0">
+          <h2 className="text-sm font-semibold tracking-tight text-foreground">{renderInline(text)}</h2>
+        </div>
+      );
+      i++;
+      continue;
+    }
+
+    if (line.match(/^###\s/)) {
+      flushList();
+      const text = line.replace(/^###\s+/, '');
+      currentSection.push(
+        <h3 key={`h3-${sectionIdx}-${currentSection.length}`} className="text-[13px] font-semibold text-foreground/85 pt-3 pb-1">
+          {renderInline(text)}
+        </h3>
+      );
+      i++;
+      continue;
+    }
+
+    if (line.match(/^#\s/) && i > 0) {
+      flushSection();
+      const text = line.replace(/^#\s+/, '');
+      currentSection.push(
+        <h1 key={`h1-${sectionIdx}-${currentSection.length}`} className="text-base font-bold tracking-tight text-foreground pt-4 pb-2">
+          {renderInline(text)}
+        </h1>
+      );
+      i++;
+      continue;
+    }
+
+    if (line.trim() === '') {
+      i++;
+      continue;
+    }
+
+    currentSection.push(
+      <p key={`p-${sectionIdx}-${currentSection.length}`} className="text-[13px] leading-[1.8] text-foreground/65 mb-2">
+        {renderInline(line)}
+      </p>
+    );
     i++;
   }
-  flushList();
 
-  return <div className="space-y-0">{elements}</div>;
+  flushSection();
+
+  return (
+    <article className={compact ? "" : "max-w-3xl"}>
+      {title && (
+        <header className="mb-6">
+          <h1 className="text-lg font-bold tracking-tight text-foreground leading-tight">{renderInline(title)}</h1>
+          {subtitle && (
+            <p className="text-[13px] text-muted-foreground/50 mt-1.5 font-mono">{subtitle}</p>
+          )}
+        </header>
+      )}
+      <div>{sections}</div>
+    </article>
+  );
+}
+
+export function TokenReportTab({ companyId, companyName }: { companyId: string; companyName: string }) {
+  const { toast } = useToast();
+  const { getAccessToken } = useAuth();
+
+  const { data: analyses = [] } = useQuery<TokenAnalysis[]>({
+    queryKey: ["/api/companies", companyId, "token-analyses"],
+    refetchInterval: (query) => {
+      const data = query.state.data as TokenAnalysis[] | undefined;
+      if (data?.some((a) => a.status === "generating")) return 5000;
+      return false;
+    },
+  });
+
+  const { data: tokenProfile } = useQuery<TokenProfile | null>({
+    queryKey: ["/api/companies", companyId, "token-profile"],
+  });
+
+  const generateMutation = useMutation({
+    mutationFn: async () => {
+      const token = await getAccessToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+        headers["X-Privy-Token"] = token;
+      }
+      const res = await fetch(`/api/companies/${companyId}/token-analyses/generate`, { method: "POST", headers });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Failed" }));
+        throw new Error(err.message);
+      }
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "token-analyses"] });
+      toast({ title: "Analysis started", description: "Generating research report. This may take a minute." });
+    },
+    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (analysisId: string) => {
+      await apiRequest("DELETE", `/api/token-analyses/${analysisId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "token-analyses"] });
+      toast({ title: "Report deleted" });
+    },
+    onError: (err: any) => toast({ title: "Failed to delete", description: err.message, variant: "destructive" }),
+  });
+
+  const completedAnalyses = analyses.filter(a => a.status === "completed" && a.content);
+  const generating = analyses.some(a => a.status === "generating");
+  const latestReport = completedAnalyses[0];
+
+  if (generating) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-3">
+        <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">Generating research report...</p>
+        <p className="text-[11px] text-muted-foreground/40">This typically takes 1-2 minutes</p>
+      </div>
+    );
+  }
+
+  if (!latestReport) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-4">
+        <div className="text-muted-foreground/20">
+          <Brain className="w-8 h-8" />
+        </div>
+        <div className="text-center">
+          <p className="text-sm text-muted-foreground/60 mb-1">No research report yet</p>
+          <p className="text-[11px] text-muted-foreground/30">Generate an AI-powered investment analysis for {companyName}</p>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="text-xs gap-1.5 mt-2"
+          onClick={() => generateMutation.mutate()}
+          disabled={generateMutation.isPending || !tokenProfile}
+          data-testid="button-generate-report-tab"
+        >
+          <Brain className="w-3 h-3" />
+          Generate Research Report (~$0.23)
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-6">
+        <div className="text-[10px] text-muted-foreground/30">
+          {format(new Date(latestReport.createdAt), "MMMM d, yyyy")}
+          {completedAnalyses.length > 1 && ` · ${completedAnalyses.length} reports`}
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={() => deleteMutation.mutate(latestReport.id)}
+            className="p-1 rounded hover:bg-destructive/20 text-muted-foreground/20 hover:text-destructive transition-colors"
+            data-testid="button-delete-report"
+            title="Delete report"
+          >
+            <Trash2 className="w-3 h-3" />
+          </button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-[10px] h-6 px-2 text-muted-foreground/30 hover:text-muted-foreground"
+            onClick={() => generateMutation.mutate()}
+            disabled={generateMutation.isPending || !tokenProfile}
+            data-testid="button-regenerate-report"
+          >
+            <RefreshCw className="w-2.5 h-2.5 mr-1" />
+            Regenerate
+          </Button>
+        </div>
+      </div>
+      <ResearchReport content={latestReport.content} />
+    </div>
+  );
 }
 
 export default function TokenIntelligenceTab({ companyId, companyName, hasLiquidToken }: { companyId: string; companyName: string; hasLiquidToken?: boolean }) {

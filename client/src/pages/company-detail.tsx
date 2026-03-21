@@ -19,7 +19,7 @@ import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { format } from "date-fns";
 import type { Report } from "@shared/schema";
-import TokenIntelligenceTab from "./token-intelligence";
+import TokenIntelligenceTab, { TokenReportTab } from "./token-intelligence";
 
 const STAGE_COLORS: Record<PipelineStage, string> = {
   discovered: "text-blue-400",
@@ -416,7 +416,7 @@ export default function CompanyDetail() {
   const [, navigate] = useLocation();
   const [noteContent, setNoteContent] = useState("");
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<"deal" | "token">("deal");
+  const [activeTab, setActiveTab] = useState<"deal" | "token" | "report">("deal");
 
   const { data: company, isLoading: companyLoading } = useQuery<Company>({ queryKey: ["/api/companies", params.id] });
   const { data: founders = [] } = useQuery<Founder[]>({ queryKey: ["/api/companies", params.id, "founders"] });
@@ -579,6 +579,18 @@ export default function CompanyDetail() {
             >
               Token Intelligence
             </button>
+            {company.hasLiquidToken && (
+              <button
+                role="tab"
+                aria-selected={activeTab === "report"}
+                aria-controls="panel-report"
+                onClick={() => setActiveTab("report")}
+                className={`text-xs px-3 py-1.5 rounded transition-colors ${activeTab === "report" ? "text-foreground bg-blue-500/15 dark:bg-blue-400/15" : "text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-accent/20"}`}
+                data-testid="tab-token-report"
+              >
+                Research Report
+              </button>
+            )}
           </div>
         </div>
 
@@ -803,11 +815,15 @@ export default function CompanyDetail() {
               </div>
             </div>
           </div>
-        ) : (
+        ) : activeTab === "token" ? (
           <div id="panel-token" role="tabpanel" aria-labelledby="tab-token-intelligence">
             <TokenIntelligenceTab companyId={company.id} companyName={company.name} hasLiquidToken={company.hasLiquidToken ?? false} />
           </div>
-        )}
+        ) : activeTab === "report" ? (
+          <div id="panel-report" role="tabpanel" aria-labelledby="tab-token-report">
+            <TokenReportTab companyId={company.id} companyName={company.name} />
+          </div>
+        ) : null}
       </div>
     </div>
   );
