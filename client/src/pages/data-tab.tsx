@@ -422,9 +422,21 @@ function DataCard({ chart }: { chart: DashboardChart }) {
             <button onClick={() => deleteMutation.mutate()} className="p-1.5 rounded-lg hover:bg-red-500/10 text-white/20 hover:text-red-400/60 transition-colors" data-testid={`button-delete-chart-${chart.id}`}><Trash2 className="w-3.5 h-3.5" /></button>
           </div>
         </div>
-        <div className="flex items-center justify-center h-40 gap-2">
-          <AlertTriangle className="w-3.5 h-3.5 text-red-400/40" />
-          <span className="text-[11px] text-red-400/50">{chart.errorMessage || "Failed"}</span>
+        <div className="flex items-center justify-center h-40 gap-2 px-6">
+          <AlertTriangle className="w-3.5 h-3.5 text-red-400/40 flex-shrink-0" />
+          <span className="text-[11px] text-red-400/50 line-clamp-3">{
+            (() => {
+              const msg = chart.errorMessage || "Failed";
+              if (msg.includes("InsufficientBalance") || msg.includes("insufficient USDC"))
+                return "MPP wallet out of funds — top up USDC on Tempo to continue.";
+              if (msg.includes("Payment settlement failed"))
+                return "Payment failed — try refreshing.";
+              if (msg.includes("timed out"))
+                return "Query timed out — try a simpler request.";
+              const clean = msg.replace(/\/home\/runner\/[^\s]+/g, "").replace(/UserWarning:[^\n]+/g, "").trim();
+              return clean.length > 120 ? clean.slice(0, 120) + "…" : clean;
+            })()
+          }</span>
         </div>
       </div>
     );
@@ -788,7 +800,14 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
       setPrompt("");
       toast({ title: "Data loaded" });
     },
-    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+    onError: (err: any) => {
+      let desc = err.message || "Something went wrong";
+      if (desc.includes("InsufficientBalance") || desc.includes("insufficient USDC"))
+        desc = "MPP wallet out of funds — top up USDC on Tempo to continue.";
+      else if (desc.includes("Execution reverted"))
+        desc = "Payment transaction failed — wallet may need funding.";
+      toast({ title: "Failed", description: desc, variant: "destructive" });
+    },
   });
 
   const handleSubmit = (e: React.FormEvent) => {

@@ -53,6 +53,11 @@ async function runAlliumCli(args: string[], timeoutMs = 90000): Promise<any> {
         }
         const msg = err.stderr || err.message || "Unknown Allium CLI error";
         const isPaymentError = msg.includes("Payment settlement failed") || msg.includes("authorization header");
+        const isInsufficientBalance = msg.includes("InsufficientBalance");
+
+        if (isInsufficientBalance) {
+          throw new Error("Allium query failed: MPP wallet has insufficient USDC balance. Please top up the server wallet on Tempo (chain 4217).");
+        }
 
         if (isPaymentError && attempt < maxRetries) {
           console.warn(`[Allium] Payment settlement failed (attempt ${attempt}/${maxRetries}), retrying in ${attempt * 2}s...`);
