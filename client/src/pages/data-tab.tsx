@@ -642,7 +642,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
       const color = CHART_COLORS[i % CHART_COLORS.length];
 
       if (seriesType === "bar") {
-        return <Bar key={y.dataKey} dataKey={y.dataKey} yAxisId={axisId} fill={color} radius={[4, 4, 0, 0]} maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20} opacity={0.7} />;
+        return <Bar key={y.dataKey} dataKey={y.dataKey} yAxisId={axisId} fill={color} radius={[1, 1, 0, 0]} maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20} opacity={0.85} />;
       }
       if (seriesType === "area") {
         return <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} yAxisId={axisId} stroke={color} strokeWidth={1.5} fill={color} fillOpacity={0.08} dot={false} />;
@@ -664,7 +664,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
           <BarChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
             {gridEl}{xAxisEl}{singleYAxisEl}{tooltipEl}{legendEl}
             {yAxes.map((y: any, i: number) => (
-              <Bar key={y.dataKey} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[4, 4, 0, 0]} maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20} opacity={0.7} />
+              <Bar key={y.dataKey} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[1, 1, 0, 0]} maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20} opacity={0.85} />
             ))}
           </BarChart>
         );
