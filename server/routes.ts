@@ -492,13 +492,13 @@ export async function registerRoutes(
     const userId = req.user!.id;
     const company = await storage.createCompany({ ...parsed.data, userId } as any);
 
-    if (company.hasLiquidToken && company.tokenContractAddress) {
+    if (company.hasLiquidToken && company.tokenTicker) {
       try {
         await storage.upsertTokenProfile({
           companyId: company.id,
-          contractAddress: company.tokenContractAddress,
-          chain: company.tokenChain || "ethereum",
-          tokenTicker: company.tokenTicker || undefined,
+          contractAddress: company.tokenContractAddress || "",
+          chain: company.tokenChain || "unknown",
+          tokenTicker: company.tokenTicker,
         });
         console.log(`[Auto] Created token profile for ${company.name} (${company.tokenTicker})`);
       } catch (err) {

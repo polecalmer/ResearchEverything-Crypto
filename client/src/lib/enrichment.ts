@@ -21,6 +21,8 @@ const AGENT_LABELS: Record<string, string> = {
   scraper: "Web Scraper",
   identifier: "Identifier Agent",
   token_identifier: "Token Identifier",
+  contract_finder: "Contract Finder",
+  contract_verifier: "Contract Verifier",
   researcher: "Research Agent",
   verify_clean: "Verify & Clean Agent",
   dd_reads: "Due Diligence Reads",
@@ -30,6 +32,8 @@ const AGENT_DESCRIPTIONS: Record<string, string> = {
   scraper: "Fetching real content from the URL",
   identifier: "Figuring out which company is referenced",
   token_identifier: "Detecting if the project has a liquid token",
+  contract_finder: "Finding contract addresses across chains",
+  contract_verifier: "Verifying addresses and selecting primary chain",
   researcher: "Building a comprehensive deal card",
   verify_clean: "Fact-checking claims and stripping unverified data",
   dd_reads: "Finding critical adjacent reads for due diligence",
@@ -69,6 +73,14 @@ function emitProgress(events: any[], onStage: (stage: EnrichmentStage) => void) 
         hasLiquidToken: event.hasLiquidToken,
         tokenTicker: event.tokenTicker,
         tokenTier: event.tokenTier,
+      });
+    } else if (event.type === "contract_verified") {
+      onStage({
+        agent: "contract_verifier",
+        step: event.step,
+        total: event.total || 6,
+        message: `Primary: ${event.primaryAddress} on ${event.primaryChain}`,
+        status: "complete",
       });
     }
   }

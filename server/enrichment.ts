@@ -299,6 +299,111 @@ If the project has a token, classify it into Tier 0-3 based on:
   return buildAnthropicRequest(TOKEN_IDENTIFIER_SYSTEM, prompt, true);
 }
 
+// ─── AGENT 1.5a: CONTRACT ADDRESS FINDER ──────────────────────────────────────
+
+const CONTRACT_FINDER_SYSTEM = `You are the Contract Address Finder Agent in a VC deal intelligence pipeline. Given a token ticker and its associated project/chain, your job is to find ALL known contract addresses for this token across every blockchain it exists on.
+
+YOU HAVE WEB SEARCH ACCESS. Use it to:
+- Search CoinGecko, CoinMarketCap, and DeFiLlama for the token's contract addresses
+- Check block explorers (Etherscan, Basescan, Arbiscan, Solscan, etc.)
+- Search for "[token] contract address" and "[token] token address [chain]"
+- Check the project's official documentation for canonical contract addresses
+- Look for bridge/wrapped versions on other chains
+
+IMPORTANT RULES:
+- Find the NATIVE/canonical deployment first, then bridged/wrapped versions
+- For tokens native to their own L1 (e.g., HYPE on Hyperliquid), note if the L1 has an EVM-compatible address or if the token exists as a wrapped version on an EVM chain
+- Include ALL chains where the token has meaningful liquidity
+- For each address, note whether it's the canonical/native version or a bridged/wrapped version
+
+Return ONLY valid JSON:
+{
+  "tokenTicker": "TOKEN",
+  "addresses": [
+    {
+      "chain": "ethereum/arbitrum/base/solana/hyperliquid/etc",
+      "contractAddress": "0x... or native",
+      "addressType": "native/wrapped/bridged",
+      "source": "where you found this address (coingecko/docs/explorer/etc)",
+      "confidence": "high/medium/low"
+    }
+  ],
+  "notes": "Any relevant context about the token's multi-chain presence"
+}`;
+
+function buildContractFinderRequest(tokenTicker: string, companyName: string, chain: string): AnthropicRequest {
+  const prompt = `Find ALL contract addresses for the token "${tokenTicker}" associated with the project "${companyName}".
+${chain ? `The token was initially detected on chain: "${chain}"` : "The chain is unknown — search broadly."}
+
+Search for:
+1. "${tokenTicker} contract address" on CoinGecko, CoinMarketCap
+2. "${tokenTicker} token address ${chain || ''}" on block explorers
+3. "${companyName} token contract" in official docs
+4. Check if the token exists on multiple chains (Ethereum, Arbitrum, Base, Solana, etc.)
+5. For L1-native tokens, check if there's a wrapped/bridged version on EVM chains
+
+Return ALL addresses found with their chain, type, and confidence level.`;
+  return buildAnthropicRequest(CONTRACT_FINDER_SYSTEM, prompt, true, 4000, 8);
+}
+
+// ─── AGENT 1.5b: CONTRACT ADDRESS VERIFIER ────────────────────────────────────
+
+const CONTRACT_VERIFIER_SYSTEM = `You are the Contract Address Verifier Agent in a VC deal intelligence pipeline. You receive a list of candidate contract addresses for a token and must verify them, then select the PRIMARY address to use.
+
+YOU HAVE WEB SEARCH ACCESS. Use it to:
+- Verify each contract address on its respective block explorer
+- Check that the contract matches the expected token (correct name, symbol, decimals)
+- Look up trading volume and liquidity on each chain
+- Verify the deployer/creator address is associated with the official project
+
+VERIFICATION CRITERIA:
+1. Address exists on the claimed chain and is a valid token contract
+2. Token name/symbol matches the expected token
+3. Contract is not a scam/copycat (check deployer, creation date, holder count)
+4. Meaningful liquidity exists (DEX pools, CEX listings)
+
+PRIMARY ADDRESS SELECTION (pick the most useful for analysis):
+- Prefer the chain with the HIGHEST trading volume and liquidity
+- If roughly equal, prefer EVM chains (better tooling/analysis support)
+- If token is native to its own L1 with no EVM presence, use the L1 address
+- The primary address should be the one most useful for on-chain analysis
+
+Return ONLY valid JSON:
+{
+  "tokenTicker": "TOKEN",
+  "verified": true/false,
+  "primaryAddress": {
+    "contractAddress": "0x... or native identifier",
+    "chain": "the chain name",
+    "addressType": "native/wrapped/bridged"
+  },
+  "allVerifiedAddresses": [
+    {
+      "chain": "chain name",
+      "contractAddress": "address",
+      "addressType": "native/wrapped/bridged",
+      "verified": true/false,
+      "verificationNotes": "brief note on verification result"
+    }
+  ],
+  "verificationSummary": "1-2 sentences on what was verified and why the primary was chosen"
+}`;
+
+function buildContractVerifierRequest(tokenTicker: string, companyName: string, candidateAddresses: any[]): AnthropicRequest {
+  const prompt = `Verify the following candidate contract addresses for token "${tokenTicker}" (project: "${companyName}"):
+
+${JSON.stringify(candidateAddresses, null, 2)}
+
+For each address:
+1. Verify it exists on the claimed chain
+2. Confirm the token name/symbol matches "${tokenTicker}"
+3. Check for meaningful liquidity/volume
+4. Determine if it's the official/canonical deployment
+
+Then select the PRIMARY address — the one with the highest liquidity and best analysis support.`;
+  return buildAnthropicRequest(CONTRACT_VERIFIER_SYSTEM, prompt, true, 4000, 8);
+}
+
 // ─── AGENT 2: RESEARCH ──────────────────────────────────────────────────────
 
 const RESEARCH_SYSTEM = `You are the Research Agent in a VC deal intelligence pipeline. You receive a confirmed company identity and must produce a comprehensive deal card.
@@ -769,7 +874,7 @@ export async function advanceEnrichmentSession(
     return { anthropicRequest: request, progress };
   }
 
-  // Step 1: Token Identifier complete → Research
+  // Step 1: Token Identifier complete → Contract Finder (if token found) or Research
   if (session.step === 1) {
     const tokenResult = parseJson(responseText);
     const hasToken = tokenResult.hasLiquidToken === true;
@@ -783,9 +888,33 @@ export async function advanceEnrichmentSession(
       valueAccrualMechanism: tokenResult.valueAccrualMechanism || "",
       revenueModel: tokenResult.revenueModel || "",
     };
-    session.step = 2;
 
     console.log(`[Enrichment] Token Identifier: hasLiquidToken=${hasToken}${hasToken ? ` (${tokenResult.tokenTicker}, ${tokenResult.tokenTier})` : ""}`);
+
+    if (hasToken && tokenResult.tokenTicker) {
+      session.step = 10;
+      progress.push({
+        type: "stage_complete",
+        agent: "token_identifier",
+        step: 2,
+        total: totalSteps,
+        hasLiquidToken: hasToken,
+        tokenTicker: tokenResult.tokenTicker || "",
+        tokenTier: tokenResult.tokenTier || "",
+      });
+
+      const request = buildContractFinderRequest(
+        tokenResult.tokenTicker,
+        session.identity.companyName,
+        tokenResult.chain || "",
+      );
+      progress.push({ type: "stage", agent: "contract_finder", step: 2, total: totalSteps, message: `Finding contract addresses for ${tokenResult.tokenTicker}...` });
+      console.log(`[Enrichment] Agent 2b: Contract Address Finder — searching for ${tokenResult.tokenTicker} addresses...`);
+
+      return { anthropicRequest: request, progress };
+    }
+
+    session.step = 2;
     progress.push({
       type: "stage_complete",
       agent: "token_identifier",
@@ -795,6 +924,73 @@ export async function advanceEnrichmentSession(
       tokenTicker: tokenResult.tokenTicker || "",
       tokenTier: tokenResult.tokenTier || "",
     });
+
+    const request = buildResearchRequest(session.identity.companyName, session.identity.domain, session.input, session.scrapedContent);
+    progress.push({ type: "stage", agent: "researcher", step: 3, total: totalSteps, message: `Researching ${session.identity.companyName}...` });
+    console.log("[Enrichment] Agent 3/5: Research — building deal card...");
+
+    return { anthropicRequest: request, progress };
+  }
+
+  // Step 10: Contract Finder complete → Contract Verifier
+  if (session.step === 10) {
+    const finderResult = parseJson(responseText);
+    (session as any).contractFinderResult = finderResult;
+    session.step = 11;
+
+    const addresses = finderResult.addresses || [];
+    console.log(`[Enrichment] Contract Finder: found ${addresses.length} candidate address(es) for ${finderResult.tokenTicker || session.tokenIdentification?.tokenTicker}`);
+
+    if (addresses.length === 0) {
+      console.log("[Enrichment] No contract addresses found — skipping verifier, proceeding to research.");
+      session.step = 2;
+
+      const request = buildResearchRequest(session.identity.companyName, session.identity.domain, session.input, session.scrapedContent);
+      progress.push({ type: "stage", agent: "researcher", step: 3, total: totalSteps, message: `Researching ${session.identity.companyName}...` });
+      console.log("[Enrichment] Agent 3/5: Research — building deal card...");
+
+      return { anthropicRequest: request, progress };
+    }
+
+    const request = buildContractVerifierRequest(
+      session.tokenIdentification!.tokenTicker,
+      session.identity.companyName,
+      addresses,
+    );
+    progress.push({ type: "stage", agent: "contract_verifier", step: 2, total: totalSteps, message: `Verifying contract addresses for ${session.tokenIdentification!.tokenTicker}...` });
+    console.log(`[Enrichment] Agent 2c: Contract Verifier — verifying ${addresses.length} address(es)...`);
+
+    return { anthropicRequest: request, progress };
+  }
+
+  // Step 11: Contract Verifier complete → update tokenIdentification → Research
+  if (session.step === 11) {
+    const verifierResult = parseJson(responseText);
+    session.step = 2;
+
+    if (verifierResult.verified && verifierResult.primaryAddress) {
+      const primary = verifierResult.primaryAddress;
+      session.tokenIdentification!.contractAddress = primary.contractAddress || session.tokenIdentification!.contractAddress;
+      session.tokenIdentification!.chain = primary.chain || session.tokenIdentification!.chain;
+
+      (session as any).allVerifiedAddresses = verifierResult.allVerifiedAddresses || [];
+
+      console.log(`[Enrichment] Contract Verifier: PRIMARY = ${primary.contractAddress} on ${primary.chain} (${primary.addressType})`);
+      console.log(`[Enrichment] Verification summary: ${verifierResult.verificationSummary || "N/A"}`);
+
+      progress.push({
+        type: "contract_verified",
+        agent: "contract_verifier",
+        step: 2,
+        total: totalSteps,
+        primaryAddress: primary.contractAddress,
+        primaryChain: primary.chain,
+        addressType: primary.addressType,
+        allAddresses: verifierResult.allVerifiedAddresses?.filter((a: any) => a.verified) || [],
+      });
+    } else {
+      console.log("[Enrichment] Contract Verifier: could not verify any address.");
+    }
 
     const request = buildResearchRequest(session.identity.companyName, session.identity.domain, session.input, session.scrapedContent);
     progress.push({ type: "stage", agent: "researcher", step: 3, total: totalSteps, message: `Researching ${session.identity.companyName}...` });

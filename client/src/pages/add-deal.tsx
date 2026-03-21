@@ -43,6 +43,8 @@ import {
   Globe,
   FileText,
   Coins,
+  Link2,
+  BadgeCheck,
 } from "lucide-react";
 import { useState } from "react";
 import { runEnrichmentPipeline, type EnrichmentStage } from "@/lib/enrichment";
@@ -333,14 +335,22 @@ export default function AddDeal() {
             {pipelineStages.length > 0 && (
               <div className="space-y-1.5 py-3" data-testid="pipeline-progress">
                 <p className="text-xs font-medium text-muted-foreground mb-2">Agent Pipeline</p>
-                {[
+                {(() => {
+                  const tokenDetected = pipelineStages.some(s => s.agent === "token_identifier" && s.status === "complete" && s.hasLiquidToken);
+                  const baseStages = [
                     { key: "scraper", icon: Globe, label: "Web Scraper" },
                     { key: "identifier", icon: Search, label: "Identifier Agent" },
                     { key: "token_identifier", icon: Coins, label: "Token Identifier" },
+                    ...(tokenDetected ? [
+                      { key: "contract_finder", icon: Link2, label: "Contract Finder" },
+                      { key: "contract_verifier", icon: BadgeCheck, label: "Contract Verifier" },
+                    ] : []),
                     { key: "researcher", icon: FileSearch, label: "Research Agent" },
                     { key: "verify_clean", icon: ShieldCheck, label: "Verify & Clean Agent" },
                     { key: "dd_reads", icon: FileText, label: "Due Diligence Reads" },
-                  ].map(({ key, icon: Icon, label }, idx, stages) => {
+                  ];
+                  return baseStages;
+                })().map(({ key, icon: Icon, label }, idx, stages) => {
                   const stage = pipelineStages.find((s) => s.agent === key);
                   const isActive = stage?.status === "running";
                   const isDone = stage?.status === "complete";

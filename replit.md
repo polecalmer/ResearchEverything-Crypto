@@ -45,14 +45,16 @@ Focus on user experience and intuitive design.
 
 **Pipeline Stages:** `Discovered -> Researching -> Reaching Out -> In Diligence -> Passed / Invested`
 
-**AI Enrichment Pipeline (6 Steps):**
+**AI Enrichment Pipeline (6 visible steps, up to 8 internal):**
 1.  **Web Scraper:** Fetches content from URLs.
 2.  **Identifier Agent:** Identifies the company from input and scraped data.
-3.  **Token Identifier Agent:** Detects if the project has a liquid token. Classifies into Tier 0-3 using the liquid token analysis framework (Tier 0: Monetary Premium, Tier 1: Great, Tier 2: Average, Tier 3: Bad). Stores: hasLiquidToken, tokenTicker, contractAddress, chain, tokenTier on the company record.
+3.  **Token Identifier Agent:** Detects if the project has a liquid token. Classifies into Tier 0-3 using the liquid token analysis framework (Tier 0: Monetary Premium, Tier 1: Great, Tier 2: Average, Tier 3: Bad).
+    - **3a. Contract Address Finder (conditional):** When a liquid token is detected, searches CoinGecko/CoinMarketCap/block explorers for ALL contract addresses across chains (native, wrapped, bridged).
+    - **3b. Contract Address Verifier (conditional):** Verifies candidate addresses, checks on-chain existence and liquidity, selects the PRIMARY address (highest volume chain, prefers EVM).
 4.  **Research Agent:** Builds a comprehensive deal card (VC research runs for ALL projects).
 5.  **Verify & Clean Agent:** Combines fact-checking and hallucination firewall, stripping unverified data.
 6.  **Due Diligence Reads Agent:** Finds 4-5 critical adjacent reads (research papers, whitepapers, regulatory docs, market analyses) relevant to the investment thesis. Stored as JSON in `adjacentReads` column.
-All AI agents use Claude Opus 4.6 with web search capabilities. Liquid token projects get a "Liquid Token" tag and stage automatically. Token profiles are auto-populated when a liquid token is detected. The liquid token analysis framework is stored in `server/skills/liquid-token-analysis.md`.
+All AI agents use Claude Opus 4.6 with web search capabilities. Liquid token projects get a "Liquid Token" tag and stage automatically. Token profiles are auto-populated when a liquid token is detected (no longer requires a contract address — works for L1-native tokens). The liquid token analysis framework is stored in `server/skills/liquid-token-analysis.md`. The contract finder/verifier sub-steps use the standard enrichment MPP tier ($0.50 maxDeposit) and appear as sub-items under step 2 in the pipeline UI.
 
 **Standalone Liquid Token Research:** The deep token analysis (supply, valuation, liquidity, value accrual, risk flags) runs as a standalone background job via the "Generate AI Token Analysis" button on the Token Intelligence tab. Uses `server/token-agent.ts` with multi-turn approach (3 sequential calls: market data research → valuation & risk research → synthesis). Runs as an async background task (same pattern as deep research reports) to avoid gateway timeouts. Results saved to both `token_analyses` table and `liquidTokenAnalysis` column on the company.
 
