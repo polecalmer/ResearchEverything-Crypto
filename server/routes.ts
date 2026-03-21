@@ -39,27 +39,30 @@ function buildDuneChartConfig(columns: string[], rows: any[], vizType?: string |
   }
 
   const isCurrency = (col: string) => /usd|price|fee|revenue|volume|amount|cost|tvl|value|earnings|profit/i.test(col);
-  const isBarMetric = (col: string) => /volume|count|users|txn|transaction|trade|swap|deposit|withdraw|mint|burn|liquidat/i.test(col);
+  const isBarMetric = (col: string) => /volume|count|users|txn|transaction|trade|swap|deposit|withdraw|mint|burn|liquidat|revenue|fee/i.test(col);
   const isGrowth = (col: string) => /growth|pct|percent|ratio|change|rate|apy|apr/i.test(col);
+
+  const primaryCol = numCols.find(c => !isGrowth(c) && !c.startsWith("prev_")) || numCols[0];
+  const fmt = isGrowth(primaryCol) ? "percent" : isCurrency(primaryCol) ? "currency" : "number";
 
   let chartType: string;
   if (vizType === "bar") chartType = "bar";
   else if (vizType === "area") chartType = "area";
   else if (vizType === "line") chartType = "line";
-  else if (numCols.every(c => isBarMetric(c))) chartType = "bar";
+  else if (isBarMetric(primaryCol)) chartType = "bar";
   else chartType = "line";
 
   return {
     autoDetect: true,
     _chartType: chartType,
     xAxis: { dataKey: dateCol, label: dateCol.replace(/_/g, " "), type: "date" },
-    yAxes: numCols.slice(0, 6).map((col, i) => ({
-      dataKey: col,
-      label: col.replace(/_/g, " "),
-      color: DUNE_CHART_COLORS[i % DUNE_CHART_COLORS.length],
+    yAxes: [{
+      dataKey: primaryCol,
+      label: primaryCol.replace(/_/g, " "),
+      color: DUNE_CHART_COLORS[0],
       yAxisId: "left",
-      format: isGrowth(col) ? "percent" : isCurrency(col) ? "currency" : "number",
-    })),
+      format: fmt,
+    }],
   };
 }
 

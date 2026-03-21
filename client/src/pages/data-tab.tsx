@@ -20,7 +20,6 @@ import {
   Bar,
   AreaChart,
   Area,
-  ComposedChart,
   XAxis,
   YAxis,
   Tooltip,
@@ -253,6 +252,11 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
       processed[xAxis.dataKey] = ts;
     }
     return processed;
+  }).sort((a: any, b: any) => {
+    const aVal = a[xAxis.dataKey];
+    const bVal = b[xAxis.dataKey];
+    if (typeof aVal === 'number' && typeof bVal === 'number') return aVal - bVal;
+    return 0;
   });
 
   if (chart.chartType === "table") {
@@ -311,26 +315,97 @@ function ChartRenderer({ chart }: { chart: DashboardChart }) {
     );
   }
 
+  const primary = yAxes[0];
+  const primaryColor = primary.color || CHART_COLORS[0];
+  const primaryFmt = primary.format;
+  const xType = xAxis.type || "category";
+  const cType = chart.chartType || "line";
+
+  const sharedXAxis = (
+    <XAxis
+      dataKey={xAxis.dataKey}
+      tickFormatter={xType === "date" ? formatDateTick : undefined}
+      tick={{ fontSize: 9, fill: "rgba(255,255,255,0.2)" }}
+      axisLine={false}
+      tickLine={false}
+      interval="preserveStartEnd"
+    />
+  );
+
+  const sharedYAxis = (
+    <YAxis
+      tickFormatter={(v: number) => smartFormat(v, primaryFmt)}
+      tick={{ fontSize: 9, fill: "rgba(255,255,255,0.2)" }}
+      axisLine={false}
+      tickLine={false}
+      width={52}
+    />
+  );
+
+  const sharedTooltip = (
+    <Tooltip
+      contentStyle={{
+        backgroundColor: "rgba(0,0,0,0.85)",
+        border: "1px solid rgba(255,255,255,0.08)",
+        borderRadius: "4px",
+        fontSize: "11px",
+        padding: "6px 10px",
+      }}
+      labelFormatter={(l: any) => xType === "date" ? formatDateLabel(l) : String(l)}
+      formatter={(value: any) => [smartTooltip(value, primaryFmt), primary.label || primary.dataKey]}
+      cursor={false}
+    />
+  );
+
+  const renderChart = () => {
+    if (cType === "bar") {
+      return (
+        <BarChart data={processedData} margin={{ top: 8, right: 12, left: -5, bottom: 0 }}>
+          {sharedXAxis}
+          {sharedYAxis}
+          {sharedTooltip}
+          <Bar dataKey={primary.dataKey} fill={primaryColor} radius={[2, 2, 0, 0]} />
+        </BarChart>
+      );
+    }
+    if (cType === "area") {
+      return (
+        <AreaChart data={processedData} margin={{ top: 8, right: 12, left: -5, bottom: 0 }}>
+          {sharedXAxis}
+          {sharedYAxis}
+          {sharedTooltip}
+          <defs>
+            <linearGradient id={`grad-${chart.id}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor={primaryColor} stopOpacity={0.2} />
+              <stop offset="100%" stopColor={primaryColor} stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          <Area type="monotone" dataKey={primary.dataKey} stroke={primaryColor} strokeWidth={1.5} fill={`url(#grad-${chart.id})`} dot={false} />
+        </AreaChart>
+      );
+    }
+    return (
+      <LineChart data={processedData} margin={{ top: 8, right: 12, left: -5, bottom: 0 }}>
+        {sharedXAxis}
+        {sharedYAxis}
+        {sharedTooltip}
+        <Line type="monotone" dataKey={primary.dataKey} stroke={primaryColor} strokeWidth={1.5} dot={false} activeDot={{ r: 3, fill: primaryColor, stroke: "none" }} />
+      </LineChart>
+    );
+  };
+
   return (
     <div className="rounded-lg p-5 bg-white/[0.02]" data-testid={`chart-card-${chart.id}`}>
       <div className="flex items-center justify-between mb-3">
-        <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">{chart.title}</p>
+        <div className="flex items-center gap-1.5">
+          <span className="w-3 h-[2px] rounded-full" style={{ backgroundColor: primaryColor }} />
+          <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider">{chart.title}</p>
+        </div>
         {chartActions}
       </div>
-      <div className={`grid gap-4 ${yAxes.length === 1 ? 'grid-cols-1' : 'grid-cols-2'}`}>
-        {yAxes.map((y: any, i: number) => (
-          <MiniChart
-            key={i}
-            data={processedData}
-            xKey={xAxis.dataKey}
-            yKey={y.dataKey}
-            label={y.label || y.dataKey}
-            color={y.color || CHART_COLORS[i]}
-            xType={xAxis.type || "category"}
-            fmt={y.format}
-          />
-        ))}
-      </div>
+      <ResponsiveContainer width="100%" height={220}>
+        {renderChart()}
+      </ResponsiveContainer>
       <div className="flex items-center justify-between mt-3 text-[9px] text-white/10">
         <span>{chart.dataSource} · {processedData.length} points</span>
         <span>{format(new Date(chart.updatedAt), "MMM d, h:mm a")}</span>
