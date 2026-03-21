@@ -68,7 +68,7 @@ All AI agents use Claude Opus 4.6 with web search capabilities.
 **Token Intelligence Dashboard:**
 Company detail pages feature two tabs: "Deal Intelligence" (existing content) and "Token Intelligence". The Token Intelligence tab includes:
 - Token profile management (contract address, chain, ticker)
-- Token snapshot card (price, market cap, 24h volume, holder count, price change) via AI web search (MPP-paid)
+- Token snapshot card (price, market cap, 24h volume, holder count, price change) via Allium MPP (with CoinGecko fallback)
 - Dune Analytics query manager (add pre-built queries by ID, visualize as bar/line/area/table via Recharts)
 - AI token analysis agent with query selection logic (background job, same pattern as deep research — server runs async, client polls). Agent selects relevant Dune queries from user's attached set, fetches token snapshot, and produces structured analysis.
 - MPP paywalls: token snapshot $0.15, token analysis $0.23, dune query execution $0.05

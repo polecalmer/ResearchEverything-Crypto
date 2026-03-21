@@ -1,4 +1,8 @@
-import { callAnthropicServer } from "./mpp-client";
+import { Mppx, tempo } from "mppx/client";
+import { privateKeyToAccount } from "viem/accounts";
+
+const ALLIUM_MPP_URL = "https://allium.mpp.tempo.xyz/v1/token/snapshot";
+const USDC_DECIMALS = 6;
 
 export interface TokenSnapshot {
   contractAddress: string;
@@ -13,72 +17,175 @@ export interface TokenSnapshot {
   source: string;
 }
 
+const CHAIN_MAP: Record<string, string> = {
+  ethereum: "ethereum",
+  eth: "ethereum",
+  polygon: "polygon",
+  matic: "polygon",
+  arbitrum: "arbitrum",
+  optimism: "optimism",
+  base: "base",
+  solana: "solana",
+  sol: "solana",
+  avalanche: "avalanche",
+  avax: "avalanche",
+  bsc: "bsc",
+  bnb: "bsc",
+};
+
+let alliumMppClient: ReturnType<typeof Mppx.create> | null = null;
+let alliumLastChallengeAmount = 0;
+
+function getAlliumMppClient(): ReturnType<typeof Mppx.create> {
+  if (alliumMppClient) return alliumMppClient;
+
+  const privateKey = process.env.MPP_SERVER_WALLET_KEY;
+  if (!privateKey) {
+    throw new Error("MPP_SERVER_WALLET_KEY not set — server cannot pay Allium");
+  }
+
+  const account = privateKeyToAccount(privateKey as `0x${string}`);
+  const sessionMethods = tempo({ account, maxDeposit: "2" });
+
+  alliumMppClient = Mppx.create({
+    methods: [sessionMethods],
+    polyfill: false,
+    onChallenge: async (challenge, helpers) => {
+      const rawAmount = challenge.request?.amount;
+      if (rawAmount) {
+        const amountNum = typeof rawAmount === "string" ? parseInt(rawAmount, 10) : Number(rawAmount);
+        alliumLastChallengeAmount = amountNum / Math.pow(10, USDC_DECIMALS);
+        console.log(`[Allium-MPP] Challenge amount: $${alliumLastChallengeAmount.toFixed(6)} USDC`);
+      } else {
+        alliumLastChallengeAmount = 0;
+      }
+      return helpers.createCredential();
+    },
+  });
+
+  console.log(`[Allium-MPP] Client initialized: ${account.address}`);
+  return alliumMppClient;
+}
+
+async function fetchViaAlliumMpp(
+  contractAddress: string,
+  chain: string,
+): Promise<{ data: any; mppCost: number }> {
+  const client = getAlliumMppClient();
+  alliumLastChallengeAmount = 0;
+
+  const url = `${ALLIUM_MPP_URL}?address=${encodeURIComponent(contractAddress)}&chain=${encodeURIComponent(chain)}`;
+
+  const response = await client.fetch(url, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": "mpp",
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "Unknown error");
+    throw new Error(`Allium MPP error (${response.status}): ${errorText}`);
+  }
+
+  const data = await response.json();
+  return { data, mppCost: alliumLastChallengeAmount };
+}
+
+async function fetchViaPublicApi(
+  contractAddress: string,
+  chain: string,
+  ticker: string,
+): Promise<{ data: any; mppCost: number }> {
+  const coingeckoChainMap: Record<string, string> = {
+    ethereum: "ethereum",
+    polygon: "polygon-pos",
+    arbitrum: "arbitrum-one",
+    optimism: "optimistic-ethereum",
+    base: "base",
+    avalanche: "avalanche",
+    bsc: "binance-smart-chain",
+  };
+
+  const platform = coingeckoChainMap[chain];
+  if (!platform) {
+    return { data: null, mppCost: 0 };
+  }
+
+  const url = `https://api.coingecko.com/api/v3/simple/token_price/${platform}?contract_addresses=${contractAddress}&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true`;
+
+  const response = await fetch(url, {
+    headers: { accept: "application/json" },
+  });
+
+  if (!response.ok) {
+    throw new Error(`CoinGecko API error (${response.status})`);
+  }
+
+  const json = await response.json();
+  const tokenData = json[contractAddress.toLowerCase()];
+
+  if (!tokenData) {
+    return { data: null, mppCost: 0 };
+  }
+
+  return {
+    data: {
+      price: tokenData.usd ?? null,
+      marketCap: tokenData.usd_market_cap ?? null,
+      volume24h: tokenData.usd_24h_vol ?? null,
+      priceChange24h: tokenData.usd_24h_change ?? null,
+      holderCount: null,
+    },
+    mppCost: 0,
+  };
+}
+
 export async function fetchTokenSnapshot(
   contractAddress: string,
   chain: string,
-  ticker: string
+  ticker: string,
 ): Promise<{ snapshot: TokenSnapshot; mppCost: number }> {
-  const chainMap: Record<string, string> = {
-    ethereum: "ethereum",
-    eth: "ethereum",
-    polygon: "polygon",
-    matic: "polygon",
-    arbitrum: "arbitrum",
-    optimism: "optimism",
-    base: "base",
-    solana: "solana",
-    sol: "solana",
-    avalanche: "avalanche",
-    avax: "avalanche",
-    bsc: "bsc",
-    bnb: "bsc",
-  };
+  const normalizedChain = CHAIN_MAP[chain.toLowerCase()] || chain.toLowerCase();
 
-  const normalizedChain = chainMap[chain.toLowerCase()] || chain.toLowerCase();
+  let data: any = null;
+  let mppCost = 0;
+  let source = "allium-mpp";
 
-  const result = await callAnthropicServer({
-    model: "claude-opus-4-6",
-    max_tokens: 2048,
-    system: `You are a crypto data assistant. When given a token contract address and chain, use your web search capability to find the most current data available for that token. Return ONLY a valid JSON object with these exact fields (use null for any data you cannot find):
-{
-  "price": <number or null>,
-  "marketCap": <number or null>,
-  "volume24h": <number or null>,
-  "holderCount": <number or null>,
-  "priceChange24h": <number or null as percentage, e.g. -5.2 for -5.2%>
-}
-Do not include any text before or after the JSON. Only output the JSON object.`,
-    messages: [
-      {
-        role: "user",
-        content: `Find current market data for token ${ticker} (contract: ${contractAddress}) on ${normalizedChain}. Return the JSON with price in USD, market cap in USD, 24h volume in USD, holder count, and 24h price change percentage.`,
-      },
-    ],
-    tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }],
-  });
-
-  let parsed: any = {};
   try {
-    const jsonMatch = result.text.match(/\{[\s\S]*\}/);
-    if (jsonMatch) {
-      parsed = JSON.parse(jsonMatch[0]);
+    const result = await fetchViaAlliumMpp(contractAddress, normalizedChain);
+    data = result.data;
+    mppCost = result.mppCost;
+    source = "allium-mpp";
+    console.log(`[Allium] Fetched via MPP for ${ticker} on ${normalizedChain}`);
+  } catch (err: any) {
+    console.warn(`[Allium] MPP fetch failed, falling back to public API: ${err.message}`);
+
+    try {
+      const result = await fetchViaPublicApi(contractAddress, normalizedChain, ticker);
+      data = result.data;
+      mppCost = result.mppCost;
+      source = "coingecko-fallback";
+      console.log(`[Allium] Fetched via CoinGecko fallback for ${ticker}`);
+    } catch (fallbackErr: any) {
+      console.error(`[Allium] All sources failed for ${ticker}:`, fallbackErr.message);
+      source = "unavailable";
     }
-  } catch (e) {
-    console.error("[Allium] Failed to parse AI response:", e);
   }
 
   const snapshot: TokenSnapshot = {
     contractAddress,
     chain: normalizedChain,
     ticker,
-    price: typeof parsed.price === "number" ? parsed.price : null,
-    marketCap: typeof parsed.marketCap === "number" ? parsed.marketCap : null,
-    volume24h: typeof parsed.volume24h === "number" ? parsed.volume24h : null,
-    holderCount: typeof parsed.holderCount === "number" ? parsed.holderCount : null,
-    priceChange24h: typeof parsed.priceChange24h === "number" ? parsed.priceChange24h : null,
+    price: data?.price ?? null,
+    marketCap: data?.marketCap ?? null,
+    volume24h: data?.volume24h ?? null,
+    holderCount: data?.holderCount ?? null,
+    priceChange24h: data?.priceChange24h ?? null,
     fetchedAt: new Date().toISOString(),
-    source: "ai-web-search",
+    source,
   };
 
-  return { snapshot, mppCost: result.mppCost };
+  return { snapshot, mppCost };
 }
