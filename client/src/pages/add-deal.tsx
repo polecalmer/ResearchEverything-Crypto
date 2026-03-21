@@ -42,6 +42,8 @@ import {
   ShieldCheck,
   Globe,
   FileText,
+  Coins,
+  BarChart3,
 } from "lucide-react";
 import { useState } from "react";
 import { runEnrichmentPipeline, type EnrichmentStage } from "@/lib/enrichment";
@@ -166,7 +168,7 @@ export default function AddDeal() {
         } catch {}
       }
 
-      const enrichedData: AddDealForm & { adjacentReads?: string } = {
+      const enrichedData: AddDealForm & { adjacentReads?: string; hasLiquidToken?: boolean; tokenTier?: string; tokenTicker?: string; tokenContractAddress?: string; tokenChain?: string; liquidTokenAnalysis?: string } = {
         name: data.name || "",
         oneLiner: data.oneLiner || "",
         description: data.description || "",
@@ -187,6 +189,19 @@ export default function AddDeal() {
 
       if (data.adjacentReads && data.adjacentReads.length > 0) {
         enrichedData.adjacentReads = JSON.stringify(data.adjacentReads);
+      }
+
+      if (data.hasLiquidToken) {
+        enrichedData.hasLiquidToken = true;
+        enrichedData.tokenTier = data.tokenTier || "";
+        enrichedData.tokenTicker = data.tokenTicker || "";
+        enrichedData.tokenContractAddress = data.tokenContractAddress || "";
+        enrichedData.tokenChain = data.tokenChain || "";
+        if (data.liquidTokenAnalysis) {
+          enrichedData.liquidTokenAnalysis = typeof data.liquidTokenAnalysis === "string"
+            ? data.liquidTokenAnalysis
+            : JSON.stringify(data.liquidTokenAnalysis);
+        }
       }
 
       const enrichedFounders: FounderForm[] = (data.founders || []).map((f: any) => ({
@@ -306,7 +321,7 @@ export default function AddDeal() {
             AI Auto-Research
           </h3>
           <p className="text-sm text-muted-foreground mb-4">
-            Drop any link or text and a team of 4 AI agents will identify, research, verify, and find critical due diligence reads.
+            Drop any link or text and a team of 5 AI agents will identify, detect tokens, research, verify, and find critical due diligence reads.
           </p>
           <div className="space-y-3">
             <Input
@@ -324,13 +339,21 @@ export default function AddDeal() {
             {pipelineStages.length > 0 && (
               <div className="space-y-1.5 py-3" data-testid="pipeline-progress">
                 <p className="text-xs font-medium text-muted-foreground mb-2">Agent Pipeline</p>
-                {[
-                  { key: "scraper", icon: Globe, label: "Web Scraper" },
-                  { key: "identifier", icon: Search, label: "Identifier Agent" },
-                  { key: "researcher", icon: FileSearch, label: "Research Agent" },
-                  { key: "verify_clean", icon: ShieldCheck, label: "Verify & Clean Agent" },
-                  { key: "dd_reads", icon: FileText, label: "Due Diligence Reads" },
-                ].map(({ key, icon: Icon, label }, idx) => {
+                {(() => {
+                  const hasLiquidToken = pipelineStages.some(
+                    (s) => s.agent === "token_identifier" && s.status === "complete" && s.hasLiquidToken
+                  );
+                  const stages = [
+                    { key: "scraper", icon: Globe, label: "Web Scraper" },
+                    { key: "identifier", icon: Search, label: "Identifier Agent" },
+                    { key: "token_identifier", icon: Coins, label: "Token Identifier" },
+                    { key: "researcher", icon: FileSearch, label: "Research Agent" },
+                    { key: "verify_clean", icon: ShieldCheck, label: "Verify & Clean Agent" },
+                    { key: "dd_reads", icon: FileText, label: "Due Diligence Reads" },
+                    ...(hasLiquidToken ? [{ key: "liquid_token_research", icon: BarChart3, label: "Liquid Token Research" }] : []),
+                  ];
+                  return stages;
+                })().map(({ key, icon: Icon, label }, idx, stages) => {
                   const stage = pipelineStages.find((s) => s.agent === key);
                   const isActive = stage?.status === "running";
                   const isDone = stage?.status === "complete";
@@ -368,6 +391,13 @@ export default function AddDeal() {
                             Identified: {stage.companyName} ({stage.confidence} confidence)
                           </p>
                         )}
+                        {isDone && stage?.agent === "token_identifier" && (
+                          <p className="text-[11px] text-green-600/70">
+                            {stage.hasLiquidToken
+                              ? `Liquid token detected: ${stage.tokenTicker} (${stage.tokenTier})`
+                              : "No liquid token detected"}
+                          </p>
+                        )}
                         {isDone && stage?.agent === "verify_clean" && (
                           <p className="text-[11px] text-green-600/70">
                             {stage.issuesFound === 0
@@ -380,8 +410,13 @@ export default function AddDeal() {
                             {stage.readsFound || 0} adjacent reads found
                           </p>
                         )}
+                        {isDone && stage?.agent === "liquid_token_research" && (
+                          <p className="text-[11px] text-green-600/70">
+                            Token analysis complete
+                          </p>
+                        )}
                       </div>
-                      <span className="text-[10px] text-muted-foreground/40 tabular-nums">{idx + 1}/5</span>
+                      <span className="text-[10px] text-muted-foreground/40 tabular-nums">{idx + 1}/{stages.length}</span>
                     </div>
                   );
                 })}

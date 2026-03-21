@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, integer, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, integer, jsonb, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -46,6 +46,12 @@ export const companies = pgTable("companies", {
   excitementScore: integer("excitement_score"),
   excitementReason: text("excitement_reason"),
   adjacentReads: text("adjacent_reads"),
+  hasLiquidToken: boolean("has_liquid_token").default(false),
+  tokenTier: text("token_tier"),
+  tokenTicker: text("token_ticker"),
+  tokenContractAddress: text("token_contract_address"),
+  tokenChain: text("token_chain"),
+  liquidTokenAnalysis: text("liquid_token_analysis"),
   deletedReportCount: integer("deleted_report_count").notNull().default(0),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });

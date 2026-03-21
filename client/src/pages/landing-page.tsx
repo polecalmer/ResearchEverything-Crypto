@@ -175,7 +175,7 @@ export default function LandingPage() {
             <div>
               <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-3">How it works</p>
               <h2 className="text-2xl sm:text-3xl font-bold tracking-tight leading-snug">
-                Three agents.<br />Zero hallucinations.
+                Five agents.<br />Zero hallucinations.
               </h2>
             </div>
 
@@ -244,7 +244,7 @@ export default function LandingPage() {
                 },
                 {
                   title: "Chrome extension",
-                  body: "Right-click any webpage to add it to your pipeline. The 3-agent system handles research automatically.",
+                  body: "Right-click any webpage to add it to your pipeline. The 5-agent system handles research automatically.",
                 },
                 {
                   title: "Universal input",

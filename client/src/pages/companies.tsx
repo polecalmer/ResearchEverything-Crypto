@@ -196,7 +196,14 @@ export default function Companies() {
                       </span>
                     </td>
                     <td className="px-4 py-3 hidden sm:table-cell">
-                      <span className="text-xs text-muted-foreground">{company.stage || "—"}</span>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs text-muted-foreground">{company.stage || "—"}</span>
+                        {company.hasLiquidToken && (
+                          <span className="text-[9px] font-mono px-1.5 py-0.5 border border-yellow-500/30 text-yellow-500" data-testid={`badge-liquid-token-${company.id}`}>
+                            {company.tokenTicker || "TOKEN"}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1.5">

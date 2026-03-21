@@ -34,6 +34,12 @@ export interface EnrichedCompany {
     priorCompanies: string;
   }[];
   adjacentReads?: AdjacentRead[];
+  hasLiquidToken?: boolean;
+  tokenTier?: string;
+  tokenTicker?: string;
+  tokenContractAddress?: string;
+  tokenChain?: string;
+  liquidTokenAnalysis?: string;
 }
 
 const SECTORS = [
@@ -47,7 +53,7 @@ const BUSINESS_MODELS = [
   "Hardware", "Services", "Open Source", "Other",
 ];
 
-const STAGES = ["Pre-seed", "Seed", "Series A", "Series B", "Growth", "Public"];
+const STAGES = ["Pre-seed", "Seed", "Series A", "Series B", "Growth", "Public", "Liquid Token"];
 
 export interface TokenUsage {
   inputTokens: number;
@@ -102,6 +108,17 @@ function buildAnthropicRequest(systemPrompt: string, userMessage: string, useWeb
   return request;
 }
 
+interface TokenIdentification {
+  hasLiquidToken: boolean;
+  tokenTicker: string;
+  contractAddress: string;
+  chain: string;
+  tokenTier: string;
+  classificationReasoning: string;
+  valueAccrualMechanism: string;
+  revenueModel: string;
+}
+
 interface EnrichmentSession {
   id: string;
   type: "enrichment";
@@ -110,6 +127,7 @@ interface EnrichmentSession {
   scrapedContent: ScrapedContent[];
   step: number;
   identity?: any;
+  tokenIdentification?: TokenIdentification;
   researchDraft?: any;
   verifiedData?: any;
   usage: TokenUsage;
@@ -207,6 +225,76 @@ function buildIdentifierRequest(input: string, scrapedContent?: ScrapedContent[]
     }
   }
   return buildAnthropicRequest(IDENTIFIER_SYSTEM, prompt, true);
+}
+
+// ─── AGENT 1.5: TOKEN IDENTIFIER ─────────────────────────────────────────────
+
+const TOKEN_IDENTIFIER_SYSTEM = `You are the Token Identifier Agent in a VC deal intelligence pipeline. Your ONLY job is to determine whether a company/project has a liquid token (a token currently trading on exchanges).
+
+YOU HAVE WEB SEARCH ACCESS. Use it to:
+- Search for "[company name] token" or "[company name] cryptocurrency"
+- Check CoinGecko, CoinMarketCap, or DEX aggregators for the token
+- Look for token contract addresses on block explorers
+- Check if the token is listed on any CEX or DEX
+
+CLASSIFICATION TIERS (from the Liquid Token Analysis Framework):
+
+Tier 1 — Memecoins / Monetary Premiums:
+- No intrinsic value from protocol cash flows
+- Trade on belief, narrative, lindyness, or moneyness
+- Examples: BTC, DOGE, ETH (partially)
+
+Tier 2 — Great Tokens:
+- Product has strong PMF, fees are high in absolute terms
+- Fees drive token value accrual (staking/distribution or buybacks/burns)
+- Good token distribution (initial float 25-45%)
+- Examples: HYPE
+
+Tier 3 — Average Tokens:
+- Some PMF but scaling path unclear
+- Fees exist but low relative to valuation
+- Value accrual mechanism exists
+- Examples: PUMP, AERO, AAVE, ENA, MORPHO
+
+Tier 4 — Bad Tokens:
+- No PMF, predatory tokenomics, low float
+- No revenues, no value accrual
+- Examples: MOVE, OM
+
+CLASSIFICATION DECISION TREE:
+1. Does the protocol generate meaningful recurring revenue? No → Tier 1 or Tier 4
+2. If no revenue: does the token trade on monetary premium/network effects? Yes → Tier 1. No → Tier 4
+3. If revenue exists: is it high in absolute terms AND growing? Yes → Tier 2. No → Tier 3
+4. Is token distribution fair (25-45% initial float)? No → downgrade one tier
+5. Is there clear value accrual linking fees to token holders? No → downgrade one tier
+
+Return ONLY valid JSON:
+{
+  "hasLiquidToken": true/false,
+  "tokenTicker": "TOKEN or empty string if none",
+  "contractAddress": "0x... or empty string if unknown/none",
+  "chain": "ethereum/solana/arbitrum/base/etc or empty string if unknown/none",
+  "tokenTier": "Tier 1/Tier 2/Tier 3/Tier 4 or empty string if no token",
+  "classificationReasoning": "2-3 sentences explaining the tier classification based on revenue, PMF, distribution, and value accrual",
+  "valueAccrualMechanism": "direct_distribution/buyback_burn/buyback_hold/indirect/none or empty string",
+  "revenueModel": "Brief description of how the protocol generates revenue, or empty string"
+}`;
+
+function buildTokenIdentifierRequest(companyName: string, domain: string): AnthropicRequest {
+  const prompt = `Determine whether "${companyName}" (${domain || "domain unknown"}) has a liquid token trading on exchanges.
+
+Search for:
+1. "${companyName} token" or "${companyName} cryptocurrency"
+2. Check CoinGecko/CoinMarketCap for the token
+3. Look for token contract addresses
+4. Determine the token tier based on the classification framework
+
+If the project has a token, classify it into Tier 1-4 based on:
+- Revenue generation and PMF
+- Value accrual mechanism
+- Token distribution quality
+- Growth trajectory`;
+  return buildAnthropicRequest(TOKEN_IDENTIFIER_SYSTEM, prompt, true);
 }
 
 // ─── AGENT 2: RESEARCH ──────────────────────────────────────────────────────
@@ -441,6 +529,129 @@ Search for the most important primary sources, research papers, technical deep-d
   return buildAnthropicRequest(DUE_DILIGENCE_READS_SYSTEM, prompt, true, 4000, 10);
 }
 
+// ─── AGENT 5: LIQUID TOKEN RESEARCH ──────────────────────────────────────────
+
+const LIQUID_TOKEN_RESEARCH_SYSTEM = `You are the Liquid Token Research Agent in a VC deal intelligence pipeline. You receive a verified deal card for a project that has been confirmed to have a liquid token, along with its token tier classification. Your job is to produce a comprehensive liquid token analysis applying the full analytical framework.
+
+YOU HAVE WEB SEARCH ACCESS. Use it aggressively to find:
+- Current token price, market cap, FDV from CoinGecko/CoinMarketCap
+- Protocol revenue data from Token Terminal, DefiLlama, or Dune
+- Token supply schedule, vesting details, unlock calendar
+- Staking rates, buyback data, fee distribution mechanisms
+- DEX liquidity depth, trading volume data
+- On-chain holder distribution data
+
+YOUR ANALYSIS MUST COVER:
+
+1. TOKEN CLASSIFICATION CONFIRMATION
+- Confirm or revise the initial tier classification (Tier 1-4)
+- Apply the full decision tree with evidence
+
+2. SUPPLY & ADJUSTED MARKET CAP
+- Calculate: Float Market Cap, Adjusted Market Cap, FDV
+- Identify what counts as Outstanding Supply vs excluded (treasury, unallocated)
+- Note upcoming unlock events and their potential impact
+
+3. VALUATION (for Tier 2/3 tokens)
+- Cashflow Yield Model: Base Yield = TPR / CTS
+- P/E ratios on BOTH FDV and Adj MCAP basis
+- Revenue multiples comparison to peers
+- If Tier 2: Attempt bull/base/bear DCF scenarios
+
+4. LIQUIDITY ASSESSMENT
+- Average daily volume (filter wash trading if possible)
+- Estimate days to exit a $1M position at 10% participation rate
+- Apply liquidity discount tier (0-40%+ based on days to exit)
+
+5. VALUE ACCRUAL ASSESSMENT
+- Classify mechanism: direct distribution / buyback & burn / buyback & hold / indirect / none
+- If buyback: note frequency, % of revenue allocated, verification status
+- If staking: note yield, lock requirements, distribution token
+
+6. RISK FLAGS
+- Token unlock overhang (upcoming large unlocks)
+- Concentration risk (whale dominance)
+- Regulatory exposure
+- Smart contract risk level
+- Single revenue stream dependency
+
+Return ONLY valid JSON:
+{
+  "tokenTierConfirmed": "Tier 1/Tier 2/Tier 3/Tier 4",
+  "tierRevised": true/false,
+  "tierRevisionReason": "Why tier was changed, or empty string",
+  "supplyAnalysis": {
+    "maxSupply": "number or 'unlimited'",
+    "circulatingSupply": "number string",
+    "adjustedSupply": "number string with rationale",
+    "adjustedSupplyPctOfMax": "percentage string",
+    "floatMarketCap": "USD string",
+    "adjustedMarketCap": "USD string",
+    "fdv": "USD string",
+    "upcomingUnlocks": "Description of next major unlock events"
+  },
+  "valuation": {
+    "annualizedRevenue": "USD string or 'N/A'",
+    "peRatioFDV": "number or 'N/A'",
+    "peRatioAdjMCAP": "number or 'N/A'",
+    "cashflowYield": "percentage string or 'N/A'",
+    "revenueMultiple": "number or 'N/A'",
+    "comparableProtocols": "Brief comparison to peer valuations",
+    "scenarioAnalysis": "Bull/Base/Bear price targets if Tier 2, or 'N/A'"
+  },
+  "liquidityAssessment": {
+    "avgDailyVolume": "USD string",
+    "daysToExit1M": "number estimate",
+    "liquidityDiscount": "percentage string",
+    "primaryVenues": "Where the token primarily trades"
+  },
+  "valueAccrual": {
+    "mechanism": "direct_distribution/buyback_burn/buyback_hold/indirect/none",
+    "details": "How fees flow to token holders",
+    "annualAccrualEstimate": "USD string estimate or 'N/A'",
+    "stakingYield": "percentage or 'N/A'"
+  },
+  "riskFlags": [
+    "Each risk flag as a string"
+  ],
+  "investmentSummary": "3-5 sentence investment thesis summary incorporating all analysis above",
+  "monitoringMetrics": ["Key metrics to track going forward"]
+}`;
+
+function buildLiquidTokenResearchRequest(companyName: string, verifiedData: any, tokenIdentification: TokenIdentification): AnthropicRequest {
+  const prompt = `Produce a comprehensive liquid token analysis for "${companyName}".
+
+TOKEN IDENTIFICATION:
+- Ticker: ${tokenIdentification.tokenTicker}
+- Chain: ${tokenIdentification.chain || "Unknown"}
+- Contract: ${tokenIdentification.contractAddress || "Unknown"}
+- Initial Tier Classification: ${tokenIdentification.tokenTier}
+- Classification Reasoning: ${tokenIdentification.classificationReasoning}
+- Value Accrual: ${tokenIdentification.valueAccrualMechanism}
+- Revenue Model: ${tokenIdentification.revenueModel}
+
+VERIFIED DEAL CARD:
+Company: ${companyName}
+Sector: ${verifiedData.sector || "Unknown"}
+Sub-sector: ${verifiedData.subSector || "Unknown"}
+Description: ${verifiedData.description || ""}
+Business Model: ${verifiedData.businessModel || ""}
+Stage: ${verifiedData.stage || ""}
+Competitive Landscape: ${verifiedData.competitiveLandscape || ""}
+Tags: ${(verifiedData.tags || []).join(", ")}
+
+Search for current market data on ${tokenIdentification.tokenTicker || companyName} token:
+1. Current price, market cap, FDV, 24h volume from CoinGecko/CoinMarketCap
+2. Protocol revenue data from Token Terminal, DefiLlama, or DeFi aggregators
+3. Token supply schedule, vesting, and unlock calendar
+4. Staking rates, buyback data if applicable
+5. DEX/CEX liquidity depth
+6. Holder distribution data
+
+Apply the full Liquid Token Analysis Framework to produce the comprehensive analysis.`;
+  return buildAnthropicRequest(LIQUID_TOKEN_RESEARCH_SYSTEM, prompt, true, 8000, 15);
+}
+
 // ─── UTILITY FUNCTIONS ──────────────────────────────────────────────────────
 
 function sanitizeUrl(url: any, expectedDomain?: string): string {
@@ -554,7 +765,7 @@ async function scrapeInputUrls(input: string, onProgress?: ProgressCallback): Pr
   if (urls.length === 0) return [];
 
   const emit = (data: any) => { if (onProgress) onProgress(data); };
-  emit({ type: "stage", agent: "scraper", step: 0, total: 5, message: `Fetching content from ${urls.length} URL(s)...` });
+  emit({ type: "stage", agent: "scraper", step: 0, total: 6, message: `Fetching content from ${urls.length} URL(s)...` });
   console.log(`[Scraper] Fetching ${urls.length} URL(s): ${urls.join(", ")}`);
 
   const results = await scrapeMultiple(urls);
@@ -573,7 +784,7 @@ async function scrapeInputUrls(input: string, onProgress?: ProgressCallback): Pr
 
   if (additionalUrls.length > 0) {
     console.log(`[Scraper] Found linked company website(s), fetching: ${additionalUrls.join(", ")}`);
-    emit({ type: "stage", agent: "scraper", step: 0, total: 5, message: `Found linked website — fetching company page...` });
+    emit({ type: "stage", agent: "scraper", step: 0, total: 6, message: `Found linked website — fetching company page...` });
     const additional = await scrapeMultiple(additionalUrls);
     results.push(...additional);
   }
@@ -616,8 +827,8 @@ export async function startEnrichmentSession(input: string, userId: string): Pro
   sessions.set(session.id, session);
 
   const request = buildIdentifierRequest(input, scrapedContent);
-  progress.push({ type: "stage", agent: "identifier", step: 1, total: 5, message: "Identifying company from input..." });
-  console.log("[Enrichment] Session started. Agent 1/4: Identifier");
+  progress.push({ type: "stage", agent: "identifier", step: 1, total: 6, message: "Identifying company from input..." });
+  console.log("[Enrichment] Session started. Agent 1/5: Identifier");
 
   return { sessionId: session.id, anthropicRequest: request, progress };
 }
@@ -647,13 +858,16 @@ export async function advanceEnrichmentSession(
     session.mppCost += mppCost;
   }
 
+  const totalSteps = session.tokenIdentification?.hasLiquidToken ? 7 : 6;
+
+  // Step 0: Identifier complete → Token Identifier
   if (session.step === 0) {
     const identity = parseJson(responseText);
     session.identity = identity;
     session.step = 1;
 
     console.log(`[Enrichment] Identified: "${identity.companyName}" (confidence: ${identity.confidence})`);
-    progress.push({ type: "stage_complete", agent: "identifier", step: 1, companyName: identity.companyName, confidence: identity.confidence });
+    progress.push({ type: "stage_complete", agent: "identifier", step: 1, total: 6, companyName: identity.companyName, confidence: identity.confidence });
 
     if (identity.confidence === "low" && !identity.companyName) {
       sessions.delete(sessionId);
@@ -669,48 +883,86 @@ export async function advanceEnrichmentSession(
       }
     }
 
-    const request = buildResearchRequest(identity.companyName, identity.domain, session.input, session.scrapedContent);
-    progress.push({ type: "stage", agent: "researcher", step: 2, total: 5, message: `Researching ${identity.companyName}...` });
-    console.log("[Enrichment] Agent 2/4: Research — building deal card...");
+    const request = buildTokenIdentifierRequest(identity.companyName, identity.domain);
+    progress.push({ type: "stage", agent: "token_identifier", step: 2, total: 6, message: `Checking if ${identity.companyName} has a liquid token...` });
+    console.log("[Enrichment] Agent 2/5: Token Identifier — detecting liquid token...");
 
     return { anthropicRequest: request, progress };
   }
 
+  // Step 1: Token Identifier complete → Research
   if (session.step === 1) {
-    const researchDraft = parseJson(responseText);
-    session.researchDraft = researchDraft;
+    const tokenResult = parseJson(responseText);
+    const hasToken = tokenResult.hasLiquidToken === true;
+    session.tokenIdentification = {
+      hasLiquidToken: hasToken,
+      tokenTicker: tokenResult.tokenTicker || "",
+      contractAddress: tokenResult.contractAddress || "",
+      chain: tokenResult.chain || "",
+      tokenTier: tokenResult.tokenTier || "",
+      classificationReasoning: tokenResult.classificationReasoning || "",
+      valueAccrualMechanism: tokenResult.valueAccrualMechanism || "",
+      revenueModel: tokenResult.revenueModel || "",
+    };
     session.step = 2;
 
-    console.log("[Enrichment] Research draft complete.");
-    progress.push({ type: "stage_complete", agent: "researcher", step: 2 });
+    const newTotal = hasToken ? 7 : 6;
+    console.log(`[Enrichment] Token Identifier: hasLiquidToken=${hasToken}${hasToken ? ` (${tokenResult.tokenTicker}, ${tokenResult.tokenTier})` : ""}`);
+    progress.push({
+      type: "stage_complete",
+      agent: "token_identifier",
+      step: 2,
+      total: newTotal,
+      hasLiquidToken: hasToken,
+      tokenTicker: tokenResult.tokenTicker || "",
+      tokenTier: tokenResult.tokenTier || "",
+    });
 
-    const request = buildVerifyRequest(session.identity.companyName, researchDraft);
-    progress.push({ type: "stage", agent: "verify_clean", step: 3, total: 5, message: "Verifying claims & cleaning output..." });
-    console.log("[Enrichment] Agent 3/4: Verify & Clean — fact-checking...");
+    const request = buildResearchRequest(session.identity.companyName, session.identity.domain, session.input, session.scrapedContent);
+    progress.push({ type: "stage", agent: "researcher", step: 3, total: newTotal, message: `Researching ${session.identity.companyName}...` });
+    console.log("[Enrichment] Agent 3/5: Research — building deal card...");
 
     return { anthropicRequest: request, progress };
   }
 
+  // Step 2: Research complete → Verify & Clean
   if (session.step === 2) {
+    const researchDraft = parseJson(responseText);
+    session.researchDraft = researchDraft;
+    session.step = 3;
+
+    console.log("[Enrichment] Research draft complete.");
+    progress.push({ type: "stage_complete", agent: "researcher", step: 3, total: totalSteps });
+
+    const request = buildVerifyRequest(session.identity.companyName, researchDraft);
+    progress.push({ type: "stage", agent: "verify_clean", step: 4, total: totalSteps, message: "Verifying claims & cleaning output..." });
+    console.log("[Enrichment] Agent 4/5: Verify & Clean — fact-checking...");
+
+    return { anthropicRequest: request, progress };
+  }
+
+  // Step 3: Verify & Clean complete → DD Reads
+  if (session.step === 3) {
     const parsed = parseJson(responseText);
     const summary = parsed.verificationSummary || {};
     const issuesFound = (summary.removed?.length || 0) + (summary.revised?.length || 0);
     const assessment = summary.overallAssessment || "clean";
 
     console.log(`[Enrichment] Verify & Clean: ${assessment} (${issuesFound} issues found)`);
-    progress.push({ type: "stage_complete", agent: "verify_clean", step: 3, issuesFound, assessment });
+    progress.push({ type: "stage_complete", agent: "verify_clean", step: 4, total: totalSteps, issuesFound, assessment });
 
     session.verifiedData = parsed;
-    session.step = 3;
+    session.step = 4;
 
     const request = buildDueDiligenceReadsRequest(session.identity.companyName, parsed);
-    progress.push({ type: "stage", agent: "dd_reads", step: 4, total: 5, message: "Finding critical adjacent reads..." });
-    console.log("[Enrichment] Agent 4/4: Due Diligence Reads — finding adjacent reads...");
+    progress.push({ type: "stage", agent: "dd_reads", step: 5, total: totalSteps, message: "Finding critical adjacent reads..." });
+    console.log("[Enrichment] Agent 5/5: Due Diligence Reads — finding adjacent reads...");
 
     return { anthropicRequest: request, progress };
   }
 
-  if (session.step === 3) {
+  // Step 4: DD Reads complete → Liquid Token Research (if applicable) or finish
+  if (session.step === 4) {
     let validReads: AdjacentRead[] = [];
     try {
       const parsed = parseJson(responseText);
@@ -729,29 +981,94 @@ export async function advanceEnrichmentSession(
     }
 
     console.log(`[Enrichment] Due Diligence Reads: found ${validReads.length} adjacent reads`);
-    progress.push({ type: "stage_complete", agent: "dd_reads", step: 4, readsFound: validReads.length });
+    progress.push({ type: "stage_complete", agent: "dd_reads", step: 5, total: totalSteps, readsFound: validReads.length });
 
-    const enrichedOutput = validateOutput(session.verifiedData);
-    enrichedOutput.adjacentReads = validReads;
+    session.verifiedData._adjacentReads = validReads;
+    session.step = 5;
 
-    const apiCost = session.mppCost;
-    const totalCharge = calculateChargeAmount(apiCost);
-    recordEnrichmentCost(apiCost);
-    console.log(`[Enrichment] Token usage: ${session.usage.inputTokens} in / ${session.usage.outputTokens} out | MPP cost: $${apiCost.toFixed(6)} | Charge (1.5x): $${totalCharge.toFixed(6)}`);
-    console.log("[Enrichment] Pipeline complete.");
+    if (session.tokenIdentification?.hasLiquidToken) {
+      const request = buildLiquidTokenResearchRequest(
+        session.identity.companyName,
+        session.verifiedData,
+        session.tokenIdentification,
+      );
+      progress.push({ type: "stage", agent: "liquid_token_research", step: 6, total: 7, message: `Analyzing ${session.tokenIdentification.tokenTicker || session.identity.companyName} token...` });
+      console.log("[Enrichment] Agent 6 (bonus): Liquid Token Research — deep token analysis...");
 
-    const result: EnrichmentResult = {
-      enriched: enrichedOutput,
-      apiCost,
-      totalCharge,
-      tokenUsage: { ...session.usage },
-    };
+      return { anthropicRequest: request, progress };
+    }
 
-    sessions.delete(sessionId);
-    return { result, progress };
+    return finishEnrichmentSession(session, validReads, progress);
+  }
+
+  // Step 5: Liquid Token Research complete → finish
+  if (session.step === 5) {
+    const validReads = session.verifiedData._adjacentReads || [];
+
+    let liquidAnalysis: any = null;
+    try {
+      liquidAnalysis = parseJson(responseText);
+      console.log(`[Enrichment] Liquid Token Research complete. Tier confirmed: ${liquidAnalysis.tokenTierConfirmed}`);
+      progress.push({ type: "stage_complete", agent: "liquid_token_research", step: 6, total: 7, tokenTier: liquidAnalysis.tokenTierConfirmed });
+
+      if (liquidAnalysis.tierRevised && liquidAnalysis.tokenTierConfirmed) {
+        session.tokenIdentification!.tokenTier = liquidAnalysis.tokenTierConfirmed;
+      }
+    } catch (err) {
+      console.warn("[Enrichment] Liquid Token Research parsing failed:", err);
+      progress.push({ type: "stage_complete", agent: "liquid_token_research", step: 6, total: 7 });
+    }
+
+    return finishEnrichmentSession(session, validReads, progress, liquidAnalysis);
   }
 
   throw new Error("Session already completed");
+}
+
+function finishEnrichmentSession(
+  session: EnrichmentSession,
+  validReads: AdjacentRead[],
+  progress: any[],
+  liquidAnalysis?: any,
+): { result: EnrichmentResult; progress: any[] } {
+  const enrichedOutput = validateOutput(session.verifiedData);
+  enrichedOutput.adjacentReads = validReads;
+
+  if (session.tokenIdentification?.hasLiquidToken) {
+    enrichedOutput.hasLiquidToken = true;
+    enrichedOutput.tokenTier = session.tokenIdentification.tokenTier;
+    enrichedOutput.tokenTicker = session.tokenIdentification.tokenTicker;
+    enrichedOutput.tokenContractAddress = session.tokenIdentification.contractAddress;
+    enrichedOutput.tokenChain = session.tokenIdentification.chain;
+
+    if (!enrichedOutput.tags.includes("Liquid Token")) {
+      enrichedOutput.tags.push("Liquid Token");
+    }
+
+    if (enrichedOutput.stage !== "Liquid Token" && STAGES.includes("Liquid Token")) {
+      enrichedOutput.stage = "Liquid Token";
+    }
+
+    if (liquidAnalysis) {
+      enrichedOutput.liquidTokenAnalysis = JSON.stringify(liquidAnalysis);
+    }
+  }
+
+  const apiCost = session.mppCost;
+  const totalCharge = calculateChargeAmount(apiCost);
+  recordEnrichmentCost(apiCost);
+  console.log(`[Enrichment] Token usage: ${session.usage.inputTokens} in / ${session.usage.outputTokens} out | MPP cost: $${apiCost.toFixed(6)} | Charge (1.5x): $${totalCharge.toFixed(6)}`);
+  console.log("[Enrichment] Pipeline complete.");
+
+  const result: EnrichmentResult = {
+    enriched: enrichedOutput,
+    apiCost,
+    totalCharge,
+    tokenUsage: { ...session.usage },
+  };
+
+  sessions.delete(session.id);
+  return { result, progress };
 }
 
 // ─── NEXT STEPS ──────────────────────────────────────────────────────────────

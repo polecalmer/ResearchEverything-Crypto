@@ -539,6 +539,11 @@ export default function CompanyDetail() {
                     </span>
                   )}
                   {company.stage && <span className="text-[10px] font-mono text-muted-foreground bg-accent rounded px-2 py-0.5">{company.stage}</span>}
+                  {company.hasLiquidToken && (
+                    <span className="text-[10px] font-mono px-2 py-0.5 border border-yellow-500/30 text-yellow-500" data-testid="badge-liquid-token">
+                      {company.tokenTicker || "Liquid Token"}{company.tokenTier ? ` · ${company.tokenTier}` : ""}
+                    </span>
+                  )}
                   {company.businessModel && <span className="text-[10px] font-mono text-muted-foreground bg-accent rounded px-2 py-0.5">{company.businessModel}</span>}
                   {company.createdAt && (
                     <span className="text-[10px] font-mono text-muted-foreground/60 ml-auto">

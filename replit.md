@@ -45,13 +45,15 @@ Focus on user experience and intuitive design.
 
 **Pipeline Stages:** `Discovered -> Researching -> Reaching Out -> In Diligence -> Passed / Invested`
 
-**AI Enrichment Pipeline (5 Steps):**
+**AI Enrichment Pipeline (6-7 Steps):**
 1.  **Web Scraper:** Fetches content from URLs.
 2.  **Identifier Agent:** Identifies the company from input and scraped data.
-3.  **Research Agent:** Builds a comprehensive deal card.
-4.  **Verify & Clean Agent:** Combines fact-checking and hallucination firewall, stripping unverified data.
-5.  **Due Diligence Reads Agent:** Finds 4-5 critical adjacent reads (research papers, whitepapers, regulatory docs, market analyses) relevant to the investment thesis. Stored as JSON in `adjacentReads` column.
-All AI agents use Claude Opus 4.6 with web search capabilities.
+3.  **Token Identifier Agent:** Detects if the project has a liquid token. Classifies into Tier 1-4 using the liquid token analysis framework (revenue, PMF, distribution, value accrual). Stores: hasLiquidToken, tokenTicker, contractAddress, chain, tokenTier on the company record.
+4.  **Research Agent:** Builds a comprehensive deal card (VC research runs for ALL projects).
+5.  **Verify & Clean Agent:** Combines fact-checking and hallucination firewall, stripping unverified data.
+6.  **Due Diligence Reads Agent:** Finds 4-5 critical adjacent reads (research papers, whitepapers, regulatory docs, market analyses) relevant to the investment thesis. Stored as JSON in `adjacentReads` column.
+7.  **Liquid Token Research Agent (conditional):** Only runs if Token Identifier detected a liquid token. Produces comprehensive token analysis covering: supply & adjusted market cap, valuation models (P/E, DCF, cashflow yield), liquidity assessment, value accrual mechanisms, risk flags. Stored as JSON in `liquidTokenAnalysis` column.
+All AI agents use Claude Opus 4.6 with web search capabilities. Liquid token projects get a "Liquid Token" tag and stage automatically. Token profiles are auto-populated when a liquid token is detected. The liquid token analysis framework is stored in `server/skills/liquid-token-analysis.md`.
 
 **AI Next Steps Advisor (2 Stages):**
 1.  **Generator Agent:** Analyzes deal context to produce actionable recommendations.
