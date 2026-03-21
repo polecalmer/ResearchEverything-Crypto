@@ -76,7 +76,7 @@ Company detail pages feature two tabs: "Deal Intelligence" (existing content) an
 - Token snapshot card (price, market cap, 24h volume, holder count, price change) via Allium MPP (with CoinGecko fallback)
 - Dune Analytics query manager (add pre-built queries by ID, visualize as bar/line/area/table via Recharts)
 - AI token analysis agent with query selection logic (background job, same pattern as deep research — server runs async, client polls). Agent selects relevant Dune queries from user's attached set, fetches token snapshot, and produces structured analysis.
-- MPP paywalls: token snapshot $0.15, token analysis $0.23, dune query execution $0.05
+- MPP paywalls: enrichment $0.25 (VC) / $0.50 (liquid token), deep research $1.50, token analysis $1.50, token snapshot $0.15, next steps $0.10, dune query $0.05
 - Key files: `server/dune-client.ts`, `server/token-agent.ts`, `server/allium-client.ts`, `client/src/pages/token-intelligence.tsx`
 
 **Chrome Extension:** Manifest V3 extension facilitating quick capture. It creates a context menu item, injects content scripts for UI, and uses a background service worker to interact with the backend API.

@@ -1,5 +1,5 @@
 import { Mppx, tempo } from "mppx/express";
-import { getEstimatedEnrichmentCost, MARKUP_MULTIPLIER } from "./enrichment";
+import { getEstimatedEnrichmentCost, DEEP_RESEARCH_CHARGE, TOKEN_ANALYSIS_CHARGE } from "./enrichment";
 import type { RequestHandler } from "express";
 
 const OWNER_WALLET = "0x342fFFBcEbb761bC2c7B512333AF5E397b4cB72d";
@@ -15,26 +15,23 @@ export const mppx = Mppx.create({
 });
 
 export const enrichmentPaywall: RequestHandler = (req, res, next) => {
-  const estimated = getEstimatedEnrichmentCost();
-  const amount = Math.max(0.01, estimated).toFixed(2);
+  const isLiquidToken = req.body?.hasLiquidToken === true;
+  const amount = getEstimatedEnrichmentCost(isLiquidToken).toFixed(2);
   mppx.charge({
     amount,
-    description: `BookMark AI research (est. $${amount})`,
+    description: `BookMark AI research ($${amount})`,
   })(req, res, next);
 };
 
 export const nextStepsPaywall: RequestHandler = (req, res, next) => {
-  const estimated = (0.08 * MARKUP_MULTIPLIER);
-  const amount = Math.max(0.01, estimated).toFixed(2);
   mppx.charge({
-    amount,
-    description: `AI next steps advisor ($${amount})`,
+    amount: "0.10",
+    description: "AI next steps advisor ($0.10)",
   })(req, res, next);
 };
 
 export const deepResearchPaywall: RequestHandler = (req, res, next) => {
-  const estimated = (1.00 * MARKUP_MULTIPLIER);
-  const amount = Math.max(0.01, estimated).toFixed(2);
+  const amount = DEEP_RESEARCH_CHARGE.toFixed(2);
   mppx.charge({
     amount,
     description: `Deep research report ($${amount})`,
@@ -42,8 +39,7 @@ export const deepResearchPaywall: RequestHandler = (req, res, next) => {
 };
 
 export const tokenIntelPaywall: RequestHandler = (req, res, next) => {
-  const estimated = (0.15 * MARKUP_MULTIPLIER);
-  const amount = Math.max(0.01, estimated).toFixed(2);
+  const amount = TOKEN_ANALYSIS_CHARGE.toFixed(2);
   mppx.charge({
     amount,
     description: `Token intelligence analysis ($${amount})`,
@@ -58,10 +54,8 @@ export const duneQueryPaywall: RequestHandler = (req, res, next) => {
 };
 
 export const tokenSnapshotPaywall: RequestHandler = (req, res, next) => {
-  const estimated = (0.10 * MARKUP_MULTIPLIER);
-  const amount = Math.max(0.01, estimated).toFixed(2);
   mppx.charge({
-    amount,
-    description: `Token snapshot fetch ($${amount})`,
+    amount: "0.15",
+    description: "Token snapshot fetch ($0.15)",
   })(req, res, next);
 };

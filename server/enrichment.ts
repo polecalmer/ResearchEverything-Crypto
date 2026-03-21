@@ -60,8 +60,11 @@ export interface TokenUsage {
   outputTokens: number;
 }
 
-export const MARKUP_MULTIPLIER = 1.5;
-export const ENRICHMENT_CHARGE = 0.25;
+export const MARKUP_MULTIPLIER = 1;
+export const ENRICHMENT_CHARGE_VC = 0.25;
+export const ENRICHMENT_CHARGE_TOKEN = 0.50;
+export const DEEP_RESEARCH_CHARGE = 1.50;
+export const TOKEN_ANALYSIS_CHARGE = 1.50;
 
 const enrichmentCostHistory: number[] = [];
 const MAX_HISTORY = 50;
@@ -70,8 +73,8 @@ export function calculateChargeAmount(apiCost: number): number {
   return apiCost * MARKUP_MULTIPLIER;
 }
 
-export function getEstimatedEnrichmentCost(): number {
-  return ENRICHMENT_CHARGE;
+export function getEstimatedEnrichmentCost(isLiquidToken: boolean = false): number {
+  return isLiquidToken ? ENRICHMENT_CHARGE_TOKEN : ENRICHMENT_CHARGE_VC;
 }
 
 export function recordEnrichmentCost(apiCost: number): void {
