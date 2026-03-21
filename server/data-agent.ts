@@ -228,27 +228,30 @@ export async function refreshChartData(chartId: string): Promise<DashboardChart>
 
     if (existingChartConfig.autoDetect && chart.dataSource === "dune" && data.length > 0) {
       const columns = Object.keys(data[0]);
-      const chartType = chart.chartType;
-      let finalChartConfig: any;
+      const dateCol = columns.find(c => /date|time|day|week|month|block_time|period/i.test(c));
+      const numCols = columns.filter(c => c !== dateCol && typeof data[0][c] === "number");
+      const chartColors = ["#4ade80", "#2dd4bf", "#38bdf8", "#818cf8", "#a78bfa", "#f472b6", "#fb923c", "#facc15"];
+      const isCurrency = (col: string) => /usd|price|fee|revenue|volume|amount|cost|tvl|value|earnings|profit/i.test(col);
+      const isGrowth = (col: string) => /growth|pct|percent|ratio|change|rate|apy|apr/i.test(col);
 
-      if (chartType === "table") {
-        finalChartConfig = { columns };
+      let finalChartConfig: any;
+      if (!dateCol || numCols.length === 0) {
+        finalChartConfig = { columns, autoDetect: true };
+        updates.chartConfig = JSON.stringify(finalChartConfig);
       } else {
-        const dateCol = columns.find(c => /date|time|day|week|month|block_time/i.test(c));
-        const valueCols = columns.filter(c => c !== dateCol);
-        const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
         finalChartConfig = {
-          xAxis: { dataKey: dateCol || columns[0], label: dateCol || columns[0], type: dateCol ? "date" : "category" },
-          yAxes: valueCols.slice(0, 4).map((col, i) => ({
+          autoDetect: true,
+          xAxis: { dataKey: dateCol, label: dateCol.replace(/_/g, " "), type: "date" },
+          yAxes: numCols.slice(0, 6).map((col, i) => ({
             dataKey: col,
             label: col.replace(/_/g, " "),
-            color: colors[i % colors.length],
+            color: chartColors[i % chartColors.length],
             yAxisId: "left",
-            format: /usd|price|fee|revenue|volume|amount/i.test(col) ? "currency" : "number",
+            format: isGrowth(col) ? "percent" : isCurrency(col) ? "currency" : "number",
           })),
         };
+        updates.chartConfig = JSON.stringify(finalChartConfig);
       }
-      updates.chartConfig = JSON.stringify(finalChartConfig);
     }
 
     const updated = await storage.updateDashboardChart(chartId, updates);

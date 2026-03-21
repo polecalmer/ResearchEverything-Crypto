@@ -23,6 +23,46 @@ import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClie
 import { db } from "./db";
 import { sql } from "drizzle-orm";
 
+const DUNE_CHART_COLORS = ["#4ade80", "#2dd4bf", "#38bdf8", "#818cf8", "#a78bfa", "#f472b6", "#fb923c", "#facc15"];
+
+function buildDuneChartConfig(columns: string[], rows: any[], vizType?: string | null): any {
+  if (!columns.length || !rows.length) {
+    return { columns, _chartType: "table" };
+  }
+
+  const dateCol = columns.find(c => /date|time|day|week|month|block_time|period/i.test(c));
+  const stringCols = columns.filter(c => c !== dateCol && rows[0] && typeof rows[0][c] === "string");
+  const numCols = columns.filter(c => c !== dateCol && !stringCols.includes(c) && rows[0] && typeof rows[0][c] === "number");
+
+  if (!dateCol || numCols.length === 0) {
+    return { columns, _chartType: "table" };
+  }
+
+  const isCurrency = (col: string) => /usd|price|fee|revenue|volume|amount|cost|tvl|value|earnings|profit/i.test(col);
+  const isBarMetric = (col: string) => /volume|count|users|txn|transaction|trade|swap|deposit|withdraw|mint|burn|liquidat/i.test(col);
+  const isGrowth = (col: string) => /growth|pct|percent|ratio|change|rate|apy|apr/i.test(col);
+
+  let chartType: string;
+  if (vizType === "bar") chartType = "bar";
+  else if (vizType === "area") chartType = "area";
+  else if (vizType === "line") chartType = "line";
+  else if (numCols.every(c => isBarMetric(c))) chartType = "bar";
+  else chartType = "line";
+
+  return {
+    autoDetect: true,
+    _chartType: chartType,
+    xAxis: { dataKey: dateCol, label: dateCol.replace(/_/g, " "), type: "date" },
+    yAxes: numCols.slice(0, 6).map((col, i) => ({
+      dataKey: col,
+      label: col.replace(/_/g, " "),
+      color: DUNE_CHART_COLORS[i % DUNE_CHART_COLORS.length],
+      yAxisId: "left",
+      format: isGrowth(col) ? "percent" : isCurrency(col) ? "currency" : "number",
+    })),
+  };
+}
+
 const updateCompanySchema = insertCompanySchema.partial().extend({
   pipelineStage: z.enum(PIPELINE_STAGES).optional(),
   tags: z.array(z.string()).optional(),
@@ -896,15 +936,12 @@ export async function registerRoutes(
     if (!parsed.success) return res.status(400).json({ message: "Invalid data", errors: parsed.error.errors });
     const query = await storage.addDuneQuery(parsed.data);
 
-    const vizType = query.visualizationType || "table";
-    const chartType = vizType === "line" ? "line" : vizType === "bar" ? "bar" : vizType === "area" ? "area" : "table";
-
     const chart = await storage.createDashboardChart({
       companyId: req.params.id,
       userId,
       title: query.label,
       description: `Dune query #${query.queryId}`,
-      chartType,
+      chartType: "line",
       dataSource: "dune",
       dataSourceConfig: JSON.stringify({ queryId: query.queryId }),
       chartConfig: JSON.stringify({ autoDetect: true }),
@@ -920,29 +957,14 @@ export async function registerRoutes(
           const columns = result.columns || [];
           const rows = result.rows || [];
 
-          let finalChartConfig: any;
-          if (chartType === "table") {
-            finalChartConfig = { columns };
-          } else {
-            const dateCol = columns.find((c: string) => /date|time|day|week|month|block_time/i.test(c));
-            const valueCols = columns.filter((c: string) => c !== dateCol);
-            const colors = ["#3b82f6", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#ec4899"];
-            finalChartConfig = {
-              xAxis: { dataKey: dateCol || columns[0], label: dateCol || columns[0], type: dateCol ? "date" : "category" },
-              yAxes: valueCols.slice(0, 4).map((col: string, i: number) => ({
-                dataKey: col,
-                label: col.replace(/_/g, " "),
-                color: colors[i % colors.length],
-                yAxisId: "left",
-                format: /usd|price|fee|revenue|volume|amount/i.test(col) ? "currency" : "number",
-              })),
-            };
-          }
+          const finalChartConfig = buildDuneChartConfig(columns, rows, query.visualizationType);
 
           await storage.updateDashboardChart(chart.id, {
+            chartType: finalChartConfig._chartType || "line",
             chartConfig: JSON.stringify(finalChartConfig),
             data: JSON.stringify(rows),
-            status: "completed",
+            status: rows.length > 0 ? "completed" : "failed",
+            errorMessage: rows.length > 0 ? null : "Query returned no data",
           });
           console.log(`[Auto] Created dashboard chart for Dune query #${query.queryId} (${rows.length} rows)`);
         } catch (err: any) {
