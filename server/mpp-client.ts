@@ -178,9 +178,14 @@ async function callWithTier(tier: DepositTier, request: AnthropicRequest): Promi
       };
     } catch (err) {
       lastError = err as Error;
-      if (attempt < MAX_RETRIES && (err as any)?.message?.includes("fetch")) {
+      const errMsg = (err as any)?.message || "";
+      const isRetryableError = errMsg.includes("fetch") ||
+        errMsg.includes("524") || errMsg.includes("502") || errMsg.includes("503") ||
+        errMsg.includes("timeout") || errMsg.includes("ECONNRESET") ||
+        errMsg.includes("429") || errMsg.includes("paymentauth");
+      if (attempt < MAX_RETRIES && isRetryableError) {
         const delay = RETRY_DELAY_MS * (attempt + 1);
-        console.log(`[MPP-Client:${tier}] Network error, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
+        console.log(`[MPP-Client:${tier}] Error: "${errMsg.slice(0, 80)}", retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
         await new Promise((r) => setTimeout(r, delay));
         clients[tier] = null;
         continue;

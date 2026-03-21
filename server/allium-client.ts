@@ -93,6 +93,73 @@ async function fetchViaAlliumMpp(
   return { data, mppCost: alliumLastChallengeAmount };
 }
 
+const COINGECKO_TICKER_TO_ID: Record<string, string> = {
+  hype: "hyperliquid",
+  btc: "bitcoin",
+  eth: "ethereum",
+  sol: "solana",
+  avax: "avalanche-2",
+  bnb: "binancecoin",
+  matic: "matic-network",
+  pol: "matic-network",
+  arb: "arbitrum",
+  op: "optimism",
+  sui: "sui",
+  apt: "aptos",
+  sei: "sei-network",
+  tia: "celestia",
+  jup: "jupiter-exchange-solana",
+  pendle: "pendle",
+  aave: "aave",
+  mkr: "maker",
+  link: "chainlink",
+  uni: "uniswap",
+  doge: "dogecoin",
+  xrp: "ripple",
+  ada: "cardano",
+  dot: "polkadot",
+  atom: "cosmos",
+  near: "near",
+  ftm: "fantom",
+  inj: "injective-protocol",
+};
+
+async function fetchViaCoinGeckoId(
+  ticker: string,
+): Promise<{ data: any; mppCost: number }> {
+  const coinId = COINGECKO_TICKER_TO_ID[ticker.toLowerCase()];
+  if (!coinId) {
+    return { data: null, mppCost: 0 };
+  }
+
+  const url = `https://api.coingecko.com/api/v3/coins/${coinId}?localization=false&tickers=false&community_data=false&developer_data=false`;
+  const response = await fetch(url, {
+    headers: { accept: "application/json" },
+  });
+
+  if (!response.ok) {
+    console.warn(`[CoinGecko] Coin API error (${response.status}) for ${coinId}`);
+    return { data: null, mppCost: 0 };
+  }
+
+  const json = await response.json();
+  const market = json.market_data;
+  if (!market) {
+    return { data: null, mppCost: 0 };
+  }
+
+  return {
+    data: {
+      price: market.current_price?.usd ?? null,
+      marketCap: market.market_cap?.usd ?? null,
+      volume24h: market.total_volume?.usd ?? null,
+      priceChange24h: market.price_change_percentage_24h ?? null,
+      holderCount: null,
+    },
+    mppCost: 0,
+  };
+}
+
 async function fetchViaPublicApi(
   contractAddress: string,
   chain: string,
@@ -109,37 +176,38 @@ async function fetchViaPublicApi(
   };
 
   const platform = coingeckoChainMap[chain];
-  if (!platform) {
-    return { data: null, mppCost: 0 };
+  if (platform && contractAddress) {
+    const url = `https://api.coingecko.com/api/v3/simple/token_price/${platform}?contract_addresses=${contractAddress}&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true`;
+
+    const response = await fetch(url, {
+      headers: { accept: "application/json" },
+    });
+
+    if (response.ok) {
+      const json = await response.json();
+      const tokenData = json[contractAddress.toLowerCase()];
+
+      if (tokenData) {
+        return {
+          data: {
+            price: tokenData.usd ?? null,
+            marketCap: tokenData.usd_market_cap ?? null,
+            volume24h: tokenData.usd_24h_vol ?? null,
+            priceChange24h: tokenData.usd_24h_change ?? null,
+            holderCount: null,
+          },
+          mppCost: 0,
+        };
+      }
+    }
   }
 
-  const url = `https://api.coingecko.com/api/v3/simple/token_price/${platform}?contract_addresses=${contractAddress}&vs_currencies=usd&include_market_cap=true&include_24hr_vol=true&include_24hr_change=true`;
-
-  const response = await fetch(url, {
-    headers: { accept: "application/json" },
-  });
-
-  if (!response.ok) {
-    throw new Error(`CoinGecko API error (${response.status})`);
+  const coinResult = await fetchViaCoinGeckoId(ticker);
+  if (coinResult.data) {
+    return coinResult;
   }
 
-  const json = await response.json();
-  const tokenData = json[contractAddress.toLowerCase()];
-
-  if (!tokenData) {
-    return { data: null, mppCost: 0 };
-  }
-
-  return {
-    data: {
-      price: tokenData.usd ?? null,
-      marketCap: tokenData.usd_market_cap ?? null,
-      volume24h: tokenData.usd_24h_vol ?? null,
-      priceChange24h: tokenData.usd_24h_change ?? null,
-      holderCount: null,
-    },
-    mppCost: 0,
-  };
+  return { data: null, mppCost: 0 };
 }
 
 export async function fetchTokenSnapshot(
