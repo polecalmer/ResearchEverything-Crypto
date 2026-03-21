@@ -3,6 +3,7 @@ import { privateKeyToAccount } from "viem/accounts";
 
 const ANTHROPIC_MPP_URL = "https://anthropic.mpp.tempo.xyz/v1/messages";
 const USDC_DECIMALS = 6;
+const MPP_COST_PER_REQUEST = 0.035;
 
 export interface AnthropicRequest {
   model: string;
@@ -124,7 +125,7 @@ export async function callAnthropicServer(request: AnthropicRequest): Promise<An
     throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
   }
 
-  const mppCost = lastChallengeAmount;
+  const mppCost = MPP_COST_PER_REQUEST;
 
   const data = await response.json();
 
