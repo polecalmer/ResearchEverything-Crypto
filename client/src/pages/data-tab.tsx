@@ -553,13 +553,13 @@ function DataCard({ chart }: { chart: DashboardChart }) {
       <XAxis
         dataKey={xAxis.dataKey}
         tickFormatter={isDate ? dateFmt!.tickFormatter : undefined}
-        tick={{ fontSize: 10, fill: "rgba(255,255,255,0.25)" }}
+        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.20)" }}
         axisLine={{ stroke: "rgba(255,255,255,0.06)" }}
         tickLine={false}
         interval={tickInterval}
-        angle={numPoints > 20 ? -45 : 0}
-        textAnchor={numPoints > 20 ? "end" : "middle"}
-        height={numPoints > 20 ? 55 : 30}
+        angle={numPoints > 12 ? -45 : 0}
+        textAnchor={numPoints > 12 ? "end" : "middle"}
+        height={numPoints > 12 ? 45 : 24}
       />
     );
 
@@ -572,10 +572,10 @@ function DataCard({ chart }: { chart: DashboardChart }) {
       <YAxis
         yAxisId="left"
         tickFormatter={(v: number) => smartFormat(v, leftFmt)}
-        tick={{ fontSize: 10, fill: "rgba(255,255,255,0.25)" }}
+        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.20)" }}
         axisLine={false}
         tickLine={false}
-        width={65}
+        width={50}
       />
     );
     const yAxisRightEl = hasDualAxis ? (
@@ -583,20 +583,20 @@ function DataCard({ chart }: { chart: DashboardChart }) {
         yAxisId="right"
         orientation="right"
         tickFormatter={(v: number) => smartFormat(v, rightFmt)}
-        tick={{ fontSize: 10, fill: "rgba(255,255,255,0.25)" }}
+        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.20)" }}
         axisLine={false}
         tickLine={false}
-        width={65}
+        width={45}
       />
     ) : null;
 
     const singleYAxisEl = (
       <YAxis
         tickFormatter={(v: number) => smartFormat(v, primaryFmt)}
-        tick={{ fontSize: 10, fill: "rgba(255,255,255,0.25)" }}
+        tick={{ fontSize: 9, fill: "rgba(255,255,255,0.20)" }}
         axisLine={false}
         tickLine={false}
-        width={60}
+        width={50}
       />
     );
 
@@ -690,7 +690,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
 
     return (
       <div className="px-1 pb-0">
-        <ResponsiveContainer width="100%" height={200}>
+        <ResponsiveContainer width="100%" height={160}>
           {chartEl}
         </ResponsiveContainer>
       </div>
@@ -893,7 +893,7 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
           </div>
         </div>
       ) : (
-        <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-3">
           {charts.map((chart) => (
             <DataCard key={chart.id} chart={chart} />
           ))}
