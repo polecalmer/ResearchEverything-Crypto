@@ -145,31 +145,17 @@ function computeHeadlineStat(data: any[], yAxes: any[], title?: string): { value
   if (values.length === 0) return null;
 
   const latest = values[values.length - 1];
-  const sum = values.reduce((a: number, b: number) => a + b, 0);
 
   const titleLower = (title || "").toLowerCase();
-  const isRate = /annualized|moving average|ratio|p\/e|pe_ratio|average|daily|rate|apy|apr/i.test(key) ||
-    /annualized|moving average|ratio|p\/e|average|daily rate|apy|apr/i.test(titleLower);
+  const keyLower = key.toLowerCase();
+  const isRatio = /ratio|p\/e|pe_ratio|multiple|p_e/i.test(keyLower) || /ratio|p\/e|multiple/i.test(titleLower);
 
-  if (isRate) {
-    return { value: smartFormat(latest, fmt || "currency"), label: "Latest" };
+  if (isRatio) {
+    const formatted = latest >= 1000 ? smartFormat(latest, "number") : latest.toFixed(2);
+    return { value: formatted + "x", label: "Latest" };
   }
-  if (/revenue|fee|earnings|profit/i.test(key) && !isRate) {
-    if (values.length <= 24) {
-      return { value: smartFormat(sum, fmt || "currency"), label: "Total" };
-    }
-    return { value: smartFormat(latest, fmt || "currency"), label: "Latest" };
-  }
-  if (/volume/i.test(key)) {
-    return { value: smartFormat(latest, fmt || "currency"), label: "Latest" };
-  }
-  if (/price|tvl|market_cap|fdv/i.test(key)) {
-    return { value: smartFormat(latest, fmt || "currency"), label: "Latest" };
-  }
-  if (/holder|count|user|address/i.test(key)) {
-    return { value: smartFormat(latest, "number"), label: "Latest" };
-  }
-  return { value: smartFormat(latest, fmt), label: "Latest" };
+
+  return { value: smartFormat(latest, fmt || "currency"), label: "Latest" };
 }
 
 function ColumnPicker({ label, columns, selected, onSelect, multi }: {
@@ -705,14 +691,14 @@ function DataCard({ chart }: { chart: DashboardChart }) {
             <h3 className="text-[13px] font-semibold text-white/90 tracking-tight leading-tight">{chart.title}</h3>
             {subtitle && <p className="text-[10px] text-white/25 mt-0.5">{subtitle}</p>}
           </div>
-          <div className="flex items-center gap-0 ml-3 shrink-0">
+          <div className="flex items-center gap-1 ml-3 shrink-0">
             {headlineStat && currentView === "chart" && (
-              <div className="text-right mr-1">
+              <div className="text-right">
                 <p className="text-sm font-semibold text-white/90 font-mono tracking-tight leading-none">{headlineStat.value}</p>
                 <p className="text-[9px] text-white/25 mt-0.5">{headlineStat.label}</p>
               </div>
             )}
-            <div className="flex items-center gap-0 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex items-center gap-0">
               {hasChartConfig && (
                 <>
                   <button
