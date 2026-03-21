@@ -620,6 +620,10 @@ async function fetchDuneData(config: Record<string, any>): Promise<any[]> {
     result = await executeDuneQuery(queryId, config.params || {});
   } else {
     result = await getLatestDuneResults(queryId);
+    if (result.rows.length === 0) {
+      console.log(`[Dune] Cached results empty for query ${queryId}, executing fresh...`);
+      result = await executeDuneQuery(queryId, config.params || {});
+    }
   }
 
   return result.rows.map((row) => {
