@@ -690,7 +690,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
 
     return (
       <div className="px-1 pb-0">
-        <ResponsiveContainer width="100%" height={190}>
+        <ResponsiveContainer width="100%" height={245}>
           {chartEl}
         </ResponsiveContainer>
       </div>
