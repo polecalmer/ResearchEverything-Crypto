@@ -11,7 +11,8 @@ import {
   MARKUP_MULTIPLIER,
 } from "./enrichment";
 import { requireAuth } from "./auth";
-import { enrichmentPaywall, nextStepsPaywall, deepResearchPaywall, tokenIntelPaywall, duneQueryPaywall } from "./mpp";
+import { enrichmentPaywall, nextStepsPaywall, deepResearchPaywall, tokenIntelPaywall, duneQueryPaywall, tokenSnapshotPaywall } from "./mpp";
+import { fetchTokenSnapshot } from "./allium-client";
 import { executeDuneQuery, getLatestDuneResults, isDuneConfigured } from "./dune-client";
 import { runTokenAnalysis } from "./token-agent";
 import { callAnthropicServer, isServerMppReady } from "./mpp-client";
@@ -655,6 +656,39 @@ export async function registerRoutes(
     if (!analysis) return res.status(404).json({ message: "Analysis not found" });
     if (analysis.userId !== req.user!.id) return res.status(403).json({ message: "Not authorized" });
     res.json(analysis);
+  });
+
+  app.post("/api/companies/:id/token-snapshot", requireAuth, tokenSnapshotPaywall, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const company = await storage.getCompany(req.params.id, userId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+
+      const tokenProfile = await storage.getTokenProfile(req.params.id);
+      if (!tokenProfile) return res.status(400).json({ message: "No token profile attached to this company" });
+
+      if (!isServerMppReady()) return res.status(503).json({ message: "AI service not configured" });
+
+      const { snapshot, mppCost } = await fetchTokenSnapshot(
+        tokenProfile.contractAddress,
+        tokenProfile.chain,
+        tokenProfile.tokenTicker || "UNKNOWN"
+      );
+
+      await storage.logTransaction({
+        userId,
+        type: "token_snapshot",
+        amount: (mppCost * MARKUP_MULTIPLIER).toFixed(4),
+        description: `Token snapshot for ${tokenProfile.tokenTicker || tokenProfile.contractAddress.slice(0, 10)}`,
+        apiCost: mppCost.toFixed(6),
+        companyName: company.name,
+      });
+
+      res.json(snapshot);
+    } catch (error: any) {
+      console.error("Token snapshot error:", error);
+      res.status(500).json({ message: error.message || "Failed to fetch token snapshot" });
+    }
   });
 
   app.post("/api/companies/:id/token-analyses/generate", requireAuth, tokenIntelPaywall, async (req, res) => {

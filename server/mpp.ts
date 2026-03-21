@@ -56,3 +56,12 @@ export const duneQueryPaywall: RequestHandler = (req, res, next) => {
     description: "Dune query execution ($0.05)",
   })(req, res, next);
 };
+
+export const tokenSnapshotPaywall: RequestHandler = (req, res, next) => {
+  const estimated = (0.10 * MARKUP_MULTIPLIER);
+  const amount = Math.max(0.01, estimated).toFixed(2);
+  mppx.charge({
+    amount,
+    description: `Token snapshot fetch ($${amount})`,
+  })(req, res, next);
+};

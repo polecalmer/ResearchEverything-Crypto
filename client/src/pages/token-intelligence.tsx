@@ -28,6 +28,11 @@ import {
   Database,
   LineChart,
   Table2,
+  TrendingUp,
+  TrendingDown,
+  Activity,
+  Users,
+  DollarSign,
 } from "lucide-react";
 import type { TokenProfile, DuneQuery, TokenAnalysis } from "@shared/schema";
 import {
@@ -584,6 +589,142 @@ function TokenAnalysisSection({ companyId, companyName }: { companyId: string; c
   );
 }
 
+interface TokenSnapshotData {
+  price: number | null;
+  marketCap: number | null;
+  volume24h: number | null;
+  holderCount: number | null;
+  priceChange24h: number | null;
+  fetchedAt: string;
+  source: string;
+}
+
+function formatLargeNumber(n: number | null): string {
+  if (n === null) return "—";
+  if (n >= 1_000_000_000) return `$${(n / 1_000_000_000).toFixed(2)}B`;
+  if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `$${(n / 1_000).toFixed(2)}K`;
+  return `$${n.toFixed(2)}`;
+}
+
+function TokenSnapshotCard({ companyId }: { companyId: string }) {
+  const { getAccessToken } = useAuth();
+  const { toast } = useToast();
+  const [snapshot, setSnapshot] = useState<TokenSnapshotData | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const { data: tokenProfile } = useQuery<TokenProfile>({
+    queryKey: ["/api/companies", companyId, "token-profile"],
+  });
+
+  const fetchSnapshot = async () => {
+    setLoading(true);
+    try {
+      const token = await getAccessToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) {
+        headers["Authorization"] = `Bearer ${token}`;
+        headers["X-Privy-Token"] = token;
+      }
+      const res = await fetch(`/api/companies/${companyId}/token-snapshot`, {
+        method: "POST",
+        headers,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Failed" }));
+        throw new Error(err.message);
+      }
+      const data = await res.json();
+      setSnapshot(data);
+    } catch (err: any) {
+      toast({ title: "Snapshot failed", description: err.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!tokenProfile) {
+    return (
+      <div className="text-xs text-muted-foreground/60 py-4 text-center" data-testid="snapshot-no-profile">
+        Attach a token profile to fetch live market data.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3" data-testid="token-snapshot-section">
+      {snapshot && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3" data-testid="snapshot-metrics">
+          <div className="border border-border/30 p-3 bg-background/30">
+            <div className="flex items-center gap-1.5 text-muted-foreground/60 text-[10px] uppercase tracking-wider mb-1">
+              <DollarSign className="w-3 h-3" /> Price
+            </div>
+            <div className="text-sm font-mono font-medium" data-testid="snapshot-price">
+              {snapshot.price !== null ? `$${snapshot.price < 0.01 ? snapshot.price.toFixed(6) : snapshot.price.toFixed(2)}` : "—"}
+            </div>
+            {snapshot.priceChange24h !== null && (
+              <div className={`flex items-center gap-0.5 text-[10px] mt-0.5 ${snapshot.priceChange24h >= 0 ? "text-green-500" : "text-red-500"}`} data-testid="snapshot-price-change">
+                {snapshot.priceChange24h >= 0 ? <TrendingUp className="w-2.5 h-2.5" /> : <TrendingDown className="w-2.5 h-2.5" />}
+                {snapshot.priceChange24h > 0 ? "+" : ""}{snapshot.priceChange24h.toFixed(2)}%
+              </div>
+            )}
+          </div>
+
+          <div className="border border-border/30 p-3 bg-background/30">
+            <div className="flex items-center gap-1.5 text-muted-foreground/60 text-[10px] uppercase tracking-wider mb-1">
+              <BarChart3 className="w-3 h-3" /> Market Cap
+            </div>
+            <div className="text-sm font-mono font-medium" data-testid="snapshot-mcap">
+              {formatLargeNumber(snapshot.marketCap)}
+            </div>
+          </div>
+
+          <div className="border border-border/30 p-3 bg-background/30">
+            <div className="flex items-center gap-1.5 text-muted-foreground/60 text-[10px] uppercase tracking-wider mb-1">
+              <Activity className="w-3 h-3" /> 24h Volume
+            </div>
+            <div className="text-sm font-mono font-medium" data-testid="snapshot-volume">
+              {formatLargeNumber(snapshot.volume24h)}
+            </div>
+          </div>
+
+          <div className="border border-border/30 p-3 bg-background/30">
+            <div className="flex items-center gap-1.5 text-muted-foreground/60 text-[10px] uppercase tracking-wider mb-1">
+              <Users className="w-3 h-3" /> Holders
+            </div>
+            <div className="text-sm font-mono font-medium" data-testid="snapshot-holders">
+              {snapshot.holderCount !== null ? snapshot.holderCount.toLocaleString() : "—"}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {snapshot && (
+        <div className="text-[10px] text-muted-foreground/40 flex items-center justify-between">
+          <span>Source: {snapshot.source} | Fetched: {new Date(snapshot.fetchedAt).toLocaleTimeString()}</span>
+        </div>
+      )}
+
+      <Button
+        onClick={fetchSnapshot}
+        disabled={loading}
+        variant="outline"
+        size="sm"
+        className="text-xs h-7 w-full"
+        data-testid="button-fetch-snapshot"
+      >
+        {loading ? (
+          <><Loader2 className="w-3 h-3 animate-spin" /> Fetching snapshot...</>
+        ) : snapshot ? (
+          <><RefreshCw className="w-3 h-3" /> Refresh Snapshot (~$0.15)</>
+        ) : (
+          <><Activity className="w-3 h-3" /> Fetch Token Snapshot (~$0.15)</>
+        )}
+      </Button>
+    </div>
+  );
+}
+
 function MarkdownContent({ content }: { content: string }) {
   const lines = content.split('\n');
   const elements: JSX.Element[] = [];
@@ -661,6 +802,10 @@ export default function TokenIntelligenceTab({ companyId, companyName }: { compa
     <div className="space-y-4">
       <Section title="Token Profile" icon={Coins}>
         <TokenProfileManager companyId={companyId} />
+      </Section>
+
+      <Section title="Token Snapshot" icon={Activity}>
+        <TokenSnapshotCard companyId={companyId} />
       </Section>
 
       <Section title="Dune Queries" icon={Database}>
