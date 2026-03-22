@@ -109,6 +109,70 @@ function guessFormat(col: string): string {
   return "number";
 }
 
+function autoCorrectChartConfig(config: any, data: any[]): any {
+  if (!config || !data || data.length === 0) return config;
+  const xAxis = config.xAxis;
+  const yAxes = config.yAxes;
+  if (!xAxis || !yAxes) return config;
+
+  const sampleRow = data[0];
+  const allCols = Object.keys(sampleRow);
+
+  const xKeyExists = allCols.includes(xAxis.dataKey);
+  const yKeysExist = yAxes.every((y: any) => allCols.includes(y.dataKey));
+
+  if (xKeyExists && yKeysExist) return config;
+
+  const dateCols = allCols.filter(c => isDateColumn(c, data));
+  const numericCols = allCols.filter(c => {
+    if (dateCols.includes(c)) return false;
+    const sample = data.find(d => d[c] != null)?.[c];
+    return typeof sample === "number";
+  });
+  const stringCols = allCols.filter(c => !dateCols.includes(c) && !numericCols.includes(c));
+
+  const corrected = JSON.parse(JSON.stringify(config));
+
+  if (!xKeyExists) {
+    if (dateCols.length > 0) {
+      corrected.xAxis.dataKey = dateCols[0];
+      corrected.xAxis.type = "date";
+    } else if (stringCols.length > 0) {
+      corrected.xAxis.dataKey = stringCols[0];
+    } else if (numericCols.length > 0) {
+      const leastLikelyValue = numericCols.find(c => !/usd|price|fee|revenue|volume|amount|cost|tvl|value|earnings|profit/i.test(c));
+      corrected.xAxis.dataKey = leastLikelyValue || numericCols[0];
+    }
+  }
+
+  const usedCols = new Set([corrected.xAxis.dataKey]);
+  const availableNumeric = numericCols.filter(c => !usedCols.has(c));
+
+  for (let i = 0; i < corrected.yAxes.length; i++) {
+    const y = corrected.yAxes[i];
+    if (!allCols.includes(y.dataKey)) {
+      const fuzzyMatch = allCols.find(c => {
+        const cNorm = c.toLowerCase().replace(/[_\s]/g, "");
+        const yNorm = y.dataKey.toLowerCase().replace(/[_\s]/g, "");
+        return cNorm === yNorm || cNorm.includes(yNorm) || yNorm.includes(cNorm);
+      });
+      if (fuzzyMatch && !usedCols.has(fuzzyMatch)) {
+        corrected.yAxes[i].dataKey = fuzzyMatch;
+        usedCols.add(fuzzyMatch);
+      } else if (availableNumeric.length > 0) {
+        const col = availableNumeric.shift()!;
+        corrected.yAxes[i].dataKey = col;
+        corrected.yAxes[i].format = guessFormat(col);
+        usedCols.add(col);
+      }
+    } else {
+      usedCols.add(y.dataKey);
+    }
+  }
+
+  return corrected;
+}
+
 function buildDateFormatter(data: any[], xKey: string) {
   let minYear = Infinity;
   let maxYear = -Infinity;
@@ -457,7 +521,8 @@ function DataCard({ chart }: { chart: DashboardChart }) {
   const isTable = chart.chartType === "table" || !hasChartConfig;
   const currentView = view === "auto" ? (isTable ? "table" : "chart") : view;
 
-  const headlineStat = hasChartConfig ? computeHeadlineStat(chartData, chartConfig.yAxes, chart.title, chartConfig.xAxis?.dataKey) : null;
+  const correctedForHeadline = hasChartConfig ? autoCorrectChartConfig(chartConfig, chartData) : null;
+  const headlineStat = correctedForHeadline ? computeHeadlineStat(chartData, correctedForHeadline.yAxes, chart.title, correctedForHeadline.xAxis?.dataKey) : null;
 
   const renderTable = () => {
     const columns = chartConfig.columns || (chartData[0] ? Object.keys(chartData[0]) : []);
@@ -512,8 +577,9 @@ function DataCard({ chart }: { chart: DashboardChart }) {
 
   const renderChart = () => {
     if (!hasChartConfig) return null;
-    const xAxis = chartConfig.xAxis;
-    const yAxes = chartConfig.yAxes;
+    const correctedConfig = autoCorrectChartConfig(chartConfig, chartData);
+    const xAxis = correctedConfig.xAxis;
+    const yAxes = correctedConfig.yAxes;
     const isDate = xAxis.type === "date";
     const primary = yAxes[0];
     const primaryFmt = primary.format;

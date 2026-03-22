@@ -457,8 +457,47 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
       const availableCols = data[0] ? Object.keys(data[0]) : [];
       const requestedCols = (plan.chartConfig?.yAxes || []).map((y: any) => y.dataKey);
       const missingCols = requestedCols.filter((col: string) => !availableCols.includes(col));
+
+      if (plan.chartConfig?.xAxis && !availableCols.includes(plan.chartConfig.xAxis.dataKey)) {
+        const dateCols = availableCols.filter(c => /date|time|day|week|month|block_time|period/i.test(c));
+        if (dateCols.length > 0) {
+          console.log(`[Data Agent] Auto-fixing xAxis: "${plan.chartConfig.xAxis.dataKey}" → "${dateCols[0]}"`);
+          plan.chartConfig.xAxis.dataKey = dateCols[0];
+          plan.chartConfig.xAxis.type = "date";
+        }
+      }
+
       if (missingCols.length > 0) {
         console.warn(`[Data Agent] Chart "${plan.title}" references missing columns: ${missingCols.join(", ")}. Available: ${availableCols.join(", ")}`);
+        const usedCols = new Set([plan.chartConfig?.xAxis?.dataKey]);
+        const numericCols = availableCols.filter(c => {
+          if (usedCols.has(c)) return false;
+          const sample = data.find((d: any) => d[c] != null)?.[c];
+          return typeof sample === "number";
+        });
+        for (const y of (plan.chartConfig.yAxes || [])) {
+          if (!availableCols.includes(y.dataKey)) {
+            const fuzzy = availableCols.find((c: string) => {
+              const cN = c.toLowerCase().replace(/[_\s]/g, "");
+              const yN = y.dataKey.toLowerCase().replace(/[_\s]/g, "");
+              return cN === yN || cN.includes(yN) || yN.includes(cN);
+            });
+            if (fuzzy && !usedCols.has(fuzzy)) {
+              console.log(`[Data Agent] Fuzzy-matched "${y.dataKey}" → "${fuzzy}"`);
+              y.dataKey = fuzzy;
+              usedCols.add(fuzzy);
+            } else {
+              const avail = numericCols.find(c => !usedCols.has(c));
+              if (avail) {
+                console.log(`[Data Agent] Fallback-mapped "${y.dataKey}" → "${avail}"`);
+                y.dataKey = avail;
+                usedCols.add(avail);
+              }
+            }
+          } else {
+            usedCols.add(y.dataKey);
+          }
+        }
         const fixedYAxes = (plan.chartConfig.yAxes || []).filter((y: any) => availableCols.includes(y.dataKey));
         if (fixedYAxes.length === 0) {
           plan.chartConfig = { columns: availableCols };
@@ -559,10 +598,40 @@ export async function refreshChartData(chartId: string): Promise<DashboardChart>
       return updated || chart;
     }
 
+    const chartCfg = JSON.parse(chart.chartConfig || "{}");
+    let configUpdated = false;
+    if (chartCfg.xAxis && chartCfg.yAxes && data.length > 0) {
+      const availCols = Object.keys(data[0]);
+      if (chartCfg.xAxis.dataKey && !availCols.includes(chartCfg.xAxis.dataKey)) {
+        const dateCols = availCols.filter((c: string) => /date|time|day|week|month|block_time|period/i.test(c));
+        if (dateCols.length > 0) {
+          chartCfg.xAxis.dataKey = dateCols[0];
+          chartCfg.xAxis.type = "date";
+          configUpdated = true;
+        }
+      }
+      const usedCols = new Set([chartCfg.xAxis.dataKey]);
+      for (const y of chartCfg.yAxes) {
+        if (!availCols.includes(y.dataKey)) {
+          const fuzzy = availCols.find((c: string) => {
+            const cN = c.toLowerCase().replace(/[_\s]/g, "");
+            const yN = y.dataKey.toLowerCase().replace(/[_\s]/g, "");
+            return !usedCols.has(c) && (cN === yN || cN.includes(yN) || yN.includes(cN));
+          });
+          if (fuzzy) {
+            y.dataKey = fuzzy;
+            usedCols.add(fuzzy);
+            configUpdated = true;
+          }
+        }
+      }
+    }
+
     const updated = await storage.updateDashboardChart(chartId, {
       data: JSON.stringify(data),
       status: "completed",
       errorMessage: null,
+      ...(configUpdated ? { chartConfig: JSON.stringify(chartCfg) } : {}),
     });
     return updated || chart;
   } catch (err: any) {
