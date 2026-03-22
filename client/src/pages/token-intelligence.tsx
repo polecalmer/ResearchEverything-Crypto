@@ -28,8 +28,8 @@ import {
 } from "lucide-react";
 import {
   ResponsiveContainer,
-  LineChart,
-  Line,
+  AreaChart,
+  Area,
   XAxis,
   YAxis,
   Tooltip,
@@ -947,7 +947,7 @@ function PriceChart({ companyId }: { companyId: string }) {
       </div>
       <div className="px-1 pb-0">
         <ResponsiveContainer width="100%" height={245}>
-          <LineChart data={priceData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+          <AreaChart data={priceData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
             <CartesianGrid strokeDasharray="2 6" stroke="var(--color-chart-grid)" vertical={false} />
             <XAxis
               dataKey="date"
@@ -983,15 +983,16 @@ function PriceChart({ companyId }: { companyId: string }) {
               formatter={(value: any) => [smartFormat(value, "currency"), "Price"]}
               cursor={{ fill: "var(--color-chart-cursor)" }}
             />
-            <Line
+            <Area
               type="monotone"
               dataKey="price"
               stroke={CHART_COLORS[0]}
               strokeWidth={1.2}
+              fill={CHART_COLORS[0]}
+              fillOpacity={0.08}
               dot={false}
-              activeDot={{ r: 2.5, fill: CHART_COLORS[0], stroke: "rgba(0,0,0,0.5)", strokeWidth: 1 }}
             />
-          </LineChart>
+          </AreaChart>
         </ResponsiveContainer>
       </div>
       <div className="flex items-center justify-between px-1 py-1.5 text-[9px] text-muted-foreground/60 italic">
