@@ -129,7 +129,7 @@ function TokenProfileManager({ companyId }: { companyId: string }) {
   if (!profile && !editing) {
     return (
       <div className="text-center py-4">
-        <Coins className="w-6 h-6 text-muted-foreground/30 mx-auto mb-2" />
+        <Coins className="w-6 h-6 text-muted-foreground/50 mx-auto mb-2" />
         <p className="text-xs text-muted-foreground mb-3">No token profile attached</p>
         <Button variant="outline" size="sm" className="text-xs" onClick={() => setEditing(true)} data-testid="button-attach-token">
           <Link2 className="w-3 h-3 mr-1.5" />
@@ -325,10 +325,10 @@ function DuneQueryManager({ companyId }: { companyId: string }) {
             >
               <Database className="w-2.5 h-2.5 text-teal-400/60" />
               <span className="text-[11px] text-foreground/70">{q.label}</span>
-              <span className="text-[9px] font-mono text-muted-foreground/30">#{q.queryId}</span>
+              <span className="text-[9px] font-mono text-muted-foreground/50">#{q.queryId}</span>
               <button
                 onClick={() => removeMutation.mutate(q.id)}
-                className="opacity-0 group-hover:opacity-100 p-0.5 rounded-full hover:bg-destructive/20 text-muted-foreground/30 hover:text-destructive transition-all"
+                className="opacity-0 group-hover:opacity-100 p-0.5 rounded-full hover:bg-destructive/20 text-muted-foreground/50 hover:text-destructive transition-all"
                 data-testid={`button-remove-query-${q.id}`}
               >
                 <Trash2 className="w-2.5 h-2.5" />
@@ -348,7 +348,7 @@ function DuneQueryManager({ companyId }: { companyId: string }) {
               onBlur={() => setTimeout(() => setInputFocused(false), 200)}
               onKeyDown={handleKeyDown}
               placeholder={queries.length > 0 ? "Add query — search library or paste ID..." : "Search queries or paste a Dune query ID..."}
-              className="w-full h-8 px-3 pr-8 text-xs rounded-md border border-border/15 bg-card/20 text-foreground placeholder:text-muted-foreground/25 focus:outline-none focus:border-teal-500/30 transition-colors"
+              className="w-full h-8 px-3 pr-8 text-xs rounded-md border border-border/40 bg-card/30 text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-teal-500/30 transition-colors"
               data-testid="input-dune-search"
             />
             {isNumericInput && (
@@ -360,7 +360,7 @@ function DuneQueryManager({ companyId }: { companyId: string }) {
           <button
             onClick={() => autoAttachMutation.mutate()}
             disabled={autoAttachMutation.isPending}
-            className="p-1.5 rounded-md hover:bg-accent/20 text-muted-foreground/25 hover:text-teal-400 transition-colors"
+            className="p-1.5 rounded-md hover:bg-accent/20 text-muted-foreground/50 hover:text-teal-400 transition-colors"
             title="Auto-detect and attach relevant queries"
             data-testid="button-auto-attach"
           >
@@ -393,7 +393,7 @@ function DuneQueryManager({ companyId }: { companyId: string }) {
             )}
             {libraryResults.length === 0 ? (
               <div className="px-3 py-4 text-center">
-                <p className="text-[11px] text-muted-foreground/30">
+                <p className="text-[11px] text-muted-foreground">
                   {searchTerm ? "No matching queries" : "Type to search library"}
                 </p>
                 {masterQueries.length === 0 && (
@@ -410,7 +410,7 @@ function DuneQueryManager({ companyId }: { companyId: string }) {
               </div>
             ) : (
               <div className="max-h-56 overflow-y-auto">
-                <p className="text-[9px] text-muted-foreground/25 px-2.5 py-1.5">{libraryResults.length} results</p>
+                <p className="text-[9px] text-muted-foreground/60 px-2.5 py-1.5">{libraryResults.length} results</p>
                 {libraryResults.slice(0, 20).map(mq => (
                   <button
                     key={mq.id}
@@ -423,14 +423,14 @@ function DuneQueryManager({ companyId }: { companyId: string }) {
                     <div className="min-w-0 flex-1">
                       <p className="text-[11px] text-foreground/80 truncate">{mq.label}</p>
                       <div className="flex items-center gap-1.5 mt-0.5">
-                        <span className="text-[9px] font-mono text-muted-foreground/30">#{mq.queryId}</span>
+                        <span className="text-[9px] font-mono text-muted-foreground/50">#{mq.queryId}</span>
                         {mq.category && <span className="text-[9px] px-1.5 py-0 rounded-full bg-accent/20 text-muted-foreground/40 capitalize">{mq.category}</span>}
                         {(mq.protocolTags || []).slice(0, 1).map(t => (
                           <span key={t} className="text-[9px] text-teal-400/50">{t}</span>
                         ))}
                       </div>
                     </div>
-                    <Plus className="w-3 h-3 text-muted-foreground/20 shrink-0 ml-2" />
+                    <Plus className="w-3 h-3 text-muted-foreground/50 shrink-0 ml-2" />
                   </button>
                 ))}
               </div>
@@ -446,7 +446,7 @@ function DuneQueryManager({ companyId }: { companyId: string }) {
             value={manualLabel}
             onChange={(e) => setManualLabel(e.target.value)}
             placeholder="Label this query..."
-            className="flex-1 h-7 px-2 text-xs rounded border border-border/15 bg-transparent text-foreground placeholder:text-muted-foreground/25 focus:outline-none focus:border-teal-500/30"
+            className="flex-1 h-7 px-2 text-xs rounded border border-border/40 bg-transparent text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:border-teal-500/30"
             autoFocus
             onKeyDown={(e) => { if (e.key === "Enter") handleManualSubmit(); if (e.key === "Escape") { setShowManualForm(false); setPendingQueryId(null); } }}
             data-testid="input-manual-label"
@@ -461,7 +461,7 @@ function DuneQueryManager({ companyId }: { companyId: string }) {
           </button>
           <button
             onClick={() => { setShowManualForm(false); setPendingQueryId(null); }}
-            className="text-[10px] text-muted-foreground/30 hover:text-muted-foreground transition-colors"
+            className="text-[10px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
           >
             ✕
           </button>
@@ -469,7 +469,7 @@ function DuneQueryManager({ companyId }: { companyId: string }) {
       )}
 
       {queries.length === 0 && !showManualForm && (
-        <p className="text-[10px] text-muted-foreground/20 text-center py-1">
+        <p className="text-[10px] text-muted-foreground/50 text-center py-1">
           Search the library above, paste a Dune query ID, or use the refresh icon to auto-detect queries
         </p>
       )}
@@ -549,7 +549,7 @@ function TokenAnalysisSection({ companyId, companyName }: { companyId: string; c
               {analysis.status !== "generating" && (
                 <button
                   onClick={() => deleteMutation.mutate(analysis.id)}
-                  className="p-1 rounded hover:bg-destructive/20 text-muted-foreground/20 hover:text-destructive transition-colors"
+                  className="p-1 rounded hover:bg-destructive/20 text-muted-foreground/50 hover:text-destructive transition-colors"
                   data-testid={`button-delete-analysis-${analysis.id}`}
                 >
                   <Trash2 className="w-2.5 h-2.5" />
@@ -559,7 +559,7 @@ function TokenAnalysisSection({ companyId, companyName }: { companyId: string; c
           ))}
         </div>
       )}
-      <p className="text-[11px] text-muted-foreground/30 mb-2">Reports appear in the Research Report tab</p>
+      <p className="text-[11px] text-muted-foreground mb-2">Reports appear in the Research Report tab</p>
       <Button
         variant="outline"
         className="w-full gap-2 text-xs h-8"
@@ -688,12 +688,12 @@ function TokenSnapshotCard({ companyId }: { companyId: string }) {
               )}
             </tbody>
           </table>
-          <div className="text-[10px] text-muted-foreground/30 flex items-center justify-between mt-1.5">
+          <div className="text-[10px] text-muted-foreground/60 flex items-center justify-between mt-1.5">
             <span>{snapshot.source} · {new Date(snapshot.fetchedAt).toLocaleTimeString()}</span>
             <button
               onClick={fetchSnapshot}
               disabled={loading}
-              className="text-muted-foreground/30 hover:text-muted-foreground transition-colors"
+              className="text-muted-foreground/60 hover:text-muted-foreground transition-colors"
               data-testid="button-refresh-snapshot"
             >
               {loading ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
@@ -981,12 +981,12 @@ export function TokenReportTab({ companyId, companyName }: { companyId: string; 
   if (!latestReport) {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-4">
-        <div className="text-muted-foreground/20">
+        <div className="text-muted-foreground/50">
           <Brain className="w-8 h-8" />
         </div>
         <div className="text-center">
           <p className="text-sm text-muted-foreground/60 mb-1">No research report yet</p>
-          <p className="text-[11px] text-muted-foreground/30">Generate an AI-powered investment analysis for {companyName}</p>
+          <p className="text-[11px] text-muted-foreground">Generate an AI-powered investment analysis for {companyName}</p>
         </div>
         <Button
           variant="outline"
@@ -1006,14 +1006,14 @@ export function TokenReportTab({ companyId, companyName }: { companyId: string; 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <div className="text-[10px] text-muted-foreground/30">
+        <div className="text-[10px] text-muted-foreground/60">
           {format(new Date(latestReport.createdAt), "MMMM d, yyyy")}
           {completedAnalyses.length > 1 && ` · ${completedAnalyses.length} reports`}
         </div>
         <div className="flex items-center gap-1.5">
           <button
             onClick={() => deleteMutation.mutate(latestReport.id)}
-            className="p-1 rounded hover:bg-destructive/20 text-muted-foreground/20 hover:text-destructive transition-colors"
+            className="p-1 rounded hover:bg-destructive/20 text-muted-foreground/50 hover:text-destructive transition-colors"
             data-testid="button-delete-report"
             title="Delete report"
           >
@@ -1022,7 +1022,7 @@ export function TokenReportTab({ companyId, companyName }: { companyId: string; 
           <Button
             variant="ghost"
             size="sm"
-            className="text-[10px] h-6 px-2 text-muted-foreground/30 hover:text-muted-foreground"
+            className="text-[10px] h-6 px-2 text-muted-foreground/60 hover:text-muted-foreground"
             onClick={() => generateMutation.mutate()}
             disabled={generateMutation.isPending || !tokenProfile}
             data-testid="button-regenerate-report"

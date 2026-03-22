@@ -65,8 +65,8 @@ function TermBlock({ label, children, className = "" }: { label: string; childre
   return (
     <div className={`mb-0 ${className}`}>
       <div className="flex items-center gap-2 mb-3 select-none">
-        <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/50">{label}</span>
-        <span className="flex-1 border-t border-border/15" />
+        <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">{label}</span>
+        <span className="flex-1 border-t border-border/30" />
       </div>
       <div className="pl-1">
         {children}
@@ -88,7 +88,7 @@ function TermLink({ href, children, className = "", ...props }: React.AnchorHTML
   const safe = safeHref(href);
   if (!safe) return null;
   return (
-    <a href={safe} target="_blank" rel="noopener noreferrer" className={`text-muted-foreground/50 hover:text-foreground transition-colors ${className}`} {...props}>
+    <a href={safe} target="_blank" rel="noopener noreferrer" className={`text-muted-foreground hover:text-foreground transition-colors ${className}`} {...props}>
       {children}
     </a>
   );
@@ -118,7 +118,7 @@ function NextStepsAdvisor({ companyId, pipelineStage }: { companyId: string; pip
           data-testid="button-generate-next-steps"
         >
           <span>Generate recommendations</span>
-          <span className="text-muted-foreground/30">~$0.12</span>
+          <span className="text-muted-foreground/50">~$0.12</span>
         </button>
       </div>
     );
@@ -127,7 +127,7 @@ function NextStepsAdvisor({ companyId, pipelineStage }: { companyId: string; pip
   if (isLoading) {
     return (
       <div data-testid="card-next-steps" className="space-y-1">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground/60">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <Loader2 className="w-3 h-3 animate-spin" />
           <span>Analyzing deal context...</span>
         </div>
@@ -152,7 +152,7 @@ function NextStepsAdvisor({ companyId, pipelineStage }: { companyId: string; pip
           data-testid="button-retry-next-steps"
         >
           <span>Retry</span>
-          <span className="text-muted-foreground/30">~$0.12</span>
+          <span className="text-muted-foreground/50">~$0.12</span>
         </button>
       </div>
     );
@@ -175,9 +175,9 @@ function NextStepsAdvisor({ companyId, pipelineStage }: { companyId: string; pip
                 {step.title}
                 {step.verified && <span className="text-emerald-500/70 ml-1 text-[10px]">verified</span>}
               </p>
-              <p className="text-[11px] text-muted-foreground/50 mt-0.5 leading-snug" data-testid={`next-step-detail-${i}`}>{step.detail}</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5 leading-snug" data-testid={`next-step-detail-${i}`}>{step.detail}</p>
               {step.verifierNote && (
-                <p className="text-[10px] text-muted-foreground/40 mt-0.5 italic">
+                <p className="text-[10px] text-muted-foreground/70 mt-0.5 italic">
                   {step.verifierNote}
                 </p>
               )}
@@ -186,12 +186,12 @@ function NextStepsAdvisor({ companyId, pipelineStage }: { companyId: string; pip
         </div>
       ))}
       {hiddenCount > 0 && !showAll && (
-        <button onClick={() => setShowAll(true)} className="text-[11px] text-muted-foreground/40 hover:text-foreground transition-colors" data-testid="button-show-more-steps">
+        <button onClick={() => setShowAll(true)} className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors" data-testid="button-show-more-steps">
           +{hiddenCount} more
         </button>
       )}
       {showAll && hiddenCount > 0 && (
-        <button onClick={() => setShowAll(false)} className="text-[11px] text-muted-foreground/40 hover:text-foreground transition-colors" data-testid="button-show-less-steps">
+        <button onClick={() => setShowAll(false)} className="text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors" data-testid="button-show-less-steps">
           Show less
         </button>
       )}
@@ -237,7 +237,7 @@ function DeepResearchSection({ companyId, companyName }: { companyId: string; co
           className="flex items-center gap-2 py-1.5 text-xs group hover:text-foreground transition-colors cursor-pointer"
           data-testid={`link-report-${report.id}`}
         >
-          <span className="text-muted-foreground/20 group-hover:text-foreground/40">-</span>
+          <span className="text-muted-foreground/40 group-hover:text-foreground/60">-</span>
           <span className="text-muted-foreground group-hover:text-foreground truncate flex-1">
             {report.title}
           </span>
@@ -249,14 +249,14 @@ function DeepResearchSection({ companyId, companyName }: { companyId: string; co
           ) : report.status === "failed" ? (
             <span className="text-red-400/60 text-[10px]">failed</span>
           ) : (
-            <span className="text-muted-foreground/30 text-[10px]">{format(new Date(report.createdAt), "yyyy-MM-dd")}</span>
+            <span className="text-muted-foreground/60 text-[10px]">{format(new Date(report.createdAt), "yyyy-MM-dd")}</span>
           )}
         </a>
       ))}
       <button
         onClick={() => generateMutation.mutate()}
         disabled={generateMutation.isPending}
-        className="text-xs text-muted-foreground/60 hover:text-foreground transition-colors flex items-center gap-2 disabled:opacity-30"
+        className="text-xs text-muted-foreground hover:text-foreground transition-colors flex items-center gap-2 disabled:opacity-30"
         data-testid="button-generate-report"
       >
         {generateMutation.isPending ? (
@@ -301,7 +301,7 @@ function TagsInline({ tags, companyId }: { tags: string[]; companyId: string }) 
         <button
           key={tag}
           onClick={() => removeTag(tag)}
-          className="text-muted-foreground/50 hover:text-red-400 transition-colors px-1.5 py-0.5 rounded bg-accent/30 hover:bg-red-400/10"
+          className="text-muted-foreground hover:text-red-400 transition-colors px-1.5 py-0.5 rounded bg-accent/40 hover:bg-red-400/10"
           data-testid={`badge-tag-${tag}`}
         >
           {tag}
@@ -314,14 +314,14 @@ function TagsInline({ tags, companyId }: { tags: string[]; companyId: string }) 
           onChange={(e) => setNewTag(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") addTag(); if (e.key === "Escape") { setAdding(false); setNewTag(""); } }}
           onBlur={() => { if (!newTag.trim()) setAdding(false); }}
-          className="bg-transparent border-b border-border/40 text-xs text-foreground outline-none w-20 pb-0.5 focus:border-foreground/30"
+          className="bg-transparent border-b border-border text-xs text-foreground outline-none w-20 pb-0.5 focus:border-foreground/50"
           placeholder="tag"
           data-testid="input-new-tag"
         />
       ) : (
         <button
           onClick={() => setAdding(true)}
-          className="text-muted-foreground/30 hover:text-foreground/60 transition-colors"
+          className="text-muted-foreground/60 hover:text-foreground transition-colors"
           data-testid="button-add-tag"
         >
           +
@@ -381,8 +381,8 @@ function ExcitementBar({ companyId, score, reason }: { companyId: string; score:
         ))}
       </div>
       <div className="flex items-center justify-between">
-        <span className="text-[11px] text-muted-foreground/40">
-          {score ? `${score}/10` : "—"} <span className="text-muted-foreground/30">{getLabel()}</span>
+        <span className="text-[11px] text-muted-foreground">
+          {score ? `${score}/10` : "—"} <span className="text-muted-foreground/70">{getLabel()}</span>
         </span>
       </div>
       {editing ? (
@@ -391,21 +391,21 @@ function ExcitementBar({ companyId, score, reason }: { companyId: string; score:
             value={localReason}
             onChange={(e) => setLocalReason(e.target.value)}
             placeholder="why this score?"
-            className="w-full min-h-[40px] bg-transparent border border-border/30 text-xs text-foreground/80 p-2 outline-none resize-none focus:border-foreground/20 rounded"
+            className="w-full min-h-[40px] bg-transparent border border-border text-xs text-foreground/80 p-2 outline-none resize-none focus:border-foreground/40 rounded"
             data-testid="textarea-excitement-reason"
           />
           <div className="flex gap-2 justify-end text-[11px]">
-            <button onClick={() => { setEditing(false); setLocalReason(reason || ""); }} className="text-muted-foreground/40 hover:text-foreground transition-colors" data-testid="button-cancel-reason">Cancel</button>
+            <button onClick={() => { setEditing(false); setLocalReason(reason || ""); }} className="text-muted-foreground hover:text-foreground transition-colors" data-testid="button-cancel-reason">Cancel</button>
             <button onClick={saveReason} disabled={mutation.isPending} className="text-foreground/70 hover:text-foreground transition-colors" data-testid="button-save-reason">Save</button>
           </div>
         </div>
       ) : (
         <button
           onClick={() => setEditing(true)}
-          className="mt-1 text-[11px] text-muted-foreground/30 hover:text-foreground/60 transition-colors block w-full text-left"
+          className="mt-1 text-[11px] text-muted-foreground/60 hover:text-foreground transition-colors block w-full text-left"
           data-testid="button-edit-reason"
         >
-          {reason ? <span className="text-muted-foreground/50">{reason}</span> : <span className="italic">add note...</span>}
+          {reason ? <span className="text-muted-foreground">{reason}</span> : <span className="italic">add note...</span>}
         </button>
       )}
     </div>
@@ -464,7 +464,7 @@ export default function CompanyDetail() {
   if (companyLoading) {
     return (
       <div className="p-6 max-w-6xl mx-auto">
-        <div className="flex items-center gap-2 text-xs text-muted-foreground/40 mb-6">
+        <div className="flex items-center gap-2 text-xs text-muted-foreground mb-6">
           <Loader2 className="w-3 h-3 animate-spin" />
           <span>Loading...</span>
         </div>
@@ -479,8 +479,8 @@ export default function CompanyDetail() {
     return (
       <div className="p-6 flex items-center justify-center h-full">
         <div className="text-center">
-          <p className="text-sm text-muted-foreground/60 mb-2">Company not found</p>
-          <button onClick={() => navigate("/")} className="text-xs text-muted-foreground/40 hover:text-foreground transition-colors">
+          <p className="text-sm text-muted-foreground mb-2">Company not found</p>
+          <button onClick={() => navigate("/")} className="text-xs text-muted-foreground/70 hover:text-foreground transition-colors">
             Back to pipeline
           </button>
         </div>
@@ -492,14 +492,14 @@ export default function CompanyDetail() {
     <div className="h-full overflow-y-auto terminal-scrollbar">
       <div className="max-w-6xl mx-auto p-6">
         <div className="flex items-center justify-between mb-6">
-          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/50">
+          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
             <button onClick={() => navigate("/companies")} className="hover:text-foreground transition-colors" data-testid="button-back">Companies</button>
-            <span className="text-muted-foreground/20">/</span>
+            <span className="text-muted-foreground/40">/</span>
             <span className="text-foreground/70">{company.name}</span>
           </div>
           <button
             onClick={() => navigate("/add")}
-            className="flex items-center gap-1.5 text-[11px] text-muted-foreground/40 hover:text-foreground/70 transition-colors"
+            className="flex items-center gap-1.5 text-[11px] text-muted-foreground hover:text-foreground transition-colors"
             data-testid="button-add-deal"
           >
             <Plus className="w-3 h-3" />
@@ -524,7 +524,7 @@ export default function CompanyDetail() {
 
           <div className="flex items-center gap-3 flex-wrap text-[11px] mb-3">
             {company.sector && (
-              <span className="text-muted-foreground/40">
+              <span className="text-muted-foreground">
                 {company.sector}{company.subSector ? `/${company.subSector}` : ""}
               </span>
             )}
@@ -533,16 +533,16 @@ export default function CompanyDetail() {
                 {company.tokenTicker || "TOKEN"}{company.tokenTier ? ` · ${company.tokenTier}` : ""}
               </span>
             )}
-            {company.stage && <span className="text-muted-foreground/30">{company.stage}</span>}
-            {company.businessModel && <span className="text-muted-foreground/30">{company.businessModel}</span>}
+            {company.stage && <span className="text-muted-foreground">{company.stage}</span>}
+            {company.businessModel && <span className="text-muted-foreground">{company.businessModel}</span>}
             {company.createdAt && (
-              <span className="text-muted-foreground/20 ml-auto">
+              <span className="text-muted-foreground/60 ml-auto">
                 {format(new Date(company.createdAt), "yyyy-MM-dd")}
               </span>
             )}
           </div>
 
-          <div className="flex items-center gap-3 text-muted-foreground/30">
+          <div className="flex items-center gap-3 text-muted-foreground">
             <TermLink href={company.websiteUrl} data-testid="link-company-website" aria-label="Website">
               <Globe className="w-3.5 h-3.5" />
             </TermLink>
@@ -558,14 +558,14 @@ export default function CompanyDetail() {
           </div>
         </div>
 
-        <div className="border-t border-border/20 pt-4 mb-6">
+        <div className="border-t border-border/40 pt-4 mb-6">
           <div className="flex items-center gap-1 mb-6" role="tablist" aria-label="Intelligence tabs">
             <button
               role="tab"
               aria-selected={activeTab === "deal"}
               aria-controls="panel-deal"
               onClick={() => setActiveTab("deal")}
-              className={`text-xs px-3 py-1.5 rounded transition-colors ${activeTab === "deal" ? "text-foreground bg-blue-500/15 dark:bg-blue-400/15" : "text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-accent/20"}`}
+              className={`text-xs px-3 py-1.5 rounded transition-colors ${activeTab === "deal" ? "text-foreground bg-blue-500/15 dark:bg-blue-400/15" : "text-muted-foreground hover:text-foreground hover:bg-accent/30"}`}
               data-testid="tab-deal-intelligence"
             >
               Project Intelligence
@@ -575,7 +575,7 @@ export default function CompanyDetail() {
               aria-selected={activeTab === "token"}
               aria-controls="panel-token"
               onClick={() => setActiveTab("token")}
-              className={`text-xs px-3 py-1.5 rounded transition-colors ${activeTab === "token" ? "text-foreground bg-blue-500/15 dark:bg-blue-400/15" : "text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-accent/20"}`}
+              className={`text-xs px-3 py-1.5 rounded transition-colors ${activeTab === "token" ? "text-foreground bg-blue-500/15 dark:bg-blue-400/15" : "text-muted-foreground hover:text-foreground hover:bg-accent/30"}`}
               data-testid="tab-token-intelligence"
             >
               Token Intelligence
@@ -586,7 +586,7 @@ export default function CompanyDetail() {
                 aria-selected={activeTab === "report"}
                 aria-controls="panel-report"
                 onClick={() => setActiveTab("report")}
-                className={`text-xs px-3 py-1.5 rounded transition-colors ${activeTab === "report" ? "text-foreground bg-blue-500/15 dark:bg-blue-400/15" : "text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-accent/20"}`}
+                className={`text-xs px-3 py-1.5 rounded transition-colors ${activeTab === "report" ? "text-foreground bg-blue-500/15 dark:bg-blue-400/15" : "text-muted-foreground hover:text-foreground hover:bg-accent/30"}`}
                 data-testid="tab-token-report"
               >
                 Research Report
@@ -597,7 +597,7 @@ export default function CompanyDetail() {
               aria-selected={activeTab === "data"}
               aria-controls="panel-data"
               onClick={() => setActiveTab("data")}
-              className={`text-xs px-3 py-1.5 rounded transition-colors ${activeTab === "data" ? "text-foreground bg-blue-500/15 dark:bg-blue-400/15" : "text-muted-foreground/40 hover:text-muted-foreground/70 hover:bg-accent/20"}`}
+              className={`text-xs px-3 py-1.5 rounded transition-colors ${activeTab === "data" ? "text-foreground bg-blue-500/15 dark:bg-blue-400/15" : "text-muted-foreground hover:text-foreground hover:bg-accent/30"}`}
               data-testid="tab-data"
             >
               Data
@@ -643,10 +643,10 @@ export default function CompanyDetail() {
                               className="flex items-center gap-2 py-1 group text-xs"
                               data-testid={`link-dd-read-${idx}`}
                             >
-                              <span className="text-muted-foreground/20 group-hover:text-foreground/40 transition-colors">-</span>
-                              <span className="text-foreground/60 group-hover:text-foreground truncate flex-1 transition-colors">{read.title}</span>
+                              <span className="text-muted-foreground/50 group-hover:text-foreground/70 transition-colors">-</span>
+                              <span className="text-foreground/70 group-hover:text-foreground truncate flex-1 transition-colors">{read.title}</span>
                               {read.source && (
-                                <span className="text-muted-foreground/20 flex-shrink-0">[{read.source}]</span>
+                                <span className="text-muted-foreground/50 flex-shrink-0">[{read.source}]</span>
                               )}
                             </a>
                           ))}
@@ -665,8 +665,8 @@ export default function CompanyDetail() {
                       <div key={founder.id} data-testid={`card-founder-${founder.id}`}>
                         <div className="flex items-center gap-2 mb-1">
                           <span className="text-xs font-bold" data-testid={`text-founder-name-${founder.id}`}>{founder.name}</span>
-                          {founder.role && <span className="text-[10px] text-muted-foreground/40">{founder.role}</span>}
-                          <div className="flex items-center gap-2 ml-auto text-muted-foreground/20">
+                          {founder.role && <span className="text-[10px] text-muted-foreground">{founder.role}</span>}
+                          <div className="flex items-center gap-2 ml-auto text-muted-foreground">
                             <TermLink href={founder.linkedinUrl} aria-label={`${founder.name} LinkedIn`} data-testid={`link-founder-linkedin-${founder.id}`}>
                               <Linkedin className="w-3 h-3" />
                             </TermLink>
@@ -681,10 +681,10 @@ export default function CompanyDetail() {
                             </TermLink>
                           </div>
                         </div>
-                        {founder.bio && <p className="text-xs text-muted-foreground/60 leading-relaxed">{founder.bio}</p>}
+                        {founder.bio && <p className="text-xs text-muted-foreground leading-relaxed">{founder.bio}</p>}
                         {founder.priorCompanies && (
-                          <p className="text-[10px] text-muted-foreground/40 mt-1">
-                            <span className="text-muted-foreground/30">Previously:</span> {founder.priorCompanies}
+                          <p className="text-[10px] text-muted-foreground/70 mt-1">
+                            <span className="text-muted-foreground/60">Previously:</span> {founder.priorCompanies}
                           </p>
                         )}
                       </div>
@@ -700,13 +700,13 @@ export default function CompanyDetail() {
                       value={noteContent}
                       onChange={(e) => setNoteContent(e.target.value)}
                       placeholder="Add a note..."
-                      className="flex-1 min-h-[36px] bg-transparent text-xs text-foreground/80 outline-none resize-none placeholder:text-muted-foreground/30 border border-border/20 rounded px-2 py-1.5 focus:border-border/40 transition-colors"
+                      className="flex-1 min-h-[36px] bg-transparent text-xs text-foreground/80 outline-none resize-none placeholder:text-muted-foreground/60 border border-border/40 rounded px-2 py-1.5 focus:border-border transition-colors"
                       data-testid="textarea-note"
                     />
                     <button
                       onClick={() => noteContent.trim() && addNoteMutation.mutate(noteContent)}
                       disabled={!noteContent.trim() || addNoteMutation.isPending}
-                      className="text-muted-foreground/30 hover:text-foreground/60 transition-colors disabled:opacity-20 mt-1.5"
+                      className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-20 mt-1.5"
                       data-testid="button-add-note"
                     >
                       <Send className="w-3 h-3" />
@@ -716,14 +716,14 @@ export default function CompanyDetail() {
                 {notes.length > 0 ? (
                   <div className="space-y-0">
                     {notes.map((note) => (
-                      <div key={note.id} className="flex items-start gap-2 py-2 border-t border-border/10 group" data-testid={`note-${note.id}`}>
-                        <span className="text-[10px] text-muted-foreground/30 flex-shrink-0 mt-0.5 w-16">
+                      <div key={note.id} className="flex items-start gap-2 py-2 border-t border-border/30 group" data-testid={`note-${note.id}`}>
+                        <span className="text-[10px] text-muted-foreground/60 flex-shrink-0 mt-0.5 w-16">
                           {note.createdAt ? format(new Date(note.createdAt), "MM/dd HH:mm") : ""}
                         </span>
                         <p className="text-xs whitespace-pre-wrap text-foreground/70 flex-1">{note.content}</p>
                         <button
                           onClick={() => deleteNoteMutation.mutate(note.id)}
-                          className="flex-shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground/20 hover:text-red-400 transition-all"
+                          className="flex-shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground/50 hover:text-red-400 transition-all"
                           aria-label="Delete note"
                           data-testid={`button-delete-note-${note.id}`}
                         >
@@ -733,7 +733,7 @@ export default function CompanyDetail() {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-[11px] text-muted-foreground/30 italic">No notes yet</p>
+                  <p className="text-[11px] text-muted-foreground italic">No notes yet</p>
                 )}
               </TermBlock>
 
@@ -754,7 +754,7 @@ export default function CompanyDetail() {
                         className={`w-full text-left text-[11px] py-1 px-2 rounded transition-colors flex items-center gap-2 ${
                           isActive
                             ? `${STAGE_COLORS[stage]} bg-accent/20`
-                            : "text-muted-foreground/20 hover:text-muted-foreground/60 hover:bg-accent/10"
+                            : "text-muted-foreground/50 hover:text-muted-foreground hover:bg-accent/20"
                         }`}
                         data-testid={`stage-option-${stage}`}
                       >
@@ -778,14 +778,14 @@ export default function CompanyDetail() {
                 <TagsInline tags={company.tags || []} companyId={company.id} />
               </TermBlock>
 
-              <div className="pt-4 border-t border-border/10 space-y-1">
+              <div className="pt-4 border-t border-border/30 space-y-1">
                 {company.websiteUrl && (
-                  <a href={company.websiteUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[11px] text-muted-foreground/40 hover:text-foreground/70 transition-colors py-0.5" data-testid="button-visit-website">
+                  <a href={company.websiteUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[11px] text-muted-foreground hover:text-foreground transition-colors py-0.5" data-testid="button-visit-website">
                     <Globe className="w-3 h-3" /> Visit website
                   </a>
                 )}
                 {company.sourceUrl && company.sourceUrl !== company.websiteUrl && (
-                  <a href={company.sourceUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[11px] text-muted-foreground/40 hover:text-foreground/70 transition-colors py-0.5" data-testid="button-visit-source">
+                  <a href={company.sourceUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-[11px] text-muted-foreground hover:text-foreground transition-colors py-0.5" data-testid="button-visit-source">
                     <ExternalLink className="w-3 h-3" /> View source
                   </a>
                 )}
@@ -793,7 +793,7 @@ export default function CompanyDetail() {
                   {!showDeleteConfirm ? (
                     <button
                       onClick={() => setShowDeleteConfirm(true)}
-                      className="flex items-center gap-2 text-[11px] text-muted-foreground/20 hover:text-red-400/60 transition-colors py-0.5"
+                      className="flex items-center gap-2 text-[11px] text-muted-foreground/50 hover:text-red-400 transition-colors py-0.5"
                       data-testid="button-delete-company"
                     >
                       <Trash2 className="w-3 h-3" /> Delete company
@@ -814,7 +814,7 @@ export default function CompanyDetail() {
                         </button>
                         <button
                           onClick={() => setShowDeleteConfirm(false)}
-                          className="text-muted-foreground/40 hover:text-foreground transition-colors"
+                          className="text-muted-foreground hover:text-foreground transition-colors"
                           data-testid="button-cancel-delete"
                         >
                           Cancel

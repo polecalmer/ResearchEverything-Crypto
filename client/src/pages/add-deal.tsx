@@ -286,7 +286,7 @@ export default function AddDeal() {
     <div className="p-6 max-w-3xl mx-auto h-full overflow-y-auto">
       <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground/50 mb-6">
         <button onClick={() => navigate("/")} className="hover:text-foreground transition-colors" data-testid="button-back">Pipeline</button>
-        <span className="text-muted-foreground/20">/</span>
+        <span className="text-muted-foreground/50">/</span>
         <span className="text-foreground/70">New Deal</span>
       </div>
 
@@ -303,11 +303,11 @@ export default function AddDeal() {
                 placeholder="URL, company name, tweet, founder profile..."
                 onKeyDown={(e) => e.key === "Enter" && handleEnrichStream()}
                 disabled={isEnriching}
-                className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/25 disabled:opacity-30"
+                className="flex-1 bg-transparent text-sm text-foreground outline-none placeholder:text-muted-foreground/60 disabled:opacity-30"
                 data-testid="input-enrich"
               />
             </div>
-            <p className="text-[10px] text-muted-foreground/30">
+            <p className="text-[10px] text-muted-foreground/60">
               Websites, tweets, X/LinkedIn profiles, blog posts, Product Hunt, GitHub repos, company names
             </p>
 

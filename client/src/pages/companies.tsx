@@ -187,7 +187,7 @@ export default function Companies() {
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 onClick={(e) => e.stopPropagation()}
-                                className="text-muted-foreground/30 hover:text-muted-foreground transition-colors"
+                                className="text-muted-foreground/60 hover:text-muted-foreground transition-colors"
                               >
                                 <ExternalLink className="w-3 h-3" />
                               </a>
