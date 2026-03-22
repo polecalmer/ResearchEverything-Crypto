@@ -315,7 +315,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
       let fetchError: string | null = null;
 
       try {
-        data = await fetchChartData(plan.dataSource, plan.dataSourceConfig);
+        data = await fetchChartData(plan.dataSource, { ...plan.dataSourceConfig, forceRefresh: true });
       } catch (err: any) {
         fetchError = err.message || "Failed to fetch data";
         console.warn(`[Data Agent] Primary source "${plan.dataSource}" failed for "${plan.title}": ${fetchError}`);
