@@ -55,7 +55,7 @@ Response format — array of chart/table definitions:
     "title": "Title Case Title",
     "subtitle": "ALL CAPS analytical insight — you MUST base this ONLY on what the data columns actually measure. Do NOT assume causation or drivers you cannot see in the data. GOOD: 'RATIO ROSE FROM 20x TO 30x SINCE JAN 2026' (describes what happened). BAD: 'BACK TO 30x ON RISING EARNINGS' (invents a cause). For P/E ratios: a rising ratio means EITHER price rose faster than earnings OR earnings fell — do NOT assume which without earnings data. For revenue: describe the trend shape, not why. Keep it factual and data-grounded. E.g. 'REVENUE 2X H2 VS H1 2025', '30-DAY MA TRENDING UP SINCE OCT', 'RATIO COMPRESSED FROM 40x PEAK TO 25x'. Should read like a Bloomberg terminal headline.",
     "description": "One sentence",
-    "chartType": "line" | "bar" | "area" | "table",
+    "chartType": "line" | "bar" | "area" | "table",  // CHART TYPE RULES: Revenue/fees/earnings per period → "bar". Annualized run-rate or moving-average revenue → "line". Cumulative revenue/TVL/supply → "area". Prices/ratios/P&E → "line". Volume per period → "bar". Holder counts/distributions → "bar". Default to "bar" for periodic financial metrics.
     "dataSource": "dune" | "dune-sql" | "defillama" | "coingecko" | "allium" | "allium-prices" | "allium-sql",
     "dataSourceConfig": {
       // For dune: { "queryId": 12345, "params": {} }
@@ -285,6 +285,31 @@ interface ChartPlan {
   chartConfig: Record<string, any>;
 }
 
+function inferChartType(title: string, currentType: string, chartConfig: any): string {
+  if (currentType === "table") return "table";
+  const t = title.toLowerCase();
+  const yKeys = (chartConfig?.yAxes || []).map((y: any) => (y.dataKey || "").toLowerCase()).join(" ");
+  const combined = `${t} ${yKeys}`;
+
+  if (/cumulative|total\s+supply|total\s+tvl/i.test(t)) return "area";
+  if (/tvl|total.*locked/i.test(t) && !/daily|weekly|monthly/i.test(t)) return "area";
+
+  if (/annualized|run.?rate|moving.?average|\bma\b|arr\b/i.test(t)) return currentType === "area" ? "area" : "line";
+  if (/p\/e|pe.ratio|ratio|price|multiple/i.test(t)) return "line";
+
+  if (/daily.*(revenue|fee|earn|income|profit)|revenue.*daily|fee.*daily/i.test(t)) return "bar";
+  if (/weekly.*(revenue|fee|earn|income|profit|volume|buyback)|revenue.*weekly|fee.*weekly|volume.*weekly|buyback.*weekly/i.test(t)) return "bar";
+  if (/monthly.*(revenue|fee|earn|income|profit|volume)|revenue.*monthly|fee.*monthly|volume.*monthly/i.test(t)) return "bar";
+  if (/\b(revenue|fees?|earnings?|income|profit)\b/i.test(t) && !/cumulative|annualized|run.?rate|arr|ma\b/i.test(t)) return "bar";
+  if (/\bvolume\b/i.test(t) && !/cumulative/i.test(t)) return "bar";
+  if (/buyback/i.test(t)) return "bar";
+  if (/holder|distribution|count/i.test(t)) return "bar";
+
+  if (/daily_revenue|weekly_revenue|monthly_revenue|daily_fee|weekly_fee/i.test(combined)) return "bar";
+
+  return currentType;
+}
+
 export async function runDataAgent(input: DataAgentInput): Promise<{
   charts: DashboardChart[];
   totalCost: number;
@@ -375,7 +400,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
     throw new Error(`AI returned invalid chart plan: ${response.text.substring(0, 200)}`);
   }
 
-  const validSources = ["dune", "defillama", "coingecko", "allium", "allium-prices", "allium-sql"];
+  const validSources = ["dune", "dune-sql", "defillama", "coingecko", "allium", "allium-prices", "allium-sql"];
   const validChartTypes = ["line", "bar", "area", "composed", "table"];
 
   chartPlans = chartPlans.filter(plan => {
@@ -384,6 +409,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
     if (!plan.dataSourceConfig || typeof plan.dataSourceConfig !== "object") return false;
     if (!plan.chartConfig || typeof plan.chartConfig !== "object") return false;
     if (plan.chartType && !validChartTypes.includes(plan.chartType)) plan.chartType = "line";
+    plan.chartType = inferChartType(plan.title, plan.chartType || "line", plan.chartConfig);
     return true;
   });
 
