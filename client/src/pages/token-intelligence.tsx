@@ -706,47 +706,43 @@ function TokenSnapshotCard({ companyId }: { companyId: string }) {
 
       {snapshot && (
         <div className={cardClass} data-testid="snapshot-metrics">
-          <table className="w-full text-xs border-collapse">
-            <tbody>
-              <tr className="border-b border-border/15">
-                <td className="py-2 px-3 text-muted-foreground/50 w-24">Price</td>
-                <td className="py-2 px-3 font-mono font-medium text-right" data-testid="snapshot-price">
-                  {snapshot.price !== null ? `$${snapshot.price < 0.01 ? snapshot.price.toFixed(6) : snapshot.price.toFixed(2)}` : "—"}
-                  {snapshot.priceChange24h !== null && (
-                    <span className={`ml-2 text-[10px] ${snapshot.priceChange24h >= 0 ? "text-green-500" : "text-red-500"}`} data-testid="snapshot-price-change">
-                      {snapshot.priceChange24h > 0 ? "+" : ""}{snapshot.priceChange24h.toFixed(2)}%
-                    </span>
-                  )}
-                </td>
-              </tr>
-              <tr className="border-b border-border/15">
-                <td className="py-2 px-3 text-muted-foreground/50">Market Cap</td>
-                <td className="py-2 px-3 font-mono font-medium text-right" data-testid="snapshot-mcap">{formatLargeNumber(snapshot.marketCap)}</td>
-              </tr>
-              <tr className="border-b border-border/15">
-                <td className="py-2 px-3 text-muted-foreground/50">24h Volume</td>
-                <td className="py-2 px-3 font-mono font-medium text-right" data-testid="snapshot-volume">{formatLargeNumber(snapshot.volume24h)}</td>
-              </tr>
-              {snapshot.holderCount !== null && (
-                <tr className="border-b border-border/15">
-                  <td className="py-2 px-3 text-muted-foreground/50">Holders</td>
-                  <td className="py-2 px-3 font-mono font-medium text-right" data-testid="snapshot-holders">{snapshot.holderCount.toLocaleString()}</td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-          <div className="text-[9px] text-muted-foreground/40 flex items-center justify-between px-3 py-1.5 italic">
-            <span>Source: {snapshot.source === "coingecko-fallback" ? "CoinGecko" : snapshot.source}</span>
-            <span className="not-italic">
-              <button
-                onClick={fetchSnapshot}
-                disabled={loading}
-                className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
-                data-testid="button-refresh-snapshot"
-              >
-                {loading ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
-              </button>
-            </span>
+          <div className="divide-y divide-border/15">
+            <div className="px-3 py-2" data-testid="snapshot-price">
+              <div className="text-[9px] text-muted-foreground/50 mb-0.5">Price</div>
+              <div className="text-xs font-mono font-medium">
+                {snapshot.price !== null ? `$${snapshot.price < 0.01 ? snapshot.price.toFixed(6) : snapshot.price.toFixed(2)}` : "—"}
+                {snapshot.priceChange24h !== null && (
+                  <span className={`ml-1.5 text-[9px] ${snapshot.priceChange24h >= 0 ? "text-green-500" : "text-red-500"}`} data-testid="snapshot-price-change">
+                    {snapshot.priceChange24h > 0 ? "+" : ""}{snapshot.priceChange24h.toFixed(1)}%
+                  </span>
+                )}
+              </div>
+            </div>
+            <div className="px-3 py-2">
+              <div className="text-[9px] text-muted-foreground/50 mb-0.5">Market Cap</div>
+              <div className="text-xs font-mono font-medium" data-testid="snapshot-mcap">{formatLargeNumber(snapshot.marketCap)}</div>
+            </div>
+            <div className="px-3 py-2">
+              <div className="text-[9px] text-muted-foreground/50 mb-0.5">24h Volume</div>
+              <div className="text-xs font-mono font-medium" data-testid="snapshot-volume">{formatLargeNumber(snapshot.volume24h)}</div>
+            </div>
+            {snapshot.holderCount !== null && (
+              <div className="px-3 py-2">
+                <div className="text-[9px] text-muted-foreground/50 mb-0.5">Holders</div>
+                <div className="text-xs font-mono font-medium" data-testid="snapshot-holders">{snapshot.holderCount.toLocaleString()}</div>
+              </div>
+            )}
+          </div>
+          <div className="text-[9px] text-muted-foreground/40 flex items-center justify-between px-3 py-1.5 italic border-t border-border/10">
+            <span>CoinGecko</span>
+            <button
+              onClick={fetchSnapshot}
+              disabled={loading}
+              className="text-muted-foreground/40 hover:text-muted-foreground transition-colors not-italic"
+              data-testid="button-refresh-snapshot"
+            >
+              {loading ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
+            </button>
           </div>
         </div>
       )}
@@ -1349,7 +1345,7 @@ export default function TokenIntelligenceTab({ companyId, companyName, hasLiquid
 
       <Section title="Token Snapshot">
         <div className="flex gap-3 items-start">
-          <div className="w-[200px] shrink-0">
+          <div className="w-[180px] shrink-0">
             <TokenSnapshotCard companyId={companyId} />
           </div>
           <div className="flex-1 min-w-0">
