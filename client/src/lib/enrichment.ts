@@ -91,15 +91,19 @@ export async function runEnrichmentPipeline(
   onStage: (stage: EnrichmentStage) => void,
   getAccessToken?: () => Promise<string | null>,
 ): Promise<any> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  let token: string | null = null;
-  if (getAccessToken) {
-    token = await getAccessToken();
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-      headers["X-Privy-Token"] = token;
+  async function freshHeaders(): Promise<Record<string, string>> {
+    const h: Record<string, string> = { "Content-Type": "application/json" };
+    if (getAccessToken) {
+      const t = await getAccessToken();
+      if (t) {
+        h["Authorization"] = `Bearer ${t}`;
+        h["X-Privy-Token"] = t;
+      }
     }
+    return h;
   }
+
+  let headers = await freshHeaders();
 
   const prepareRes = await fetch("/api/enrich/prepare", {
     method: "POST",
@@ -117,6 +121,8 @@ export async function runEnrichmentPipeline(
 
   const MAX_ENRICHMENT_STEPS = 10;
   for (let step = 0; step < MAX_ENRICHMENT_STEPS; step++) {
+    headers = await freshHeaders();
+    const token = headers["X-Privy-Token"] || null;
     const anthropicResponse = await callAnthropic(anthropicRequest, token);
 
     const stepRes = await fetch("/api/enrich/step", {
@@ -158,15 +164,19 @@ export async function runNextStepsPipeline(
   companyId: string,
   getAccessToken?: () => Promise<string | null>,
 ): Promise<any[]> {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  let token: string | null = null;
-  if (getAccessToken) {
-    token = await getAccessToken();
-    if (token) {
-      headers["Authorization"] = `Bearer ${token}`;
-      headers["X-Privy-Token"] = token;
+  async function freshHeaders(): Promise<Record<string, string>> {
+    const h: Record<string, string> = { "Content-Type": "application/json" };
+    if (getAccessToken) {
+      const t = await getAccessToken();
+      if (t) {
+        h["Authorization"] = `Bearer ${t}`;
+        h["X-Privy-Token"] = t;
+      }
     }
+    return h;
   }
+
+  let headers = await freshHeaders();
 
   const prepareRes = await fetch(`/api/companies/${companyId}/next-steps/prepare`, {
     method: "POST",
@@ -182,6 +192,8 @@ export async function runNextStepsPipeline(
 
   const MAX_NEXT_STEPS_ITERATIONS = 5;
   for (let step = 0; step < MAX_NEXT_STEPS_ITERATIONS; step++) {
+    headers = await freshHeaders();
+    const token = headers["X-Privy-Token"] || null;
     const anthropicResponse = await callAnthropic(anthropicRequest, token);
 
     const stepRes = await fetch(`/api/companies/${companyId}/next-steps/step`, {
