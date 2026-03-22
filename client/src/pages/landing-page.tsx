@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import {
-  ArrowRight, ShieldCheck, Sparkles, Search, Bookmark,
+  ArrowRight, ShieldCheck, Sparkles, Search,
   ArrowUpRight, Eye,
 } from "lucide-react";
 import { useState, useEffect } from "react";
@@ -120,8 +120,8 @@ export default function LandingPage() {
       <nav className="fixed top-0 left-0 right-0 z-50 bg-background/90 backdrop-blur-lg border-b border-border/50">
         <div className="max-w-6xl mx-auto px-6 h-12 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Bookmark className="w-4 h-4 text-foreground" />
-            <span className="text-sm font-semibold tracking-tight">BookMark</span>
+            <Search className="w-4 h-4 text-foreground" />
+            <span className="text-sm font-semibold tracking-tight">Research Everything</span>
           </div>
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="sm" className="text-xs h-7 text-muted-foreground hover:text-foreground" onClick={() => login()} data-testid="button-nav-login">Sign in</Button>
@@ -267,10 +267,10 @@ export default function LandingPage() {
       <footer className="border-t py-6 px-6">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Bookmark className="w-3 h-3" />
-            <span>BookMark</span>
+            <Search className="w-3 h-3" />
+            <span>Research Everything</span>
           </div>
-          <p className="text-[10px] text-muted-foreground/40 font-mono">BookMark</p>
+          <p className="text-[10px] text-muted-foreground/40 font-mono">researcheverything.xyz</p>
         </div>
       </footer>
     </div>

@@ -7,7 +7,7 @@ async function seedCreditProducts() {
   if (existing.data.length === 0) {
     const product10 = await stripe.products.create({
       name: '10 Credits',
-      description: '10 deal enrichment credits for BookMark',
+      description: '10 deal enrichment credits for Research Everything',
       metadata: { credits: '10', type: 'credits' },
     });
 
@@ -21,7 +21,7 @@ async function seedCreditProducts() {
 
     const product50 = await stripe.products.create({
       name: '50 Credits',
-      description: '50 deal enrichment credits for BookMark — best value',
+      description: '50 deal enrichment credits for Research Everything — best value',
       metadata: { credits: '50', type: 'credits' },
     });
 
@@ -36,10 +36,10 @@ async function seedCreditProducts() {
     console.log('Credit products already exist, skipping');
   }
 
-  const subExisting = await stripe.products.search({ query: "name:'BookMark Pro Monthly'" });
+  const subExisting = await stripe.products.search({ query: "name:'Research Everything Pro Monthly'" });
   if (subExisting.data.length === 0) {
     const monthlyProduct = await stripe.products.create({
-      name: 'BookMark Pro Monthly',
+      name: 'Research Everything Pro Monthly',
       description: 'Monthly subscription — 33 enrichment credits included',
       metadata: { type: 'subscription', credits_per_period: '33' },
     });
@@ -51,10 +51,10 @@ async function seedCreditProducts() {
       recurring: { interval: 'month' },
     });
 
-    console.log('Created: BookMark Pro Monthly ($20/mo) -', monthlyProduct.id);
+    console.log('Created: Research Everything Pro Monthly ($20/mo) -', monthlyProduct.id);
 
     const yearlyProduct = await stripe.products.create({
-      name: 'BookMark Pro Annual',
+      name: 'Research Everything Pro Annual',
       description: 'Annual subscription — 33 enrichment credits/month included, save $90/year',
       metadata: { type: 'subscription', credits_per_period: '33' },
     });
@@ -66,7 +66,7 @@ async function seedCreditProducts() {
       recurring: { interval: 'year' },
     });
 
-    console.log('Created: BookMark Pro Annual ($150/yr) -', yearlyProduct.id);
+    console.log('Created: Research Everything Pro Annual ($150/yr) -', yearlyProduct.id);
   } else {
     console.log('Subscription products already exist, skipping');
   }

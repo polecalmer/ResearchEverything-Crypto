@@ -26,7 +26,7 @@ function showLoadingCard(url) {
             <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
           </svg>
         </div>
-        <span class="dealflow-title">BookMark</span>
+        <span class="dealflow-title">Research Everything</span>
         <button class="dealflow-close" onclick="this.closest('#dealflow-agent-card').remove()">&times;</button>
       </div>
       <div class="dealflow-card-body">
@@ -51,7 +51,7 @@ function showSuccessCard(data) {
             <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
           </svg>
         </div>
-        <span class="dealflow-title">Added to BookMark</span>
+        <span class="dealflow-title">Added to Research Everything</span>
         <button class="dealflow-close" onclick="this.closest('#dealflow-agent-card').remove()">&times;</button>
       </div>
       <div class="dealflow-card-body">
@@ -91,7 +91,7 @@ function showErrorCard(message) {
             <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
           </svg>
         </div>
-        <span class="dealflow-title">BookMark</span>
+        <span class="dealflow-title">Research Everything</span>
         <button class="dealflow-close" onclick="this.closest('#dealflow-agent-card').remove()">&times;</button>
       </div>
       <div class="dealflow-card-body">

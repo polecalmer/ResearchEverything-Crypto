@@ -10,7 +10,7 @@ import type { Company, TokenProfile, DashboardChart, DuneQuery, MasterDuneQuery 
 
 const DATA_CHART_CHARGE = 0.50;
 
-const DATA_AGENT_SYSTEM = `You are a Data Analyst Agent in a VC deal intelligence platform called BookMark. You specialize in crypto/DeFi data visualization.
+const DATA_AGENT_SYSTEM = `You are a Data Analyst Agent in a VC deal intelligence platform called Research Everything. You specialize in crypto/DeFi data visualization.
 
 Your job: Given a user's chart request and available data context, produce a JSON plan for the chart(s) requested.
 

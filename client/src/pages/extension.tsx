@@ -1,6 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Download, Chrome, MousePointerClick, Settings, ArrowRight, CheckCircle2, Bookmark } from "lucide-react";
+import { Download, Chrome, MousePointerClick, Settings, ArrowRight, CheckCircle2, Search } from "lucide-react";
 
 const steps = [
   {
@@ -15,8 +15,8 @@ const steps = [
   },
   {
     icon: MousePointerClick,
-    title: 'Right-Click "Add to BookMark"',
-    description: "Right-click on any webpage, link, or selected text and choose \"Add to BookMark\" from the context menu.",
+    title: 'Right-Click "Research This"',
+    description: "Right-click on any webpage, link, or selected text and choose \"Research This\" from the context menu.",
   },
   {
     icon: CheckCircle2,
@@ -31,7 +31,7 @@ export default function ExtensionPage() {
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-3">
           <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center">
-            <Bookmark className="w-6 h-6 text-primary-foreground" />
+            <Search className="w-6 h-6 text-primary-foreground" />
           </div>
           <div>
             <h2 className="text-xl font-semibold tracking-tight" data-testid="text-page-title">
@@ -49,8 +49,8 @@ export default function ExtensionPage() {
           <div className="flex-1 min-w-[200px]">
             <h3 className="text-sm font-semibold mb-2">Right-Click to Capture</h3>
             <p className="text-sm text-muted-foreground leading-relaxed mb-4">
-              The BookMark Chrome extension adds a right-click context menu to every webpage.
-              See a company you're interested in? Right-click and select "Add to BookMark" - the deal
+              The Research Everything Chrome extension adds a right-click context menu to every webpage.
+              See a company you're interested in? Right-click and select "Research This" — the deal
               is captured instantly with the page URL, and a floating card confirms it without
               leaving the page.
             </p>

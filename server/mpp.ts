@@ -17,7 +17,7 @@ export const mppx = Mppx.create({
 export const enrichmentPaywall: RequestHandler = (req, res, next) => {
   mppx.charge({
     amount: FLAT_FEE,
-    description: `BookMark AI enrichment ($${FLAT_FEE})`,
+    description: `Research Everything AI enrichment ($${FLAT_FEE})`,
   })(req, res, next);
 };
 

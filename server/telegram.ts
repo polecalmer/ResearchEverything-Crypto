@@ -72,9 +72,9 @@ export function startTelegramBot() {
   bot.command("start", async (ctx) => {
     const enrichReady = isServerMppReady();
     await ctx.reply(
-      "Welcome to BookMark Deal Bot!\n\n" +
+      "Welcome to Research Everything Deal Bot!\n\n" +
       "To link your account:\n" +
-      "1. Go to BookMark app → Settings\n" +
+      "1. Go to Research Everything app → Settings\n" +
       "2. Click 'Generate Telegram Link Code'\n" +
       "3. Send: /link YOUR_CODE\n\n" +
       (enrichReady
@@ -88,7 +88,7 @@ export function startTelegramBot() {
     const parts = text.split(/\s+/).slice(1);
 
     if (parts.length < 1) {
-      await ctx.reply("Usage: /link YOUR_CODE\n\nGenerate a link code from your BookMark app first.");
+      await ctx.reply("Usage: /link YOUR_CODE\n\nGenerate a link code from your Research Everything app first.");
       return;
     }
 
@@ -97,13 +97,13 @@ export function startTelegramBot() {
 
     const codeData = linkCodes.get(code);
     if (!codeData) {
-      await ctx.reply("Invalid or expired code. Generate a new one from your BookMark app.");
+      await ctx.reply("Invalid or expired code. Generate a new one from your Research Everything app.");
       return;
     }
 
     if (codeData.expiresAt < Date.now()) {
       linkCodes.delete(code);
-      await ctx.reply("Code expired. Generate a new one from your BookMark app.");
+      await ctx.reply("Code expired. Generate a new one from your Research Everything app.");
       return;
     }
 
@@ -138,7 +138,7 @@ export function startTelegramBot() {
     const user = await storage.getUserByTelegramChatId(chatId);
 
     if (!user) {
-      await ctx.reply("No account linked. Use /link to connect your BookMark account.");
+      await ctx.reply("No account linked. Use /link to connect your Research Everything account.");
       return;
     }
 
@@ -151,7 +151,7 @@ export function startTelegramBot() {
     const user = await storage.getUserByTelegramChatId(chatId);
 
     if (!user) {
-      await ctx.reply("No account linked. Use /link to connect your BookMark account.");
+      await ctx.reply("No account linked. Use /link to connect your Research Everything account.");
       return;
     }
 
@@ -178,14 +178,14 @@ export function startTelegramBot() {
     if (!user) {
       await ctx.reply(
         "No account linked yet.\n\n" +
-        "Generate a link code from your BookMark app, then send: /link YOUR_CODE"
+        "Generate a link code from your Research Everything app, then send: /link YOUR_CODE"
       );
       return;
     }
 
     const credits = await storage.getUserCredits(user.id);
     if (credits <= 0) {
-      await ctx.reply("No credits remaining. Purchase more credits in the BookMark app to continue using Telegram enrichment.");
+      await ctx.reply("No credits remaining. Purchase more credits in the Research Everything app to continue using Telegram enrichment.");
       return;
     }
 
@@ -304,7 +304,7 @@ export function startTelegramBot() {
           processingMsg.message_id,
           `Deal saved to pipeline!\n\n` +
           `${company.name}\n` +
-          `Open BookMark in your browser to run AI enrichment on this deal.\n\n` +
+          `Open Research Everything in your browser to run AI enrichment on this deal.\n\n` +
           `Added to: Discovered`
         );
       }

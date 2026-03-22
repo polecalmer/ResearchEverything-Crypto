@@ -1,8 +1,8 @@
-# BookMark
+# Research Everything
 
 ## Overview
 
-BookMark is a deal pipeline management dashboard for venture capitalists (VCs), designed to streamline the process of sourcing, evaluating, and managing potential investments. It combines a web application with a companion Chrome extension to transform any web link into structured deal intelligence. The platform aims to provide VCs with tools for efficient deal flow management, AI-powered enrichment, and comprehensive reporting.
+Research Everything (researcheverything.xyz) is a deal pipeline management and research intelligence dashboard for venture capitalists (VCs), designed to streamline the process of sourcing, evaluating, and managing potential investments. It combines a web application with a companion Chrome extension to transform any web link into structured deal intelligence. The platform aims to provide VCs with tools for efficient deal flow management, AI-powered enrichment, token analytics, and comprehensive reporting.
 
 Key capabilities include:
 - Right-click capture of web links for automatic deal creation and enrichment.
