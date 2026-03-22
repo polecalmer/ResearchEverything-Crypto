@@ -85,6 +85,14 @@
   /* Fallback for older browsers */
   --destructive-border: hsl(var(--destructive));
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  --color-chart-tick: rgba(0, 0, 0, 0.45);
+  --color-chart-line: rgba(0, 0, 0, 0.08);
+  --color-chart-grid: rgba(0, 0, 0, 0.06);
+  --color-chart-cursor: rgba(0, 0, 0, 0.03);
+  --color-tooltip-bg: rgba(255, 255, 255, 0.97);
+  --color-tooltip-border: rgba(0, 0, 0, 0.1);
+  --color-tooltip-text: rgba(0, 0, 0, 0.75);
 }
 
 .dark {
@@ -163,6 +171,14 @@
   /* Fallback for older browsers */
   --destructive-border: hsl(var(--destructive));
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+
+  --color-chart-tick: rgba(255, 255, 255, 0.55);
+  --color-chart-line: rgba(255, 255, 255, 0.06);
+  --color-chart-grid: rgba(255, 255, 255, 0.04);
+  --color-chart-cursor: rgba(255, 255, 255, 0.02);
+  --color-tooltip-bg: rgba(10, 10, 14, 0.95);
+  --color-tooltip-border: rgba(255, 255, 255, 0.08);
+  --color-tooltip-text: rgba(255, 255, 255, 0.8);
 }
 
 @layer base {

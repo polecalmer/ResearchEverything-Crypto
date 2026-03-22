@@ -30,7 +30,7 @@ Response format — array of chart/table definitions:
 [
   {
     "title": "Title Case Title",
-    "subtitle": "ALL CAPS analytical insight about the data — a smart observation, not just a time period. E.g. 'REVENUE DOUBLED IN H2 2025 VS H1', 'CONSISTENT EARNINGS DESPITE PRICE VOLATILITY', 'TVL RECOVERED TO ATH AFTER Q3 DIP'. Should read like a research analyst's headline takeaway.",
+    "subtitle": "ALL CAPS analytical insight — you MUST base this ONLY on what the data columns actually measure. Do NOT assume causation or drivers you cannot see in the data. GOOD: 'RATIO ROSE FROM 20x TO 30x SINCE JAN 2026' (describes what happened). BAD: 'BACK TO 30x ON RISING EARNINGS' (invents a cause). For P/E ratios: a rising ratio means EITHER price rose faster than earnings OR earnings fell — do NOT assume which without earnings data. For revenue: describe the trend shape, not why. Keep it factual and data-grounded. E.g. 'REVENUE 2X H2 VS H1 2025', '30-DAY MA TRENDING UP SINCE OCT', 'RATIO COMPRESSED FROM 40x PEAK TO 25x'. Should read like a Bloomberg terminal headline.",
     "description": "One sentence",
     "chartType": "line" | "bar" | "area" | "table",
     "dataSource": "dune" | "defillama" | "coingecko" | "allium" | "allium-prices" | "allium-sql",
