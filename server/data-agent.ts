@@ -18,11 +18,27 @@ CRITICAL: Generate ONLY what the user explicitly asked for. If they ask for ONE 
 
 AVAILABLE DATA SOURCES:
 1. "dune" — Execute Dune Analytics queries. You will be provided a list of the user's saved Dune query IDs with labels. You can reference them by queryId. You can also suggest new Dune query IDs if you know popular public queries.
-2. "defillama" — DeFiLlama API for protocol TVL history, daily fees, daily revenue. Provide the protocol slug.
+2. "defillama" — DeFiLlama API (FREE, no key needed). Supports: protocol TVL history, daily fees, daily revenue, DEX volume, derivatives/perps volume, bridge flows, stablecoin supply. Provide the protocol slug.
 3. "coingecko" — Price history for tokens. Provide the coingecko coin ID (e.g. "hyperliquid", "ethereum", "solana").
 4. "allium" — Real-time token snapshot (price, mcap, volume). Good for single-point current data.
 5. "allium-prices" — Allium on-chain price history (OHLCV). Better than CoinGecko for on-chain tokens. Provide chain and tokenAddress.
 6. "allium-sql" — Allium Explorer SQL for custom on-chain analytics. Run SQL against blockchain data warehouse. Supports holder distribution, balance queries, transaction analysis across 150+ chains. Use Snowflake SQL dialect. Tables: {chain}.assets.fungible_balances_latest (current balances), {chain}.assets.fungible_balances_daily (historical daily balances).
+
+DATA SOURCE ROUTING — ALWAYS CONSULT BEFORE CHOOSING:
+| Metric | First Choice | Fallback |
+| TVL (protocol/chain) | defillama (slug) | dune |
+| Protocol revenue & fees | defillama (slug, endpoint: "revenue" or "fees") | dune |
+| DEX volume (aggregate/per-protocol) | defillama (slug, endpoint: "dexVolume") | dune |
+| Perps/derivatives volume | defillama (slug, endpoint: "derivatives") | dune |
+| Token price (current or historical) | coingecko | defillama prices API |
+| Market cap, FDV, supply | coingecko | allium |
+| Holder distribution | dune | allium-sql |
+| Wallet behavior / PnL | dune | allium-sql |
+| Contract-level events | dune | allium-sql |
+| Stablecoin supply & flows | defillama | dune |
+| Yields / APY | defillama | protocol subgraphs |
+| Bridge flows | defillama | dune |
+IMPORTANT: Do NOT default to Dune for TVL, fees, revenue, or volume — DefiLlama has these pre-aggregated and free. Only use Dune when: (a) you have a specific saved query ID that matches, or (b) the metric requires custom on-chain SQL (holder data, wallet analysis, contract events).
 
 YOU MUST RESPOND WITH VALID JSON ONLY. No markdown, no explanation. Just the JSON array.
 
@@ -453,7 +469,52 @@ async function attemptFallback(
   const isPrice = /\bprice\b|price.?history|price.?chart/i.test(combined);
   const isTvl = /\btvl\b|total.?value.?locked|liquidity/i.test(combined);
   const isRevenue = /\brevenue\b|daily.?fees|protocol.?fees|earnings/i.test(combined);
+  const isVolume = /\bvolume\b|trading.?volume|daily.?volume|weekly.?volume|perp.?volume|dex.?volume/i.test(combined);
   const isHolder = /\bholder|wallet|whale|address|distribution|top.?\d/i.test(combined);
+
+  if (isVolume) {
+    const slug = companyName.toLowerCase().replace(/\s+/g, "-").replace(/\./g, "");
+    try {
+      const volData = await defillama.getProtocolDerivativesVolume(slug);
+      if (volData.dailyVolume && volData.dailyVolume.length > 0) {
+        const data = volData.dailyVolume.map((d) => ({ date: d.date, volume: d.volume }));
+        console.log(`[Data Agent] Volume fallback succeeded via DeFiLlama derivatives (${data.length} points)`);
+        return {
+          data,
+          dataSource: "defillama",
+          dataSourceConfig: { endpoint: "derivatives", slug },
+          chartConfig: {
+            xAxis: { dataKey: "date", label: "Date", type: "date" },
+            yAxes: [{ dataKey: "volume", label: "Volume (USD)", color: "#818cf8", format: "currency", yAxisId: "left" }],
+          },
+          chartType: "bar",
+          title: `${companyName} Daily Trading Volume`,
+        };
+      }
+    } catch (e: any) {
+      console.warn(`[Data Agent] DeFiLlama derivatives volume fallback failed: ${e.message}`);
+    }
+    try {
+      const dexData = await defillama.getProtocolDexVolume(slug);
+      if (dexData.dailyVolume && dexData.dailyVolume.length > 0) {
+        const data = dexData.dailyVolume.map((d) => ({ date: d.date, volume: d.volume }));
+        console.log(`[Data Agent] Volume fallback succeeded via DeFiLlama DEX (${data.length} points)`);
+        return {
+          data,
+          dataSource: "defillama",
+          dataSourceConfig: { endpoint: "dexVolume", slug },
+          chartConfig: {
+            xAxis: { dataKey: "date", label: "Date", type: "date" },
+            yAxes: [{ dataKey: "volume", label: "Volume (USD)", color: "#818cf8", format: "currency", yAxisId: "left" }],
+          },
+          chartType: "bar",
+          title: `${companyName} Daily DEX Volume`,
+        };
+      }
+    } catch (e: any) {
+      console.warn(`[Data Agent] DeFiLlama DEX volume fallback failed: ${e.message}`);
+    }
+  }
 
   if (isPrice && ticker) {
     try {
@@ -675,6 +736,20 @@ async function fetchDefiLlamaData(config: Record<string, any>): Promise<any[]> {
       return revData.dailyRevenue.map((d) => ({
         date: d.date,
         revenue: d.revenue,
+      }));
+    }
+    case "dexVolume": {
+      const volData = await defillama.getProtocolDexVolume(slug);
+      return volData.dailyVolume.map((d) => ({
+        date: d.date,
+        volume: d.volume,
+      }));
+    }
+    case "derivatives": {
+      const derivData = await defillama.getProtocolDerivativesVolume(slug);
+      return derivData.dailyVolume.map((d) => ({
+        date: d.date,
+        volume: d.volume,
       }));
     }
     default:

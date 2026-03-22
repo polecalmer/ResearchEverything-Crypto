@@ -140,6 +140,41 @@ export async function getCurrentPrice(coinId: string): Promise<number | null> {
   }
 }
 
+export interface ProtocolVolume {
+  total24h: number | null;
+  total7d: number | null;
+  totalAllTime: number | null;
+  dailyVolume: { date: number; volume: number }[];
+}
+
+export async function getProtocolDexVolume(slug: string): Promise<ProtocolVolume> {
+  const data = await fetchJson(`${DEFILLAMA_BASE}/summary/dexs/${slug}?excludeTotalDataChart=false&excludeTotalDataChartBreakdown=true&dataType=dailyVolume`);
+  const totalData = data.totalDataChart || [];
+  if (totalData.length === 0 && !data.total24h) {
+    throw new Error(`No DEX volume data available for "${slug}" on DeFiLlama`);
+  }
+  return {
+    total24h: data.total24h ?? null,
+    total7d: data.total7d ?? null,
+    totalAllTime: data.totalAllTime ?? null,
+    dailyVolume: totalData.map((d: any) => ({ date: d[0], volume: d[1] })),
+  };
+}
+
+export async function getProtocolDerivativesVolume(slug: string): Promise<ProtocolVolume> {
+  const data = await fetchJson(`${DEFILLAMA_BASE}/summary/derivatives/${slug}?excludeTotalDataChart=false&excludeTotalDataChartBreakdown=true&dataType=dailyVolume`);
+  const totalData = data.totalDataChart || [];
+  if (totalData.length === 0 && !data.total24h) {
+    throw new Error(`No derivatives volume data available for "${slug}" on DeFiLlama`);
+  }
+  return {
+    total24h: data.total24h ?? null,
+    total7d: data.total7d ?? null,
+    totalAllTime: data.totalAllTime ?? null,
+    dailyVolume: totalData.map((d: any) => ({ date: d[0], volume: d[1] })),
+  };
+}
+
 export async function getProtocolSummary(slug: string): Promise<{
   tvl: ProtocolTvlHistory[];
   fees: ProtocolFees;
