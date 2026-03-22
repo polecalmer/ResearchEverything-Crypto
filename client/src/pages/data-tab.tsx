@@ -546,7 +546,9 @@ function DataCard({ chart }: { chart: DashboardChart }) {
                     const val = row[col];
                     let display: string;
                     if (val == null) display = "—";
-                    else if (typeof val === "number") {
+                    else if (typeof val === "number" && /date|time|day|week|month/i.test(col) && val > 1e8 && val < 2e10) {
+                      try { display = format(new Date(val * 1000), "MMM d, yyyy"); } catch { display = String(val); }
+                    } else if (typeof val === "number") {
                       display = /usd|price|fee|revenue|volume|amount|cost|market_cap|fdv|tvl/i.test(col)
                         ? smartFormat(val, "currency")
                         : /pct|percent|growth|rate|apy|apr/i.test(col)

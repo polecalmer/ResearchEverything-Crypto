@@ -20,10 +20,10 @@ AVAILABLE DATA SOURCES:
 1. "dune" — Execute a SAVED Dune Analytics query by ID. You will be provided a list of the user's saved Dune query IDs with labels. Only use when you have a specific query ID.
 2. "dune-sql" — ★ PREFERRED FOR CUSTOM ON-CHAIN ANALYTICS ★ Write and execute raw Dune SQL (DuneSQL dialect, based on Trino). The agent writes the SQL, the system creates and executes it automatically. Use this when no saved query matches or when you need custom time ranges, filters, or metrics. See DUNE SQL SCHEMA REFERENCE below for available tables.
 3. "defillama" — DeFiLlama API (FREE, no key needed). Supports: protocol TVL history, daily fees, daily revenue, DEX volume, derivatives/perps volume, bridge flows, stablecoin supply. Provide the protocol slug.
-4. "coingecko" — Price history for tokens. Provide the coingecko coin ID (e.g. "hyperliquid", "ethereum", "solana").
+4. "coingecko" — Price + volume history for tokens. Provide the coingecko coin ID (e.g. "hyperliquid", "ethereum", "solana"). Returns date, price, volume, and market_cap columns.
 5. "allium" — Real-time token snapshot (price, mcap, volume). Good for single-point current data.
 6. "allium-prices" — Allium on-chain price history (OHLCV). Better than CoinGecko for on-chain tokens. Provide chain and tokenAddress.
-7. "allium-sql" — Allium Explorer SQL for custom on-chain analytics. Run SQL against blockchain data warehouse. Supports holder distribution, balance queries, transaction analysis across 150+ chains. Use Snowflake SQL dialect. Tables: {chain}.assets.fungible_balances_latest (current balances), {chain}.assets.fungible_balances_daily (historical daily balances).
+7. "allium-sql" — Allium Explorer SQL for custom on-chain analytics. Run SQL against blockchain data warehouse. Supports holder distribution, balance queries, transaction analysis across 150+ chains. Use Snowflake SQL dialect. Tables: {chain}.assets.fungible_balances_latest (current balances), {chain}.assets.fungible_balances_daily (historical daily balances), {chain}.raw.transactions, {chain}.raw.blocks.
 
 DATA SOURCE ROUTING — ALWAYS CONSULT BEFORE CHOOSING:
 | Metric | First Choice | Fallback |
@@ -31,21 +31,26 @@ DATA SOURCE ROUTING — ALWAYS CONSULT BEFORE CHOOSING:
 | Protocol revenue & fees | defillama (slug, endpoint: "revenue" or "fees") | dune-sql |
 | DEX volume (aggregate/per-protocol) | defillama (slug, endpoint: "dexVolume") | dune-sql |
 | Perps/derivatives volume | defillama (slug, endpoint: "derivatives") | dune-sql |
-| Token price (current or historical) | coingecko | dune-sql (prices.usd table) |
+| Token price (current or historical) | coingecko | allium-prices, dune-sql |
+| Token trading volume (daily) | coingecko (returns volume column) | defillama (dexVolume), dune-sql |
 | Market cap, FDV, supply | coingecko | allium |
-| Holder distribution | dune-sql | allium-sql |
-| Wallet behavior / PnL | dune-sql | allium-sql |
+| Holder distribution | allium-sql | dune-sql |
+| Wallet behavior / PnL | allium-sql | dune-sql |
+| Wallet balances | allium-sql | dune-sql |
 | Contract-level events | dune-sql | allium-sql |
-| Custom on-chain analytics | dune-sql | — |
+| Custom on-chain analytics | dune-sql | allium-sql |
 | P/E ratio, custom derived metrics | dune-sql | — |
 | Stablecoin supply & flows | defillama | dune-sql |
 | Yields / APY | defillama | protocol subgraphs |
 | Bridge flows | defillama | dune-sql |
 IMPORTANT: 
-- For TVL, fees, revenue, volume → try DefiLlama first (free, pre-aggregated). 
+- For TVL, fees, revenue, volume → try DefiLlama first (free, pre-aggregated).
+- For token trading volume history → use "coingecko" which returns a "volume" column alongside price.
+- For holder distribution, wallet balances → prefer "allium-sql" (faster, more chains).
 - For ANYTHING requiring custom calculations, specific time ranges, or protocol-specific SQL → use "dune-sql" and WRITE THE SQL yourself.
 - Only use "dune" (saved query by ID) when you have a specific saved query ID that you know works.
 - "dune-sql" is your most powerful tool — you can write ANY SQL query against Dune's decoded tables to answer virtually any on-chain analytics question.
+- "allium-sql" is great for balance snapshots, holder queries, and cross-chain analytics across 150+ chains.
 
 YOU MUST RESPOND WITH VALID JSON ONLY. No markdown, no explanation. Just the JSON array.
 
@@ -1017,12 +1022,31 @@ async function fetchCoinGeckoData(config: Record<string, any>): Promise<any[]> {
   if (!coinId) throw new Error("No CoinGecko coin ID provided");
 
   const daysBack = config.daysBack || 90;
-  const priceData = await defillama.getCoinPriceHistory(coinId, daysBack);
 
-  return priceData.prices.map((p) => ({
-    date: p.date,
-    price: p.price,
-  }));
+  try {
+    const url = `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(coinId)}/market_chart?vs_currency=usd&days=${daysBack}&interval=daily`;
+    const resp = await fetch(url);
+    if (!resp.ok) throw new Error(`CoinGecko API error: ${resp.status}`);
+    const data = await resp.json();
+
+    const prices = data.prices || [];
+    const volumes = data.total_volumes || [];
+    const marketCaps = data.market_caps || [];
+
+    return prices.map((p: [number, number], i: number) => ({
+      date: Math.floor(p[0] / 1000),
+      price: p[1],
+      volume: volumes[i]?.[1] || 0,
+      market_cap: marketCaps[i]?.[1] || 0,
+    }));
+  } catch (err: any) {
+    console.warn(`[CoinGecko] Direct API failed, falling back to DeFiLlama: ${err.message}`);
+    const priceData = await defillama.getCoinPriceHistory(coinId, daysBack);
+    return priceData.prices.map((p) => ({
+      date: p.date,
+      price: p.price,
+    }));
+  }
 }
 
 async function fetchAlliumData(config: Record<string, any>): Promise<any[]> {
