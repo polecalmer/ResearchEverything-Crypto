@@ -21,7 +21,7 @@ export function isDuneConfigured(): boolean {
   return !!process.env.DUNE_API_KEY;
 }
 
-export async function executeDuneQuery(queryId: number, params?: Record<string, any>): Promise<DuneQueryResult> {
+async function executeDuneQueryOnce(queryId: number, params?: Record<string, any>): Promise<DuneQueryResult> {
   const apiKey = getDuneApiKey();
 
   const executeRes = await fetch(`${DUNE_API_BASE}/query/${queryId}/execute`, {
@@ -85,6 +85,39 @@ export async function executeDuneQuery(queryId: number, params?: Record<string, 
   }
 
   throw new Error(`Dune query ${queryId} timed out after ${maxAttempts * pollInterval / 1000}s`);
+}
+
+export async function executeDuneQuery(queryId: number, params?: Record<string, any>): Promise<DuneQueryResult> {
+  try {
+    return await executeDuneQueryOnce(queryId, params);
+  } catch (firstError: any) {
+    const isQueryFailed = firstError.message?.includes("query_state_failed");
+    console.log(`[Dune] Query ${queryId} first attempt failed: ${firstError.message}`);
+
+    if (isQueryFailed) {
+      console.log(`[Dune] Query ${queryId} failed on Dune side, trying cached results...`);
+      try {
+        const cached = await getLatestDuneResults(queryId);
+        if (cached.rows.length > 0) {
+          console.log(`[Dune] Returning ${cached.rows.length} cached rows for query ${queryId}`);
+          return cached;
+        }
+      } catch (cacheErr: any) {
+        console.log(`[Dune] Cache fallback also failed for query ${queryId}: ${cacheErr.message}`);
+      }
+
+      console.log(`[Dune] Retrying execution for query ${queryId}...`);
+      await new Promise((r) => setTimeout(r, 5000));
+      try {
+        return await executeDuneQueryOnce(queryId, params);
+      } catch (retryError: any) {
+        console.log(`[Dune] Retry also failed for query ${queryId}: ${retryError.message}`);
+        throw new Error(`Dune query ${queryId} failed after retry. The query may have errors on Dune's side — try a different query or check the query on dune.com.`);
+      }
+    }
+
+    throw firstError;
+  }
 }
 
 export async function getLatestDuneResults(queryId: number): Promise<DuneQueryResult> {

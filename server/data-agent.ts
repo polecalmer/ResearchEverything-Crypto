@@ -617,7 +617,16 @@ async function fetchDuneData(config: Record<string, any>): Promise<any[]> {
 
   let result: DuneQueryResult;
   if (config.forceRefresh) {
-    result = await executeDuneQuery(queryId, config.params || {});
+    try {
+      result = await executeDuneQuery(queryId, config.params || {});
+    } catch (execErr: any) {
+      console.log(`[Dune] Force refresh failed for query ${queryId}, trying cached results: ${execErr.message}`);
+      result = await getLatestDuneResults(queryId);
+      if (result.rows.length === 0) {
+        throw execErr;
+      }
+      console.log(`[Dune] Using ${result.rows.length} cached rows for query ${queryId} after execution failure`);
+    }
   } else {
     result = await getLatestDuneResults(queryId);
     if (result.rows.length === 0) {
