@@ -965,7 +965,8 @@ export function TokenReportTab({ companyId, companyName }: { companyId: string; 
   });
 
   const completedAnalyses = analyses.filter(a => a.status === "completed" && a.content);
-  const generating = analyses.some(a => a.status === "generating");
+  const TEN_MINUTES = 10 * 60 * 1000;
+  const generating = analyses.some(a => a.status === "generating" && (Date.now() - new Date(a.createdAt).getTime()) < TEN_MINUTES);
   const latestReport = completedAnalyses[0];
 
   if (generating) {
