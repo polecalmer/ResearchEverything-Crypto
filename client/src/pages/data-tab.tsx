@@ -569,6 +569,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
     const yAxisLeftEl = (
       <YAxis
         yAxisId="left"
+        domain={[0, 'auto']}
         tickFormatter={(v: number) => axisFormat(v, leftFmt, isRatioChart)}
         tick={{ fontSize: 9, fill: "var(--color-chart-tick)" }}
         axisLine={false}
@@ -581,6 +582,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
       <YAxis
         yAxisId="right"
         orientation="right"
+        domain={[0, 'auto']}
         tickFormatter={(v: number) => axisFormat(v, rightFmt)}
         tick={{ fontSize: 9, fill: "var(--color-chart-tick)" }}
         axisLine={false}
@@ -592,6 +594,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
 
     const singleYAxisEl = (
       <YAxis
+        domain={[0, 'auto']}
         tickFormatter={(v: number) => axisFormat(v, primaryFmt, isRatioChart)}
         tick={{ fontSize: 9, fill: "var(--color-chart-tick)" }}
         axisLine={false}
