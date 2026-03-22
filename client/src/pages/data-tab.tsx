@@ -616,7 +616,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
         labelStyle={{ color: "rgba(255,255,255,0.3)", fontSize: "10px", marginBottom: "4px" }}
         labelFormatter={isDate ? dateFmt!.tooltipFormatter : (l: any) => {
           if (typeof l === "number") {
-            const xFmt = guessFormat(xKey);
+            const xFmt = guessFormat(xAxis.dataKey);
             if (xFmt === "currency") return `$${l.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
             if (xFmt === "percent") return `${l.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
             return l.toLocaleString(undefined, { maximumFractionDigits: 4 });
