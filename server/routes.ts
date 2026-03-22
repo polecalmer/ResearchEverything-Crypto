@@ -1160,6 +1160,25 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/companies/:id/charts/refresh-failed", requireAuth, async (req, res) => {
+    try {
+      const allCharts = await storage.getDashboardChartsByCompany(req.params.id, req.user!.id);
+      const failed = allCharts.filter(c => c.status === "failed");
+      if (failed.length === 0) return res.json({ refreshed: 0, charts: [] });
+
+      const results = await Promise.allSettled(
+        failed.map(c => refreshChartData(c.id))
+      );
+      const allResults = results
+        .filter(r => r.status === "fulfilled")
+        .map(r => (r as any).value);
+      const succeeded = allResults.filter(c => c.status === "completed");
+      res.json({ refreshed: succeeded.length, total: failed.length, charts: allResults });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.post("/api/charts/:id/refresh", requireAuth, async (req, res) => {
     try {
       const chart = await storage.getDashboardChart(req.params.id);

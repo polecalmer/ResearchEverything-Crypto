@@ -826,6 +826,27 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
     },
   });
 
+  const retryFailedMutation = useMutation({
+    mutationFn: async () => {
+      const token = await getAccessToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) { headers["Authorization"] = `Bearer ${token}`; headers["X-Privy-Token"] = token; }
+      const res = await fetch(`/api/companies/${companyId}/charts/refresh-failed`, { method: "POST", headers });
+      if (!res.ok) throw new Error("Failed to retry");
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "charts"] });
+      const msg = data.refreshed > 0
+        ? `${data.refreshed} of ${data.total} chart(s) recovered`
+        : `${data.total} chart(s) retried — all still failing`;
+      toast({ title: msg });
+    },
+    onError: () => {
+      toast({ title: "Retry failed", variant: "destructive" });
+    },
+  });
+
   const handleDragStart = useCallback((chartId: string) => (e: React.DragEvent) => {
     dragItemRef.current = chartId;
     e.dataTransfer.effectAllowed = "move";
@@ -933,7 +954,25 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
           </div>
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-2">
+        <>
+          {charts.some(c => c.status === "failed") && (
+            <div className="flex justify-end mb-2">
+              <button
+                onClick={() => retryFailedMutation.mutate()}
+                disabled={retryFailedMutation.isPending}
+                className="flex items-center gap-1.5 text-[10px] px-2.5 py-1 rounded-md border border-border/30 text-muted-foreground hover:text-sky-400 hover:border-sky-500/20 transition-colors disabled:opacity-50"
+                data-testid="button-retry-all-failed"
+              >
+                {retryFailedMutation.isPending ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-3 h-3" />
+                )}
+                Retry All Failed
+              </button>
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-2">
           {charts.map((chart) => (
             <div
               key={chart.id}
@@ -948,6 +987,7 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
             </div>
           ))}
         </div>
+        </>
       )}
     </div>
   );

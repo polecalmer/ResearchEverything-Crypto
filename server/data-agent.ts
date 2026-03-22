@@ -420,18 +420,69 @@ export async function refreshChartData(chartId: string): Promise<DashboardChart>
 
   try {
     const config = JSON.parse(chart.dataSourceConfig);
-    const existingChartConfig = JSON.parse(chart.chartConfig || "{}");
-    const data = await fetchChartData(chart.dataSource, { ...config, forceRefresh: true });
+    let data: any[] | null = null;
+    let fetchError: string | null = null;
 
-    const updates: any = {
+    try {
+      data = await fetchChartData(chart.dataSource, { ...config, forceRefresh: true });
+    } catch (err: any) {
+      fetchError = err.message || "Failed to fetch data";
+      console.warn(`[Data Agent] Refresh failed for chart "${chart.title}" (${chart.dataSource}): ${fetchError}`);
+    }
+
+    if (!data || data.length === 0) {
+      if (!fetchError) fetchError = "No data returned from source";
+      let tokenProfile: TokenProfile | null = null;
+      let companyName = "";
+      try {
+        const company = await storage.getCompany(chart.companyId);
+        companyName = company?.name || "";
+        if (company) {
+          const profile = await storage.getTokenProfile(company.id);
+          tokenProfile = profile || null;
+        }
+      } catch (e: any) {
+        console.warn(`[Data Agent] Failed to load context for fallback: ${e.message}`);
+      }
+
+      const plan: ChartPlan = {
+        title: chart.title,
+        description: chart.description || "",
+        dataSource: chart.dataSource,
+        dataSourceConfig: config,
+        chartType: chart.chartType || "line",
+        chartConfig: JSON.parse(chart.chartConfig || "{}"),
+      };
+      const fallbackResult = await attemptFallback(plan, fetchError, tokenProfile, companyName);
+      if (fallbackResult) {
+        data = fallbackResult.data;
+        console.log(`[Data Agent] Refresh fallback succeeded for "${chart.title}" via ${fallbackResult.dataSource}`);
+        const updated = await storage.updateDashboardChart(chartId, {
+          data: JSON.stringify(data),
+          status: "completed",
+          errorMessage: null,
+          dataSource: fallbackResult.dataSource,
+          dataSourceConfig: JSON.stringify(fallbackResult.dataSourceConfig),
+          chartType: fallbackResult.chartType || chart.chartType,
+          chartConfig: JSON.stringify(fallbackResult.chartConfig || JSON.parse(chart.chartConfig || "{}")),
+        });
+        return updated || chart;
+      }
+    }
+
+    if (!data || data.length === 0) {
+      const updated = await storage.updateDashboardChart(chartId, {
+        status: "failed",
+        errorMessage: fetchError || "No data returned from source",
+      });
+      return updated || chart;
+    }
+
+    const updated = await storage.updateDashboardChart(chartId, {
       data: JSON.stringify(data),
       status: "completed",
       errorMessage: null,
-    };
-
-    // Preserve existing chart config on refresh — only update data, not chart type or config
-
-    const updated = await storage.updateDashboardChart(chartId, updates);
+    });
     return updated || chart;
   } catch (err: any) {
     const updated = await storage.updateDashboardChart(chartId, {
@@ -472,8 +523,10 @@ async function attemptFallback(
   const isVolume = /\bvolume\b|trading.?volume|daily.?volume|weekly.?volume|perp.?volume|dex.?volume/i.test(combined);
   const isHolder = /\bholder|wallet|whale|address|distribution|top.?\d/i.test(combined);
 
+  const defillamaSlug = companyName.toLowerCase().replace(/\s+/g, "-");
+
   if (isVolume) {
-    const slug = companyName.toLowerCase().replace(/\s+/g, "-").replace(/\./g, "");
+    const slug = defillamaSlug;
     try {
       const volData = await defillama.getProtocolDerivativesVolume(slug);
       if (volData.dailyVolume && volData.dailyVolume.length > 0) {
@@ -540,7 +593,7 @@ async function attemptFallback(
   }
 
   if (isTvl) {
-    const slug = companyName.toLowerCase().replace(/\s+/g, "-");
+    const slug = defillamaSlug;
     try {
       const tvlData = await defillama.getProtocolTvl(slug);
       if (tvlData && tvlData.length > 0) {
@@ -564,7 +617,7 @@ async function attemptFallback(
   }
 
   if (isRevenue) {
-    const slug = companyName.toLowerCase().replace(/\s+/g, "-");
+    const slug = defillamaSlug;
     try {
       const revData = await defillama.getProtocolRevenue(slug);
       if (revData.dailyRevenue && revData.dailyRevenue.length > 0) {

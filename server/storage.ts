@@ -78,7 +78,7 @@ export interface IStorage {
   deleteTokenAnalysis(id: string): Promise<void>;
 
   createDashboardChart(data: InsertDashboardChart): Promise<DashboardChart>;
-  updateDashboardChart(id: string, data: Partial<Pick<DashboardChart, 'title' | 'description' | 'chartType' | 'chartConfig' | 'data' | 'status' | 'errorMessage' | 'updatedAt' | 'sortOrder'>>): Promise<DashboardChart | undefined>;
+  updateDashboardChart(id: string, data: Partial<Pick<DashboardChart, 'title' | 'description' | 'chartType' | 'chartConfig' | 'data' | 'status' | 'errorMessage' | 'updatedAt' | 'sortOrder' | 'dataSource' | 'dataSourceConfig'>>): Promise<DashboardChart | undefined>;
   getDashboardChart(id: string): Promise<DashboardChart | undefined>;
   getDashboardChartsByCompany(companyId: string, userId: string): Promise<DashboardChart[]>;
   deleteDashboardChart(id: string): Promise<boolean>;
@@ -416,7 +416,7 @@ export class DatabaseStorage implements IStorage {
     return chart;
   }
 
-  async updateDashboardChart(id: string, data: Partial<Pick<DashboardChart, 'title' | 'description' | 'chartType' | 'chartConfig' | 'data' | 'status' | 'errorMessage' | 'updatedAt' | 'sortOrder'>>): Promise<DashboardChart | undefined> {
+  async updateDashboardChart(id: string, data: Partial<Pick<DashboardChart, 'title' | 'description' | 'chartType' | 'chartConfig' | 'data' | 'status' | 'errorMessage' | 'updatedAt' | 'sortOrder' | 'dataSource' | 'dataSourceConfig'>>): Promise<DashboardChart | undefined> {
     const [updated] = await db.update(dashboardCharts).set({ ...data, updatedAt: new Date() }).where(eq(dashboardCharts.id, id)).returning();
     return updated;
   }
