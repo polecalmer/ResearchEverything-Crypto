@@ -798,7 +798,7 @@ function resolveCoinId(tokenProfile: TokenProfile): string | null {
 async function fetchCoinGeckoPrices(coinId: string, days: number | "max"): Promise<PriceDataPoint[]> {
   let id = coinId;
   const daysParam = days === "max" ? "max" : String(days);
-  const interval = (typeof days === "number" && days <= 1) ? "" : "&interval=daily";
+  const interval = (typeof days === "number" && days > 1 && days <= 90) ? "&interval=daily" : "";
   const url = `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=${daysParam}${interval}`;
   let res = await fetch(url);
   if (!res.ok) {
@@ -838,21 +838,18 @@ function PriceChart({ companyId }: { companyId: string }) {
 
   const coinId = useMemo(() => tokenProfile ? resolveCoinId(tokenProfile) : null, [tokenProfile]);
 
-  const { data: allPriceData, isLoading, isError } = useQuery<PriceDataPoint[]>({
-    queryKey: ["/api/coingecko-price", coinId, "max"],
-    queryFn: () => fetchCoinGeckoPrices(coinId!, "max"),
+  const fetchDays = useMemo(() => {
+    const days = TIME_RANGES[selectedRange].days;
+    return days === 0 ? "max" as const : days;
+  }, [selectedRange]);
+
+  const { data: priceData, isLoading, isError } = useQuery<PriceDataPoint[]>({
+    queryKey: ["/api/coingecko-price", coinId, fetchDays],
+    queryFn: () => fetchCoinGeckoPrices(coinId!, fetchDays),
     enabled: !!coinId,
     staleTime: 10 * 60 * 1000,
     retry: 2,
   });
-
-  const priceData = useMemo(() => {
-    if (!allPriceData || allPriceData.length === 0) return [];
-    const days = TIME_RANGES[selectedRange].days;
-    if (days === 0) return allPriceData;
-    const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
-    return allPriceData.filter(p => p.date >= cutoff);
-  }, [allPriceData, selectedRange]);
 
   if (!tokenProfile || !coinId) return null;
 
