@@ -120,6 +120,41 @@ export async function executeDuneQuery(queryId: number, params?: Record<string, 
   }
 }
 
+export async function executeDuneSQL(sql: string, name?: string): Promise<DuneQueryResult> {
+  const apiKey = getDuneApiKey();
+  const queryName = name || `agent_sql_${Date.now()}`;
+
+  console.log(`[Dune] Creating ad-hoc SQL query: ${queryName}`);
+  console.log(`[Dune] SQL: ${sql.slice(0, 200)}...`);
+
+  const createRes = await fetch(`${DUNE_API_BASE}/query`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Dune-API-Key": apiKey,
+    },
+    body: JSON.stringify({
+      name: queryName,
+      query_sql: sql,
+      is_private: true,
+    }),
+  });
+
+  if (!createRes.ok) {
+    const err = await createRes.text().catch(() => "Unknown error");
+    throw new Error(`Dune SQL create failed (${createRes.status}): ${err}`);
+  }
+
+  const { query_id } = await createRes.json();
+  console.log(`[Dune] Created query ${query_id}, executing...`);
+
+  try {
+    return await executeDuneQueryOnce(query_id, {});
+  } catch (err: any) {
+    throw new Error(`Dune SQL execution failed for query ${query_id}: ${err.message}`);
+  }
+}
+
 export async function getLatestDuneResults(queryId: number): Promise<DuneQueryResult> {
   const apiKey = getDuneApiKey();
 

@@ -1,5 +1,5 @@
 import { callAnthropicServerHeavy, type AnthropicResponse } from "./mpp-client";
-import { getLatestDuneResults, executeDuneQuery, isDuneConfigured, type DuneQueryResult } from "./dune-client";
+import { getLatestDuneResults, executeDuneQuery, executeDuneSQL, isDuneConfigured, type DuneQueryResult } from "./dune-client";
 import { fetchTokenSnapshot, type TokenSnapshot } from "./allium-client";
 import { isServerMppReady } from "./mpp-client";
 import * as defillama from "./defillama-client";
@@ -17,28 +17,35 @@ Your job: Given a user's chart request and available data context, produce a JSO
 CRITICAL: Generate ONLY what the user explicitly asked for. If they ask for ONE chart (e.g. "P/E ratio"), produce exactly ONE chart — not supporting/related charts. Only produce multiple charts when the user explicitly asks for multiple things (e.g. "revenue and TVL" = 2 charts) or when the request inherently requires it. When in doubt, produce fewer charts, not more.
 
 AVAILABLE DATA SOURCES:
-1. "dune" — Execute Dune Analytics queries. You will be provided a list of the user's saved Dune query IDs with labels. You can reference them by queryId. You can also suggest new Dune query IDs if you know popular public queries.
-2. "defillama" — DeFiLlama API (FREE, no key needed). Supports: protocol TVL history, daily fees, daily revenue, DEX volume, derivatives/perps volume, bridge flows, stablecoin supply. Provide the protocol slug.
-3. "coingecko" — Price history for tokens. Provide the coingecko coin ID (e.g. "hyperliquid", "ethereum", "solana").
-4. "allium" — Real-time token snapshot (price, mcap, volume). Good for single-point current data.
-5. "allium-prices" — Allium on-chain price history (OHLCV). Better than CoinGecko for on-chain tokens. Provide chain and tokenAddress.
-6. "allium-sql" — Allium Explorer SQL for custom on-chain analytics. Run SQL against blockchain data warehouse. Supports holder distribution, balance queries, transaction analysis across 150+ chains. Use Snowflake SQL dialect. Tables: {chain}.assets.fungible_balances_latest (current balances), {chain}.assets.fungible_balances_daily (historical daily balances).
+1. "dune" — Execute a SAVED Dune Analytics query by ID. You will be provided a list of the user's saved Dune query IDs with labels. Only use when you have a specific query ID.
+2. "dune-sql" — ★ PREFERRED FOR CUSTOM ON-CHAIN ANALYTICS ★ Write and execute raw Dune SQL (DuneSQL dialect, based on Trino). The agent writes the SQL, the system creates and executes it automatically. Use this when no saved query matches or when you need custom time ranges, filters, or metrics. See DUNE SQL SCHEMA REFERENCE below for available tables.
+3. "defillama" — DeFiLlama API (FREE, no key needed). Supports: protocol TVL history, daily fees, daily revenue, DEX volume, derivatives/perps volume, bridge flows, stablecoin supply. Provide the protocol slug.
+4. "coingecko" — Price history for tokens. Provide the coingecko coin ID (e.g. "hyperliquid", "ethereum", "solana").
+5. "allium" — Real-time token snapshot (price, mcap, volume). Good for single-point current data.
+6. "allium-prices" — Allium on-chain price history (OHLCV). Better than CoinGecko for on-chain tokens. Provide chain and tokenAddress.
+7. "allium-sql" — Allium Explorer SQL for custom on-chain analytics. Run SQL against blockchain data warehouse. Supports holder distribution, balance queries, transaction analysis across 150+ chains. Use Snowflake SQL dialect. Tables: {chain}.assets.fungible_balances_latest (current balances), {chain}.assets.fungible_balances_daily (historical daily balances).
 
 DATA SOURCE ROUTING — ALWAYS CONSULT BEFORE CHOOSING:
 | Metric | First Choice | Fallback |
-| TVL (protocol/chain) | defillama (slug) | dune |
-| Protocol revenue & fees | defillama (slug, endpoint: "revenue" or "fees") | dune |
-| DEX volume (aggregate/per-protocol) | defillama (slug, endpoint: "dexVolume") | dune |
-| Perps/derivatives volume | defillama (slug, endpoint: "derivatives") | dune |
-| Token price (current or historical) | coingecko | defillama prices API |
+| TVL (protocol/chain) | defillama (slug) | dune-sql |
+| Protocol revenue & fees | defillama (slug, endpoint: "revenue" or "fees") | dune-sql |
+| DEX volume (aggregate/per-protocol) | defillama (slug, endpoint: "dexVolume") | dune-sql |
+| Perps/derivatives volume | defillama (slug, endpoint: "derivatives") | dune-sql |
+| Token price (current or historical) | coingecko | dune-sql (prices.usd table) |
 | Market cap, FDV, supply | coingecko | allium |
-| Holder distribution | dune | allium-sql |
-| Wallet behavior / PnL | dune | allium-sql |
-| Contract-level events | dune | allium-sql |
-| Stablecoin supply & flows | defillama | dune |
+| Holder distribution | dune-sql | allium-sql |
+| Wallet behavior / PnL | dune-sql | allium-sql |
+| Contract-level events | dune-sql | allium-sql |
+| Custom on-chain analytics | dune-sql | — |
+| P/E ratio, custom derived metrics | dune-sql | — |
+| Stablecoin supply & flows | defillama | dune-sql |
 | Yields / APY | defillama | protocol subgraphs |
-| Bridge flows | defillama | dune |
-IMPORTANT: Do NOT default to Dune for TVL, fees, revenue, or volume — DefiLlama has these pre-aggregated and free. Only use Dune when: (a) you have a specific saved query ID that matches, or (b) the metric requires custom on-chain SQL (holder data, wallet analysis, contract events).
+| Bridge flows | defillama | dune-sql |
+IMPORTANT: 
+- For TVL, fees, revenue, volume → try DefiLlama first (free, pre-aggregated). 
+- For ANYTHING requiring custom calculations, specific time ranges, or protocol-specific SQL → use "dune-sql" and WRITE THE SQL yourself.
+- Only use "dune" (saved query by ID) when you have a specific saved query ID that you know works.
+- "dune-sql" is your most powerful tool — you can write ANY SQL query against Dune's decoded tables to answer virtually any on-chain analytics question.
 
 YOU MUST RESPOND WITH VALID JSON ONLY. No markdown, no explanation. Just the JSON array.
 
@@ -49,9 +56,10 @@ Response format — array of chart/table definitions:
     "subtitle": "ALL CAPS analytical insight — you MUST base this ONLY on what the data columns actually measure. Do NOT assume causation or drivers you cannot see in the data. GOOD: 'RATIO ROSE FROM 20x TO 30x SINCE JAN 2026' (describes what happened). BAD: 'BACK TO 30x ON RISING EARNINGS' (invents a cause). For P/E ratios: a rising ratio means EITHER price rose faster than earnings OR earnings fell — do NOT assume which without earnings data. For revenue: describe the trend shape, not why. Keep it factual and data-grounded. E.g. 'REVENUE 2X H2 VS H1 2025', '30-DAY MA TRENDING UP SINCE OCT', 'RATIO COMPRESSED FROM 40x PEAK TO 25x'. Should read like a Bloomberg terminal headline.",
     "description": "One sentence",
     "chartType": "line" | "bar" | "area" | "table",
-    "dataSource": "dune" | "defillama" | "coingecko" | "allium" | "allium-prices" | "allium-sql",
+    "dataSource": "dune" | "dune-sql" | "defillama" | "coingecko" | "allium" | "allium-prices" | "allium-sql",
     "dataSourceConfig": {
       // For dune: { "queryId": 12345, "params": {} }
+      // For dune-sql: { "sql": "SELECT date_trunc('day', block_time) as day, SUM(amount_usd) as daily_revenue FROM dex_solana.trades WHERE project = 'pump.fun' GROUP BY 1 ORDER BY 1", "name": "pump_fun_daily_revenue" }
       // For defillama: { "endpoint": "tvl" | "fees" | "revenue", "slug": "hyperliquid" }
       // For coingecko: { "coinId": "hyperliquid", "daysBack": 90 }
       // For allium: { "ticker": "HYPE", "chain": "hyperliquid", "contractAddress": "" }
@@ -181,7 +189,80 @@ CRITICAL CHART CONFIGURATION RULES — READ CAREFULLY
    - Use "allium-prices" when you want price history from on-chain DEX data (more accurate for newer/smaller tokens).
    - Provides OHLCV data. Response columns: timestamp, price, open, high, low, close.
    - Better than CoinGecko for tokens like HYPE on HyperEVM that may not be listed on CoinGecko.
-   - Granularity options: "1m", "5m", "15m", "1h", "4h", "1d".`;
+   - Granularity options: "1m", "5m", "15m", "1h", "4h", "1d".
+
+═══════════════════════════════════════════════════════════════
+DUNE SQL SCHEMA REFERENCE (for "dune-sql" source)
+═══════════════════════════════════════════════════════════════
+
+DuneSQL is based on Trino SQL. Use standard SQL with these key tables:
+
+KEY DECODED TABLES (most useful):
+- dex.trades — All DEX trades across chains
+  Columns: block_time, block_date, blockchain, project, version, token_pair, taker, maker, token_bought_symbol, token_sold_symbol, token_bought_amount, token_sold_amount, amount_usd, tx_hash
+  Filter by: blockchain = 'solana'/'ethereum'/etc, project = 'uniswap'/'raydium'/'pump.fun'/etc
+
+- tokens.transfers — ERC20/SPL token transfers
+  Columns: block_time, blockchain, token_address, "from", "to", amount, amount_usd
+
+- dex_solana.trades — Solana-specific DEX trades (includes pump.fun)
+  Columns: block_time, block_date, project, token_pair, amount_usd, tx_hash, trader_id
+
+- dex_aggregator.trades — Aggregator trades (1inch, Jupiter, etc.)
+
+- lending.borrow / lending.repay / lending.flashloans — Lending protocol data
+
+- nft.trades — NFT marketplace trades across chains
+
+CHAIN-SPECIFIC RAW TABLES:
+- ethereum.transactions, solana.transactions, arbitrum.transactions, base.transactions, etc.
+  Columns: block_time, block_number, "from", "to", value, gas_used, gas_price, hash
+- ethereum.logs — Event logs with topic0, topic1, data, contract_address
+
+PRICE/TOKEN TABLES:
+- prices.usd — Historical token prices
+  Columns: minute, blockchain, contract_address, symbol, decimals, price
+  Example: SELECT minute, price FROM prices.usd WHERE symbol = 'HYPE' AND minute > now() - interval '365' day
+
+- tokens.erc20 — Token metadata (symbol, decimals, contract_address)
+
+PROTOCOL-SPECIFIC PATTERNS:
+- For pump.fun revenue: Query dex_solana.trades WHERE project = 'pump_fun' (use underscore, not dot)
+- For Hyperliquid: Query dex.trades WHERE project = 'hyperliquid'
+- For Uniswap: dex.trades WHERE project = 'uniswap'
+- For Aave: lending.borrow WHERE project = 'aave'
+
+COMMON QUERY PATTERNS:
+1. Daily revenue:
+   SELECT date_trunc('day', block_time) as day, SUM(amount_usd) as daily_revenue
+   FROM dex_solana.trades WHERE project = 'pump_fun' AND block_time > now() - interval '365' day
+   GROUP BY 1 ORDER BY 1
+
+2. Price history:
+   SELECT date_trunc('day', minute) as day, AVG(price) as price
+   FROM prices.usd WHERE symbol = 'PUMP' AND minute > now() - interval '365' day
+   GROUP BY 1 ORDER BY 1
+
+3. Monthly revenue with moving averages:
+   SELECT day, daily_revenue,
+     AVG(daily_revenue) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) as ma_7d,
+     AVG(daily_revenue) OVER (ORDER BY day ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) as ma_30d
+   FROM (
+     SELECT date_trunc('day', block_time) as day, SUM(amount_usd) as daily_revenue
+     FROM dex.trades WHERE project = 'pump_fun' GROUP BY 1
+   ) ORDER BY day
+
+4. User/address counts:
+   SELECT date_trunc('day', block_time) as day, COUNT(DISTINCT taker) as unique_traders
+   FROM dex.trades WHERE project = 'uniswap' GROUP BY 1 ORDER BY 1
+
+IMPORTANT SQL RULES:
+- Always use date_trunc('day'/'week'/'month', block_time) for time aggregation
+- Always add ORDER BY for time series
+- Use now() - interval 'N' day for lookback periods (default to 365 days for comprehensive history)
+- LIMIT to 1000 rows max for chart data
+- Use underscore in project names where applicable (pump_fun not pump.fun in WHERE clauses — check by querying SELECT DISTINCT project FROM dex_solana.trades LIMIT 20 if unsure)
+- Always alias columns with readable names for chart labels`;
 
 interface DataAgentInput {
   companyId: string;
@@ -709,6 +790,8 @@ async function fetchChartData(
   switch (dataSource) {
     case "dune":
       return fetchDuneData(config);
+    case "dune-sql":
+      return fetchDuneSqlData(config);
     case "defillama":
       return fetchDefiLlamaData(config);
     case "coingecko":
@@ -760,6 +843,30 @@ async function fetchDuneData(config: Record<string, any>): Promise<any[]> {
     }
     if (!processed.date && result.rows.indexOf(row) >= 0) {
       processed.date = Date.now() / 1000;
+    }
+    return processed;
+  });
+}
+
+async function fetchDuneSqlData(config: Record<string, any>): Promise<any[]> {
+  if (!isDuneConfigured()) throw new Error("Dune API key not configured");
+
+  const sql = config.sql;
+  if (!sql) throw new Error("No SQL provided for dune-sql source");
+
+  console.log(`[DuneSQL] Executing ad-hoc SQL: ${sql.slice(0, 150)}...`);
+
+  const result = await executeDuneSQL(sql, config.name || undefined);
+
+  console.log(`[DuneSQL] Got ${result.rows.length} rows, columns: ${result.columns.join(', ')}`);
+
+  return result.rows.map((row) => {
+    const processed: Record<string, any> = {};
+    for (const [key, value] of Object.entries(row)) {
+      if (key.toLowerCase().includes('date') || key.toLowerCase().includes('time') || key === 'day' || key === 'week' || key === 'month') {
+        processed.date = typeof value === 'string' ? new Date(value).getTime() / 1000 : value;
+      }
+      processed[key] = value;
     }
     return processed;
   });

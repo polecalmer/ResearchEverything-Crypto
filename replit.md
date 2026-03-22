@@ -84,7 +84,7 @@ Company detail pages feature four tabs: "Project Intelligence" (deal content), "
 
 **Data Tab (AI Chart Dashboard):**
 The Data tab provides a chat-driven interface for building custom charts. Users describe what they want (e.g. "HYPE price vs revenue 90D"), and the Data Agent (Opus 4.6) determines the best data source, fetches data, and creates interactive Recharts visualizations. Supports:
-- Data sources: Dune Analytics (user's saved queries + public query IDs), DeFiLlama (TVL, fees, revenue), CoinGecko (price history via DeFiLlama coins API), Allium (real-time snapshots), Allium Prices (on-chain OHLCV price history), Allium SQL (custom on-chain analytics — holder distribution, balance queries across 150+ chains)
+- Data sources: Dune Analytics saved queries (by ID), Dune SQL (agent writes raw DuneSQL/Trino queries on the fly — the most powerful source for custom on-chain analytics, any protocol, any time range), DeFiLlama (TVL, fees, revenue), CoinGecko (price history via DeFiLlama coins API), Allium (real-time snapshots), Allium Prices (on-chain OHLCV price history), Allium SQL (custom on-chain analytics — holder distribution, balance queries across 150+ chains)
 - Chart types: line, bar, area, composed (multi-axis overlays)
 - Each chart is saved to `dashboard_charts` table with its data source config, so users can refresh for updated data anytime
 - Agent can create single or multiple charts from one request
