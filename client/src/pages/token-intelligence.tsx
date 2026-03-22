@@ -16,7 +16,6 @@ import {
 } from "@/components/ui/select";
 import {
   Loader2,
-  Coins,
   Plus,
   Trash2,
   RefreshCw,
@@ -138,7 +137,6 @@ function TokenProfileManager({ companyId }: { companyId: string }) {
       <div className="space-y-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Coins className="w-4 h-4 text-muted-foreground" />
             <span className="text-sm font-medium">{profile.tokenTicker || "Token"}</span>
             <span className="text-[10px] font-mono text-muted-foreground bg-accent rounded px-1.5 py-0.5">
               {CHAINS.find(c => c.value === profile.chain)?.label || profile.chain}
@@ -163,7 +161,6 @@ function TokenProfileManager({ companyId }: { companyId: string }) {
   if (!profile && !editing) {
     return (
       <div className="text-center py-4">
-        <Coins className="w-6 h-6 text-muted-foreground/50 mx-auto mb-2" />
         <p className="text-xs text-muted-foreground mb-3">No token profile attached</p>
         <Button variant="outline" size="sm" className="text-xs" onClick={() => setEditing(true)} data-testid="button-attach-token">
           <Link2 className="w-3 h-3 mr-1.5" />
