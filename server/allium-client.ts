@@ -13,6 +13,10 @@ export interface TokenSnapshot {
   volume24h: number | null;
   holderCount: number | null;
   priceChange24h: number | null;
+  fdv: number | null;
+  circulatingSupply: number | null;
+  totalSupply: number | null;
+  maxSupply: number | null;
   fetchedAt: string;
   source: string;
 }
@@ -174,6 +178,10 @@ async function fetchViaCoinGeckoId(
       volume24h: market.total_volume?.usd ?? null,
       priceChange24h: market.price_change_percentage_24h ?? null,
       holderCount: null,
+      fdv: market.fully_diluted_valuation?.usd ?? null,
+      circulatingSupply: market.circulating_supply ?? null,
+      totalSupply: market.total_supply ?? null,
+      maxSupply: market.max_supply ?? null,
     },
     mppCost: 0,
   };
@@ -271,6 +279,10 @@ export async function fetchTokenSnapshot(
     volume24h: data?.volume24h ?? null,
     holderCount: data?.holderCount ?? null,
     priceChange24h: data?.priceChange24h ?? null,
+    fdv: data?.fdv ?? null,
+    circulatingSupply: data?.circulatingSupply ?? null,
+    totalSupply: data?.totalSupply ?? null,
+    maxSupply: data?.maxSupply ?? null,
     fetchedAt: new Date().toISOString(),
     source,
   };

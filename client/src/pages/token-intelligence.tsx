@@ -629,6 +629,10 @@ interface TokenSnapshotData {
   volume24h: number | null;
   holderCount: number | null;
   priceChange24h: number | null;
+  fdv: number | null;
+  circulatingSupply: number | null;
+  totalSupply: number | null;
+  maxSupply: number | null;
   fetchedAt: string;
   source: string;
 }
@@ -639,6 +643,14 @@ function formatLargeNumber(n: number | null): string {
   if (n >= 1_000_000) return `$${(n / 1_000_000).toFixed(2)}M`;
   if (n >= 1_000) return `$${(n / 1_000).toFixed(2)}K`;
   return `$${n.toFixed(2)}`;
+}
+
+function formatSupply(n: number | null): string {
+  if (n === null) return "—";
+  if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(2)}B`;
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return n.toLocaleString();
 }
 
 function TokenSnapshotCard({ companyId }: { companyId: string }) {
@@ -704,29 +716,47 @@ function TokenSnapshotCard({ companyId }: { companyId: string }) {
       {snapshot && (
         <div className={cardClass} data-testid="snapshot-metrics">
           <div className="divide-y divide-border/15">
-            <div className="px-3 py-2" data-testid="snapshot-price">
+            <div className="px-3 py-1.5" data-testid="snapshot-price">
               <div className="text-[9px] text-muted-foreground/50 mb-0.5">Price</div>
-              <div className="text-xs font-mono font-medium">
+              <div className="text-[11px] font-mono font-medium">
                 {snapshot.price !== null ? `$${snapshot.price < 0.01 ? snapshot.price.toFixed(6) : snapshot.price.toFixed(2)}` : "—"}
                 {snapshot.priceChange24h !== null && (
-                  <span className={`ml-1.5 text-[9px] ${snapshot.priceChange24h >= 0 ? "text-green-500" : "text-red-500"}`} data-testid="snapshot-price-change">
+                  <span className={`ml-1 text-[8px] ${snapshot.priceChange24h >= 0 ? "text-green-500" : "text-red-500"}`} data-testid="snapshot-price-change">
                     {snapshot.priceChange24h > 0 ? "+" : ""}{snapshot.priceChange24h.toFixed(1)}%
                   </span>
                 )}
               </div>
             </div>
-            <div className="px-3 py-2">
+            <div className="px-3 py-1.5">
               <div className="text-[9px] text-muted-foreground/50 mb-0.5">Market Cap</div>
-              <div className="text-xs font-mono font-medium" data-testid="snapshot-mcap">{formatLargeNumber(snapshot.marketCap)}</div>
+              <div className="text-[11px] font-mono font-medium" data-testid="snapshot-mcap">{formatLargeNumber(snapshot.marketCap)}</div>
             </div>
-            <div className="px-3 py-2">
+            <div className="px-3 py-1.5">
+              <div className="text-[9px] text-muted-foreground/50 mb-0.5">FDV</div>
+              <div className="text-[11px] font-mono font-medium" data-testid="snapshot-fdv">{formatLargeNumber(snapshot.fdv)}</div>
+            </div>
+            <div className="px-3 py-1.5">
               <div className="text-[9px] text-muted-foreground/50 mb-0.5">24h Volume</div>
-              <div className="text-xs font-mono font-medium" data-testid="snapshot-volume">{formatLargeNumber(snapshot.volume24h)}</div>
+              <div className="text-[11px] font-mono font-medium" data-testid="snapshot-volume">{formatLargeNumber(snapshot.volume24h)}</div>
             </div>
+            <div className="px-3 py-1.5">
+              <div className="text-[9px] text-muted-foreground/50 mb-0.5">Circ Supply</div>
+              <div className="text-[11px] font-mono font-medium" data-testid="snapshot-circ-supply">{formatSupply(snapshot.circulatingSupply)}</div>
+            </div>
+            <div className="px-3 py-1.5">
+              <div className="text-[9px] text-muted-foreground/50 mb-0.5">Total Supply</div>
+              <div className="text-[11px] font-mono font-medium" data-testid="snapshot-total-supply">{formatSupply(snapshot.totalSupply)}</div>
+            </div>
+            {snapshot.totalSupply !== null && snapshot.circulatingSupply !== null && snapshot.totalSupply > snapshot.circulatingSupply && (
+              <div className="px-3 py-1.5">
+                <div className="text-[9px] text-muted-foreground/50 mb-0.5">Burned/Locked</div>
+                <div className="text-[11px] font-mono font-medium" data-testid="snapshot-burned-supply">{formatSupply(snapshot.totalSupply - snapshot.circulatingSupply)}</div>
+              </div>
+            )}
             {snapshot.holderCount !== null && (
-              <div className="px-3 py-2">
+              <div className="px-3 py-1.5">
                 <div className="text-[9px] text-muted-foreground/50 mb-0.5">Holders</div>
-                <div className="text-xs font-mono font-medium" data-testid="snapshot-holders">{snapshot.holderCount.toLocaleString()}</div>
+                <div className="text-[11px] font-mono font-medium" data-testid="snapshot-holders">{snapshot.holderCount.toLocaleString()}</div>
               </div>
             )}
           </div>
