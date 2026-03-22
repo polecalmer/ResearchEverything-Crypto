@@ -168,7 +168,7 @@ function HeroVisual() {
           </div>
           <div className="flex items-center gap-1.5">
             <BarChart3 className="w-3 h-3 text-blue-400/60" />
-            <span className="text-[10px] text-muted-foreground">3 Dune charts generated from token data</span>
+            <span className="text-[10px] text-muted-foreground">3 AI-generated charts from on-chain data</span>
           </div>
         </div>
       </div>
@@ -221,7 +221,7 @@ export default function LandingPage() {
               <p className="text-base text-muted-foreground leading-relaxed max-w-md">
                 A tweet, a website, a GitHub repo — our AI agent team identifies the company,
                 researches it, fact-checks every claim, and builds a complete research hub.
-                For liquid tokens, you also get live price data, on-chain analytics, and AI-generated charts from Dune.
+                For liquid tokens, you also get live price data, on-chain analytics, and AI-generated charts powered by Dune, Allium, and more.
               </p>
             </div>
 
@@ -296,7 +296,7 @@ export default function LandingPage() {
                 num: "04",
                 icon: BarChart3,
                 title: "Analyze",
-                body: "For liquid tokens: live price, on-chain metrics, and AI-generated charts from your Dune queries. For early-stage: structured deal intelligence.",
+                body: "For liquid tokens: live price, on-chain metrics, and AI-generated charts from Dune, Allium, and other data APIs. For early-stage: structured deal intelligence.",
               },
             ].map(({ num, icon: Icon, title, body }) => (
               <div key={num} data-testid={`step-${title.toLowerCase()}`}>
@@ -369,12 +369,12 @@ export default function LandingPage() {
                   {
                     icon: Brain,
                     title: "Natural Language Charts",
-                    body: "Ask for \"revenue vs buybacks\" or \"P/E ratio over time\" — the AI agent picks the right Dune query and renders a chart instantly.",
+                    body: "Ask for \"revenue vs buybacks\" or \"P/E ratio over time\" — the AI picks the right data source and renders a chart instantly.",
                   },
                   {
                     icon: Database,
-                    title: "Dune Library Integration",
-                    body: "Connect your saved Dune queries. The AI knows every column and generates the right visualization on demand. No SQL needed.",
+                    title: "Multi-Source Data Layer",
+                    body: "Dune Analytics, Allium on-chain data, CoinGecko, and any API. The AI knows how to query each source and generate the right visualization.",
                   },
                   {
                     icon: LineChart,
