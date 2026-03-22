@@ -38,8 +38,8 @@ interface DataTabProps {
 }
 
 const CHART_COLORS = [
-  "#5b8def", "#34d399", "#7ca3f4", "#8b5cf6",
-  "#4a7de0", "#10b981", "#6690ed", "#a78bfa",
+  "#3b6fd4", "#94a3b8", "#5a8de6", "#8b5cf6",
+  "#2d5fc0", "#a78bfa", "#4b7ad8", "#7c8db5",
 ];
 
 function smartFormat(value: number, fmt?: string): string {
