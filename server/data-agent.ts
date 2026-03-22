@@ -84,6 +84,7 @@ CRITICAL CHART CONFIGURATION RULES — READ CAREFULLY
    - "area" → cumulative or smooth continuous data (cumulative revenue, TVL growth)
    - For bar charts with ≤24 bars, every bar gets a tick label. Perfect for monthly data.
    - NEVER use "bar" for daily price data — always "line".
+   - STACKED BARS: When a bar chart has 2+ series (e.g. "Hyperliquid Volume" + "Lighter Volume"), bars are automatically stacked. Use chartType "bar" with multiple yAxes entries — do NOT use dual-axis for comparison volume charts. Stacked bars are ideal for: protocol vs protocol volume, revenue breakdown by source, multi-chain metrics, market share comparisons.
 
 4. DUAL Y-AXIS CHARTS (when user asks for "X vs Y"):
    - ONLY possible when BOTH metrics exist in the SAME data source/query result.

@@ -668,11 +668,12 @@ function DataCard({ chart }: { chart: DashboardChart }) {
         );
       }
       if (cType === "bar") {
+        const isStacked = yAxes.length > 1;
         return (
           <BarChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
             {gridEl}{xAxisEl}{singleYAxisEl}{tooltipEl}{legendEl}
             {yAxes.map((y: any, i: number) => (
-              <Bar key={y.dataKey} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[1, 1, 0, 0]} maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20} opacity={0.85} />
+              <Bar key={y.dataKey} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} stackId={isStacked ? "stack" : undefined} radius={isStacked && i === yAxes.length - 1 ? [1, 1, 0, 0] : isStacked ? undefined : [1, 1, 0, 0]} maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20} opacity={0.85} />
             ))}
           </BarChart>
         );
