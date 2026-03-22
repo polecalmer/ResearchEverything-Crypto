@@ -879,10 +879,8 @@ function PriceChart({ companyId }: { companyId: string }) {
 
   if (isLoading) {
     return (
-      <div className={cardClass}>
-        <div className="px-3 pt-3 pb-1">
-          <h3 className="text-[12px] font-medium text-foreground/80 tracking-tight">{tokenProfile.tokenTicker || "Token"} Price</h3>
-        </div>
+      <div>
+        <h3 className="text-[12px] font-medium text-foreground/80 tracking-tight">{tokenProfile.tokenTicker || "Token"} Price</h3>
         <div className="flex items-center justify-center py-16 text-xs text-muted-foreground">
           <Loader2 className="w-3.5 h-3.5 animate-spin mr-2" /> Loading chart...
         </div>
@@ -892,10 +890,8 @@ function PriceChart({ companyId }: { companyId: string }) {
 
   if (isError || !priceData || priceData.length === 0) {
     return (
-      <div className={cardClass}>
-        <div className="px-3 pt-3 pb-1">
-          <h3 className="text-[12px] font-medium text-foreground/80 tracking-tight">{tokenProfile.tokenTicker || "Token"} Price</h3>
-        </div>
+      <div>
+        <h3 className="text-[12px] font-medium text-foreground/80 tracking-tight">{tokenProfile.tokenTicker || "Token"} Price</h3>
         <div className="flex items-center justify-center gap-2 py-16 text-xs text-muted-foreground/50">
           <AlertTriangle className="w-3.5 h-3.5" />
           Price history unavailable
@@ -915,8 +911,8 @@ function PriceChart({ companyId }: { companyId: string }) {
   const dateFmt = rangeDays <= 1 ? "h:mm a" : rangeDays <= 7 ? "MMM d" : rangeDays <= 90 ? "MMM d" : "MMM ''yy";
 
   return (
-    <div className={cardClass} data-testid="price-chart">
-      <div className="px-3 pt-3 pb-1">
+    <div data-testid="price-chart">
+      <div className="px-0 pt-0 pb-1">
         <div className="flex items-start justify-between">
           <div className="min-w-0 flex-1">
             <h3 className="text-[12px] font-medium text-foreground/80 tracking-tight">{tokenProfile.tokenTicker || "Token"} Price</h3>
@@ -998,7 +994,7 @@ function PriceChart({ companyId }: { companyId: string }) {
           </LineChart>
         </ResponsiveContainer>
       </div>
-      <div className="flex items-center justify-between px-3 py-1.5 text-[9px] text-muted-foreground/40 italic">
+      <div className="flex items-center justify-between px-1 py-1.5 text-[9px] text-muted-foreground/60 italic">
         <span>Source: CoinGecko</span>
         <span className="not-italic text-muted-foreground/40">{format(new Date(), "MMM d, h:mm a")}</span>
       </div>
