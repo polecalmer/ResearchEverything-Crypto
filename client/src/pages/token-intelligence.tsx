@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { format } from "date-fns";
 import {
   Select,
@@ -26,10 +26,16 @@ import {
   Database,
   TrendingUp,
   TrendingDown,
-  Activity,
-  Users,
-  DollarSign,
 } from "lucide-react";
+import {
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from "recharts";
 import type { TokenProfile, DuneQuery, MasterDuneQuery, TokenAnalysis } from "@shared/schema";
 
 const CHAINS = [
@@ -43,6 +49,34 @@ const CHAINS = [
   { value: "bsc", label: "BSC" },
 ];
 
+const CHART_COLORS = ["#3b6fd4", "#94a3b8", "#5a8de6", "#8b5cf6"];
+const cardClass = "rounded border border-border/40 bg-card/30 overflow-hidden";
+
+function smartFormat(value: number, fmt?: string): string {
+  if (fmt === "currency") {
+    const abs = Math.abs(value);
+    if (abs >= 1e9) return `$${(value / 1e9).toFixed(2)}B`;
+    if (abs >= 1e6) return `$${(value / 1e6).toFixed(2)}M`;
+    if (abs >= 1e3) return `$${(value / 1e3).toFixed(1)}K`;
+    if (abs < 0.01) return `$${value.toFixed(6)}`;
+    return `$${value.toFixed(2)}`;
+  }
+  if (fmt === "percent") return `${value.toFixed(1)}%`;
+  const abs = Math.abs(value);
+  if (abs >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
+  if (abs >= 1e3) return `${(value / 1e3).toFixed(1)}K`;
+  return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function axisFormat(value: number): string {
+  const abs = Math.abs(value);
+  if (abs >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
+  if (abs >= 1e6) return `$${(value / 1e6).toFixed(0)}M`;
+  if (abs >= 1e3) return `$${(value / 1e3).toFixed(0)}K`;
+  if (abs < 0.01) return `$${value.toFixed(4)}`;
+  return `$${value.toFixed(0)}`;
+}
 
 function Section({ title, children, action }: { title: string; icon?: any; children: React.ReactNode; action?: React.ReactNode }) {
   return (
@@ -316,25 +350,38 @@ function DuneQueryManager({ companyId }: { companyId: string }) {
   return (
     <div className="space-y-2">
       {queries.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
-          {queries.map((q) => (
-            <div
-              key={q.id}
-              className="group flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-teal-500/8 border border-teal-500/15 hover:border-teal-500/30 transition-all"
-              data-testid={`dune-query-${q.id}`}
-            >
-              <Database className="w-2.5 h-2.5 text-teal-400/60" />
-              <span className="text-[11px] text-foreground/70">{q.label}</span>
-              <span className="text-[9px] font-mono text-muted-foreground/50">#{q.queryId}</span>
-              <button
-                onClick={() => removeMutation.mutate(q.id)}
-                className="opacity-0 group-hover:opacity-100 p-0.5 rounded-full hover:bg-destructive/20 text-muted-foreground/50 hover:text-destructive transition-all"
-                data-testid={`button-remove-query-${q.id}`}
-              >
-                <Trash2 className="w-2.5 h-2.5" />
-              </button>
-            </div>
-          ))}
+        <div className={`${cardClass} overflow-hidden`}>
+          <table className="w-full text-[11px]">
+            <thead>
+              <tr className="border-b border-border/20">
+                <th className="text-left py-1.5 px-2.5 text-[9px] uppercase tracking-wider text-muted-foreground/40 font-medium">Query</th>
+                <th className="text-right py-1.5 px-2.5 text-[9px] uppercase tracking-wider text-muted-foreground/40 font-medium w-16">ID</th>
+                <th className="w-6"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {queries.map((q) => (
+                <tr key={q.id} className="border-b border-border/10 hover:bg-muted/10 group" data-testid={`dune-query-${q.id}`}>
+                  <td className="py-1.5 px-2.5 text-foreground/70 truncate max-w-[200px]">
+                    <div className="flex items-center gap-1.5">
+                      <Database className="w-2.5 h-2.5 text-teal-400/50 shrink-0" />
+                      <span className="truncate">{q.label}</span>
+                    </div>
+                  </td>
+                  <td className="py-1.5 px-2.5 text-right font-mono text-muted-foreground/40">#{q.queryId}</td>
+                  <td className="py-1 px-1">
+                    <button
+                      onClick={() => removeMutation.mutate(q.id)}
+                      className="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-destructive/20 text-muted-foreground/40 hover:text-destructive transition-all"
+                      data-testid={`button-remove-query-${q.id}`}
+                    >
+                      <Trash2 className="w-2.5 h-2.5" />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
@@ -658,12 +705,12 @@ function TokenSnapshotCard({ companyId }: { companyId: string }) {
       )}
 
       {snapshot && (
-        <div data-testid="snapshot-metrics">
+        <div className={cardClass} data-testid="snapshot-metrics">
           <table className="w-full text-xs border-collapse">
             <tbody>
               <tr className="border-b border-border/15">
-                <td className="py-1.5 pr-4 text-muted-foreground/50 w-24">Price</td>
-                <td className="py-1.5 font-mono font-medium" data-testid="snapshot-price">
+                <td className="py-2 px-3 text-muted-foreground/50 w-24">Price</td>
+                <td className="py-2 px-3 font-mono font-medium text-right" data-testid="snapshot-price">
                   {snapshot.price !== null ? `$${snapshot.price < 0.01 ? snapshot.price.toFixed(6) : snapshot.price.toFixed(2)}` : "—"}
                   {snapshot.priceChange24h !== null && (
                     <span className={`ml-2 text-[10px] ${snapshot.priceChange24h >= 0 ? "text-green-500" : "text-red-500"}`} data-testid="snapshot-price-change">
@@ -673,34 +720,237 @@ function TokenSnapshotCard({ companyId }: { companyId: string }) {
                 </td>
               </tr>
               <tr className="border-b border-border/15">
-                <td className="py-1.5 pr-4 text-muted-foreground/50">Market Cap</td>
-                <td className="py-1.5 font-mono font-medium" data-testid="snapshot-mcap">{formatLargeNumber(snapshot.marketCap)}</td>
+                <td className="py-2 px-3 text-muted-foreground/50">Market Cap</td>
+                <td className="py-2 px-3 font-mono font-medium text-right" data-testid="snapshot-mcap">{formatLargeNumber(snapshot.marketCap)}</td>
               </tr>
               <tr className="border-b border-border/15">
-                <td className="py-1.5 pr-4 text-muted-foreground/50">24h Volume</td>
-                <td className="py-1.5 font-mono font-medium" data-testid="snapshot-volume">{formatLargeNumber(snapshot.volume24h)}</td>
+                <td className="py-2 px-3 text-muted-foreground/50">24h Volume</td>
+                <td className="py-2 px-3 font-mono font-medium text-right" data-testid="snapshot-volume">{formatLargeNumber(snapshot.volume24h)}</td>
               </tr>
               {snapshot.holderCount !== null && (
                 <tr className="border-b border-border/15">
-                  <td className="py-1.5 pr-4 text-muted-foreground/50">Holders</td>
-                  <td className="py-1.5 font-mono font-medium" data-testid="snapshot-holders">{snapshot.holderCount.toLocaleString()}</td>
+                  <td className="py-2 px-3 text-muted-foreground/50">Holders</td>
+                  <td className="py-2 px-3 font-mono font-medium text-right" data-testid="snapshot-holders">{snapshot.holderCount.toLocaleString()}</td>
                 </tr>
               )}
             </tbody>
           </table>
-          <div className="text-[10px] text-muted-foreground/60 flex items-center justify-between mt-1.5">
-            <span>{snapshot.source} · {new Date(snapshot.fetchedAt).toLocaleTimeString()}</span>
-            <button
-              onClick={fetchSnapshot}
-              disabled={loading}
-              className="text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-              data-testid="button-refresh-snapshot"
-            >
-              {loading ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
-            </button>
+          <div className="text-[9px] text-muted-foreground/40 flex items-center justify-between px-3 py-1.5 italic">
+            <span>Source: {snapshot.source === "coingecko-fallback" ? "CoinGecko" : snapshot.source}</span>
+            <span className="not-italic">
+              <button
+                onClick={fetchSnapshot}
+                disabled={loading}
+                className="text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+                data-testid="button-refresh-snapshot"
+              >
+                {loading ? <Loader2 className="w-2.5 h-2.5 animate-spin" /> : <RefreshCw className="w-2.5 h-2.5" />}
+              </button>
+            </span>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+interface PriceDataPoint {
+  date: number;
+  price: number;
+  volume: number;
+  market_cap: number;
+}
+
+function PriceChart({ companyId }: { companyId: string }) {
+  const { data: tokenProfile } = useQuery<TokenProfile | null>({
+    queryKey: ["/api/companies", companyId, "token-profile"],
+  });
+
+  const coinId = useMemo(() => {
+    if (!tokenProfile) return null;
+    const ticker = (tokenProfile.tokenTicker || "").toLowerCase();
+    const chain = (tokenProfile.chain || "").toLowerCase();
+    const mapping: Record<string, string> = {
+      eth: "ethereum", weth: "weth", steth: "staked-ether",
+      btc: "bitcoin", wbtc: "wrapped-bitcoin",
+      sol: "solana", hype: "hyperliquid",
+      avax: "avalanche-2", matic: "matic-network", pol: "matic-network",
+      arb: "arbitrum", op: "optimism", link: "chainlink", uni: "uniswap",
+      aave: "aave", mkr: "maker", snx: "synthetix-network-token",
+      crv: "curve-dao-token", ldo: "lido-dao", pendle: "pendle",
+      gmx: "gmx", jup: "jupiter-exchange-solana", ray: "raydium",
+      jto: "jito-governance-token", ena: "ethena", eigen: "eigenlayer",
+      ondo: "ondo-finance", sui: "sui", apt: "aptos", sei: "sei-network",
+      near: "near", atom: "cosmos", dot: "polkadot", ada: "cardano",
+      doge: "dogecoin", shib: "shiba-inu", pepe: "pepe",
+      wif: "dogwifcoin", bonk: "bonk", floki: "floki",
+      cake: "pancakeswap-token", sushi: "sushi",
+      bnb: "binancecoin", xrp: "ripple", ton: "the-open-network",
+      trx: "tron", fil: "filecoin", inj: "injective-protocol",
+      ftm: "fantom", manta: "manta-network", zk: "zksync",
+      strk: "starknet", blast: "blast", scroll: "scroll",
+      tia: "celestia", pyth: "pyth-network", w: "wormhole",
+      vet: "vechain", sand: "the-sandbox", mana: "decentraland",
+      grt: "the-graph", comp: "compound-governance-token",
+      rpl: "rocket-pool", ssv: "ssv-network",
+    };
+    if (mapping[ticker]) return mapping[ticker];
+    if (chain === "hyperliquid" && !tokenProfile.contractAddress) return ticker;
+    return ticker;
+  }, [tokenProfile]);
+
+  const { data: priceData, isLoading, isError } = useQuery<PriceDataPoint[]>({
+    queryKey: ["/api/coingecko-price", coinId],
+    queryFn: async () => {
+      if (!coinId) return [];
+      let id = coinId;
+      const res = await fetch(`https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=90&interval=daily`);
+      if (!res.ok) {
+        const searchRes = await fetch(`https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(id)}`);
+        if (searchRes.ok) {
+          const searchData = await searchRes.json();
+          const coin = searchData.coins?.[0];
+          if (coin) {
+            id = coin.id;
+            const retry = await fetch(`https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=90&interval=daily`);
+            if (!retry.ok) throw new Error("Price data unavailable");
+            const data = await retry.json();
+            return (data.prices || []).map((p: [number, number], i: number) => ({
+              date: Math.floor(p[0] / 1000),
+              price: p[1],
+              volume: (data.total_volumes || [])[i]?.[1] || 0,
+              market_cap: (data.market_caps || [])[i]?.[1] || 0,
+            }));
+          }
+        }
+        throw new Error("Price data unavailable");
+      }
+      const data = await res.json();
+      const prices = data.prices || [];
+      const volumes = data.total_volumes || [];
+      const marketCaps = data.market_caps || [];
+      return prices.map((p: [number, number], i: number) => ({
+        date: Math.floor(p[0] / 1000),
+        price: p[1],
+        volume: volumes[i]?.[1] || 0,
+        market_cap: marketCaps[i]?.[1] || 0,
+      }));
+    },
+    enabled: !!coinId,
+    staleTime: 5 * 60 * 1000,
+    retry: 1,
+  });
+
+  if (!tokenProfile || !coinId) return null;
+  if (isLoading) {
+    return (
+      <div className={cardClass}>
+        <div className="px-3 pt-3 pb-1">
+          <h3 className="text-[12px] font-medium text-foreground/80 tracking-tight">Price (90d)</h3>
+        </div>
+        <div className="flex items-center justify-center py-12 text-xs text-muted-foreground">
+          <Loader2 className="w-3.5 h-3.5 animate-spin mr-2" /> Loading chart...
+        </div>
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className={cardClass}>
+        <div className="px-3 pt-3 pb-1">
+          <h3 className="text-[12px] font-medium text-foreground/80 tracking-tight">Price (90d)</h3>
+        </div>
+        <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground/50">
+          <AlertTriangle className="w-3.5 h-3.5" />
+          Price history unavailable for this token
+        </div>
+      </div>
+    );
+  }
+
+  if (!priceData || priceData.length === 0) return null;
+
+  const latestPrice = priceData[priceData.length - 1]?.price || 0;
+  const firstPrice = priceData[0]?.price || 0;
+  const pctChange = firstPrice > 0 ? ((latestPrice - firstPrice) / firstPrice) * 100 : 0;
+
+  const numPoints = priceData.length;
+  const maxTicks = 6;
+  const tickInterval = numPoints <= maxTicks ? 0 : Math.max(1, Math.floor(numPoints / maxTicks));
+
+  return (
+    <div className={cardClass} data-testid="price-chart">
+      <div className="px-3 pt-3 pb-1">
+        <div className="flex items-start justify-between">
+          <div>
+            <h3 className="text-[12px] font-medium text-foreground/80 tracking-tight">Price (90d)</h3>
+            <p className="text-[9px] text-emerald-600 dark:text-emerald-400/70 mt-1.5 uppercase tracking-wide font-medium">CoinGecko</p>
+          </div>
+          <div className="text-right">
+            <p className="text-sm font-semibold text-foreground/90 font-mono tracking-tight leading-none">
+              {smartFormat(latestPrice, "currency")}
+            </p>
+            <p className={`text-[10px] mt-0.5 ${pctChange >= 0 ? "text-green-500" : "text-red-500"}`}>
+              {pctChange >= 0 ? <TrendingUp className="w-2.5 h-2.5 inline mr-0.5" /> : <TrendingDown className="w-2.5 h-2.5 inline mr-0.5" />}
+              {pctChange > 0 ? "+" : ""}{pctChange.toFixed(1)}%
+            </p>
+          </div>
+        </div>
+      </div>
+      <div className="px-1 pb-0">
+        <ResponsiveContainer width="100%" height={200}>
+          <LineChart data={priceData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
+            <CartesianGrid strokeDasharray="2 6" stroke="var(--color-chart-grid)" vertical={false} />
+            <XAxis
+              dataKey="date"
+              tickFormatter={(v: number) => format(new Date(v * 1000), "MMM d")}
+              tick={{ fontSize: 9, fill: "var(--color-chart-tick)" }}
+              axisLine={{ stroke: "var(--color-chart-line)" }}
+              tickLine={false}
+              interval={tickInterval}
+              height={22}
+            />
+            <YAxis
+              domain={['auto', 'auto']}
+              tickFormatter={(v: number) => axisFormat(v)}
+              tick={{ fontSize: 9, fill: "var(--color-chart-tick)" }}
+              axisLine={false}
+              tickLine={false}
+              width={44}
+              tickCount={5}
+            />
+            <Tooltip
+              contentStyle={{
+                backgroundColor: "var(--color-tooltip-bg)",
+                border: "1px solid var(--color-tooltip-border)",
+                borderRadius: "8px",
+                fontSize: "12px",
+                padding: "8px 12px",
+                color: "var(--color-tooltip-text)",
+                backdropFilter: "blur(12px)",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.2)",
+              }}
+              labelStyle={{ color: "var(--color-chart-tick)", fontSize: "10px", marginBottom: "4px" }}
+              labelFormatter={(v: number) => format(new Date(v * 1000), "MMM d, yyyy")}
+              formatter={(value: any) => [smartFormat(value, "currency"), "Price"]}
+              cursor={{ fill: "var(--color-chart-cursor)" }}
+            />
+            <Line
+              type="monotone"
+              dataKey="price"
+              stroke={CHART_COLORS[0]}
+              strokeWidth={1.5}
+              dot={false}
+              activeDot={{ r: 2.5, fill: CHART_COLORS[0], stroke: "rgba(0,0,0,0.5)", strokeWidth: 1 }}
+            />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="flex items-center justify-between px-3 py-1.5 text-[9px] text-muted-foreground/40 italic">
+        <span>Source: CoinGecko</span>
+        <span className="not-italic text-muted-foreground/40">{format(new Date(), "MMM d, h:mm a")}</span>
+      </div>
     </div>
   );
 }
@@ -1068,6 +1318,10 @@ export default function TokenIntelligenceTab({ companyId, companyName, hasLiquid
 
       <Section title="Token Snapshot">
         <TokenSnapshotCard companyId={companyId} />
+      </Section>
+
+      <Section title="Price History">
+        <PriceChart companyId={companyId} />
       </Section>
 
       <Section title="Dune Queries">
