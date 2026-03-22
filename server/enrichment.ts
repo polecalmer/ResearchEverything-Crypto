@@ -184,12 +184,33 @@ function parseJson(text: string): any {
     const braceStart = cleaned.indexOf("{");
     const braceEnd = cleaned.lastIndexOf("}");
     if (braceStart !== -1 && braceEnd > braceStart) {
-      return JSON.parse(cleaned.slice(braceStart, braceEnd + 1));
+      try {
+        return JSON.parse(cleaned.slice(braceStart, braceEnd + 1));
+      } catch { /* fall through to repair */ }
     }
     const bracketStart = cleaned.indexOf("[");
     const bracketEnd = cleaned.lastIndexOf("]");
     if (bracketStart !== -1 && bracketEnd > bracketStart) {
-      return JSON.parse(cleaned.slice(bracketStart, bracketEnd + 1));
+      try {
+        return JSON.parse(cleaned.slice(bracketStart, bracketEnd + 1));
+      } catch { /* fall through to repair */ }
+    }
+    if (braceStart !== -1) {
+      let truncated = cleaned.slice(braceStart);
+      truncated = truncated.replace(/,\s*$/, "");
+      truncated = truncated.replace(/"[^"]*$/, '""');
+      let openBraces = 0, openBrackets = 0;
+      for (const ch of truncated) {
+        if (ch === "{") openBraces++;
+        if (ch === "}") openBraces--;
+        if (ch === "[") openBrackets++;
+        if (ch === "]") openBrackets--;
+      }
+      while (openBrackets > 0) { truncated += "]"; openBrackets--; }
+      while (openBraces > 0) { truncated += "}"; openBraces--; }
+      try {
+        return JSON.parse(truncated);
+      } catch { /* fall through */ }
     }
     throw new Error("No valid JSON found in response");
   }
@@ -415,7 +436,7 @@ For each address:
 4. Determine if it's the official/canonical deployment
 
 Then select the PRIMARY address — the one with the highest liquidity and best analysis support.`;
-  return buildAnthropicRequest(CONTRACT_VERIFIER_SYSTEM, prompt, true, 4000, 8);
+  return buildAnthropicRequest(CONTRACT_VERIFIER_SYSTEM, prompt, true, 8000, 8);
 }
 
 // ─── AGENT 2: RESEARCH ──────────────────────────────────────────────────────
