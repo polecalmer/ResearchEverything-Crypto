@@ -749,8 +749,8 @@ function TokenSnapshotCard({ companyId }: { companyId: string }) {
             </div>
             {snapshot.totalSupply !== null && snapshot.circulatingSupply !== null && snapshot.totalSupply > snapshot.circulatingSupply && (
               <div className="px-3 py-1.5">
-                <div className="text-[9px] text-muted-foreground/50 mb-0.5">Burned/Locked</div>
-                <div className="text-[11px] font-mono font-medium" data-testid="snapshot-burned-supply">{formatSupply(snapshot.totalSupply - snapshot.circulatingSupply)}</div>
+                <div className="text-[9px] text-muted-foreground/50 mb-0.5">Non-Circ</div>
+                <div className="text-[11px] font-mono font-medium" data-testid="snapshot-non-circ-supply">{formatSupply(snapshot.totalSupply - snapshot.circulatingSupply)}</div>
               </div>
             )}
             {snapshot.holderCount !== null && (
