@@ -30,7 +30,7 @@ export async function executeDuneQuery(queryId: number, params?: Record<string, 
       "Content-Type": "application/json",
       "X-Dune-API-Key": apiKey,
     },
-    body: JSON.stringify({ query_parameters: params || {} }),
+    body: JSON.stringify({ query_parameters: params || {}, performance: "large" }),
   });
 
   if (!executeRes.ok) {
@@ -40,8 +40,8 @@ export async function executeDuneQuery(queryId: number, params?: Record<string, 
 
   const { execution_id } = await executeRes.json();
 
-  const maxAttempts = 30;
-  const pollInterval = 2000;
+  const maxAttempts = 60;
+  const pollInterval = 3000;
 
   for (let i = 0; i < maxAttempts; i++) {
     await new Promise((r) => setTimeout(r, pollInterval));
