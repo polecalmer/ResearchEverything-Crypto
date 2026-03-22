@@ -838,15 +838,21 @@ function PriceChart({ companyId }: { companyId: string }) {
 
   const coinId = useMemo(() => tokenProfile ? resolveCoinId(tokenProfile) : null, [tokenProfile]);
 
-  const daysParam = TIME_RANGES[selectedRange].days === 0 ? "max" as const : TIME_RANGES[selectedRange].days;
-
-  const { data: priceData, isLoading, isError } = useQuery<PriceDataPoint[]>({
-    queryKey: ["/api/coingecko-price", coinId, daysParam],
-    queryFn: () => fetchCoinGeckoPrices(coinId!, daysParam),
+  const { data: allPriceData, isLoading, isError } = useQuery<PriceDataPoint[]>({
+    queryKey: ["/api/coingecko-price", coinId, "max"],
+    queryFn: () => fetchCoinGeckoPrices(coinId!, "max"),
     enabled: !!coinId,
-    staleTime: 5 * 60 * 1000,
-    retry: 1,
+    staleTime: 10 * 60 * 1000,
+    retry: 2,
   });
+
+  const priceData = useMemo(() => {
+    if (!allPriceData || allPriceData.length === 0) return [];
+    const days = TIME_RANGES[selectedRange].days;
+    if (days === 0) return allPriceData;
+    const cutoff = Math.floor(Date.now() / 1000) - days * 86400;
+    return allPriceData.filter(p => p.date >= cutoff);
+  }, [allPriceData, selectedRange]);
 
   if (!tokenProfile || !coinId) return null;
 
