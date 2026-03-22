@@ -653,9 +653,9 @@ function DataCard({ chart }: { chart: DashboardChart }) {
         return <Bar key={y.dataKey} dataKey={y.dataKey} yAxisId={axisId} fill={color} radius={[1, 1, 0, 0]} maxBarSize={numPoints <= 12 ? 48 : numPoints <= 24 ? 32 : 20} opacity={0.85} />;
       }
       if (seriesType === "area") {
-        return <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} yAxisId={axisId} stroke={color} strokeWidth={1.5} fill={color} fillOpacity={0.08} dot={false} />;
+        return <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} yAxisId={axisId} stroke={color} strokeWidth={1.2} fill={color} fillOpacity={0.08} dot={false} />;
       }
-      return <Line key={y.dataKey} type="monotone" dataKey={y.dataKey} yAxisId={axisId} stroke={color} strokeWidth={2} dot={false} activeDot={{ r: 3, fill: color, stroke: "rgba(0,0,0,0.5)", strokeWidth: 1 }} />;
+      return <Line key={y.dataKey} type="monotone" dataKey={y.dataKey} yAxisId={axisId} stroke={color} strokeWidth={1.2} dot={false} activeDot={{ r: 2.5, fill: color, stroke: "rgba(0,0,0,0.5)", strokeWidth: 1 }} />;
     };
 
     const chartEl = (() => {
@@ -682,7 +682,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
           <AreaChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
             {gridEl}{xAxisEl}{singleYAxisEl}{tooltipEl}{legendEl}
             {yAxes.map((y: any, i: number) => (
-              <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.5} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.08} dot={false} />
+              <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.2} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.08} dot={false} />
             ))}
           </AreaChart>
         );
@@ -691,7 +691,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
         <LineChart data={processedData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
           {gridEl}{xAxisEl}{singleYAxisEl}{tooltipEl}{legendEl}
           {yAxes.map((y: any, i: number) => (
-            <Line key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.5} dot={false} activeDot={{ r: 3, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "rgba(0,0,0,0.5)", strokeWidth: 1 }} />
+            <Line key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.2} dot={false} activeDot={{ r: 2.5, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "rgba(0,0,0,0.5)", strokeWidth: 1 }} />
           ))}
         </LineChart>
       );
