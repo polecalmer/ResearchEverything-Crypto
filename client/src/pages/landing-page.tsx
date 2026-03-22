@@ -2,21 +2,71 @@ import { Button } from "@/components/ui/button";
 import {
   ArrowRight, Search, BarChart3, Brain, Database,
   Zap, Globe, Shield, TrendingUp, Layers, Bot,
-  ArrowUpRight, LineChart,
+  ArrowUpRight, LineChart, ShieldCheck, Sparkles, Eye,
+  FileText, Link2, Twitter,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 
 const CHART_COLORS = ["#5b8def", "#7ca3f4", "#4a7de0", "#6690ed"];
 
+function TypingDemo() {
+  const inputs = [
+    "https://x.com/pumpdotfun",
+    "hyperliquid.xyz",
+    "AI infrastructure startup from YC W24",
+    "https://github.com/fermi-labs",
+    "Show me HYPE P/E ratio over time",
+    "ethena.fi",
+  ];
+  const [idx, setIdx] = useState(0);
+  const [charIdx, setCharIdx] = useState(0);
+  const [phase, setPhase] = useState<"typing" | "pause" | "clearing">("typing");
+
+  const current = inputs[idx];
+
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    if (phase === "typing") {
+      if (charIdx < current.length) {
+        timer = setTimeout(() => setCharIdx((c) => c + 1), 38 + Math.random() * 30);
+      } else {
+        timer = setTimeout(() => setPhase("pause"), 2200);
+      }
+    } else if (phase === "pause") {
+      timer = setTimeout(() => setPhase("clearing"), 100);
+    } else {
+      if (charIdx > 0) {
+        timer = setTimeout(() => setCharIdx((c) => c - 1), 15);
+      } else {
+        setIdx((i) => (i + 1) % inputs.length);
+        setPhase("typing");
+      }
+    }
+    return () => clearTimeout(timer);
+  }, [charIdx, phase, current.length]);
+
+  return (
+    <div className="rounded-lg border border-border/40 bg-card/40 px-4 py-3 max-w-md">
+      <div className="flex items-center gap-2">
+        <Search className="w-3.5 h-3.5 text-muted-foreground/40" />
+        <div className="font-mono text-sm">
+          <span className="text-foreground">{current.slice(0, charIdx)}</span>
+          <span className="inline-block w-[2px] h-[14px] bg-foreground animate-pulse ml-[1px] align-middle" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MiniBarChart() {
   const bars = [35, 52, 44, 68, 55, 82, 74, 90, 65, 78, 95, 88];
   return (
-    <div className="flex items-end gap-[3px] h-16">
+    <div className="flex items-end gap-[3px] h-12">
       {bars.map((h, i) => (
         <div
           key={i}
-          className="flex-1 rounded-[1px] transition-all duration-700"
+          className="flex-1 rounded-[1px]"
           style={{
             height: `${h}%`,
             backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
@@ -31,7 +81,7 @@ function MiniBarChart() {
 function MiniLineChart() {
   const points = [20, 35, 28, 45, 40, 55, 48, 62, 58, 72, 65, 80];
   const width = 200;
-  const height = 60;
+  const height = 48;
   const path = points
     .map((p, i) => {
       const x = (i / (points.length - 1)) * width;
@@ -41,9 +91,9 @@ function MiniLineChart() {
     .join(" ");
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-16">
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-12">
       <path d={path} fill="none" stroke="#5b8def" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d={`${path} L${width},${height} L0,${height} Z`} fill="url(#lineGrad)" opacity="0.15" />
+      <path d={`${path} L${width},${height} L0,${height} Z`} fill="url(#lineGrad)" opacity="0.12" />
       <defs>
         <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" stopColor="#5b8def" />
@@ -54,108 +104,87 @@ function MiniLineChart() {
   );
 }
 
-function DataDashboardPreview() {
+function HeroVisual() {
   return (
-    <div className="rounded-xl border border-border/40 bg-card/30 backdrop-blur p-5 space-y-4 w-full max-w-lg">
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-2">
-          <div className="w-6 h-6 rounded bg-accent flex items-center justify-center">
-            <span className="text-[10px] font-mono font-bold">P</span>
-          </div>
-          <span className="text-sm font-semibold">Pump.fun</span>
-          <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-mono">PUMP</span>
+    <div className="space-y-4 w-full max-w-lg">
+      <div className="rounded-xl border border-border/40 bg-card/30 backdrop-blur p-4 space-y-3">
+        <div className="flex items-center gap-2 text-[9px] text-muted-foreground/50 font-mono">
+          <Twitter className="w-3 h-3" />
+          <span>x.com/pumpdotfun</span>
+          <ArrowRight className="w-2.5 h-2.5" />
+          <span className="text-emerald-500">identified</span>
         </div>
-        <span className="text-[9px] text-muted-foreground/40 font-mono">Token Intelligence</span>
+
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-md bg-accent flex items-center justify-center">
+              <span className="text-xs font-mono font-bold">P</span>
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-semibold">Pump.fun</p>
+                <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-mono">PUMP</span>
+              </div>
+              <p className="text-[10px] text-muted-foreground font-mono">Solana Token Launchpad</p>
+            </div>
+          </div>
+          <span className="text-[9px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-mono">liquid token</span>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          <div className="rounded border border-border/20 bg-background/40 p-2">
+            <p className="text-[8px] text-muted-foreground/40">Price</p>
+            <p className="text-xs font-mono font-medium">$0.00188</p>
+          </div>
+          <div className="rounded border border-border/20 bg-background/40 p-2">
+            <p className="text-[8px] text-muted-foreground/40">Mcap</p>
+            <p className="text-xs font-mono font-medium">$1.1B</p>
+          </div>
+          <div className="rounded border border-border/20 bg-background/40 p-2">
+            <p className="text-[8px] text-muted-foreground/40">24h Vol</p>
+            <p className="text-xs font-mono font-medium">$40.5M</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded border border-border/20 bg-background/40 p-2.5">
+            <p className="text-[9px] font-medium mb-1">Daily Revenue</p>
+            <MiniBarChart />
+          </div>
+          <div className="rounded border border-border/20 bg-background/40 p-2.5">
+            <p className="text-[9px] font-medium mb-1">Buyback Analysis</p>
+            <MiniLineChart />
+          </div>
+        </div>
+
+        <div className="border-t border-border/20 pt-2.5 space-y-1.5">
+          <div className="flex items-center gap-1.5">
+            <ShieldCheck className="w-3 h-3 text-emerald-500" />
+            <span className="text-[10px] text-muted-foreground">5 claims verified, 2 flagged</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Sparkles className="w-3 h-3 text-foreground/60" />
+            <span className="text-[10px] text-muted-foreground">Deep research report ready</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <BarChart3 className="w-3 h-3 text-blue-400/60" />
+            <span className="text-[10px] text-muted-foreground">3 Dune charts generated from token data</span>
+          </div>
+        </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
-        <div className="rounded-lg border border-border/20 bg-background/50 p-2.5">
-          <p className="text-[9px] text-muted-foreground/50 mb-1">Price</p>
-          <p className="text-sm font-mono font-medium">$0.00188</p>
-          <p className="text-[9px] text-emerald-500 font-mono">+1.3%</p>
+      <div className="rounded-lg border border-border/30 bg-card/20 p-3">
+        <div className="flex items-center gap-2 mb-2">
+          <Bot className="w-3 h-3 text-blue-400/50" />
+          <span className="text-[9px] text-muted-foreground/40 font-mono">7-agent pipeline</span>
         </div>
-        <div className="rounded-lg border border-border/20 bg-background/50 p-2.5">
-          <p className="text-[9px] text-muted-foreground/50 mb-1">Market Cap</p>
-          <p className="text-sm font-mono font-medium">$1.1B</p>
-        </div>
-        <div className="rounded-lg border border-border/20 bg-background/50 p-2.5">
-          <p className="text-[9px] text-muted-foreground/50 mb-1">24h Volume</p>
-          <p className="text-sm font-mono font-medium">$40.5M</p>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-lg border border-border/20 bg-background/50 p-3">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[10px] font-medium">Daily Revenue</p>
-            <p className="text-[10px] font-mono text-muted-foreground">$580K</p>
-          </div>
-          <MiniBarChart />
-        </div>
-        <div className="rounded-lg border border-border/20 bg-background/50 p-3">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-[10px] font-medium">Buyback Analysis</p>
-            <p className="text-[10px] font-mono text-muted-foreground">$2.9M</p>
-          </div>
-          <MiniLineChart />
-        </div>
-      </div>
-
-      <div className="flex items-center gap-2 pt-1">
-        <div className="flex -space-x-1">
-          {["Dune", "CoinGecko", "Allium"].map((s, i) => (
-            <div key={s} className="w-5 h-5 rounded-full border-2 border-card bg-accent flex items-center justify-center">
-              <span className="text-[7px] font-mono font-bold">{s[0]}</span>
+        <div className="flex items-center gap-3">
+          {["Identify", "Research", "Verify", "Enrich", "Token Intel", "Charts", "Report"].map((step, i) => (
+            <div key={step} className="flex items-center gap-1.5">
+              <div className={`w-1 h-1 rounded-full ${i < 6 ? "bg-emerald-500" : "bg-blue-400 animate-pulse"}`} />
+              <span className="text-[8px] text-muted-foreground/50 font-mono">{step}</span>
             </div>
           ))}
-        </div>
-        <span className="text-[9px] text-muted-foreground/40">3 data sources connected</span>
-      </div>
-    </div>
-  );
-}
-
-function PromptDemo() {
-  const prompts = [
-    "Show me Pump.fun revenue vs buybacks",
-    "HYPE P/E ratio over time",
-    "Ethena USDe staking rewards",
-    "Compare perp DEX volumes",
-  ];
-  const [idx, setIdx] = useState(0);
-  const [charIdx, setCharIdx] = useState(0);
-  const [phase, setPhase] = useState<"typing" | "pause" | "clearing">("typing");
-
-  const current = prompts[idx];
-
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
-    if (phase === "typing") {
-      if (charIdx < current.length) {
-        timer = setTimeout(() => setCharIdx((c) => c + 1), 40 + Math.random() * 30);
-      } else {
-        timer = setTimeout(() => setPhase("pause"), 2500);
-      }
-    } else if (phase === "pause") {
-      timer = setTimeout(() => setPhase("clearing"), 100);
-    } else {
-      if (charIdx > 0) {
-        timer = setTimeout(() => setCharIdx((c) => c - 1), 15);
-      } else {
-        setIdx((i) => (i + 1) % prompts.length);
-        setPhase("typing");
-      }
-    }
-    return () => clearTimeout(timer);
-  }, [charIdx, phase, current.length]);
-
-  return (
-    <div className="rounded-lg border border-border/40 bg-card/40 px-4 py-3 max-w-md">
-      <div className="flex items-center gap-2">
-        <Brain className="w-3.5 h-3.5 text-muted-foreground/40" />
-        <div className="font-mono text-sm">
-          <span className="text-foreground">{current.slice(0, charIdx)}</span>
-          <span className="inline-block w-[2px] h-[14px] bg-foreground animate-pulse ml-[1px] align-middle" />
         </div>
       </div>
     </div>
@@ -184,36 +213,37 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto grid lg:grid-cols-2 gap-16 items-start">
           <div className="space-y-8 pt-8">
             <div>
-              <p className="text-xs font-mono uppercase tracking-widest text-blue-400/80 mb-4">AI-Powered Research Intelligence</p>
+              <p className="text-xs font-mono uppercase tracking-widest text-blue-400/80 mb-4">From Any Link to Full Research Hub</p>
               <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-[1.12] mb-5">
-                Ask for any chart.<br />
-                <span className="text-muted-foreground">Get it instantly.</span>
+                Paste a link.<br />
+                <span className="text-muted-foreground">Get the full picture.</span>
               </h1>
               <p className="text-base text-muted-foreground leading-relaxed max-w-md">
-                Natural language queries across Dune Analytics, on-chain data, and token metrics.
-                AI generates publication-ready charts from your Dune query library — no SQL, no dashboards to maintain.
+                A tweet, a website, a GitHub repo — our AI agent team identifies the company,
+                researches it, fact-checks every claim, and builds a complete research hub.
+                For liquid tokens, you also get live price data, on-chain analytics, and AI-generated charts from Dune.
               </p>
             </div>
 
-            <PromptDemo />
+            <TypingDemo />
 
             <div className="flex items-center gap-3">
               <Button size="lg" className="h-11 px-6 gap-2 text-sm" onClick={() => login()} data-testid="button-cta-start">
                 Start researching
                 <ArrowRight className="w-4 h-4" />
               </Button>
-              <a href="#platform">
-                <Button variant="ghost" size="lg" className="h-11 px-4 text-sm text-muted-foreground" data-testid="button-see-platform">
-                  See the platform
+              <a href="#how">
+                <Button variant="ghost" size="lg" className="h-11 px-4 text-sm text-muted-foreground" data-testid="button-how-it-works">
+                  How it works
                 </Button>
               </a>
             </div>
 
             <div className="flex items-center gap-6 pt-2">
               {[
+                { label: "AI Agents", value: "7" },
                 { label: "Data Sources", value: "5+" },
-                { label: "Charts Generated", value: "Instant" },
-                { label: "On-chain Tokens", value: "Any" },
+                { label: "Time to Report", value: "<60s" },
               ].map(({ label, value }) => (
                 <div key={label} className="text-center">
                   <p className="text-sm font-semibold font-mono">{value}</p>
@@ -223,45 +253,57 @@ export default function LandingPage() {
             </div>
           </div>
 
-          <div className="hidden lg:flex flex-col items-end gap-6 pt-4">
-            <DataDashboardPreview />
+          <div className="hidden lg:flex flex-col items-end pt-4">
+            <HeroVisual />
           </div>
         </div>
       </section>
 
-      <section id="data" className="py-24 px-6 border-t">
+      <section id="how" className="py-24 px-6 border-t">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-16">
-            <p className="text-xs font-mono uppercase tracking-widest text-blue-400/80 mb-3">The Data Product</p>
+            <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-3">How It Works</p>
             <h2 className="text-3xl sm:text-4xl font-bold tracking-tight leading-snug mb-4">
-              Your research analyst, on demand
+              One input. Complete intelligence.
             </h2>
             <p className="text-base text-muted-foreground max-w-xl mx-auto leading-relaxed">
-              Type what you want to see in plain English. The AI agent selects the right data source,
-              builds the chart config, and renders it — all in seconds.
+              Whether it's a pre-seed startup or a billion-dollar token, the same pipeline delivers
+              everything you need to form a thesis.
             </p>
           </div>
 
-          <div className="grid sm:grid-cols-3 gap-8">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-8">
             {[
               {
-                icon: Brain,
-                title: "Natural Language Charts",
-                body: "Ask for \"revenue vs buybacks\" or \"P/E ratio over time\" — the AI agent picks the right Dune query, maps columns to axes, and renders a chart automatically.",
+                num: "01",
+                icon: Eye,
+                title: "Identify",
+                body: "Paste anything — a tweet, a website, a founder's name. The AI figures out exactly which company or token you mean.",
               },
               {
-                icon: Database,
-                title: "Your Dune Library, Supercharged",
-                body: "Connect your saved Dune queries. The AI knows every column in every query and generates the right visualization on demand. No more copy-pasting CSVs.",
+                num: "02",
+                icon: Search,
+                title: "Research",
+                body: "Live web search pulls funding data, founder backgrounds, competitive landscape, social profiles, and market positioning.",
               },
               {
-                icon: TrendingUp,
-                title: "Live Token Snapshots",
-                body: "Price, market cap, volume, and 24h change — pulled from CoinGecko and on-chain sources. Supports Ethereum, Solana, Base, Arbitrum, and 15+ chains.",
+                num: "03",
+                icon: ShieldCheck,
+                title: "Verify",
+                body: "Every claim is independently fact-checked. Fabricated URLs, embellished bios, and unverified funding rounds are flagged or stripped.",
               },
-            ].map(({ icon: Icon, title, body }) => (
-              <div key={title} className="rounded-xl border border-border/30 bg-card/20 p-6" data-testid={`feature-${title.toLowerCase().replace(/\s+/g, "-")}`}>
-                <Icon className="w-5 h-5 text-blue-400/80 mb-4" />
+              {
+                num: "04",
+                icon: BarChart3,
+                title: "Analyze",
+                body: "For liquid tokens: live price, on-chain metrics, and AI-generated charts from your Dune queries. For early-stage: structured deal intelligence.",
+              },
+            ].map(({ num, icon: Icon, title, body }) => (
+              <div key={num} data-testid={`step-${title.toLowerCase()}`}>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="text-[10px] font-mono text-muted-foreground/30">{num}</span>
+                  <Icon className="w-4 h-4 text-foreground" />
+                </div>
                 <h3 className="text-sm font-semibold mb-2">{title}</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">{body}</p>
               </div>
@@ -272,121 +314,109 @@ export default function LandingPage() {
 
       <section className="py-24 px-6 border-t">
         <div className="max-w-6xl mx-auto">
-          <div className="grid lg:grid-cols-2 gap-16 items-center">
+          <div className="grid lg:grid-cols-2 gap-20">
             <div>
-              <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-3">How It Works</p>
+              <p className="text-xs font-mono uppercase tracking-widest text-blue-400/80 mb-3">Early-Stage Deals</p>
               <h2 className="text-2xl sm:text-3xl font-bold tracking-tight leading-snug mb-6">
-                From prompt to chart in 10 seconds
+                From tweet to deal memo
               </h2>
-              <div className="space-y-6">
+              <div className="space-y-5">
                 {[
                   {
-                    num: "01",
-                    title: "You ask a question",
-                    detail: "\"Show me PUMP revenue metrics\" — natural language, no syntax to learn.",
+                    icon: Zap,
+                    title: "7-Agent Pipeline",
+                    body: "Identifier, Researcher, Fact-Checker, Enrichment, QA, Next Steps, and Deep Research agents work in sequence to build a complete profile.",
                   },
                   {
-                    num: "02",
-                    title: "AI selects the data source",
-                    detail: "Matches your prompt against your Dune query library, DeFiLlama, CoinGecko, or Allium on-chain APIs.",
+                    icon: FileText,
+                    title: "Verified Deal Cards",
+                    body: "Company overview, sector, business model, stage, competitive landscape, and founder intelligence — all fact-checked against live web data.",
                   },
                   {
-                    num: "03",
-                    title: "Chart renders instantly",
-                    detail: "Bar, line, area, or table — with proper axis labels, formatting, and an AI-generated analytical subtitle.",
+                    icon: Globe,
+                    title: "Deep Research Reports",
+                    body: "Long-form AI research with live web search. Adjacent reads, regulatory landscape, and actionable next steps for your diligence process.",
                   },
                   {
-                    num: "04",
-                    title: "Drag, reorder, iterate",
-                    detail: "Build a custom dashboard. Refresh any chart for live data. Ask follow-up questions to drill deeper.",
+                    icon: Layers,
+                    title: "Pipeline Management",
+                    body: "Six stages from Discovered to Invested. Tag, note, score excitement, and track deals through your funnel.",
                   },
-                ].map(({ num, title, detail }) => (
-                  <div key={num} className="flex gap-4" data-testid={`step-${num}`}>
-                    <span className="text-[10px] font-mono text-muted-foreground/30 pt-1 w-6 shrink-0">{num}</span>
+                ].map(({ icon: Icon, title, body }) => (
+                  <div key={title} className="flex gap-3" data-testid={`feature-early-${title.toLowerCase().replace(/\s+/g, "-")}`}>
+                    <Icon className="w-4 h-4 text-foreground/50 mt-0.5 shrink-0" />
                     <div>
                       <h3 className="text-sm font-semibold mb-1">{title}</h3>
-                      <p className="text-sm text-muted-foreground leading-relaxed">{detail}</p>
+                      <p className="text-sm text-muted-foreground leading-relaxed">{body}</p>
                     </div>
                   </div>
                 ))}
               </div>
             </div>
 
-            <div className="hidden lg:block">
-              <div className="rounded-xl border border-border/30 bg-card/20 p-6 space-y-4">
-                <div className="flex items-center gap-2 mb-2">
-                  <Bot className="w-4 h-4 text-blue-400/60" />
-                  <span className="text-xs text-muted-foreground/60 font-mono">data agent</span>
-                </div>
-                <div className="space-y-3">
-                  {[
-                    { step: "Analyzing prompt...", done: true },
-                    { step: "Selected: Dune query #5934433 (PUMP Revenue Metrics)", done: true },
-                    { step: "Mapped columns: date → x, daily_revenue → y", done: true },
-                    { step: "Rendering line chart with currency formatting", done: true },
-                    { step: "Generated subtitle: \"Annualized ~$413M on 30D MA basis\"", done: false },
-                  ].map(({ step, done }, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <div className={`w-1.5 h-1.5 rounded-full ${done ? "bg-emerald-500" : "bg-blue-400 animate-pulse"}`} />
-                      <span className="text-[11px] text-muted-foreground font-mono">{step}</span>
+            <div>
+              <p className="text-xs font-mono uppercase tracking-widest text-blue-400/80 mb-3">Liquid Tokens</p>
+              <h2 className="text-2xl sm:text-3xl font-bold tracking-tight leading-snug mb-6">
+                From ticker to thesis
+              </h2>
+              <div className="space-y-5">
+                {[
+                  {
+                    icon: TrendingUp,
+                    title: "Live Token Snapshots",
+                    body: "Real-time price, market cap, volume, and 24h change pulled from CoinGecko and on-chain sources across 15+ chains.",
+                  },
+                  {
+                    icon: Brain,
+                    title: "Natural Language Charts",
+                    body: "Ask for \"revenue vs buybacks\" or \"P/E ratio over time\" — the AI agent picks the right Dune query and renders a chart instantly.",
+                  },
+                  {
+                    icon: Database,
+                    title: "Dune Library Integration",
+                    body: "Connect your saved Dune queries. The AI knows every column and generates the right visualization on demand. No SQL needed.",
+                  },
+                  {
+                    icon: LineChart,
+                    title: "Custom Data Dashboard",
+                    body: "Build a personalized dashboard with AI-generated charts. Drag to reorder, refresh for live data, ask follow-up questions.",
+                  },
+                ].map(({ icon: Icon, title, body }) => (
+                  <div key={title} className="flex gap-3" data-testid={`feature-liquid-${title.toLowerCase().replace(/\s+/g, "-")}`}>
+                    <Icon className="w-4 h-4 text-blue-400/60 mt-0.5 shrink-0" />
+                    <div>
+                      <h3 className="text-sm font-semibold mb-1">{title}</h3>
+                      <p className="text-sm text-muted-foreground leading-relaxed">{body}</p>
                     </div>
-                  ))}
-                </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      <section id="platform" className="py-24 px-6 border-t">
+      <section className="py-24 px-6 border-t">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-16">
-            <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-3">Full Platform</p>
+            <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground mb-3">Universal Input</p>
             <h2 className="text-2xl sm:text-3xl font-bold tracking-tight leading-snug mb-4">
-              Research to conviction, all in one place
+              Works with everything you already share
             </h2>
           </div>
 
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
             {[
-              {
-                icon: Zap,
-                title: "AI Deal Enrichment",
-                body: "Paste any link — tweet, GitHub, website. A 7-agent pipeline identifies, researches, and fact-checks the company in under a minute.",
-              },
-              {
-                icon: BarChart3,
-                title: "Smart Data Dashboard",
-                body: "Ask for any chart in plain English. AI generates visualizations from your Dune queries, DeFiLlama, and on-chain data sources.",
-              },
-              {
-                icon: LineChart,
-                title: "Token Intelligence",
-                body: "Live price snapshots, Dune query library, and AI-generated research reports with on-chain analysis for liquid tokens.",
-              },
-              {
-                icon: Globe,
-                title: "Deep Research Reports",
-                body: "Long-form AI research with live web search. Adjacent reads, competitive landscape, and regulatory analysis.",
-              },
-              {
-                icon: Layers,
-                title: "Pipeline Management",
-                body: "Six stages from Discovered to Invested. Kanban board, tagging, notes, and excitement scoring.",
-              },
-              {
-                icon: Shield,
-                title: "Verified Intelligence",
-                body: "Every claim fact-checked. Fabricated URLs stripped. Unverified funding amounts flagged. Zero hallucinations policy.",
-              },
-            ].map(({ icon: Icon, title, body }) => (
-              <div key={title} className="rounded-xl border border-border/30 bg-card/20 p-5" data-testid={`feature-${title.toLowerCase().replace(/\s+/g, "-")}`}>
-                <Icon className="w-4 h-4 text-foreground/60 mb-3" />
-                <h3 className="text-sm font-semibold mb-1.5 flex items-center gap-1.5">
-                  {title}
-                  <ArrowUpRight className="w-3 h-3 text-muted-foreground/20" />
-                </h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">{body}</p>
+              { icon: Twitter, label: "Twitter / X" },
+              { icon: Globe, label: "Websites" },
+              { icon: Link2, label: "GitHub" },
+              { icon: FileText, label: "Product Hunt" },
+              { icon: Search, label: "Plain text" },
+              { icon: TrendingUp, label: "Tickers" },
+            ].map(({ icon: Icon, label }) => (
+              <div key={label} className="rounded-lg border border-border/20 bg-card/10 p-4 text-center" data-testid={`input-${label.toLowerCase().replace(/\s+/g, "-")}`}>
+                <Icon className="w-4 h-4 text-foreground/40 mx-auto mb-2" />
+                <p className="text-xs text-muted-foreground font-mono">{label}</p>
               </div>
             ))}
           </div>
