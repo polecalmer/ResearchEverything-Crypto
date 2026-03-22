@@ -49,6 +49,14 @@ const closeAbi = [{
   stateMutability: "nonpayable" as const,
 }];
 
+const withdrawAbi = [{
+  type: "function" as const,
+  name: "withdraw" as const,
+  inputs: [{ name: "channelId", type: "bytes32" as const }],
+  outputs: [],
+  stateMutability: "nonpayable" as const,
+}];
+
 const CLOSE_GRACE_PERIOD = 900;
 
 const voucherDomain = {
@@ -186,24 +194,13 @@ async function main() {
   }
 
   if (mode === "finalize" && toFinalize.length > 0) {
-    console.log(`\nFinalizing ${toFinalize.length} channels with EIP-712 voucher signatures...`);
-    for (const { cid, settled } of toFinalize) {
+    console.log(`\nWithdrawing from ${toFinalize.length} channels (grace period passed)...`);
+    for (const { cid } of toFinalize) {
       try {
-        const signature = await signTypedData(client, {
-          account,
-          domain: voucherDomain,
-          types: voucherTypes,
-          primaryType: "Voucher",
-          message: {
-            channelId: cid as `0x${string}`,
-            cumulativeAmount: settled,
-          },
-        });
-
         const data = encodeFunctionData({
-          abi: closeAbi,
-          functionName: "close",
-          args: [cid as `0x${string}`, settled, signature as Hex],
+          abi: withdrawAbi,
+          functionName: "withdraw",
+          args: [cid as `0x${string}`],
         });
 
         const receipt = await sendFeePayerTx(client, account, ESCROW, data);
