@@ -761,115 +761,128 @@ interface PriceDataPoint {
   market_cap: number;
 }
 
+const TIME_RANGES = [
+  { label: "24H", days: 1 },
+  { label: "7D", days: 7 },
+  { label: "30D", days: 30 },
+  { label: "90D", days: 90 },
+  { label: "1Y", days: 365 },
+  { label: "All", days: 0 },
+] as const;
+
+function resolveCoinId(tokenProfile: TokenProfile): string | null {
+  const ticker = (tokenProfile.tokenTicker || "").toLowerCase();
+  const chain = (tokenProfile.chain || "").toLowerCase();
+  const mapping: Record<string, string> = {
+    eth: "ethereum", weth: "weth", steth: "staked-ether",
+    btc: "bitcoin", wbtc: "wrapped-bitcoin",
+    sol: "solana", hype: "hyperliquid",
+    avax: "avalanche-2", matic: "matic-network", pol: "matic-network",
+    arb: "arbitrum", op: "optimism", link: "chainlink", uni: "uniswap",
+    aave: "aave", mkr: "maker", snx: "synthetix-network-token",
+    crv: "curve-dao-token", ldo: "lido-dao", pendle: "pendle",
+    gmx: "gmx", jup: "jupiter-exchange-solana", ray: "raydium",
+    jto: "jito-governance-token", ena: "ethena", eigen: "eigenlayer",
+    ondo: "ondo-finance", sui: "sui", apt: "aptos", sei: "sei-network",
+    near: "near", atom: "cosmos", dot: "polkadot", ada: "cardano",
+    doge: "dogecoin", shib: "shiba-inu", pepe: "pepe",
+    wif: "dogwifcoin", bonk: "bonk", floki: "floki",
+    cake: "pancakeswap-token", sushi: "sushi",
+    bnb: "binancecoin", xrp: "ripple", ton: "the-open-network",
+    trx: "tron", fil: "filecoin", inj: "injective-protocol",
+    ftm: "fantom", manta: "manta-network", zk: "zksync",
+    strk: "starknet", blast: "blast", scroll: "scroll",
+    tia: "celestia", pyth: "pyth-network", w: "wormhole",
+    vet: "vechain", sand: "the-sandbox", mana: "decentraland",
+    grt: "the-graph", comp: "compound-governance-token",
+    rpl: "rocket-pool", ssv: "ssv-network",
+  };
+  if (mapping[ticker]) return mapping[ticker];
+  if (chain === "hyperliquid" && !tokenProfile.contractAddress) return ticker;
+  return ticker || null;
+}
+
+async function fetchCoinGeckoPrices(coinId: string, days: number | "max"): Promise<PriceDataPoint[]> {
+  let id = coinId;
+  const daysParam = days === "max" ? "max" : String(days);
+  const interval = (typeof days === "number" && days <= 1) ? "" : "&interval=daily";
+  const url = `https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=${daysParam}${interval}`;
+  let res = await fetch(url);
+  if (!res.ok) {
+    const searchRes = await fetch(`https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(id)}`);
+    if (searchRes.ok) {
+      const searchData = await searchRes.json();
+      const coin = searchData.coins?.[0];
+      if (coin) {
+        id = coin.id;
+        res = await fetch(`https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=${daysParam}${interval}`);
+        if (!res.ok) throw new Error("Price data unavailable");
+      } else {
+        throw new Error("Price data unavailable");
+      }
+    } else {
+      throw new Error("Price data unavailable");
+    }
+  }
+  const data = await res.json();
+  const prices = data.prices || [];
+  const volumes = data.total_volumes || [];
+  const marketCaps = data.market_caps || [];
+  return prices.map((p: [number, number], i: number) => ({
+    date: Math.floor(p[0] / 1000),
+    price: p[1],
+    volume: volumes[i]?.[1] || 0,
+    market_cap: marketCaps[i]?.[1] || 0,
+  }));
+}
+
 function PriceChart({ companyId }: { companyId: string }) {
+  const [selectedRange, setSelectedRange] = useState(3);
+
   const { data: tokenProfile } = useQuery<TokenProfile | null>({
     queryKey: ["/api/companies", companyId, "token-profile"],
   });
 
-  const coinId = useMemo(() => {
-    if (!tokenProfile) return null;
-    const ticker = (tokenProfile.tokenTicker || "").toLowerCase();
-    const chain = (tokenProfile.chain || "").toLowerCase();
-    const mapping: Record<string, string> = {
-      eth: "ethereum", weth: "weth", steth: "staked-ether",
-      btc: "bitcoin", wbtc: "wrapped-bitcoin",
-      sol: "solana", hype: "hyperliquid",
-      avax: "avalanche-2", matic: "matic-network", pol: "matic-network",
-      arb: "arbitrum", op: "optimism", link: "chainlink", uni: "uniswap",
-      aave: "aave", mkr: "maker", snx: "synthetix-network-token",
-      crv: "curve-dao-token", ldo: "lido-dao", pendle: "pendle",
-      gmx: "gmx", jup: "jupiter-exchange-solana", ray: "raydium",
-      jto: "jito-governance-token", ena: "ethena", eigen: "eigenlayer",
-      ondo: "ondo-finance", sui: "sui", apt: "aptos", sei: "sei-network",
-      near: "near", atom: "cosmos", dot: "polkadot", ada: "cardano",
-      doge: "dogecoin", shib: "shiba-inu", pepe: "pepe",
-      wif: "dogwifcoin", bonk: "bonk", floki: "floki",
-      cake: "pancakeswap-token", sushi: "sushi",
-      bnb: "binancecoin", xrp: "ripple", ton: "the-open-network",
-      trx: "tron", fil: "filecoin", inj: "injective-protocol",
-      ftm: "fantom", manta: "manta-network", zk: "zksync",
-      strk: "starknet", blast: "blast", scroll: "scroll",
-      tia: "celestia", pyth: "pyth-network", w: "wormhole",
-      vet: "vechain", sand: "the-sandbox", mana: "decentraland",
-      grt: "the-graph", comp: "compound-governance-token",
-      rpl: "rocket-pool", ssv: "ssv-network",
-    };
-    if (mapping[ticker]) return mapping[ticker];
-    if (chain === "hyperliquid" && !tokenProfile.contractAddress) return ticker;
-    return ticker;
-  }, [tokenProfile]);
+  const coinId = useMemo(() => tokenProfile ? resolveCoinId(tokenProfile) : null, [tokenProfile]);
+
+  const daysParam = TIME_RANGES[selectedRange].days === 0 ? "max" as const : TIME_RANGES[selectedRange].days;
 
   const { data: priceData, isLoading, isError } = useQuery<PriceDataPoint[]>({
-    queryKey: ["/api/coingecko-price", coinId],
-    queryFn: async () => {
-      if (!coinId) return [];
-      let id = coinId;
-      const res = await fetch(`https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=90&interval=daily`);
-      if (!res.ok) {
-        const searchRes = await fetch(`https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(id)}`);
-        if (searchRes.ok) {
-          const searchData = await searchRes.json();
-          const coin = searchData.coins?.[0];
-          if (coin) {
-            id = coin.id;
-            const retry = await fetch(`https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=90&interval=daily`);
-            if (!retry.ok) throw new Error("Price data unavailable");
-            const data = await retry.json();
-            return (data.prices || []).map((p: [number, number], i: number) => ({
-              date: Math.floor(p[0] / 1000),
-              price: p[1],
-              volume: (data.total_volumes || [])[i]?.[1] || 0,
-              market_cap: (data.market_caps || [])[i]?.[1] || 0,
-            }));
-          }
-        }
-        throw new Error("Price data unavailable");
-      }
-      const data = await res.json();
-      const prices = data.prices || [];
-      const volumes = data.total_volumes || [];
-      const marketCaps = data.market_caps || [];
-      return prices.map((p: [number, number], i: number) => ({
-        date: Math.floor(p[0] / 1000),
-        price: p[1],
-        volume: volumes[i]?.[1] || 0,
-        market_cap: marketCaps[i]?.[1] || 0,
-      }));
-    },
+    queryKey: ["/api/coingecko-price", coinId, daysParam],
+    queryFn: () => fetchCoinGeckoPrices(coinId!, daysParam),
     enabled: !!coinId,
     staleTime: 5 * 60 * 1000,
     retry: 1,
   });
 
   if (!tokenProfile || !coinId) return null;
+
   if (isLoading) {
     return (
       <div className={cardClass}>
         <div className="px-3 pt-3 pb-1">
-          <h3 className="text-[12px] font-medium text-foreground/80 tracking-tight">Price (90d)</h3>
+          <h3 className="text-[12px] font-medium text-foreground/80 tracking-tight">{tokenProfile.tokenTicker || "Token"} Price</h3>
         </div>
-        <div className="flex items-center justify-center py-12 text-xs text-muted-foreground">
+        <div className="flex items-center justify-center py-16 text-xs text-muted-foreground">
           <Loader2 className="w-3.5 h-3.5 animate-spin mr-2" /> Loading chart...
         </div>
       </div>
     );
   }
 
-  if (isError) {
+  if (isError || !priceData || priceData.length === 0) {
     return (
       <div className={cardClass}>
         <div className="px-3 pt-3 pb-1">
-          <h3 className="text-[12px] font-medium text-foreground/80 tracking-tight">Price (90d)</h3>
+          <h3 className="text-[12px] font-medium text-foreground/80 tracking-tight">{tokenProfile.tokenTicker || "Token"} Price</h3>
         </div>
-        <div className="flex items-center justify-center gap-2 py-8 text-xs text-muted-foreground/50">
+        <div className="flex items-center justify-center gap-2 py-16 text-xs text-muted-foreground/50">
           <AlertTriangle className="w-3.5 h-3.5" />
-          Price history unavailable for this token
+          Price history unavailable
         </div>
       </div>
     );
   }
-
-  if (!priceData || priceData.length === 0) return null;
 
   const latestPrice = priceData[priceData.length - 1]?.price || 0;
   const firstPrice = priceData[0]?.price || 0;
@@ -878,33 +891,51 @@ function PriceChart({ companyId }: { companyId: string }) {
   const numPoints = priceData.length;
   const maxTicks = 6;
   const tickInterval = numPoints <= maxTicks ? 0 : Math.max(1, Math.floor(numPoints / maxTicks));
+  const rangeDays = TIME_RANGES[selectedRange].days;
+  const dateFmt = rangeDays <= 1 ? "h:mm a" : rangeDays <= 7 ? "MMM d" : rangeDays <= 90 ? "MMM d" : "MMM ''yy";
 
   return (
     <div className={cardClass} data-testid="price-chart">
       <div className="px-3 pt-3 pb-1">
         <div className="flex items-start justify-between">
-          <div>
-            <h3 className="text-[12px] font-medium text-foreground/80 tracking-tight">Price (90d)</h3>
-            <p className="text-[9px] text-emerald-600 dark:text-emerald-400/70 mt-1.5 uppercase tracking-wide font-medium">CoinGecko</p>
+          <div className="min-w-0 flex-1">
+            <h3 className="text-[12px] font-medium text-foreground/80 tracking-tight">{tokenProfile.tokenTicker || "Token"} Price</h3>
           </div>
-          <div className="text-right">
-            <p className="text-sm font-semibold text-foreground/90 font-mono tracking-tight leading-none">
-              {smartFormat(latestPrice, "currency")}
-            </p>
-            <p className={`text-[10px] mt-0.5 ${pctChange >= 0 ? "text-green-500" : "text-red-500"}`}>
-              {pctChange >= 0 ? <TrendingUp className="w-2.5 h-2.5 inline mr-0.5" /> : <TrendingDown className="w-2.5 h-2.5 inline mr-0.5" />}
-              {pctChange > 0 ? "+" : ""}{pctChange.toFixed(1)}%
-            </p>
+          <div className="flex items-center gap-2 ml-3 shrink-0">
+            <div className="text-right">
+              <p className="text-sm font-semibold text-foreground/90 font-mono tracking-tight leading-none" data-testid="price-chart-value">
+                {smartFormat(latestPrice, "currency")}
+              </p>
+              <p className={`text-[9px] mt-0.5 ${pctChange >= 0 ? "text-green-500" : "text-red-500"}`}>
+                {pctChange > 0 ? "+" : ""}{pctChange.toFixed(1)}%
+              </p>
+            </div>
           </div>
+        </div>
+        <div className="flex items-center gap-0.5 mt-2" data-testid="price-range-toggles">
+          {TIME_RANGES.map((r, i) => (
+            <button
+              key={r.label}
+              onClick={() => setSelectedRange(i)}
+              className={`px-2 py-0.5 rounded text-[9px] font-medium transition-colors ${
+                i === selectedRange
+                  ? "bg-[#3b6fd4]/15 text-[#3b6fd4]"
+                  : "text-muted-foreground/40 hover:text-muted-foreground/70"
+              }`}
+              data-testid={`button-range-${r.label}`}
+            >
+              {r.label}
+            </button>
+          ))}
         </div>
       </div>
       <div className="px-1 pb-0">
-        <ResponsiveContainer width="100%" height={200}>
+        <ResponsiveContainer width="100%" height={245}>
           <LineChart data={priceData} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
             <CartesianGrid strokeDasharray="2 6" stroke="var(--color-chart-grid)" vertical={false} />
             <XAxis
               dataKey="date"
-              tickFormatter={(v: number) => format(new Date(v * 1000), "MMM d")}
+              tickFormatter={(v: number) => format(new Date(v * 1000), dateFmt)}
               tick={{ fontSize: 9, fill: "var(--color-chart-tick)" }}
               axisLine={{ stroke: "var(--color-chart-line)" }}
               tickLine={false}
@@ -932,7 +963,7 @@ function PriceChart({ companyId }: { companyId: string }) {
                 boxShadow: "0 4px 20px rgba(0,0,0,0.2)",
               }}
               labelStyle={{ color: "var(--color-chart-tick)", fontSize: "10px", marginBottom: "4px" }}
-              labelFormatter={(v: number) => format(new Date(v * 1000), "MMM d, yyyy")}
+              labelFormatter={(v: number) => format(new Date(v * 1000), rangeDays <= 1 ? "MMM d, h:mm a" : "MMM d, yyyy")}
               formatter={(value: any) => [smartFormat(value, "currency"), "Price"]}
               cursor={{ fill: "var(--color-chart-cursor)" }}
             />
@@ -940,7 +971,7 @@ function PriceChart({ companyId }: { companyId: string }) {
               type="monotone"
               dataKey="price"
               stroke={CHART_COLORS[0]}
-              strokeWidth={1.5}
+              strokeWidth={1.2}
               dot={false}
               activeDot={{ r: 2.5, fill: CHART_COLORS[0], stroke: "rgba(0,0,0,0.5)", strokeWidth: 1 }}
             />
@@ -1317,11 +1348,14 @@ export default function TokenIntelligenceTab({ companyId, companyName, hasLiquid
       </Section>
 
       <Section title="Token Snapshot">
-        <TokenSnapshotCard companyId={companyId} />
-      </Section>
-
-      <Section title="Price History">
-        <PriceChart companyId={companyId} />
+        <div className="flex gap-3 items-start">
+          <div className="w-[200px] shrink-0">
+            <TokenSnapshotCard companyId={companyId} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <PriceChart companyId={companyId} />
+          </div>
+        </div>
       </Section>
 
       <Section title="Dune Queries">
