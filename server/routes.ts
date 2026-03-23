@@ -22,6 +22,7 @@ import { generateTelegramLinkCode } from "./telegram";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
+import { trackEvent } from "./usage-tracker";
 
 function buildDuneChartConfig(columns: string[], rows: any[]): any {
   return { columns, _chartType: "table" };
@@ -256,6 +257,7 @@ export async function registerRoutes(
       }
 
       const { sessionId, anthropicRequest, progress } = await startEnrichmentSession(parsed.data.input, req.user!.id);
+      trackEvent(req.user!.id, "enrichment_started", { input: parsed.data.input.slice(0, 200) });
       res.json({ sessionId, anthropicRequest, progress });
     } catch (error: any) {
       console.error("Enrichment prepare error:", error);
@@ -405,6 +407,7 @@ export async function registerRoutes(
       const founders = await storage.getFoundersByCompany(company.id);
       const notes = await storage.getNotesByCompany(company.id);
 
+      trackEvent(userId, "deep_research_started", { companyId: company.id, companyName: company.name });
       const report = await storage.createReport({
         companyId: company.id,
         userId,
@@ -531,6 +534,7 @@ export async function registerRoutes(
     }
     const userId = req.user!.id;
     const company = await storage.createCompany({ ...parsed.data, userId } as any);
+    trackEvent(userId, "company_created", { companyId: company.id, companyName: company.name });
 
     if (company.hasLiquidToken && company.tokenTicker) {
       try {
@@ -1074,6 +1078,7 @@ export async function registerRoutes(
 
       const duneQueryConfigs = await storage.getDuneQueries(req.params.id);
 
+      trackEvent(userId, "token_analysis_started", { companyId: company.id, companyName: company.name, tokenTicker: tokenProfile.tokenTicker });
       const analysis = await storage.createTokenAnalysis({
         companyId: company.id,
         userId,
@@ -1114,6 +1119,8 @@ export async function registerRoutes(
 
       const company = await storage.getCompany(req.params.id, req.user!.id);
       if (!company) return res.status(404).json({ message: "Company not found" });
+
+      trackEvent(req.user!.id, "data_chart_generated", { companyId: company.id, companyName: company.name, prompt: prompt.slice(0, 200) });
 
       const tokenProfile = await storage.getTokenProfile(company.id);
 
@@ -1239,6 +1246,15 @@ export async function registerRoutes(
 
   // ─── ADMIN ─────────────────────────────────────────────────────────────
 
+  app.post("/api/track", requireAuth, async (req, res) => {
+    const { event, metadata } = req.body;
+    if (!event || typeof event !== "string") return res.status(400).json({ message: "event required" });
+    const allowed = ["page_view", "login", "session_start", "company_viewed", "token_intel_viewed", "data_tab_viewed", "report_viewed"];
+    if (!allowed.includes(event)) return res.status(400).json({ message: "Invalid event" });
+    trackEvent(req.user!.id, event, metadata || {});
+    res.json({ ok: true });
+  });
+
   app.get("/api/admin/analytics", requireAuth, async (req, res) => {
     const isAdmin = await storage.checkIsAdmin(req.user!.id);
     if (!isAdmin) return res.status(403).json({ message: "Admin only" });
@@ -1293,6 +1309,41 @@ export async function registerRoutes(
       FROM companies GROUP BY pipeline_stage ORDER BY count DESC
     `);
 
+    const eventCounts = await db.execute(sql`
+      SELECT event, COUNT(*) as count,
+             COUNT(DISTINCT user_id) as unique_users
+      FROM usage_events
+      GROUP BY event ORDER BY count DESC
+    `);
+
+    const recentEvents = await db.execute(sql`
+      SELECT ue.event, ue.metadata, ue.created_at,
+             u.username, u.email
+      FROM usage_events ue
+      LEFT JOIN users u ON u.id = ue.user_id
+      ORDER BY ue.created_at DESC
+      LIMIT 50
+    `);
+
+    const dailyEvents = await db.execute(sql`
+      SELECT DATE(created_at) as day, event, COUNT(*) as count
+      FROM usage_events
+      WHERE created_at > NOW() - INTERVAL '30 days'
+      GROUP BY DATE(created_at), event
+      ORDER BY day DESC
+    `);
+
+    const userList = await db.execute(sql`
+      SELECT u.id, u.username, u.email, u.wallet_address, u.credits, u.created_at,
+             COUNT(DISTINCT c.id) as company_count,
+             COUNT(DISTINCT ue.id) as event_count
+      FROM users u
+      LEFT JOIN companies c ON c.user_id = u.id
+      LEFT JOIN usage_events ue ON ue.user_id = u.id
+      GROUP BY u.id, u.username, u.email, u.wallet_address, u.credits, u.created_at
+      ORDER BY u.created_at DESC
+    `);
+
     res.json({
       users: userStats,
       transactions: txStats,
@@ -1301,6 +1352,10 @@ export async function registerRoutes(
       reports: reportStats,
       dailyActivity: dailyActivity.rows || dailyActivity,
       stageDistribution: stageDistribution.rows || stageDistribution,
+      eventCounts: eventCounts.rows || eventCounts,
+      recentEvents: recentEvents.rows || recentEvents,
+      dailyEvents: dailyEvents.rows || dailyEvents,
+      userList: userList.rows || userList,
     });
   });
 

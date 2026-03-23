@@ -2,6 +2,7 @@ import { PrivyClient } from "@privy-io/node";
 import { storage } from "./storage";
 import type { Express, RequestHandler } from "express";
 import type { User } from "@shared/schema";
+import { trackEvent } from "./usage-tracker";
 
 const privy = new PrivyClient({
   appId: process.env.PRIVY_APP_ID!,
@@ -56,6 +57,7 @@ export const requireAuth: RequestHandler = async (req, res, next) => {
         walletAddress,
         username: displayName,
       });
+      trackEvent(user.id, "user_signup", { email, walletAddress });
     }
 
     req.user = user;

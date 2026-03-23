@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { LayoutDashboard, Building2, Chrome, BarChart3, Search, LogOut, User, Wallet } from "lucide-react";
+import { LayoutDashboard, Building2, Chrome, BarChart3, Search, LogOut, User, Wallet, Activity } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -23,11 +23,15 @@ const navItems = [
   { title: "Data", url: "/data", icon: BarChart3 },
 ];
 
+const ADMIN_EMAILS = ["allmysubscriptions10@proton.me"];
+const ADMIN_USERNAMES = ["polecalmer"];
+
 export function AppSidebar() {
   const [location] = useLocation();
   const { user, logout, isLoggingOut } = useAuth();
 
   const displayName = user?.email || user?.username || "User";
+  const isAdmin = !!(user && (ADMIN_EMAILS.includes(user.email || "") || ADMIN_USERNAMES.includes(user.username || "")));
   const walletShort = user?.walletAddress
     ? `${user.walletAddress.slice(0, 6)}...${user.walletAddress.slice(-4)}`
     : null;
@@ -60,6 +64,20 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+              {isAdmin && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    asChild
+                    data-active={location === "/admin"}
+                    className="data-[active=true]:bg-sidebar-accent data-[active=true]:text-foreground text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    <Link href="/admin" data-testid="link-nav-admin">
+                      <Activity className="w-4 h-4" />
+                      <span className="text-sm">Analytics</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
