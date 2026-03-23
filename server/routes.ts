@@ -17,7 +17,7 @@ import { runDataAgent, refreshChartData, DATA_CHART_CHARGE } from "./data-agent"
 import { fetchTokenSnapshot } from "./allium-client";
 import { executeDuneQuery, getLatestDuneResults, isDuneConfigured } from "./dune-client";
 import { runTokenAnalysis } from "./token-agent";
-import { callAnthropicServer, callAnthropicServerHeavy, isServerMppReady } from "./mpp-client";
+import { callAnthropicServer, callAnthropicServerHeavy, isServerMppReady, getChannelStats } from "./mpp-client";
 import { generateTelegramLinkCode } from "./telegram";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { db } from "./db";
@@ -1356,6 +1356,7 @@ export async function registerRoutes(
       recentEvents: recentEvents.rows || recentEvents,
       dailyEvents: dailyEvents.rows || dailyEvents,
       userList: userList.rows || userList,
+      mppChannel: getChannelStats(),
     });
   });
 

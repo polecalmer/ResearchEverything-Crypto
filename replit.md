@@ -67,7 +67,7 @@ All AI agents use Claude Opus 4.6 with web search capabilities. Liquid token pro
 **UI/UX:** The application features a consistent design language with near-black backgrounds, subtle borders, monospace fonts for addresses/amounts, and a green accent color. The dashboard provides pipeline visualization, company lists, detailed company views, and dedicated pages for wallet management, credit purchasing, and analytics. Real-time SSE (Server-Sent Events) are used to display AI enrichment progress.
 
 **Payment Architecture (Server Wallet):**
-1.  **Server wallet → Anthropic (AI cost):** Server wallet (`0x8518b315b3DFC4415Be7E75b2571Df635b27552a`) pays Anthropic via mppx with Tempo payment method. Escrow channel maxDeposit: $2. Real MPP costs are captured from the `onChallenge` callback (challenge.request.amount) and tracked per session.
+1.  **Server wallet → Anthropic (AI cost):** Server wallet (`0x8518b315b3DFC4415Be7E75b2571Df635b27552a`) pays Anthropic via mppx with Tempo payment method. **Single shared channel** with $5 deposit for ALL AI features (enrichment, deep research, token analysis, data charts, next-steps). Channel persists across requests; only destroyed on channel-specific errors (insufficient balance, expired, closed). Real MPP costs captured from `onChallenge` callback and tracked per session.
 2.  **User → Owner wallet (platform fee):** MPP paywalls on backend `prepare` endpoints charge a platform fee before AI sessions start. Owner wallet: `0x342fFFBcEbb761bC2c7B512333AF5E397b4cB72d`.
 3.  **Cost tracking:** Enrichment/next-steps pipelines: mppCost flows client→server via /api/enrich/step. Deep research: runs entirely server-side as background job, mppCost tracked internally. All pipelines apply 1.5x markup for user charge.
 4.  **Deep research architecture:** The `/reports/prepare` endpoint creates the report record, kicks off the Anthropic call as a background async task, and returns immediately. The client polls report status every 5s until complete. No HTTP timeout issues since the long AI call runs server-side.
@@ -80,7 +80,7 @@ Company detail pages feature four tabs: "Project Intelligence" (deal content), "
 - Dune Analytics query manager (add pre-built queries by ID, browse from master library, auto-attach by protocol/chain tags, visualize as bar/line/area/table via Recharts)
 - AI token analysis agent with query selection logic (background job, same pattern as deep research — server runs async, client polls). Agent selects relevant Dune queries from user's attached set, fetches token snapshot, and produces structured analysis.
 - MPP paywall (user→owner): $0.50 flat fee on any AI feature
-- MPP deposit caps (server→Anthropic/Allium maxDeposit): enrichment $0.50, deep research $1.50, token analysis $1.50, Allium $0.50
+- MPP shared channel (server→Anthropic): single $5 deposit channel for all AI features; channel stats visible in admin analytics
 
 **Data Tab (AI Chart Dashboard):**
 The Data tab provides a chat-driven interface for building custom charts. Users describe what they want (e.g. "HYPE price vs revenue 90D"), and the Data Agent (Opus 4.6) determines the best data source, fetches data, and creates interactive Recharts visualizations. Supports:

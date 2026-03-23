@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Loader2, Users, Activity, DollarSign, Building2, FileText, TrendingUp } from "lucide-react";
+import { Loader2, Users, Activity, DollarSign, Building2, FileText, TrendingUp, Radio } from "lucide-react";
 import { format } from "date-fns";
 
 const EVENT_LABELS: Record<string, string> = {
@@ -51,7 +51,7 @@ export default function AdminPage() {
     );
   }
 
-  const { users, transactions, transactionsByType, companies, reports, eventCounts, recentEvents, userList } = data;
+  const { users, transactions, transactionsByType, companies, reports, eventCounts, recentEvents, userList, mppChannel } = data;
 
   return (
     <div className="h-full overflow-y-auto" data-testid="admin-page">
@@ -67,6 +67,40 @@ export default function AdminPage() {
           <StatCard label="Revenue" value={`$${Number(transactions?.total_revenue || 0).toFixed(2)}`} icon={DollarSign} sub={`${transactions?.paying_users || 0} paying users`} />
           <StatCard label="Transactions" value={transactions?.total_transactions || 0} icon={TrendingUp} sub={`Avg $${Number(transactions?.avg_transaction || 0).toFixed(3)}`} />
         </div>
+
+        {mppChannel && (
+          <div className="rounded border border-border/40 bg-card/30 overflow-hidden" data-testid="mpp-channel-card">
+            <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
+              <Radio className="w-3.5 h-3.5 text-green-500" />
+              <h2 className="text-[12px] font-medium text-foreground/80 tracking-tight">MPP Channel (Anthropic)</h2>
+              <span className="ml-auto text-[10px] text-green-500/80 font-medium">Active</span>
+            </div>
+            <div className="p-4 grid grid-cols-4 gap-4">
+              <div>
+                <p className="text-[10px] text-muted-foreground/50 mb-0.5">Deposit</p>
+                <p className="text-sm font-mono font-semibold text-foreground/80">${mppChannel.deposit}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground/50 mb-0.5">Spent</p>
+                <p className="text-sm font-mono font-semibold text-foreground/80">${Number(mppChannel.totalSpent).toFixed(4)}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground/50 mb-0.5">Requests</p>
+                <p className="text-sm font-mono font-semibold text-foreground/80">{mppChannel.requestCount}</p>
+              </div>
+              <div>
+                <p className="text-[10px] text-muted-foreground/50 mb-0.5">Uptime</p>
+                <p className="text-sm font-mono font-semibold text-foreground/80">
+                  {mppChannel.uptime > 3600
+                    ? `${Math.floor(mppChannel.uptime / 3600)}h ${Math.floor((mppChannel.uptime % 3600) / 60)}m`
+                    : mppChannel.uptime > 60
+                      ? `${Math.floor(mppChannel.uptime / 60)}m`
+                      : `${mppChannel.uptime}s`}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div className="rounded border border-border/40 bg-card/30 overflow-hidden">
