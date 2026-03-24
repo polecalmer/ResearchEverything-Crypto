@@ -364,8 +364,11 @@ export default function WalletPage() {
   const [copied, setCopied] = useState(false);
   const [sendOpen, setSendOpen] = useState(false);
 
+  const { wallets } = useWallets();
   const embeddedWallet = privyUser?.wallet;
-  const walletAddress = embeddedWallet?.address;
+  const walletAddress = embeddedWallet?.address
+    || wallets[0]?.address
+    || null;
   const truncatedAddress = walletAddress
     ? `${walletAddress.slice(0, 6)}...${walletAddress.slice(-4)}`
     : null;

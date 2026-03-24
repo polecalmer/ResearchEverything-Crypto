@@ -12,12 +12,11 @@ export function useAuth() {
   useEffect(() => {
     if (!authenticated || wallets.length === 0) return;
 
-    const embeddedWallet = wallets.find(
-      (w) => w.walletClientType === "privy"
-    );
-    if (!embeddedWallet) return;
+    const wallet = wallets.find((w) => w.walletClientType === "privy")
+      || wallets[0];
+    if (!wallet) return;
 
-    embeddedWallet.getEthereumProvider().then((provider) => {
+    wallet.getEthereumProvider().then((provider) => {
       initMppx(provider).catch(console.error);
     });
   }, [authenticated, wallets]);
