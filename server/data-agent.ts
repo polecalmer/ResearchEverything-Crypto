@@ -101,6 +101,7 @@ CRITICAL CHART CONFIGURATION RULES — READ CAREFULLY
    - For Dune queries: Look at the sample data columns. Pick the column that contains ACTUAL DATE STRINGS (e.g. "2025-01-01 00:00:00.000 UTC"), NOT bare integers.
    - Common pattern: Dune data has "date" (often just a day number like 20) and "month_start" (actual date string). ALWAYS use the string date column like "month_start", "day", "block_date", "week" etc.
    - NEVER use a column named "date" if its sample value is a small integer (like 1-31) — that's a day-of-month, not a date.
+   - CRITICAL: If the data has a "week" or "month" column with actual date strings (e.g. "2026-03-23"), use THAT as the xAxis dataKey, NOT a generic "date" column. The system converts date-string columns to unix timestamps automatically. Set dataKey to the EXACT column name from the data (e.g. "week", "month_start", "block_date").
    - For DeFiLlama/CoinGecko: use "date" (these return proper unix timestamps).
 
 2. Y-AXIS — PICK THE RIGHT METRIC:
@@ -151,10 +152,10 @@ CRITICAL CHART CONFIGURATION RULES — READ CAREFULLY
 
 7. FORMAT RULES:
    - "currency" → values displayed as $1.2M, $450K, $3.5B
-   - "percent" → values are ALREADY in percentage form (150 means 150%). Display as 150.0%
+   - "percent" → values are in DECIMAL form (0.03 means 3%, 0.15 means 15%). The frontend auto-converts by multiplying by 100. IMPORTANT: Dune APY/APR columns typically store values as decimals (e.g. 0.0275 = 2.75%) — always use format "percent" for these.
    - "number" → plain numbers with abbreviation (1.2M, 450K)
    - Revenue, fees, TVL, price, volume, market_cap, fdv → "currency"
-   - growth_pct, apy, apr, rate → "percent"
+   - growth_pct, apy, apr, rate, ratio (non-price) → "percent"
    - count, users, transactions → "number"
 
 8. TITLES:
@@ -493,12 +494,34 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
       const requestedCols = (plan.chartConfig?.yAxes || []).map((y: any) => y.dataKey);
       const missingCols = requestedCols.filter((col: string) => !availableCols.includes(col));
 
-      if (plan.chartConfig?.xAxis && !availableCols.includes(plan.chartConfig.xAxis.dataKey)) {
-        const dateCols = availableCols.filter(c => /date|time|day|week|month|block_time|period/i.test(c));
-        if (dateCols.length > 0) {
-          console.log(`[Data Agent] Auto-fixing xAxis: "${plan.chartConfig.xAxis.dataKey}" → "${dateCols[0]}"`);
-          plan.chartConfig.xAxis.dataKey = dateCols[0];
-          plan.chartConfig.xAxis.type = "date";
+      if (plan.chartConfig?.xAxis) {
+        const xKey = plan.chartConfig.xAxis.dataKey;
+        let xNeedsFix = !availableCols.includes(xKey);
+        if (!xNeedsFix && data.length > 1) {
+          const xVals = data.map((d: any) => d[xKey]);
+          const uniqueVals = new Set(xVals.map((v: any) => String(v)));
+          if (uniqueVals.size <= 1) {
+            console.log(`[Data Agent] xAxis "${xKey}" has all identical values — needs correction`);
+            xNeedsFix = true;
+          }
+        }
+        if (xNeedsFix) {
+          const dateCols = availableCols.filter(c => /date|time|day|week|month|block_time|period/i.test(c));
+          const goodDateCol = dateCols.find(c => {
+            if (c === xKey) return false;
+            const vals = data.map((d: any) => d[c]);
+            const unique = new Set(vals.map((v: any) => String(v)));
+            return unique.size > 1;
+          });
+          if (goodDateCol) {
+            console.log(`[Data Agent] Auto-fixing xAxis: "${xKey}" → "${goodDateCol}"`);
+            plan.chartConfig.xAxis.dataKey = goodDateCol;
+            plan.chartConfig.xAxis.type = "date";
+          } else if (dateCols.length > 0 && dateCols[0] !== xKey) {
+            console.log(`[Data Agent] Auto-fixing xAxis: "${xKey}" → "${dateCols[0]}"`);
+            plan.chartConfig.xAxis.dataKey = dateCols[0];
+            plan.chartConfig.xAxis.type = "date";
+          }
         }
       }
 
@@ -637,9 +660,28 @@ export async function refreshChartData(chartId: string): Promise<DashboardChart>
     let configUpdated = false;
     if (chartCfg.xAxis && chartCfg.yAxes && data.length > 0) {
       const availCols = Object.keys(data[0]);
-      if (chartCfg.xAxis.dataKey && !availCols.includes(chartCfg.xAxis.dataKey)) {
+      const xKey = chartCfg.xAxis.dataKey;
+      let xNeedsFix = xKey && !availCols.includes(xKey);
+      if (!xNeedsFix && xKey && data.length > 1) {
+        const xVals = data.map((d: any) => d[xKey]);
+        const uniqueVals = new Set(xVals.map((v: any) => String(v)));
+        if (uniqueVals.size <= 1) {
+          xNeedsFix = true;
+        }
+      }
+      if (xNeedsFix) {
         const dateCols = availCols.filter((c: string) => /date|time|day|week|month|block_time|period/i.test(c));
-        if (dateCols.length > 0) {
+        const goodDateCol = dateCols.find(c => {
+          if (c === xKey) return false;
+          const vals = data.map((d: any) => d[c]);
+          const unique = new Set(vals.map((v: any) => String(v)));
+          return unique.size > 1;
+        });
+        if (goodDateCol) {
+          chartCfg.xAxis.dataKey = goodDateCol;
+          chartCfg.xAxis.type = "date";
+          configUpdated = true;
+        } else if (dateCols.length > 0 && dateCols[0] !== xKey) {
           chartCfg.xAxis.dataKey = dateCols[0];
           chartCfg.xAxis.type = "date";
           configUpdated = true;
@@ -940,13 +982,11 @@ async function fetchDuneData(config: Record<string, any>): Promise<any[]> {
   return result.rows.map((row) => {
     const processed: Record<string, any> = {};
     for (const [key, value] of Object.entries(row)) {
-      if (key.toLowerCase().includes('date') || key.toLowerCase().includes('time') || key.toLowerCase().includes('day')) {
-        processed.date = typeof value === 'string' ? new Date(value).getTime() / 1000 : value;
+      if ((key.toLowerCase().includes('date') || key.toLowerCase().includes('time') || key.toLowerCase().includes('day') || key === 'week' || key === 'month') && typeof value === 'string' && /\d{4}/.test(value)) {
+        processed[key] = new Date(value).getTime() / 1000;
+      } else {
+        processed[key] = value;
       }
-      processed[key] = value;
-    }
-    if (!processed.date && result.rows.indexOf(row) >= 0) {
-      processed.date = Date.now() / 1000;
     }
     return processed;
   });
@@ -967,10 +1007,11 @@ async function fetchDuneSqlData(config: Record<string, any>): Promise<any[]> {
   return result.rows.map((row) => {
     const processed: Record<string, any> = {};
     for (const [key, value] of Object.entries(row)) {
-      if (key.toLowerCase().includes('date') || key.toLowerCase().includes('time') || key === 'day' || key === 'week' || key === 'month') {
-        processed.date = typeof value === 'string' ? new Date(value).getTime() / 1000 : value;
+      if ((key.toLowerCase().includes('date') || key.toLowerCase().includes('time') || key === 'day' || key === 'week' || key === 'month') && typeof value === 'string' && /\d{4}/.test(value)) {
+        processed[key] = new Date(value).getTime() / 1000;
+      } else {
+        processed[key] = value;
       }
-      processed[key] = value;
     }
     return processed;
   });

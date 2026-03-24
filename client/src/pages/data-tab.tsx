@@ -50,7 +50,10 @@ function smartFormat(value: number, fmt?: string): string {
     if (abs >= 1e3) return `$${(value / 1e3).toFixed(1)}K`;
     return `$${value.toFixed(0)}`;
   }
-  if (fmt === "percent") return `${value.toFixed(1)}%`;
+  if (fmt === "percent") {
+    const pct = Math.abs(value) < 1 ? value * 100 : value;
+    return `${pct.toFixed(1)}%`;
+  }
   const abs = Math.abs(value);
   if (abs >= 1e9) return `${(value / 1e9).toFixed(2)}B`;
   if (abs >= 1e6) return `${(value / 1e6).toFixed(2)}M`;
@@ -131,7 +134,7 @@ function autoCorrectChartConfig(config: any, data: any[]): any {
   let xNeedsCorrection = !xKeyExists;
   if (xKeyExists && data.length > 1) {
     const xVals = data.map(d => d[xAxis.dataKey]);
-    const uniqueVals = new Set(xVals.map(v => typeof v === "number" ? Math.round(v) : String(v)));
+    const uniqueVals = new Set(xVals.map(v => String(v)));
     if (uniqueVals.size <= 1) {
       xNeedsCorrection = true;
     }
@@ -153,7 +156,7 @@ function autoCorrectChartConfig(config: any, data: any[]): any {
     const goodDateCol = dateCols.find(c => {
       if (c === xAxis.dataKey) return false;
       const vals = data.map(d => d[c]);
-      const unique = new Set(vals.map(v => typeof v === "number" ? Math.round(v) : String(v)));
+      const unique = new Set(vals.map(v => String(v)));
       return unique.size > 1;
     });
     if (goodDateCol) {
