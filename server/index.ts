@@ -86,6 +86,7 @@ app.post(
 
 app.use(
   express.json({
+    limit: '5mb',
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
@@ -146,9 +147,11 @@ app.use((req, res, next) => {
 (async () => {
   const { seedDatabase } = await import("./seed");
   const { startTelegramBot } = await import("./telegram");
+  const { runSeedMigration } = await import("./run-seed");
   setupAuth(app);
   await registerRoutes(httpServer, app);
   await seedDatabase();
+  runSeedMigration().catch(e => console.error("[seed] Migration failed:", e.message));
   try { startTelegramBot(); } catch (e: any) { console.log("[Telegram] Bot startup skipped:", e.message); }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
