@@ -1260,14 +1260,14 @@ export async function registerRoutes(
     const isAdmin = await storage.checkIsAdmin(req.user!.id);
     if (!isAdmin) return res.status(403).json({ message: "Admin only" });
 
-    const [userStats] = await db.execute(sql`
+    const userStatsResult = await db.execute(sql`
       SELECT COUNT(*) as total_users,
              COUNT(CASE WHEN wallet_address IS NOT NULL THEN 1 END) as users_with_wallets,
              MIN(created_at) as first_signup
       FROM users WHERE created_at IS NOT NULL
     `);
 
-    const [txStats] = await db.execute(sql`
+    const txStatsResult = await db.execute(sql`
       SELECT COUNT(*) as total_transactions,
              COALESCE(SUM(CAST(amount AS NUMERIC)), 0) as total_revenue,
              COALESCE(SUM(CAST(api_cost AS NUMERIC)), 0) as total_api_cost,
@@ -1276,7 +1276,7 @@ export async function registerRoutes(
       FROM transactions
     `);
 
-    const txByType = await db.execute(sql`
+    const txByTypeResult = await db.execute(sql`
       SELECT type, COUNT(*) as count,
              COALESCE(SUM(CAST(amount AS NUMERIC)), 0) as revenue,
              COALESCE(SUM(CAST(api_cost AS NUMERIC)), 0) as cost,
@@ -1285,19 +1285,19 @@ export async function registerRoutes(
       FROM transactions GROUP BY type ORDER BY count DESC
     `);
 
-    const [companyStats] = await db.execute(sql`
+    const companyStatsResult = await db.execute(sql`
       SELECT COUNT(*) as total_companies,
              COUNT(DISTINCT user_id) as users_with_companies
       FROM companies
     `);
 
-    const [reportStats] = await db.execute(sql`
+    const reportStatsResult = await db.execute(sql`
       SELECT COUNT(*) as total_reports,
              COUNT(CASE WHEN status = 'complete' THEN 1 END) as completed_reports
       FROM reports
     `);
 
-    const dailyActivity = await db.execute(sql`
+    const dailyActivityResult = await db.execute(sql`
       SELECT DATE(created_at) as day, COUNT(*) as transactions, 
              COALESCE(SUM(CAST(amount AS NUMERIC)), 0) as revenue
       FROM transactions
@@ -1305,19 +1305,19 @@ export async function registerRoutes(
       GROUP BY DATE(created_at) ORDER BY day DESC
     `);
 
-    const stageDistribution = await db.execute(sql`
+    const stageDistResult = await db.execute(sql`
       SELECT pipeline_stage, COUNT(*) as count
       FROM companies GROUP BY pipeline_stage ORDER BY count DESC
     `);
 
-    const eventCounts = await db.execute(sql`
+    const eventCountsResult = await db.execute(sql`
       SELECT event, COUNT(*) as count,
              COUNT(DISTINCT user_id) as unique_users
       FROM usage_events
       GROUP BY event ORDER BY count DESC
     `);
 
-    const recentEvents = await db.execute(sql`
+    const recentEventsResult = await db.execute(sql`
       SELECT ue.event, ue.metadata, ue.created_at,
              u.username, u.email
       FROM usage_events ue
@@ -1326,7 +1326,7 @@ export async function registerRoutes(
       LIMIT 50
     `);
 
-    const dailyEvents = await db.execute(sql`
+    const dailyEventsResult = await db.execute(sql`
       SELECT DATE(created_at) as day, event, COUNT(*) as count
       FROM usage_events
       WHERE created_at > NOW() - INTERVAL '30 days'
@@ -1334,7 +1334,7 @@ export async function registerRoutes(
       ORDER BY day DESC
     `);
 
-    const userList = await db.execute(sql`
+    const userListResult = await db.execute(sql`
       SELECT u.id, u.username, u.email, u.wallet_address, u.credits, u.created_at,
              COUNT(DISTINCT c.id) as company_count,
              COUNT(DISTINCT ue.id) as event_count
@@ -1346,17 +1346,17 @@ export async function registerRoutes(
     `);
 
     res.json({
-      users: userStats,
-      transactions: txStats,
-      transactionsByType: txByType.rows || txByType,
-      companies: companyStats,
-      reports: reportStats,
-      dailyActivity: dailyActivity.rows || dailyActivity,
-      stageDistribution: stageDistribution.rows || stageDistribution,
-      eventCounts: eventCounts.rows || eventCounts,
-      recentEvents: recentEvents.rows || recentEvents,
-      dailyEvents: dailyEvents.rows || dailyEvents,
-      userList: userList.rows || userList,
+      users: userStatsResult.rows[0],
+      transactions: txStatsResult.rows[0],
+      transactionsByType: txByTypeResult.rows,
+      companies: companyStatsResult.rows[0],
+      reports: reportStatsResult.rows[0],
+      dailyActivity: dailyActivityResult.rows,
+      stageDistribution: stageDistResult.rows,
+      eventCounts: eventCountsResult.rows,
+      recentEvents: recentEventsResult.rows,
+      dailyEvents: dailyEventsResult.rows,
+      userList: userListResult.rows,
       mppChannel: getChannelStats(),
     });
   });
