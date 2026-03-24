@@ -18,12 +18,12 @@ export interface AnthropicResponse {
   mppCost: number;
 }
 
-const CHANNEL_DEPOSIT = "0.5";
+const CHANNEL_DEPOSIT = "4.0";
+const SHUTDOWN_TIMEOUT_MS = 15000;
 
 interface MppClientState {
   client: ReturnType<typeof Mppx.create>;
-  sessionMethods: ReturnType<typeof tempo>;
-  lastChallenge: any;
+  session: ReturnType<typeof tempo.session>;
   lastChallengeAmount: number;
   totalSpent: number;
   requestCount: number;
@@ -31,6 +31,7 @@ interface MppClientState {
 }
 
 let sharedClient: MppClientState | null = null;
+let isShuttingDown = false;
 
 function getAccount() {
   const privateKey = process.env.MPP_SERVER_WALLET_KEY;
@@ -44,20 +45,21 @@ function getOrCreateClient(): MppClientState {
   if (sharedClient) return sharedClient;
 
   const account = getAccount();
-  const sessionMethods = tempo({ account, maxDeposit: CHANNEL_DEPOSIT });
+  const session = tempo.session({
+    account,
+    maxDeposit: CHANNEL_DEPOSIT,
+  });
 
   const state: MppClientState = {
-    sessionMethods,
-    lastChallenge: null,
+    session,
     lastChallengeAmount: 0,
     totalSpent: 0,
     requestCount: 0,
     createdAt: Date.now(),
     client: Mppx.create({
-      methods: [sessionMethods],
+      methods: [session],
       polyfill: false,
       onChallenge: async (challenge, helpers) => {
-        state.lastChallenge = challenge;
         const rawAmount = challenge.request?.amount;
         if (rawAmount) {
           const amountNum = typeof rawAmount === "string" ? parseInt(rawAmount, 10) : Number(rawAmount);
@@ -72,7 +74,7 @@ function getOrCreateClient(): MppClientState {
   };
 
   sharedClient = state;
-  console.log(`[MPP-Channel] Opened shared channel (deposit: $${CHANNEL_DEPOSIT}): ${account.address}`);
+  console.log(`[MPP-Channel] Opened shared session (deposit: $${CHANNEL_DEPOSIT}): ${account.address}`);
   return state;
 }
 
@@ -95,38 +97,57 @@ export function getChannelStats() {
   };
 }
 
-async function closeChannel() {
-  if (!sharedClient || !sharedClient.lastChallenge) return;
+async function closeChannel(): Promise<void> {
+  if (!sharedClient) {
+    console.log(`[MPP-Channel] No active channel to close.`);
+    return;
+  }
+
+  const { session, requestCount, totalSpent } = sharedClient;
 
   try {
-    console.log(`[MPP-Channel] Closing channel (${sharedClient.requestCount} requests, $${sharedClient.totalSpent.toFixed(4)} spent)...`);
-    const sessionMethod = sharedClient.sessionMethods.flat().find((m: any) => m?.createCredential);
-    if (sessionMethod) {
-      const credential = await sessionMethod.createCredential({
-        challenge: sharedClient.lastChallenge,
-        context: { action: "close" as const },
-      });
-      await fetch(ANTHROPIC_MPP_URL, {
-        method: "POST",
-        headers: { Authorization: credential },
-      });
+    console.log(`[MPP-Channel] Closing channel (${requestCount} requests, $${totalSpent.toFixed(4)} spent)...`);
+    const receipt = await Promise.race([
+      session.close(),
+      new Promise<null>((_, reject) =>
+        setTimeout(() => reject(new Error("Channel close timed out")), SHUTDOWN_TIMEOUT_MS - 2000)
+      ),
+    ]);
+    if (receipt) {
+      console.log(`[MPP-Channel] Channel closed successfully. Unspent deposit reclaimed.`);
+    } else {
+      console.log(`[MPP-Channel] Channel close completed (no receipt).`);
     }
-    console.log(`[MPP-Channel] Channel closed.`);
-  } catch (err) {
-    console.error(`[MPP-Channel] Error closing:`, err);
+  } catch (err: any) {
+    console.error(`[MPP-Channel] Error closing channel: ${err?.message || err}`);
   }
   sharedClient = null;
 }
 
-process.on("SIGTERM", async () => {
-  await closeChannel();
-  process.exit(0);
-});
+export { closeChannel };
 
-process.on("SIGINT", async () => {
+let shutdownHandled = false;
+
+async function gracefulShutdown(signal: string) {
+  if (shutdownHandled) return;
+  shutdownHandled = true;
+  isShuttingDown = true;
+
+  console.log(`[MPP-Channel] ${signal} received — closing channel before exit...`);
+
+  const shutdownTimer = setTimeout(() => {
+    console.error(`[MPP-Channel] Shutdown timeout (${SHUTDOWN_TIMEOUT_MS}ms) — forcing exit`);
+    process.exit(1);
+  }, SHUTDOWN_TIMEOUT_MS);
+  shutdownTimer.unref();
+
   await closeChannel();
+  clearTimeout(shutdownTimer);
   process.exit(0);
-});
+}
+
+process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 4000;
@@ -142,6 +163,10 @@ function isChannelError(errMsg: string): boolean {
 }
 
 async function callAnthropic(request: AnthropicRequest): Promise<AnthropicResponse> {
+  if (isShuttingDown) {
+    throw new Error("Server is shutting down — please retry in a moment.");
+  }
+
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
