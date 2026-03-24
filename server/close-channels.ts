@@ -1,7 +1,6 @@
 import { createPublicClient, createWalletClient, http, parseAbi, encodeFunctionData, type Hex, type Account } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { tempo } from "viem/chains";
-import { prepareTransactionRequest, signTransaction, sendRawTransactionSync, signTypedData } from "viem/actions";
 
 const ESCROW = "0x33b901018174DDabE4841042ab76ba85D4e24f25" as const;
 const USDC = "0x20C000000000000000000000b9537d11c60E8b50" as const;
@@ -73,28 +72,22 @@ const voucherTypes = {
   ],
 } as const;
 
-async function sendFeePayerTx(
+async function sendTx(
   client: any,
   account: Account,
   to: `0x${string}`,
   data: Hex,
 ): Promise<any> {
-  const prepared = await prepareTransactionRequest(client, {
+  const hash = await client.sendTransaction({
     account,
-    calls: [{ to, data }],
-    feePayer: true,
-    feeToken: USDC,
-  } as any);
-
-  const serialized = await signTransaction(client, {
-    ...prepared,
-    account,
-    feePayer: account,
-  } as any);
-
-  return sendRawTransactionSync(client as any, {
-    serializedTransaction: serialized,
-  } as any);
+    to,
+    data,
+    chain: tempo,
+  });
+  console.log(`    tx hash: ${hash}`);
+  const publicClient = createPublicClient({ chain: tempo, transport: http("https://rpc.tempo.xyz") });
+  const receipt = await publicClient.waitForTransactionReceipt({ hash, timeout: 30_000 });
+  return receipt;
 }
 
 async function main() {
@@ -188,7 +181,7 @@ async function main() {
     console.log(`\nSending requestClose for ${toRequest.length} channels...`);
     for (const cid of toRequest) {
       const data = encodeFunctionData({ abi: requestCloseAbi, functionName: "requestClose", args: [cid as `0x${string}`] });
-      const receipt = await sendFeePayerTx(client, account, ESCROW, data);
+      const receipt = await sendTx(client, account, ESCROW, data);
       console.log(`  ${cid.slice(0, 18)}... TX: ${receipt.transactionHash} (${receipt.status})`);
     }
   }
@@ -203,7 +196,7 @@ async function main() {
           args: [cid as `0x${string}`],
         });
 
-        const receipt = await sendFeePayerTx(client, account, ESCROW, data);
+        const receipt = await sendTx(client, account, ESCROW, data);
         console.log(`  ${cid.slice(0, 18)}... TX: ${receipt.transactionHash} (${receipt.status})`);
       } catch (e: any) {
         console.error(`  ${cid.slice(0, 18)}... ERROR: ${e.shortMessage?.slice(0, 150) || e.message?.slice(0, 150)}`);
