@@ -18,7 +18,7 @@ export interface AnthropicResponse {
   mppCost: number;
 }
 
-const CHANNEL_DEPOSIT = "5.0";
+const CHANNEL_DEPOSIT = "0.45";
 
 interface MppClientState {
   client: ReturnType<typeof Mppx.create>;
@@ -195,6 +195,18 @@ async function callAnthropic(request: AnthropicRequest): Promise<AnthropicRespon
     } catch (err) {
       lastError = err as Error;
       const errMsg = (err as any)?.message || "";
+
+      if (errMsg.includes("InsufficientBalance") || errMsg.includes("insufficient funds")) {
+        console.error(`[MPP-Channel] Server wallet has insufficient USDC.e balance for channel deposit`);
+        forceNewChannel();
+        throw new Error("AI service temporarily unavailable — server wallet needs to be topped up. Please try again later.");
+      }
+
+      if (errMsg.includes("Execution reverted")) {
+        console.error(`[MPP-Channel] Transaction reverted: "${errMsg.slice(0, 120)}"`);
+        forceNewChannel();
+        throw new Error("AI service payment failed — please try again in a moment.");
+      }
 
       if (isChannelError(errMsg)) {
         console.log(`[MPP-Channel] Channel error detected, opening new channel: "${errMsg.slice(0, 80)}"`);
