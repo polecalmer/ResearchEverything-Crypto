@@ -67,7 +67,11 @@ function axisFormat(value: number, fmt?: string, isRatio?: boolean): string {
     if (abs >= 1e3) return `$${(value / 1e3).toFixed(0)}K`;
     return `$${value.toFixed(0)}`;
   }
-  if (fmt === "percent") return `${value.toFixed(0)}%`;
+  if (fmt === "percent") {
+    const pct = Math.abs(value) < 1 ? value * 100 : value;
+    if (Math.abs(pct) < 1) return `${pct.toFixed(1)}%`;
+    return `${pct.toFixed(0)}%`;
+  }
   if (isRatio) return `${value.toFixed(0)}${suffix}`;
   const abs = Math.abs(value);
   if (abs >= 1e9) return `${(value / 1e9).toFixed(1)}B`;
@@ -78,7 +82,10 @@ function axisFormat(value: number, fmt?: string, isRatio?: boolean): string {
 
 function smartTooltip(value: number, fmt?: string): string {
   if (fmt === "currency") return `$${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
-  if (fmt === "percent") return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
+  if (fmt === "percent") {
+    const pct = Math.abs(value) < 1 ? value * 100 : value;
+    return `${pct.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
+  }
   return value.toLocaleString(undefined, { maximumFractionDigits: 4 });
 }
 
@@ -121,7 +128,16 @@ function autoCorrectChartConfig(config: any, data: any[]): any {
   const xKeyExists = allCols.includes(xAxis.dataKey);
   const yKeysExist = yAxes.every((y: any) => allCols.includes(y.dataKey));
 
-  if (xKeyExists && yKeysExist) return config;
+  let xNeedsCorrection = !xKeyExists;
+  if (xKeyExists && data.length > 1) {
+    const xVals = data.map(d => d[xAxis.dataKey]);
+    const uniqueVals = new Set(xVals.map(v => typeof v === "number" ? Math.round(v) : String(v)));
+    if (uniqueVals.size <= 1) {
+      xNeedsCorrection = true;
+    }
+  }
+
+  if (!xNeedsCorrection && xKeyExists && yKeysExist) return config;
 
   const dateCols = allCols.filter(c => isDateColumn(c, data));
   const numericCols = allCols.filter(c => {
@@ -133,12 +149,22 @@ function autoCorrectChartConfig(config: any, data: any[]): any {
 
   const corrected = JSON.parse(JSON.stringify(config));
 
-  if (!xKeyExists) {
-    if (dateCols.length > 0) {
+  if (xNeedsCorrection) {
+    const goodDateCol = dateCols.find(c => {
+      if (c === xAxis.dataKey) return false;
+      const vals = data.map(d => d[c]);
+      const unique = new Set(vals.map(v => typeof v === "number" ? Math.round(v) : String(v)));
+      return unique.size > 1;
+    });
+    if (goodDateCol) {
+      corrected.xAxis.dataKey = goodDateCol;
+      corrected.xAxis.type = "date";
+    } else if (dateCols.length > 0 && dateCols[0] !== xAxis.dataKey) {
       corrected.xAxis.dataKey = dateCols[0];
       corrected.xAxis.type = "date";
     } else if (stringCols.length > 0) {
       corrected.xAxis.dataKey = stringCols[0];
+      corrected.xAxis.type = undefined;
     } else if (numericCols.length > 0) {
       const leastLikelyValue = numericCols.find(c => !/usd|price|fee|revenue|volume|amount|cost|tvl|value|earnings|profit/i.test(c));
       corrected.xAxis.dataKey = leastLikelyValue || numericCols[0];
@@ -246,6 +272,10 @@ function computeHeadlineStat(data: any[], yAxes: any[], title?: string, xAxisKey
     return { value: formatted + "x", label: "Latest" };
   }
 
+  if (fmt === "percent") {
+    const pct = Math.abs(latest) < 1 ? latest * 100 : latest;
+    return { value: `${pct.toFixed(1)}%`, label: "Latest" };
+  }
   return { value: smartFormat(latest, fmt || "currency"), label: "Latest" };
 }
 
