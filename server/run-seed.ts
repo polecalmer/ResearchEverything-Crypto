@@ -2,14 +2,6 @@ import { pool } from "./db";
 import * as fs from "fs";
 import * as path from "path";
 
-const DEV_TO_PROD_EMAIL_MAP: Record<string, string> = {
-  "allmysubscriptions10@proton.me": "allmysubscriptions10@proton.me",
-};
-
-const DEV_TO_PROD_USERNAME_MAP: Record<string, string> = {
-  "polecalmer": "polecalmer",
-};
-
 export async function runSeedMigration() {
   try {
     const tables = [
@@ -63,13 +55,18 @@ export async function runSeedMigration() {
   }
 }
 
+const DEV_USER_MAP: Record<string, { email?: string; username?: string }> = {
+  "1e9bf641-c93c-4629-906a-f50db9050164": { email: "allmysubscriptions10@proton.me", username: "allmysubscriptions10" },
+  "831fc274-4bad-4ff5-9e69-c607b8d75fa9": { username: "polecalmer" },
+};
+
 async function remapOrphanedRecords() {
   try {
     const orphanResult = await pool.query(`
       SELECT DISTINCT c.user_id 
       FROM companies c 
       LEFT JOIN users u ON u.id = c.user_id 
-      WHERE u.privy_id IS NULL AND u.id IS NOT NULL
+      WHERE u.privy_id IS NULL OR u.id IS NULL
     `);
 
     if (orphanResult.rows.length === 0) {
@@ -81,15 +78,27 @@ async function remapOrphanedRecords() {
 
     for (const row of orphanResult.rows) {
       const orphanId = row.user_id;
-      const orphanUser = await pool.query("SELECT id, username, email FROM users WHERE id = $1", [orphanId]);
-      if (orphanUser.rows.length === 0) continue;
+      if (!orphanId) continue;
 
-      const { username, email } = orphanUser.rows[0];
+      let email: string | null = null;
+      let username: string | null = null;
+
+      const orphanUser = await pool.query("SELECT id, username, email FROM users WHERE id = $1", [orphanId]);
+      if (orphanUser.rows.length > 0) {
+        email = orphanUser.rows[0].email;
+        username = orphanUser.rows[0].username;
+      }
+
+      if (DEV_USER_MAP[orphanId]) {
+        email = email || DEV_USER_MAP[orphanId].email || null;
+        username = username || DEV_USER_MAP[orphanId].username || null;
+      }
 
       let prodUser = null;
+
       if (email) {
         const r = await pool.query(
-          "SELECT id FROM users WHERE email = $1 AND privy_id IS NOT NULL AND id != $2 LIMIT 1",
+          "SELECT id FROM users WHERE email = $1 AND id != $2 LIMIT 1",
           [email, orphanId]
         );
         if (r.rows.length > 0) prodUser = r.rows[0].id;
@@ -97,18 +106,18 @@ async function remapOrphanedRecords() {
 
       if (!prodUser && username) {
         const r = await pool.query(
-          "SELECT id FROM users WHERE username LIKE $1 AND privy_id IS NOT NULL AND id != $2 LIMIT 1",
-          [username + "%", orphanId]
+          "SELECT id FROM users WHERE (username = $1 OR username LIKE $2) AND id != $3 ORDER BY privy_id IS NOT NULL DESC LIMIT 1",
+          [username, username + "_%", orphanId]
         );
         if (r.rows.length > 0) prodUser = r.rows[0].id;
       }
 
       if (!prodUser) {
-        console.log(`[seed] No production match for orphan user ${username} (${email}), skipping`);
+        console.log(`[seed] No production match for orphan user ${username || 'unknown'} (${email || 'no email'}), skipping`);
         continue;
       }
 
-      console.log(`[seed] Remapping ${username} (${orphanId}) -> production user (${prodUser})`);
+      console.log(`[seed] Remapping ${username || orphanId} -> production user (${prodUser})`);
 
       const tablesToRemap = [
         "companies", "reports", "token_analyses", "dashboard_charts",
@@ -127,6 +136,8 @@ async function remapOrphanedRecords() {
         } catch (e: any) {
           if (e.message?.includes("duplicate key")) {
             console.log(`[seed]   ${tbl}: some duplicates skipped`);
+          } else {
+            console.log(`[seed]   ${tbl}: error - ${e.message?.substring(0, 100)}`);
           }
         }
       }
