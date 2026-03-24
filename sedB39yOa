@@ -51,5 +51,3 @@ integrations = ["javascript_anthropic_ai_integrations:2.0.0", "javascript_log_in
 [userenv.shared]
 VITE_PRIVY_APP_ID = "cmmyniyn500170dl19lkedqy8"
 MPP_SERVER_WALLET_ADDRESS = "0x8518b315b3DFC4415Be7E75b2571Df635b27552a"
-MPP_SERVER_WALLET_KEY = "0xb13eb4e28f187b8a064f3dc207aa856b33236b511bfadfd9a566b4c902069e20"
-MPP_SECRET_KEY = "df7d54d0a95582836a3ba9c1aad1b16c78f3667486d90e0d3876c258d65dffa0"
