@@ -73,7 +73,7 @@ export function AppSidebar() {
                   >
                     <Link href="/admin" data-testid="link-nav-admin">
                       <Activity className="w-4 h-4" />
-                      <span className="text-sm">Analytics</span>
+                      <span className="text-sm">Status</span>
                     </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
