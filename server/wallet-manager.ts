@@ -207,23 +207,22 @@ async function sendTempoTx(to: `0x${string}`, data: Hex): Promise<string> {
   const prepared = await prepareTransactionRequest(walletClient, {
     account,
     calls: [{ to, data }],
-    feePayer: true,
     feeToken: USDC,
   } as any);
 
   const serialized = await signTransaction(walletClient, {
     ...prepared,
     account,
-    feePayer: account,
   } as any);
 
   const receipt = await (sendRawTransactionSync as any)(walletClient, {
     serializedTransaction: serialized,
   });
 
+  if (receipt?.status === "success") return receipt.transactionHash;
   if (receipt?.transactionHash) return receipt.transactionHash;
   if (typeof receipt === "string") return receipt;
-  throw new Error(`Unexpected receipt: ${JSON.stringify(receipt)}`);
+  throw new Error(`Transaction reverted: ${JSON.stringify(receipt)}`);
 }
 
 export async function requestCloseChannel(channelId: string): Promise<{ success: boolean; txHash?: string; error?: string }> {
