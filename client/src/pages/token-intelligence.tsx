@@ -26,6 +26,7 @@ import {
   TrendingUp,
   TrendingDown,
   FileText,
+  ArrowLeft,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -1330,7 +1331,22 @@ export function ReportsTab({ companyId, companyName }: { companyId: string; comp
   const generatingResearch = reports.some(r => r.status === "generating");
 
   const selected = selectedId ? allReports.find(r => r.id === selectedId) : null;
-  const viewing = selected || allReports[0] || null;
+
+  function extractSummary(content: string): string {
+    const plain = content.replace(/[#*_`>~\[\]()]/g, "").replace(/\n+/g, " ").trim();
+    const titleEnd = plain.indexOf("Report Date:");
+    const start = titleEnd > 0 ? titleEnd : 0;
+    return plain.slice(start, start + 180).trim() + (plain.length > start + 180 ? "..." : "");
+  }
+
+  function extractTitle(report: UnifiedReport): string {
+    const lines = report.content.split("\n").filter(l => l.trim());
+    for (const line of lines) {
+      const cleaned = line.replace(/^#+\s*/, "").trim();
+      if (cleaned.length > 10 && cleaned.length < 120) return cleaned;
+    }
+    return report.type === "token-analysis" ? "Token Analysis" : "Deep Research";
+  }
 
   if (generatingAnalysis || generatingResearch) {
     return (
@@ -1344,80 +1360,47 @@ export function ReportsTab({ companyId, companyName }: { companyId: string; comp
     );
   }
 
-  if (allReports.length === 0) {
+  if (selected) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 gap-4">
-        <div className="text-muted-foreground/50">
-          <Brain className="w-8 h-8" />
-        </div>
-        <div className="text-center">
-          <p className="text-sm text-muted-foreground/60 mb-1">No reports yet</p>
-          <p className="text-[11px] text-muted-foreground">Generate AI-powered analysis for {companyName}</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-xs gap-1.5"
-            onClick={() => generateAnalysisMutation.mutate()}
-            disabled={generateAnalysisMutation.isPending || !tokenProfile}
-            data-testid="button-generate-token-analysis-tab"
+      <div>
+        <div className="flex items-center justify-between mb-4">
+          <button
+            onClick={() => setSelectedId(null)}
+            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            data-testid="button-back-to-reports"
           >
-            <Brain className="w-3 h-3" />
-            Token Analysis (~$0.23)
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-xs gap-1.5"
-            onClick={() => generateResearchMutation.mutate()}
-            disabled={generateResearchMutation.isPending}
-            data-testid="button-generate-research-tab"
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Back to Reports
+          </button>
+          <button
+            onClick={() => {
+              const realId = selected.id.replace(/^(analysis-|report-)/, "");
+              if (selected.type === "token-analysis") deleteAnalysisMutation.mutate(realId);
+              else deleteReportMutation.mutate(realId);
+            }}
+            className="p-1.5 rounded hover:bg-destructive/20 text-muted-foreground/50 hover:text-destructive transition-colors"
+            data-testid="button-delete-report"
+            title="Delete this report"
           >
-            <FileText className="w-3 h-3" />
-            Deep Research (~$0.50)
-          </Button>
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
         </div>
+        <div className="text-[10px] text-muted-foreground/60 mb-4">
+          {format(new Date(selected.createdAt), "MMMM d, yyyy h:mm a")}
+          <span className="ml-2 text-muted-foreground/40">
+            {selected.type === "token-analysis" ? "Token Analysis" : "Deep Research"}
+          </span>
+        </div>
+        <ResearchReport content={selected.content} />
       </div>
     );
   }
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-4">
-        <div className="flex items-center gap-2 flex-wrap">
-          {allReports.map(report => (
-            <button
-              key={report.id}
-              onClick={() => setSelectedId(report.id)}
-              className={`text-[11px] px-2.5 py-1 rounded transition-colors ${
-                (viewing?.id === report.id) 
-                  ? "bg-blue-500/15 text-foreground" 
-                  : "text-muted-foreground hover:text-foreground hover:bg-accent/30"
-              }`}
-              data-testid={`button-report-${report.id}`}
-            >
-              <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${report.type === "token-analysis" ? "bg-blue-400" : "bg-violet-400"}`} />
-              {report.type === "token-analysis" ? "Token Analysis" : "Deep Research"}
-              <span className="ml-1 text-muted-foreground/50">{format(new Date(report.createdAt), "M/d")}</span>
-            </button>
-          ))}
-        </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          {viewing && (
-            <button
-              onClick={() => {
-                const realId = viewing.id.replace(/^(analysis-|report-)/, "");
-                if (viewing.type === "token-analysis") deleteAnalysisMutation.mutate(realId);
-                else deleteReportMutation.mutate(realId);
-              }}
-              className="p-1 rounded hover:bg-destructive/20 text-muted-foreground/50 hover:text-destructive transition-colors"
-              data-testid="button-delete-report"
-              title="Delete this report"
-            >
-              <Trash2 className="w-3 h-3" />
-            </button>
-          )}
+      <div className="flex items-center justify-between mb-5">
+        <p className="text-xs text-muted-foreground/60">{allReports.length} report{allReports.length !== 1 ? "s" : ""}</p>
+        <div className="flex items-center gap-1.5">
           <Button
             variant="ghost"
             size="sm"
@@ -1443,15 +1426,70 @@ export function ReportsTab({ companyId, companyName }: { companyId: string; comp
         </div>
       </div>
 
-      {viewing && (
-        <div>
-          <div className="text-[10px] text-muted-foreground/60 mb-4">
-            {format(new Date(viewing.createdAt), "MMMM d, yyyy h:mm a")}
-            <span className="ml-2 text-muted-foreground/40">
-              {viewing.type === "token-analysis" ? "Token Analysis" : "Deep Research"}
-            </span>
+      {allReports.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 gap-4">
+          <div className="text-muted-foreground/50">
+            <Brain className="w-8 h-8" />
           </div>
-          <ResearchReport content={viewing.content} />
+          <div className="text-center">
+            <p className="text-sm text-muted-foreground/60 mb-1">No reports yet</p>
+            <p className="text-[11px] text-muted-foreground">Generate AI-powered analysis for {companyName}</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs gap-1.5"
+              onClick={() => generateAnalysisMutation.mutate()}
+              disabled={generateAnalysisMutation.isPending || !tokenProfile}
+              data-testid="button-generate-token-analysis-tab"
+            >
+              <Brain className="w-3 h-3" />
+              Token Analysis (~$0.23)
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="text-xs gap-1.5"
+              onClick={() => generateResearchMutation.mutate()}
+              disabled={generateResearchMutation.isPending}
+              data-testid="button-generate-research-tab"
+            >
+              <FileText className="w-3 h-3" />
+              Deep Research (~$0.50)
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="reports-card-grid">
+          {allReports.map(report => (
+            <button
+              key={report.id}
+              onClick={() => setSelectedId(report.id)}
+              className="group relative text-left rounded-lg border border-border/50 bg-card/50 hover:bg-card hover:border-border transition-all duration-200 overflow-hidden"
+              data-testid={`card-report-${report.id}`}
+            >
+              <div className={`h-1 w-full ${report.type === "token-analysis" ? "bg-blue-500/40" : "bg-violet-500/40"}`} />
+              <div className="p-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className={`text-[9px] uppercase tracking-wider font-medium px-1.5 py-0.5 rounded ${
+                    report.type === "token-analysis" 
+                      ? "bg-blue-500/10 text-blue-400" 
+                      : "bg-violet-500/10 text-violet-400"
+                  }`}>
+                    {report.type === "token-analysis" ? "Token Analysis" : "Deep Research"}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground/50">{format(new Date(report.createdAt), "MMM d, yyyy")}</span>
+                </div>
+                <h3 className="text-sm font-medium text-foreground/90 mb-2 line-clamp-2 group-hover:text-foreground transition-colors">
+                  {extractTitle(report)}
+                </h3>
+                <p className="text-[11px] text-muted-foreground/60 line-clamp-3 leading-relaxed">
+                  {extractSummary(report.content)}
+                </p>
+              </div>
+            </button>
+          ))}
         </div>
       )}
     </div>
