@@ -25,6 +25,7 @@ import {
   Database,
   TrendingUp,
   TrendingDown,
+  FileText,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -603,7 +604,7 @@ function TokenAnalysisSection({ companyId, companyName }: { companyId: string; c
           ))}
         </div>
       )}
-      <p className="text-[11px] text-muted-foreground mb-2">Reports appear in the Research Report tab</p>
+      <p className="text-[11px] text-muted-foreground mb-2">Results appear in the Reports tab</p>
       <Button
         variant="outline"
         className="w-full gap-2 text-xs h-8"
@@ -616,7 +617,7 @@ function TokenAnalysisSection({ companyId, companyName }: { companyId: string; c
         ) : !tokenProfile ? (
           <><Brain className="w-3 h-3" /> Attach a token first</>
         ) : (
-          <><Brain className="w-3 h-3" /> Generate Research Report (~$0.23)</>
+          <><Brain className="w-3 h-3" /> Generate Token Analysis (~$0.23)</>
         )}
       </Button>
     </div>
@@ -1212,9 +1213,19 @@ function ResearchReport({ content, compact }: { content: string; compact?: boole
   );
 }
 
-export function TokenReportTab({ companyId, companyName }: { companyId: string; companyName: string }) {
+interface UnifiedReport {
+  id: string;
+  type: "token-analysis" | "deep-research";
+  title: string;
+  content: string;
+  status: string;
+  createdAt: string;
+}
+
+export function ReportsTab({ companyId, companyName }: { companyId: string; companyName: string }) {
   const { toast } = useToast();
   const { getAccessToken } = useAuth();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const { data: analyses = [] } = useQuery<TokenAnalysis[]>({
     queryKey: ["/api/companies", companyId, "token-analyses"],
@@ -1225,11 +1236,15 @@ export function TokenReportTab({ companyId, companyName }: { companyId: string; 
     },
   });
 
+  const { data: reports = [] } = useQuery<{ id: string; title: string; content: string; status: string; createdAt: string }[]>({
+    queryKey: ["/api/companies", companyId, "reports"],
+  });
+
   const { data: tokenProfile } = useQuery<TokenProfile | null>({
     queryKey: ["/api/companies", companyId, "token-profile"],
   });
 
-  const generateMutation = useMutation({
+  const generateAnalysisMutation = useMutation({
     mutationFn: async () => {
       const token = await getAccessToken();
       const headers: Record<string, string> = { "Content-Type": "application/json" };
@@ -1246,92 +1261,199 @@ export function TokenReportTab({ companyId, companyName }: { companyId: string; 
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "token-analyses"] });
-      toast({ title: "Analysis started", description: "Generating research report. This may take a minute." });
+      toast({ title: "Token analysis started", description: "This may take a minute." });
     },
     onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
   });
 
-  const deleteMutation = useMutation({
+  const generateResearchMutation = useMutation({
+    mutationFn: async () => {
+      const { runDeepResearchPipeline } = await import("@/lib/enrichment");
+      return runDeepResearchPipeline(companyId, getAccessToken);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "reports"] });
+      toast({ title: "Deep research started", description: "This typically takes 2-3 minutes." });
+    },
+    onError: (err: any) => toast({ title: "Failed", description: err.message, variant: "destructive" }),
+  });
+
+  const deleteAnalysisMutation = useMutation({
     mutationFn: async (analysisId: string) => {
       await apiRequest("DELETE", `/api/token-analyses/${analysisId}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "token-analyses"] });
-      toast({ title: "Report deleted" });
+      setSelectedId(null);
+      toast({ title: "Deleted" });
     },
     onError: (err: any) => toast({ title: "Failed to delete", description: err.message, variant: "destructive" }),
   });
 
-  const completedAnalyses = analyses.filter(a => (a.status === "completed" || a.status === "complete") && a.content);
-  const TEN_MINUTES = 10 * 60 * 1000;
-  const generating = analyses.some(a => a.status === "generating" && (Date.now() - new Date(a.createdAt).getTime()) < TEN_MINUTES);
-  const latestReport = completedAnalyses[0];
+  const deleteReportMutation = useMutation({
+    mutationFn: async (reportId: string) => {
+      await apiRequest("DELETE", `/api/reports/${reportId}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "reports"] });
+      setSelectedId(null);
+      toast({ title: "Deleted" });
+    },
+    onError: (err: any) => toast({ title: "Failed to delete", description: err.message, variant: "destructive" }),
+  });
 
-  if (generating) {
+  const allReports: UnifiedReport[] = [
+    ...analyses
+      .filter(a => (a.status === "complete" || a.status === "completed") && a.content)
+      .map(a => ({
+        id: `analysis-${a.id}`,
+        type: "token-analysis" as const,
+        title: `Token Analysis — ${format(new Date(a.createdAt), "MMM d, yyyy")}`,
+        content: a.content!,
+        status: "complete",
+        createdAt: typeof a.createdAt === 'string' ? a.createdAt : new Date(a.createdAt).toISOString(),
+      })),
+    ...reports
+      .filter(r => (r.status === "complete" || r.status === "completed") && r.content)
+      .map(r => ({
+        id: `report-${r.id}`,
+        type: "deep-research" as const,
+        title: r.title || `Deep Research — ${format(new Date(r.createdAt), "MMM d, yyyy")}`,
+        content: r.content,
+        status: "complete",
+        createdAt: r.createdAt,
+      })),
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+  const TEN_MINUTES = 10 * 60 * 1000;
+  const generatingAnalysis = analyses.some(a => a.status === "generating" && (Date.now() - new Date(a.createdAt).getTime()) < TEN_MINUTES);
+  const generatingResearch = reports.some(r => r.status === "generating");
+
+  const selected = selectedId ? allReports.find(r => r.id === selectedId) : null;
+  const viewing = selected || allReports[0] || null;
+
+  if (generatingAnalysis || generatingResearch) {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-3">
         <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">Generating research report...</p>
+        <p className="text-sm text-muted-foreground">
+          {generatingAnalysis ? "Generating token analysis..." : "Generating deep research..."}
+        </p>
         <p className="text-[11px] text-muted-foreground/40">This typically takes 1-2 minutes</p>
       </div>
     );
   }
 
-  if (!latestReport) {
+  if (allReports.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-4">
         <div className="text-muted-foreground/50">
           <Brain className="w-8 h-8" />
         </div>
         <div className="text-center">
-          <p className="text-sm text-muted-foreground/60 mb-1">No research report yet</p>
-          <p className="text-[11px] text-muted-foreground">Generate an AI-powered investment analysis for {companyName}</p>
+          <p className="text-sm text-muted-foreground/60 mb-1">No reports yet</p>
+          <p className="text-[11px] text-muted-foreground">Generate AI-powered analysis for {companyName}</p>
         </div>
-        <Button
-          variant="outline"
-          size="sm"
-          className="text-xs gap-1.5 mt-2"
-          onClick={() => generateMutation.mutate()}
-          disabled={generateMutation.isPending || !tokenProfile}
-          data-testid="button-generate-report-tab"
-        >
-          <Brain className="w-3 h-3" />
-          Generate Research Report (~$0.23)
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs gap-1.5"
+            onClick={() => generateAnalysisMutation.mutate()}
+            disabled={generateAnalysisMutation.isPending || !tokenProfile}
+            data-testid="button-generate-token-analysis-tab"
+          >
+            <Brain className="w-3 h-3" />
+            Token Analysis (~$0.23)
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-xs gap-1.5"
+            onClick={() => generateResearchMutation.mutate()}
+            disabled={generateResearchMutation.isPending}
+            data-testid="button-generate-research-tab"
+          >
+            <FileText className="w-3 h-3" />
+            Deep Research (~$0.50)
+          </Button>
+        </div>
       </div>
     );
   }
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div className="text-[10px] text-muted-foreground/60">
-          {format(new Date(latestReport.createdAt), "MMMM d, yyyy")}
-          {completedAnalyses.length > 1 && ` · ${completedAnalyses.length} reports`}
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2 flex-wrap">
+          {allReports.map(report => (
+            <button
+              key={report.id}
+              onClick={() => setSelectedId(report.id)}
+              className={`text-[11px] px-2.5 py-1 rounded transition-colors ${
+                (viewing?.id === report.id) 
+                  ? "bg-blue-500/15 text-foreground" 
+                  : "text-muted-foreground hover:text-foreground hover:bg-accent/30"
+              }`}
+              data-testid={`button-report-${report.id}`}
+            >
+              <span className={`inline-block w-1.5 h-1.5 rounded-full mr-1.5 ${report.type === "token-analysis" ? "bg-blue-400" : "bg-violet-400"}`} />
+              {report.type === "token-analysis" ? "Token Analysis" : "Deep Research"}
+              <span className="ml-1 text-muted-foreground/50">{format(new Date(report.createdAt), "M/d")}</span>
+            </button>
+          ))}
         </div>
-        <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => deleteMutation.mutate(latestReport.id)}
-            className="p-1 rounded hover:bg-destructive/20 text-muted-foreground/50 hover:text-destructive transition-colors"
-            data-testid="button-delete-report"
-            title="Delete report"
-          >
-            <Trash2 className="w-3 h-3" />
-          </button>
+        <div className="flex items-center gap-1.5 shrink-0">
+          {viewing && (
+            <button
+              onClick={() => {
+                const realId = viewing.id.replace(/^(analysis-|report-)/, "");
+                if (viewing.type === "token-analysis") deleteAnalysisMutation.mutate(realId);
+                else deleteReportMutation.mutate(realId);
+              }}
+              className="p-1 rounded hover:bg-destructive/20 text-muted-foreground/50 hover:text-destructive transition-colors"
+              data-testid="button-delete-report"
+              title="Delete this report"
+            >
+              <Trash2 className="w-3 h-3" />
+            </button>
+          )}
           <Button
             variant="ghost"
             size="sm"
             className="text-[10px] h-6 px-2 text-muted-foreground/60 hover:text-muted-foreground"
-            onClick={() => generateMutation.mutate()}
-            disabled={generateMutation.isPending || !tokenProfile}
-            data-testid="button-regenerate-report"
+            onClick={() => generateAnalysisMutation.mutate()}
+            disabled={generateAnalysisMutation.isPending || !tokenProfile}
+            data-testid="button-new-analysis"
           >
-            <RefreshCw className="w-2.5 h-2.5 mr-1" />
-            Regenerate
+            <Brain className="w-2.5 h-2.5 mr-1" />
+            New Analysis
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-[10px] h-6 px-2 text-muted-foreground/60 hover:text-muted-foreground"
+            onClick={() => generateResearchMutation.mutate()}
+            disabled={generateResearchMutation.isPending}
+            data-testid="button-new-research"
+          >
+            <FileText className="w-2.5 h-2.5 mr-1" />
+            New Research
           </Button>
         </div>
       </div>
-      <ResearchReport content={latestReport.content} />
+
+      {viewing && (
+        <div>
+          <div className="text-[10px] text-muted-foreground/60 mb-4">
+            {format(new Date(viewing.createdAt), "MMMM d, yyyy h:mm a")}
+            <span className="ml-2 text-muted-foreground/40">
+              {viewing.type === "token-analysis" ? "Token Analysis" : "Deep Research"}
+            </span>
+          </div>
+          <ResearchReport content={viewing.content} />
+        </div>
+      )}
     </div>
   );
 }

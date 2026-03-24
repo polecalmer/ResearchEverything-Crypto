@@ -19,7 +19,7 @@ import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { format } from "date-fns";
 import type { Report } from "@shared/schema";
-import TokenIntelligenceTab, { TokenReportTab } from "./token-intelligence";
+import TokenIntelligenceTab, { ReportsTab } from "./token-intelligence";
 import DataTab from "./data-tab";
 
 const STAGE_COLORS: Record<PipelineStage, string> = {
@@ -580,18 +580,16 @@ export default function CompanyDetail() {
             >
               Token Intelligence
             </button>
-            {company.hasLiquidToken && (
-              <button
-                role="tab"
-                aria-selected={activeTab === "report"}
-                aria-controls="panel-report"
-                onClick={() => setActiveTab("report")}
-                className={`text-xs px-3 py-1.5 rounded transition-colors ${activeTab === "report" ? "text-foreground bg-blue-500/15 dark:bg-blue-400/15" : "text-muted-foreground hover:text-foreground hover:bg-accent/30"}`}
-                data-testid="tab-token-report"
-              >
-                Research Report
-              </button>
-            )}
+            <button
+              role="tab"
+              aria-selected={activeTab === "report"}
+              aria-controls="panel-report"
+              onClick={() => setActiveTab("report")}
+              className={`text-xs px-3 py-1.5 rounded transition-colors ${activeTab === "report" ? "text-foreground bg-blue-500/15 dark:bg-blue-400/15" : "text-muted-foreground hover:text-foreground hover:bg-accent/30"}`}
+              data-testid="tab-reports"
+            >
+              Reports
+            </button>
             <button
               role="tab"
               aria-selected={activeTab === "data"}
@@ -831,8 +829,8 @@ export default function CompanyDetail() {
             <TokenIntelligenceTab companyId={company.id} companyName={company.name} hasLiquidToken={company.hasLiquidToken ?? false} />
           </div>
         ) : activeTab === "report" ? (
-          <div id="panel-report" role="tabpanel" aria-labelledby="tab-token-report">
-            <TokenReportTab companyId={company.id} companyName={company.name} />
+          <div id="panel-report" role="tabpanel" aria-labelledby="tab-reports">
+            <ReportsTab companyId={company.id} companyName={company.name} />
           </div>
         ) : activeTab === "data" ? (
           <div id="panel-data" role="tabpanel" aria-labelledby="tab-data">
