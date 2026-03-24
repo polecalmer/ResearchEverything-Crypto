@@ -92,6 +92,9 @@ The Data tab provides a chat-driven interface for building custom charts. Users 
 
 Key files: `server/dune-client.ts`, `server/token-agent.ts`, `server/allium-client.ts`, `client/src/pages/token-intelligence.tsx`
 
+**Admin Wallet Management:**
+The admin page includes a Server Wallet panel (`server/wallet-manager.ts`) that shows USDC.e balance, discovers on-chain MPP payment channels via `ChannelOpened` events from the escrow contract, and allows closing/withdrawing channels. Uses the same Tempo fee-payer transaction pattern as mppx internally: `prepareTransactionRequest` → `signTransaction` → `sendRawTransactionSync`. Channel discovery is incrementally cached — only scans new blocks after the last scan. API routes: `/api/admin/wallet`, `/api/admin/wallet/close-all`, `/api/admin/wallet/channel/:id/close`, `/api/admin/wallet/channel/:id/withdraw`.
+
 **Chrome Extension:** Manifest V3 extension facilitating quick capture. It creates a context menu item, injects content scripts for UI, and uses a background service worker to interact with the backend API.
 
 ## External Dependencies

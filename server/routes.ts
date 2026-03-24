@@ -19,6 +19,7 @@ import { executeDuneQuery, getLatestDuneResults, isDuneConfigured } from "./dune
 import { runTokenAnalysis } from "./token-agent";
 import { callAnthropicServer, callAnthropicServerHeavy, isServerMppReady, getChannelStats } from "./mpp-client";
 import { generateTelegramLinkCode } from "./telegram";
+import { getWalletInfo, closeAllChannels, requestCloseChannel, withdrawChannel } from "./wallet-manager";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
@@ -1358,6 +1359,50 @@ export async function registerRoutes(
       userList: userList.rows || userList,
       mppChannel: getChannelStats(),
     });
+  });
+
+  app.get("/api/admin/wallet", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const info = await getWalletInfo();
+      res.json(info);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/admin/wallet/close-all", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const result = await closeAllChannels();
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/admin/wallet/channel/:channelId/close", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const result = await requestCloseChannel(req.params.channelId);
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/admin/wallet/channel/:channelId/withdraw", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const result = await withdrawChannel(req.params.channelId);
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
   });
 
   return httpServer;

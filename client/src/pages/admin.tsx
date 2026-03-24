@@ -1,6 +1,8 @@
-import { useQuery } from "@tanstack/react-query";
-import { Loader2, Users, Activity, DollarSign, Building2, FileText, TrendingUp, Radio } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Loader2, Users, Activity, DollarSign, Building2, TrendingUp, Radio, Wallet, RefreshCw, XCircle, ArrowDownCircle, ExternalLink } from "lucide-react";
 import { format } from "date-fns";
+import { useState } from "react";
+import { apiRequest } from "@/lib/queryClient";
 
 const EVENT_LABELS: Record<string, string> = {
   user_signup: "Sign Up",
@@ -26,6 +28,184 @@ function StatCard({ label, value, icon: Icon, sub }: { label: string; value: str
       </div>
       <p className="text-xl font-semibold text-foreground/90 font-mono">{value}</p>
       {sub && <p className="text-[10px] text-muted-foreground/50 mt-0.5">{sub}</p>}
+    </div>
+  );
+}
+
+const STATUS_COLORS: Record<string, string> = {
+  open: "text-green-400",
+  close_pending: "text-yellow-400",
+  ready_to_finalize: "text-blue-400",
+};
+
+const STATUS_LABELS: Record<string, string> = {
+  open: "Open",
+  close_pending: "Closing",
+  ready_to_finalize: "Ready",
+};
+
+function WalletPanel() {
+  const queryClient = useQueryClient();
+  const [actionResult, setActionResult] = useState<string | null>(null);
+
+  const { data: wallet, isLoading, refetch, isFetching } = useQuery<any>({
+    queryKey: ["/api/admin/wallet"],
+    refetchInterval: false,
+  });
+
+  const closeAllMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/wallet/close-all"),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      setActionResult(`Requested: ${data.requested}, Finalized: ${data.finalized}${data.errors?.length ? `, Errors: ${data.errors.length}` : ""}`);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/wallet"] });
+    },
+    onError: (e: any) => setActionResult(`Error: ${e.message}`),
+  });
+
+  const closeChannelMutation = useMutation({
+    mutationFn: (channelId: string) => apiRequest("POST", `/api/admin/wallet/channel/${encodeURIComponent(channelId)}/close`),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      setActionResult(data.success ? `Close requested: ${data.txHash?.slice(0, 18)}...` : `Error: ${data.error}`);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/wallet"] });
+    },
+    onError: (e: any) => setActionResult(`Error: ${e.message}`),
+  });
+
+  const withdrawMutation = useMutation({
+    mutationFn: (channelId: string) => apiRequest("POST", `/api/admin/wallet/channel/${encodeURIComponent(channelId)}/withdraw`),
+    onSuccess: async (res) => {
+      const data = await res.json();
+      setActionResult(data.success ? `Withdrawn: ${data.txHash?.slice(0, 18)}...` : `Error: ${data.error}`);
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/wallet"] });
+    },
+    onError: (e: any) => setActionResult(`Error: ${e.message}`),
+  });
+
+  if (isLoading) {
+    return (
+      <div className="rounded border border-border/40 bg-card/30 p-6 flex items-center justify-center">
+        <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        <span className="text-xs text-muted-foreground/60 ml-2">Loading wallet...</span>
+      </div>
+    );
+  }
+
+  if (!wallet) return null;
+
+  const isActing = closeAllMutation.isPending || closeChannelMutation.isPending || withdrawMutation.isPending;
+
+  return (
+    <div className="rounded border border-border/40 bg-card/30 overflow-hidden" data-testid="wallet-panel">
+      <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
+        <Wallet className="w-3.5 h-3.5 text-foreground/60" />
+        <h2 className="text-[12px] font-medium text-foreground/80 tracking-tight">Server Wallet</h2>
+        <a
+          href={`https://explore.tempo.xyz/address/${wallet.address}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[10px] text-muted-foreground/50 font-mono hover:text-foreground/60 transition-colors flex items-center gap-1"
+          data-testid="link-wallet-explorer"
+        >
+          {wallet.address.slice(0, 6)}...{wallet.address.slice(-4)}
+          <ExternalLink className="w-2.5 h-2.5" />
+        </a>
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="text-[10px] text-muted-foreground/60 hover:text-foreground/70 transition-colors flex items-center gap-1"
+            data-testid="button-refresh-wallet"
+          >
+            <RefreshCw className={`w-3 h-3 ${isFetching ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <div className="p-4 grid grid-cols-4 gap-4">
+        <div>
+          <p className="text-[10px] text-muted-foreground/50 mb-0.5">USDC.e Balance</p>
+          <p className="text-sm font-mono font-semibold text-foreground/80" data-testid="text-wallet-balance">${wallet.usdcBalance.toFixed(4)}</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-muted-foreground/50 mb-0.5">Open Channels</p>
+          <p className="text-sm font-mono font-semibold text-foreground/80" data-testid="text-open-channels">{wallet.openCount}</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-muted-foreground/50 mb-0.5">Recoverable</p>
+          <p className="text-sm font-mono font-semibold text-green-400" data-testid="text-recoverable">${wallet.totalRecoverable.toFixed(2)}</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-muted-foreground/50 mb-0.5">Effective Total</p>
+          <p className="text-sm font-mono font-semibold text-foreground/80" data-testid="text-effective-total">
+            ${(wallet.usdcBalance + wallet.totalRecoverable).toFixed(2)}
+          </p>
+        </div>
+      </div>
+
+      {wallet.channels.length > 0 && (
+        <div className="border-t border-border/30">
+          <div className="px-4 py-2 flex items-center justify-between">
+            <span className="text-[10px] text-muted-foreground/50">{wallet.channels.length} active channel{wallet.channels.length !== 1 ? "s" : ""}</span>
+            {wallet.openCount > 0 && (
+              <button
+                onClick={() => { setActionResult(null); closeAllMutation.mutate(); }}
+                disabled={isActing}
+                className="text-[10px] px-2 py-1 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50 flex items-center gap-1"
+                data-testid="button-close-all-channels"
+              >
+                {closeAllMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}
+                Close All
+              </button>
+            )}
+          </div>
+          <div className="divide-y divide-border/20">
+            {wallet.channels.map((ch: any) => (
+              <div key={ch.id} className="px-4 py-2 flex items-center gap-3 hover:bg-accent/30 transition-colors" data-testid={`channel-row-${ch.id.slice(0, 10)}`}>
+                <span className="text-[10px] font-mono text-muted-foreground/50 w-36 truncate">{ch.id.slice(0, 18)}...</span>
+                <span className={`text-[10px] font-medium w-16 ${STATUS_COLORS[ch.status] || "text-muted-foreground/50"}`}>
+                  {STATUS_LABELS[ch.status] || ch.status}
+                </span>
+                <span className="text-[10px] font-mono text-foreground/60">${ch.deposit.toFixed(2)} dep</span>
+                <span className="text-[10px] font-mono text-green-400/80">${ch.recoverable.toFixed(2)} rec</span>
+                {ch.status === "close_pending" && ch.waitMinutes > 0 && (
+                  <span className="text-[10px] text-yellow-400/60">{ch.waitMinutes}min</span>
+                )}
+                <div className="ml-auto flex items-center gap-1">
+                  {ch.status === "open" && (
+                    <button
+                      onClick={() => { setActionResult(null); closeChannelMutation.mutate(ch.id); }}
+                      disabled={isActing}
+                      className="text-[9px] px-1.5 py-0.5 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 disabled:opacity-50"
+                      data-testid={`button-close-${ch.id.slice(0, 10)}`}
+                    >
+                      Close
+                    </button>
+                  )}
+                  {ch.status === "ready_to_finalize" && (
+                    <button
+                      onClick={() => { setActionResult(null); withdrawMutation.mutate(ch.id); }}
+                      disabled={isActing}
+                      className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 disabled:opacity-50"
+                      data-testid={`button-withdraw-${ch.id.slice(0, 10)}`}
+                    >
+                      Withdraw
+                    </button>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {actionResult && (
+        <div className="px-4 py-2 border-t border-border/30 bg-accent/20">
+          <p className="text-[10px] text-foreground/60" data-testid="text-wallet-action-result">{actionResult}</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -68,11 +248,13 @@ export default function AdminPage() {
           <StatCard label="Transactions" value={transactions?.total_transactions || 0} icon={TrendingUp} sub={`Avg $${Number(transactions?.avg_transaction || 0).toFixed(3)}`} />
         </div>
 
+        <WalletPanel />
+
         {mppChannel && (
           <div className="rounded border border-border/40 bg-card/30 overflow-hidden" data-testid="mpp-channel-card">
             <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
               <Radio className="w-3.5 h-3.5 text-green-500" />
-              <h2 className="text-[12px] font-medium text-foreground/80 tracking-tight">MPP Channel (Anthropic)</h2>
+              <h2 className="text-[12px] font-medium text-foreground/80 tracking-tight">MPP Session (Anthropic)</h2>
               <span className="ml-auto text-[10px] text-green-500/80 font-medium">Active</span>
             </div>
             <div className="p-4 grid grid-cols-4 gap-4">
