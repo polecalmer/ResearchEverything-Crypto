@@ -1,8 +1,7 @@
-import { Mppx, tempo } from "mppx/client";
+import { tempo } from "mppx/client";
 import { privateKeyToAccount } from "viem/accounts";
 
 const ANTHROPIC_MPP_URL = "https://anthropic.mpp.tempo.xyz/v1/messages";
-const USDC_DECIMALS = 6;
 
 export interface AnthropicRequest {
   model: string;
@@ -22,9 +21,7 @@ const CHANNEL_DEPOSIT = "4.0";
 const SHUTDOWN_TIMEOUT_MS = 15000;
 
 interface MppClientState {
-  client: ReturnType<typeof Mppx.create>;
   session: ReturnType<typeof tempo.session>;
-  lastChallengeAmount: number;
   totalSpent: number;
   requestCount: number;
   createdAt: number;
@@ -52,25 +49,9 @@ function getOrCreateClient(): MppClientState {
 
   const state: MppClientState = {
     session,
-    lastChallengeAmount: 0,
     totalSpent: 0,
     requestCount: 0,
     createdAt: Date.now(),
-    client: Mppx.create({
-      methods: [session],
-      polyfill: false,
-      onChallenge: async (challenge, helpers) => {
-        const rawAmount = challenge.request?.amount;
-        if (rawAmount) {
-          const amountNum = typeof rawAmount === "string" ? parseInt(rawAmount, 10) : Number(rawAmount);
-          state.lastChallengeAmount = amountNum / Math.pow(10, USDC_DECIMALS);
-          console.log(`[MPP-Channel] Challenge: $${state.lastChallengeAmount.toFixed(6)} USDC (channel deposit: $${CHANNEL_DEPOSIT}, total spent: $${state.totalSpent.toFixed(4)}, requests: ${state.requestCount})`);
-        } else {
-          state.lastChallengeAmount = 0;
-        }
-        return helpers.createCredential();
-      },
-    }),
   };
 
   sharedClient = state;
@@ -171,10 +152,9 @@ async function callAnthropic(request: AnthropicRequest): Promise<AnthropicRespon
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const state = getOrCreateClient();
-    state.lastChallengeAmount = 0;
 
     try {
-      const response = await state.client.fetch(ANTHROPIC_MPP_URL, {
+      const response = await state.session.fetch(ANTHROPIC_MPP_URL, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -195,9 +175,14 @@ async function callAnthropic(request: AnthropicRequest): Promise<AnthropicRespon
         throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
       }
 
-      const mppCost = state.lastChallengeAmount;
-      state.totalSpent += mppCost;
+      const mppCost = response.receipt
+        ? Number(response.cumulative) / 1e6
+        : 0;
+      state.totalSpent = Number(response.cumulative || 0n) / 1e6;
       state.requestCount++;
+
+      console.log(`[MPP-Channel] Request #${state.requestCount}: cost ~$${(mppCost - (state.totalSpent - mppCost)).toFixed(4)} (cumulative: $${state.totalSpent.toFixed(4)})`);
+
       const data = await response.json();
 
       let text = "";

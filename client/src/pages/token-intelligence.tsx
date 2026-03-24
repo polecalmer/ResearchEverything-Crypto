@@ -586,8 +586,8 @@ function TokenAnalysisSection({ companyId, companyName }: { companyId: string; c
                 ) : (
                   <Brain className="w-3 h-3 text-muted-foreground/40 shrink-0" />
                 )}
-                <span className="text-xs text-foreground/60">
-                  {analysis.status === "generating" ? "Generating..." : analysis.status === "failed" ? "Failed" : format(new Date(analysis.createdAt), "MMM d, yyyy h:mm a")}
+                <span className="text-xs text-foreground/60" title={analysis.status === "failed" && analysis.content ? analysis.content.replace(/^#.*\n\n/, '').replace(/\n\nPlease try again\.$/, '') : undefined}>
+                  {analysis.status === "generating" ? "Generating..." : analysis.status === "failed" ? `Failed${analysis.content?.includes("Error:") ? ` — ${analysis.content.match(/Error: (.+?)(\n|$)/)?.[1] || ""}` : ""}` : format(new Date(analysis.createdAt), "MMM d, yyyy h:mm a")}
                 </span>
               </div>
               {analysis.status !== "generating" && (
