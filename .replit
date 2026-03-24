@@ -50,4 +50,3 @@ integrations = ["javascript_anthropic_ai_integrations:2.0.0", "javascript_log_in
 
 [userenv.shared]
 VITE_PRIVY_APP_ID = "cmmyniyn500170dl19lkedqy8"
-MPP_SERVER_WALLET_ADDRESS = "0x8518b315b3DFC4415Be7E75b2571Df635b27552a"
