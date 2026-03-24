@@ -1,5 +1,6 @@
 import { Mppx, tempo } from "mppx/express";
 import type { RequestHandler } from "express";
+import { storage } from "./storage";
 
 const OWNER_WALLET = "0x342fFFBcEbb761bC2c7B512333AF5E397b4cB72d";
 const USDC = "0x20c000000000000000000000b9537d11c60e8b50";
@@ -14,51 +15,62 @@ export const mppx = Mppx.create({
   ],
 });
 
-export const enrichmentPaywall: RequestHandler = (req, res, next) => {
+function withAdminBypass(chargeMiddleware: RequestHandler): RequestHandler {
+  return async (req, res, next) => {
+    const userId = (req as any).user?.id;
+    if (userId) {
+      const isAdmin = await storage.checkIsAdmin(userId);
+      if (isAdmin) return next();
+    }
+    return chargeMiddleware(req, res, next);
+  };
+}
+
+export const enrichmentPaywall: RequestHandler = withAdminBypass(
   mppx.charge({
     amount: FLAT_FEE,
     description: `Research Everything AI enrichment ($${FLAT_FEE})`,
-  })(req, res, next);
-};
+  }) as RequestHandler
+);
 
-export const nextStepsPaywall: RequestHandler = (req, res, next) => {
+export const nextStepsPaywall: RequestHandler = withAdminBypass(
   mppx.charge({
     amount: FLAT_FEE,
     description: `AI next steps advisor ($${FLAT_FEE})`,
-  })(req, res, next);
-};
+  }) as RequestHandler
+);
 
-export const deepResearchPaywall: RequestHandler = (req, res, next) => {
+export const deepResearchPaywall: RequestHandler = withAdminBypass(
   mppx.charge({
     amount: FLAT_FEE,
     description: `Deep research report ($${FLAT_FEE})`,
-  })(req, res, next);
-};
+  }) as RequestHandler
+);
 
-export const tokenIntelPaywall: RequestHandler = (req, res, next) => {
+export const tokenIntelPaywall: RequestHandler = withAdminBypass(
   mppx.charge({
     amount: FLAT_FEE,
     description: `Token intelligence analysis ($${FLAT_FEE})`,
-  })(req, res, next);
-};
+  }) as RequestHandler
+);
 
-export const duneQueryPaywall: RequestHandler = (req, res, next) => {
+export const duneQueryPaywall: RequestHandler = withAdminBypass(
   mppx.charge({
     amount: FLAT_FEE,
     description: `Dune query execution ($${FLAT_FEE})`,
-  })(req, res, next);
-};
+  }) as RequestHandler
+);
 
-export const tokenSnapshotPaywall: RequestHandler = (req, res, next) => {
+export const tokenSnapshotPaywall: RequestHandler = withAdminBypass(
   mppx.charge({
     amount: FLAT_FEE,
     description: `Token snapshot fetch ($${FLAT_FEE})`,
-  })(req, res, next);
-};
+  }) as RequestHandler
+);
 
-export const dataChartPaywall: RequestHandler = (req, res, next) => {
+export const dataChartPaywall: RequestHandler = withAdminBypass(
   mppx.charge({
     amount: FLAT_FEE,
     description: `Data chart generation ($${FLAT_FEE})`,
-  })(req, res, next);
-};
+  }) as RequestHandler
+);
