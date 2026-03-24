@@ -527,52 +527,47 @@ function DataCard({ chart }: { chart: DashboardChart }) {
   const renderTable = () => {
     const columns = chartConfig.columns || (chartData[0] ? Object.keys(chartData[0]) : []);
     return (
-      <div>
-        <div className="max-h-64 overflow-auto">
-          <table className="w-full text-[11px]">
-            <thead className="sticky top-0 bg-background z-10">
-              <tr>
-                {columns.map((col: string) => (
-                  <th key={col} className="text-left px-3 py-2 text-[9px] font-medium text-muted-foreground/50 uppercase tracking-wider border-b border-border/40 whitespace-nowrap">
-                    {col.replace(/_/g, " ")}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {chartData.slice(0, 50).map((row: any, i: number) => (
-                <tr key={i} className="border-b border-border/20 hover:bg-muted/20">
-                  {columns.map((col: string) => {
-                    const val = row[col];
-                    let display: string;
-                    if (val == null) display = "—";
-                    else if (typeof val === "number" && /date|time|day|week|month/i.test(col) && val > 1e8 && val < 2e10) {
-                      try { display = format(new Date(val * 1000), "MMM d, yyyy"); } catch { display = String(val); }
-                    } else if (typeof val === "number") {
-                      display = /usd|price|fee|revenue|volume|amount|cost|market_cap|fdv|tvl/i.test(col)
-                        ? smartFormat(val, "currency")
-                        : /pct|percent|growth|rate|apy|apr/i.test(col)
-                        ? smartFormat(val, "percent")
-                        : val.toLocaleString(undefined, { maximumFractionDigits: 2 });
-                    } else if (/\d{4}.*\d{2}.*\d{2}/.test(String(val))) {
-                      try { display = format(new Date(val), "MMM d, yyyy"); } catch { display = String(val); }
-                    } else {
-                      display = String(val);
-                    }
-                    return (
-                      <td key={col} className="px-3 py-1.5 text-foreground/50 whitespace-nowrap font-mono text-[10px]">
-                        {display}
-                      </td>
-                    );
-                  })}
-                </tr>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[11px]">
+          <thead className="sticky top-0 bg-background z-10">
+            <tr>
+              {columns.map((col: string) => (
+                <th key={col} className="text-left px-3 py-2 text-[9px] font-medium text-muted-foreground/50 uppercase tracking-wider border-b border-border/40 whitespace-nowrap">
+                  {col.replace(/_/g, " ")}
+                </th>
               ))}
-            </tbody>
-          </table>
-        </div>
-        {chartData.length > 50 && (
-          <p className="text-[9px] text-muted-foreground/30 text-center py-2">Showing 50 of {chartData.length} rows</p>
-        )}
+            </tr>
+          </thead>
+          <tbody>
+            {chartData.map((row: any, i: number) => (
+              <tr key={i} className="border-b border-border/20 hover:bg-muted/20">
+                {columns.map((col: string) => {
+                  const val = row[col];
+                  let display: string;
+                  if (val == null) display = "—";
+                  else if (typeof val === "number" && /date|time|day|week|month/i.test(col) && val > 1e8 && val < 2e10) {
+                    try { display = format(new Date(val * 1000), "MMM d, yyyy"); } catch { display = String(val); }
+                  } else if (typeof val === "number") {
+                    display = /usd|price|fee|revenue|volume|amount|cost|market_cap|fdv|tvl/i.test(col)
+                      ? smartFormat(val, "currency")
+                      : /pct|percent|growth|rate|apy|apr/i.test(col)
+                      ? smartFormat(val, "percent")
+                      : val.toLocaleString(undefined, { maximumFractionDigits: 2 });
+                  } else if (/\d{4}.*\d{2}.*\d{2}/.test(String(val))) {
+                    try { display = format(new Date(val), "MMM d, yyyy"); } catch { display = String(val); }
+                  } else {
+                    display = String(val);
+                  }
+                  return (
+                    <td key={col} className="px-3 py-1.5 text-foreground/50 whitespace-nowrap font-mono text-[10px]">
+                      {display}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
     );
   };
