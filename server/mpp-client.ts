@@ -18,7 +18,7 @@ export interface AnthropicResponse {
   mppCost: number;
 }
 
-const CHANNEL_DEPOSIT = "2.0";
+const CHANNEL_DEPOSIT = "4.0";
 
 interface MppClientState {
   client: ReturnType<typeof Mppx.create>;
