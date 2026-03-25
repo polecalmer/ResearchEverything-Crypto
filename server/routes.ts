@@ -21,7 +21,7 @@ import { callAnthropicServer, callAnthropicServerHeavy, isServerMppReady, getCha
 import { generateTelegramLinkCode } from "./telegram";
 import { getWalletInfo, closeAllChannels, requestCloseChannel, withdrawChannel } from "./wallet-manager";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
-import { db } from "./db";
+import { db, pool } from "./db";
 import { sql } from "drizzle-orm";
 import { trackEvent } from "./usage-tracker";
 
@@ -1451,6 +1451,19 @@ export async function registerRoutes(
     try {
       const result = await analyzeFailurePatterns();
       res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/admin/sql", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+    const { query } = req.body;
+    if (!query || typeof query !== "string") return res.status(400).json({ message: "query is required" });
+    try {
+      const result = await pool.query(query);
+      res.json({ rows: result.rows, rowCount: result.rowCount, fields: result.fields?.map((f: any) => f.name) });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
