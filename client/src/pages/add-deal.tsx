@@ -4,8 +4,6 @@ import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
 import {
   Loader2, Search, ArrowLeft, ChevronDown,
-  Globe, Brain, Shield, Sparkles, BookOpen,
-  Coins, FileSearch, ScanSearch,
 } from "lucide-react";
 import { useState, useRef, useEffect } from "react";
 import { runEnrichmentPipeline, type EnrichmentStage } from "@/lib/enrichment";
@@ -54,23 +52,21 @@ function TypingPlaceholder() {
   );
 }
 
-const AGENT_CONFIG: Record<string, { icon: typeof Globe; label: string; color: string }> = {
-  scraper: { icon: Globe, label: "Web Scraper", color: "text-blue-400" },
-  identifier: { icon: ScanSearch, label: "Identifier", color: "text-violet-400" },
-  token_identifier: { icon: Coins, label: "Token Scanner", color: "text-amber-400" },
-  contract_finder: { icon: FileSearch, label: "Contract Finder", color: "text-teal-400" },
-  contract_verifier: { icon: Shield, label: "Contract Verifier", color: "text-emerald-400" },
-  researcher: { icon: Brain, label: "Research Agent", color: "text-sky-400" },
-  verify_clean: { icon: Shield, label: "Fact Checker", color: "text-emerald-400" },
-  dd_reads: { icon: BookOpen, label: "DD Reads", color: "text-orange-400" },
+const AGENT_LABELS: Record<string, string> = {
+  scraper: "Web Scraper",
+  identifier: "Identifier",
+  token_identifier: "Token Scanner",
+  contract_finder: "Contract Finder",
+  contract_verifier: "Contract Verifier",
+  researcher: "Research Agent",
+  verify_clean: "Fact Checker",
+  dd_reads: "DD Reads",
 };
 
 function AgentCard({ agentKey, stage }: { agentKey: string; stage: EnrichmentStage | undefined }) {
-  const config = AGENT_CONFIG[agentKey] || { icon: Sparkles, label: agentKey, color: "text-foreground/50" };
-  const Icon = config.icon;
+  const label = AGENT_LABELS[agentKey] || agentKey;
   const isActive = stage?.status === "running";
   const isDone = stage?.status === "complete";
-  const isPending = !stage;
 
   const getDetail = () => {
     if (!isDone || !stage) return null;
@@ -97,26 +93,28 @@ function AgentCard({ agentKey, stage }: { agentKey: string; stage: EnrichmentSta
         <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-sky-500/[0.04] to-transparent pointer-events-none" />
       )}
       <div className="relative flex items-center gap-2.5">
-        <div className={`w-6 h-6 rounded-md flex items-center justify-center transition-all duration-300 ${
+        <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all duration-300 flex-shrink-0 ${
           isActive
-            ? "bg-sky-500/10"
+            ? "border-sky-400/40 bg-sky-500/10"
             : isDone
-            ? "bg-emerald-500/8"
-            : "bg-white/[0.02]"
+            ? "border-emerald-500/30 bg-emerald-500/10"
+            : "border-white/[0.06] bg-transparent"
         }`}>
           {isActive ? (
-            <Loader2 className={`w-3 h-3 animate-spin ${config.color}`} />
+            <Loader2 className="w-2.5 h-2.5 animate-spin text-sky-400/70" />
           ) : isDone ? (
-            <span className="text-[10px] text-emerald-500/70">&#10003;</span>
+            <svg className="w-2.5 h-2.5 text-emerald-500/70" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M2.5 6.5L5 9L9.5 3.5" />
+            </svg>
           ) : (
-            <Icon className={`w-3 h-3 ${isPending ? "text-muted-foreground/10" : config.color}`} />
+            <span className="w-1.5 h-1.5 rounded-full bg-white/[0.06]" />
           )}
         </div>
         <div className="flex-1 min-w-0">
           <span className={`text-[11px] font-medium transition-all duration-300 ${
             isActive ? "text-foreground/80" : isDone ? "text-foreground/40" : "text-foreground/15"
           }`}>
-            {config.label}
+            {label}
           </span>
           {isActive && stage?.message && (
             <p className="text-[10px] text-muted-foreground/30 truncate mt-0.5">{stage.message}</p>
@@ -306,7 +304,7 @@ export default function AddDeal() {
     const s = pipelineStages.find(ps => ps.agent === key);
     return s?.status === "running";
   });
-  const activeConfig = activeStage ? AGENT_CONFIG[activeStage.key] : null;
+  const activeLabel = activeStage ? (AGENT_LABELS[activeStage.key] || activeStage.key) : null;
 
   const handleExampleClick = (example: string) => {
     setEnrichInput(example);
@@ -445,10 +443,10 @@ export default function AddDeal() {
               </div>
             </div>
 
-            {activeConfig && (
+            {activeLabel && (
               <div className="flex items-center gap-2.5 mb-5 px-1">
-                <Loader2 className={`w-3.5 h-3.5 animate-spin ${activeConfig.color}`} />
-                <span className="text-[12px] text-foreground/60 font-medium">{activeConfig.label}</span>
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-sky-400/60" />
+                <span className="text-[12px] text-foreground/60 font-medium">{activeLabel}</span>
                 {activeStage && (() => {
                   const s = pipelineStages.find(ps => ps.agent === activeStage.key);
                   return s?.message ? <span className="text-[11px] text-muted-foreground/20">{s.message}</span> : null;

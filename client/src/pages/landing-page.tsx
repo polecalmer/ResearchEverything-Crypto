@@ -1,8 +1,7 @@
 import { Button } from "@/components/ui/button";
 import {
-  ArrowRight, Search, BarChart3, Brain,
-  Zap, Globe, Shield, TrendingUp,
-  ArrowUpRight, ShieldCheck, Sparkles, Twitter,
+  ArrowRight, Search,
+  ArrowUpRight, Twitter,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { usePrivy } from "@privy-io/react-auth";
@@ -156,15 +155,21 @@ function HeroVisual() {
 
         <div className="border-t border-border/20 pt-2.5 space-y-1.5">
           <div className="flex items-center gap-1.5">
-            <ShieldCheck className="w-3 h-3 text-emerald-500" />
+            <span className="w-3 h-3 rounded-full border border-emerald-500/40 bg-emerald-500/10 flex items-center justify-center">
+              <svg className="w-1.5 h-1.5 text-emerald-500" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.5L5 9L9.5 3.5" /></svg>
+            </span>
             <span className="text-[10px] text-muted-foreground">All claims independently verified</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <Sparkles className="w-3 h-3 text-foreground/60" />
+            <span className="w-3 h-3 rounded-full border border-emerald-500/40 bg-emerald-500/10 flex items-center justify-center">
+              <svg className="w-1.5 h-1.5 text-emerald-500" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.5L5 9L9.5 3.5" /></svg>
+            </span>
             <span className="text-[10px] text-muted-foreground">Research report ready</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <BarChart3 className="w-3 h-3 text-blue-400/60" />
+            <span className="w-3 h-3 rounded-full border border-emerald-500/40 bg-emerald-500/10 flex items-center justify-center">
+              <svg className="w-1.5 h-1.5 text-emerald-500" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.5L5 9L9.5 3.5" /></svg>
+            </span>
             <span className="text-[10px] text-muted-foreground">3 charts generated</span>
           </div>
         </div>
@@ -243,23 +248,19 @@ export default function LandingPage() {
           <div className="grid sm:grid-cols-3 gap-10">
             {[
               {
-                icon: Zap,
                 title: "Instant intelligence",
                 body: "One input is all it takes. You get back a complete company profile, verified claims, founder backgrounds, and competitive context — in under a minute.",
               },
               {
-                icon: TrendingUp,
                 title: "Market data that matters",
                 body: "For liquid tokens, see live pricing, volume, and on-chain analytics. Ask any question in plain English and get a chart back instantly.",
               },
               {
-                icon: Shield,
                 title: "Nothing fabricated",
                 body: "Every fact is checked against live sources. If something can't be verified, you'll know. No hallucinated URLs, no made-up funding rounds.",
               },
-            ].map(({ icon: Icon, title, body }) => (
+            ].map(({ title, body }) => (
               <div key={title} data-testid={`feature-${title.toLowerCase().replace(/\s+/g, "-")}`}>
-                <Icon className="w-5 h-5 text-foreground/60 mb-4" />
                 <h3 className="text-base font-semibold mb-2">{title}</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">{body}</p>
               </div>
@@ -356,38 +357,31 @@ export default function LandingPage() {
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {[
               {
-                icon: Globe,
                 title: "Capture from anywhere",
                 body: "Right-click any webpage with our browser extension, paste a link in the app, or forward a deal via Telegram. It all ends up in one place.",
               },
               {
-                icon: Brain,
                 title: "Ask, don't search",
                 body: "Stop digging through dashboards. Just ask what you want to know — in plain language — and get an answer with the data to back it up.",
               },
               {
-                icon: BarChart3,
                 title: "Early-stage or liquid",
                 body: "Same workflow whether you're evaluating a pre-seed founder or a $1B token. The research adapts to what you're looking at.",
               },
               {
-                icon: Shield,
                 title: "Trust what you read",
                 body: "We verify before we show. If we can't confirm a claim, we tell you. Your research hub is clean, not impressive.",
               },
               {
-                icon: Sparkles,
                 title: "Know what to do next",
                 body: "Every research hub comes with AI-generated next steps — who to talk to, what to ask, and what to watch out for.",
               },
               {
-                icon: TrendingUp,
                 title: "Stay current",
                 body: "Token prices update live. Charts refresh on demand. Your research doesn't go stale the moment you save it.",
               },
-            ].map(({ icon: Icon, title, body }) => (
+            ].map(({ title, body }) => (
               <div key={title} className="rounded-xl border border-border/20 bg-card/10 p-5" data-testid={`value-${title.toLowerCase().replace(/\s+/g, "-")}`}>
-                <Icon className="w-4 h-4 text-foreground/50 mb-3" />
                 <h3 className="text-sm font-semibold mb-1.5">{title}</h3>
                 <p className="text-xs text-muted-foreground leading-relaxed">{body}</p>
               </div>
