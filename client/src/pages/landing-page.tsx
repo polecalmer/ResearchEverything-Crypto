@@ -1,7 +1,6 @@
 import { Button } from "@/components/ui/button";
 import {
-  ArrowRight, Search,
-  ArrowUpRight, Twitter,
+  ArrowRight, Search, Twitter,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { usePrivy } from "@privy-io/react-auth";
@@ -12,9 +11,9 @@ function TypingDemo() {
   const inputs = [
     "https://x.com/pumpdotfun",
     "hyperliquid.xyz",
-    "AI infrastructure startup from YC W24",
-    "Show me revenue vs buybacks for PUMP",
     "ethena.fi",
+    "Show me revenue vs buybacks for PUMP",
+    "Who founded Morpho?",
   ];
   const [idx, setIdx] = useState(0);
   const [charIdx, setCharIdx] = useState(0);
@@ -101,6 +100,14 @@ function MiniLineChart() {
   );
 }
 
+function CircleCheck() {
+  return (
+    <span className="w-3 h-3 rounded-full border border-emerald-500/40 bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+      <svg className="w-1.5 h-1.5 text-emerald-500" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.5L5 9L9.5 3.5" /></svg>
+    </span>
+  );
+}
+
 function HeroVisual() {
   return (
     <div className="space-y-4 w-full max-w-lg">
@@ -109,7 +116,7 @@ function HeroVisual() {
           <Twitter className="w-3 h-3" />
           <span>x.com/pumpdotfun</span>
           <ArrowRight className="w-2.5 h-2.5" />
-          <span className="text-emerald-500">complete</span>
+          <span className="text-emerald-500">8 agents complete</span>
         </div>
 
         <div className="flex items-center justify-between">
@@ -155,22 +162,16 @@ function HeroVisual() {
 
         <div className="border-t border-border/20 pt-2.5 space-y-1.5">
           <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full border border-emerald-500/40 bg-emerald-500/10 flex items-center justify-center">
-              <svg className="w-1.5 h-1.5 text-emerald-500" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.5L5 9L9.5 3.5" /></svg>
-            </span>
+            <CircleCheck />
             <span className="text-[10px] text-muted-foreground">All claims independently verified</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full border border-emerald-500/40 bg-emerald-500/10 flex items-center justify-center">
-              <svg className="w-1.5 h-1.5 text-emerald-500" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.5L5 9L9.5 3.5" /></svg>
-            </span>
-            <span className="text-[10px] text-muted-foreground">Research report ready</span>
+            <CircleCheck />
+            <span className="text-[10px] text-muted-foreground">Deep research report generated</span>
           </div>
           <div className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-full border border-emerald-500/40 bg-emerald-500/10 flex items-center justify-center">
-              <svg className="w-1.5 h-1.5 text-emerald-500" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.5L5 9L9.5 3.5" /></svg>
-            </span>
-            <span className="text-[10px] text-muted-foreground">3 charts generated</span>
+            <CircleCheck />
+            <span className="text-[10px] text-muted-foreground">3 charts generated from on-chain data</span>
           </div>
         </div>
       </div>
@@ -205,9 +206,9 @@ export default function LandingPage() {
                 <span className="text-muted-foreground">Know everything.</span>
               </h1>
               <p className="text-lg text-muted-foreground leading-relaxed max-w-md">
-                Drop a tweet, a website, or a token name. In under a minute, you'll have
-                a verified research hub — company intelligence, market data, and charts you
-                can actually make decisions with.
+                Drop a tweet, a website, or a token name. A team of AI agents
+                will scrape, verify, and synthesize — delivering a complete
+                research hub in under a minute.
               </p>
             </div>
 
@@ -218,9 +219,9 @@ export default function LandingPage() {
                 Start researching
                 <ArrowRight className="w-4 h-4" />
               </Button>
-              <a href="#what-you-get">
+              <a href="#how-it-works">
                 <Button variant="ghost" size="lg" className="h-11 px-4 text-sm text-muted-foreground" data-testid="button-how-it-works">
-                  See what you get
+                  How it works
                 </Button>
               </a>
             </div>
@@ -232,32 +233,103 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section id="what-you-get" className="py-24 px-6 border-t">
+      <section id="how-it-works" className="py-24 px-6 border-t">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-16">
+            <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground/50 mb-3">How it works</p>
+            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight leading-snug mb-4">
+              One input. Eight agents. Complete intelligence.
+            </h2>
+            <p className="text-base text-muted-foreground max-w-2xl mx-auto leading-relaxed">
+              You give us a link, a name, or even a vague description. Our agent
+              team fans out — scraping the web, identifying the company, detecting
+              tokens, verifying contracts, fact-checking claims, and compiling
+              deep research — all in parallel.
+            </p>
+          </div>
+
+          <div className="max-w-3xl mx-auto">
+            <div className="space-y-0">
+              {[
+                {
+                  step: "1",
+                  agent: "Web Scraper",
+                  detail: "Fetches and extracts content from the URL you provide — websites, tweets, GitHub repos, LinkedIn profiles, blog posts.",
+                },
+                {
+                  step: "2",
+                  agent: "Identifier",
+                  detail: "Determines the company name, sector, and key facts from the scraped content, even from partial or ambiguous inputs.",
+                },
+                {
+                  step: "3",
+                  agent: "Token Scanner",
+                  detail: "Detects if the company has a liquid token, identifies the ticker and tier, and routes to contract verification if found.",
+                },
+                {
+                  step: "4",
+                  agent: "Contract Finder + Verifier",
+                  detail: "Searches for contract addresses across chains, then verifies each against block explorers and official documentation.",
+                },
+                {
+                  step: "5",
+                  agent: "Research Agent",
+                  detail: "Builds the full research profile — competitive landscape, funding history, founder backgrounds, business model analysis.",
+                },
+                {
+                  step: "6",
+                  agent: "Fact Checker",
+                  detail: "Cross-references every claim against live sources. Flags anything unverifiable. Cleans hallucinated URLs and fabricated data.",
+                },
+                {
+                  step: "7",
+                  agent: "DD Reads Finder",
+                  detail: "Surfaces the most relevant external research — CFTC filings, governance proposals, audit reports, analyst deep-dives.",
+                },
+              ].map(({ step, agent, detail }) => (
+                <div key={step} className="flex gap-5 py-4 group" data-testid={`agent-step-${step}`}>
+                  <div className="flex flex-col items-center">
+                    <div className="w-7 h-7 rounded-full border border-border/30 bg-card/30 flex items-center justify-center shrink-0">
+                      <span className="text-[10px] font-mono text-muted-foreground/60">{step}</span>
+                    </div>
+                    {step !== "7" && <div className="w-px flex-1 bg-border/15 mt-1" />}
+                  </div>
+                  <div className="pb-2">
+                    <h3 className="text-sm font-semibold mb-1">{agent}</h3>
+                    <p className="text-[13px] text-muted-foreground leading-relaxed">{detail}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="py-24 px-6 border-t">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-16">
             <h2 className="text-3xl sm:text-4xl font-bold tracking-tight leading-snug mb-4">
-              From curiosity to conviction
+              What you get back
             </h2>
             <p className="text-base text-muted-foreground max-w-xl mx-auto leading-relaxed">
-              You found something interesting. Now you need to know if it's real.
-              Research Everything takes you from "this looks cool" to "here's my thesis"
-              — for early-stage companies and liquid tokens alike.
+              Every research session produces a living intelligence hub — not a
+              static report. Ask follow-up questions, generate charts, go deeper.
             </p>
           </div>
 
           <div className="grid sm:grid-cols-3 gap-10">
             {[
               {
-                title: "Instant intelligence",
-                body: "One input is all it takes. You get back a complete company profile, verified claims, founder backgrounds, and competitive context — in under a minute.",
+                title: "Verified intelligence",
+                body: "Company profile, founder backgrounds, funding history, competitive landscape — all fact-checked against live sources. Nothing fabricated.",
               },
               {
-                title: "Market data that matters",
-                body: "For liquid tokens, see live pricing, volume, and on-chain analytics. Ask any question in plain English and get a chart back instantly.",
+                title: "On-chain data on demand",
+                body: "Ask any question in plain English. \"Show me revenue over time\" or \"What's Hyperliquid's P/E?\" — get a chart back instantly from Dune, DeFiLlama, or CoinGecko.",
               },
               {
-                title: "Nothing fabricated",
-                body: "Every fact is checked against live sources. If something can't be verified, you'll know. No hallucinated URLs, no made-up funding rounds.",
+                title: "Deep research reports",
+                body: "When a quick snapshot isn't enough, generate a long-form analysis covering market dynamics, regulatory risk, tokenomics, and adjacent opportunities.",
               },
             ].map(({ title, body }) => (
               <div key={title} data-testid={`feature-${title.toLowerCase().replace(/\s+/g, "-")}`}>
@@ -273,39 +345,38 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto">
           <div className="grid lg:grid-cols-[1fr,1.2fr] gap-20 items-start">
             <div>
-              <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground/60 mb-3">The experience</p>
+              <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground/60 mb-3">The input layer</p>
               <h2 className="text-2xl sm:text-3xl font-bold tracking-tight leading-snug mb-4">
-                You ask. We deliver.
+                Capture from anywhere.<br />
+                The agents do the rest.
               </h2>
               <p className="text-sm text-muted-foreground leading-relaxed mb-8">
-                No setup, no configuration, no dashboards to maintain. Just tell us
-                what you're looking at and we'll build your research hub in real time.
+                The research system accepts anything — a tweet you saw, a website
+                someone shared, a token ticker, a vague description. The agents
+                figure out what you mean and build the intelligence from there.
               </p>
 
               <div className="space-y-6">
                 {[
                   {
-                    title: "Works with anything",
-                    body: "Tweets, company websites, GitHub repos, token names, or just a description — we figure out what you mean.",
+                    title: "Browser extension",
+                    body: "Right-click any webpage and send it directly to your research queue. The agents start working immediately.",
+                  },
+                  {
+                    title: "Telegram bot",
+                    body: "Forward a message to @ResearchEverythingBot. It extracts the link, runs the agents, and replies with a summary.",
+                  },
+                  {
+                    title: "Plain language",
+                    body: "Don't have a link? Just describe what you're looking at. \"AI infra startup from YC W24\" is enough to get started.",
                   },
                   {
                     title: "Charts on demand",
-                    body: "\"Show me revenue over time\" or \"What's the P/E ratio?\" — ask in plain English. Get a publication-ready chart back.",
-                  },
-                  {
-                    title: "Research that goes deep",
-                    body: "When a quick snapshot isn't enough, generate a long-form report covering competitive landscape, regulatory risk, and adjacent opportunities.",
-                  },
-                  {
-                    title: "Your pipeline, organized",
-                    body: "Track everything from first look to final decision. Every deal you research stays in your pipeline, enriched and ready when you need it.",
+                    body: "Once a company is researched, ask any data question. The system queries Dune, DeFiLlama, and CoinGecko to build the chart.",
                   },
                 ].map(({ title, body }) => (
-                  <div key={title} data-testid={`experience-${title.toLowerCase().replace(/\s+/g, "-")}`}>
-                    <h3 className="text-sm font-semibold mb-1 flex items-center gap-1.5">
-                      {title}
-                      <ArrowUpRight className="w-3 h-3 text-muted-foreground/20" />
-                    </h3>
+                  <div key={title} data-testid={`input-${title.toLowerCase().replace(/\s+/g, "-")}`}>
+                    <h3 className="text-sm font-semibold mb-1">{title}</h3>
                     <p className="text-sm text-muted-foreground leading-relaxed">{body}</p>
                   </div>
                 ))}
@@ -314,16 +385,16 @@ export default function LandingPage() {
 
             <div className="hidden lg:block">
               <div className="rounded-xl border border-border/30 bg-card/10 p-6">
-                <p className="text-[10px] font-mono text-muted-foreground/40 mb-5">What a research hub looks like</p>
+                <p className="text-[10px] font-mono text-muted-foreground/40 mb-5">What the agents produce</p>
                 <div className="space-y-4">
                   {[
                     { label: "Company Profile", detail: "Verified overview, sector, stage, business model" },
                     { label: "Founder Intelligence", detail: "Backgrounds, prior exits, verified social links" },
+                    { label: "Token Snapshot", detail: "Live price, market cap, volume, contract addresses" },
                     { label: "Competitive Landscape", detail: "Key competitors, positioning, market dynamics" },
-                    { label: "Token Snapshot", detail: "Live price, market cap, volume, 24h change" },
-                    { label: "On-Demand Charts", detail: "Revenue, volume, staking, protocol-specific metrics" },
+                    { label: "On-Demand Charts", detail: "Revenue, volume, TVL, protocol-specific metrics" },
                     { label: "Deep Research Report", detail: "Long-form analysis with cited sources" },
-                    { label: "AI Next Steps", detail: "What to ask in the call, who to reference check" },
+                    { label: "AI Next Steps", detail: "What to ask, who to reference check, what to watch" },
                   ].map(({ label, detail }, i) => (
                     <div key={label} className="flex items-start gap-3">
                       <div className="w-5 h-5 rounded bg-accent/50 flex items-center justify-center mt-0.5 shrink-0">
@@ -342,62 +413,14 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section className="py-24 px-6 border-t">
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-12">
-            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight leading-snug mb-4">
-              Built for how VCs actually work
-            </h2>
-            <p className="text-sm text-muted-foreground max-w-lg mx-auto leading-relaxed">
-              You're scanning Twitter, getting pinged deals on Telegram, clicking through
-              pitch decks — and none of it is connected. Until now.
-            </p>
-          </div>
-
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[
-              {
-                title: "Capture from anywhere",
-                body: "Right-click any webpage with our browser extension, paste a link in the app, or forward a deal via Telegram. It all ends up in one place.",
-              },
-              {
-                title: "Ask, don't search",
-                body: "Stop digging through dashboards. Just ask what you want to know — in plain language — and get an answer with the data to back it up.",
-              },
-              {
-                title: "Early-stage or liquid",
-                body: "Same workflow whether you're evaluating a pre-seed founder or a $1B token. The research adapts to what you're looking at.",
-              },
-              {
-                title: "Trust what you read",
-                body: "We verify before we show. If we can't confirm a claim, we tell you. Your research hub is clean, not impressive.",
-              },
-              {
-                title: "Know what to do next",
-                body: "Every research hub comes with AI-generated next steps — who to talk to, what to ask, and what to watch out for.",
-              },
-              {
-                title: "Stay current",
-                body: "Token prices update live. Charts refresh on demand. Your research doesn't go stale the moment you save it.",
-              },
-            ].map(({ title, body }) => (
-              <div key={title} className="rounded-xl border border-border/20 bg-card/10 p-5" data-testid={`value-${title.toLowerCase().replace(/\s+/g, "-")}`}>
-                <h3 className="text-sm font-semibold mb-1.5">{title}</h3>
-                <p className="text-xs text-muted-foreground leading-relaxed">{body}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
       <section className="py-20 px-6 border-t">
         <div className="max-w-2xl mx-auto text-center">
           <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-4">
-            Your next conviction starts here
+            Your research team is ready
           </h2>
           <p className="text-sm text-muted-foreground mb-8 max-w-md mx-auto">
-            Sign in with email or wallet. Drop your first link and see your research hub
-            come together in real time. No credit card required.
+            Sign in with email or wallet. Drop your first link and watch eight
+            agents build your research hub in real time.
           </p>
           <Button size="lg" className="h-12 px-8 gap-2" onClick={() => login()} data-testid="button-cta-bottom">
             Get started free
