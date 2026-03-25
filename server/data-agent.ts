@@ -43,25 +43,27 @@ AVAILABLE DATA SOURCES (in priority order)
 
 DATA SOURCE ROUTING — WHEN TO USE WHAT:
 | Metric | Primary | Fallback |
-| Protocol revenue, fees, earnings | dune-sql | defillama |
-| TVL (total value locked) | dune-sql | defillama |
-| DEX trading volume | dune-sql | defillama (dexVolume) |
-| Perps/derivatives volume | dune-sql | defillama (derivatives) |
+| Protocol revenue, fees, earnings | defillama | dune-sql |
+| TVL (total value locked) | defillama | dune-sql |
+| DEX trading volume | defillama (dexVolume) | dune-sql |
+| Perps/derivatives volume | defillama (derivatives) | dune-sql |
+| Token price (simple chart) | coingecko | allium-prices |
+| Market cap, FDV, supply | coingecko | allium |
 | Lending metrics (borrows, supply, utilization, liquidations) | dune-sql | — |
 | User/address growth & activity | dune-sql | — |
 | Token transfers & flows | dune-sql | — |
-| Stablecoin supply & flows | dune-sql | defillama |
+| Stablecoin supply & flows | defillama | dune-sql |
 | Governance & voting | dune-sql | — |
 | Gas usage & costs | dune-sql | — |
 | Protocol-specific decoded events | dune-sql | — |
-| Token price (simple chart) | coingecko | allium-prices, dune-sql (prices.usd) |
-| Market cap, FDV, supply | coingecko | allium |
 | Token holder distribution | allium-sql | dune-sql |
 | Wallet balances & whale tracking | allium-sql | dune-sql |
 | P/E ratio, custom derived metrics | dune-sql | — |
 | Cross-protocol comparisons | dune-sql | — |
+| Outstanding loans / borrows over time | dune-sql | — |
+| Lending supply / deposits over time | dune-sql | — |
 
-KEY PRINCIPLE: Dune-sql is the DEFAULT for any on-chain or protocol metric. It gives you the freshest, most granular data. Use defillama/coingecko only for simple convenience queries (quick price chart, quick TVL). If the user asks anything analytical, complex, or protocol-specific → always reach for dune-sql.
+KEY PRINCIPLE: Use DeFiLlama/CoinGecko for aggregate metrics they cover well (revenue, fees, TVL, price, volume). Use dune-sql ONLY when: (1) the metric isn't available on DeFiLlama/CoinGecko, (2) the user asks for on-chain granularity or custom analytics, or (3) the request involves lending activity, user counts, or protocol-specific events. Dune SQL is powerful but queries can fail — prefer reliable pre-aggregated sources when they cover the metric.
 
 YOU MUST RESPOND WITH VALID JSON ONLY. No markdown, no explanation. Just the JSON array.
 
@@ -377,7 +379,20 @@ IMPORTANT SQL RULES:
 - For weekly data, use date_trunc('week', ...) — gives cleaner charts than daily for long time ranges
 - When filtering by protocol, always lowercase: project = 'morpho' not 'Morpho'
 - When using contract addresses, always lowercase: LOWER('0xAbC...') or just use the lowercase version
-- For multi-chain protocols, consider whether to aggregate across chains or split by blockchain`;
+- For multi-chain protocols, consider whether to aggregate across chains or split by blockchain
+
+CRITICAL — USD VALUES ONLY:
+- ALWAYS use "amount_usd" columns from Spellbook tables (lending.borrow, dex.trades, tokens.transfers etc.)
+- NEVER use raw "amount" or "value" columns — these are in native token units (wei/gwei/lamports) and will produce absurd numbers
+- If a Spellbook table has amount_usd, always prefer it
+- If you must use raw amounts, you MUST convert: CAST(value AS double) / POWER(10, decimals) and JOIN with prices.usd
+- The system will REJECT data with values > 1e15 as likely unconverted raw token amounts
+
+CRITICAL — DATA SOURCE PREFERENCE:
+- For DeFi protocol metrics (revenue, fees, TVL): ALWAYS try DeFiLlama FIRST (it's pre-aggregated and reliable)
+- Only use dune-sql for DeFi metrics when: (a) DeFiLlama doesn't cover the protocol, (b) the user asks for granularity DeFiLlama doesn't have, or (c) the user specifically asks for on-chain data
+- DeFiLlama is the PREFERRED source for: revenue, fees, TVL, DEX volume, derivatives volume — it's faster and more reliable than writing SQL
+- Use dune-sql as PRIMARY only for: lending activity (borrows/supplies), user counts, governance, custom analytics, cross-chain breakdowns`;
 
 
 
@@ -540,6 +555,12 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
     throw new Error("AI could not produce a valid chart plan for this request. Try rephrasing.");
   }
 
+  const userWantsMultiple = /\band\b|,\s*\w+.*chart|both|compare|versus|\bvs\b/i.test(userPrompt);
+  if (!userWantsMultiple && chartPlans.length > 1) {
+    console.log(`[Data Agent] User asked for 1 chart but LLM generated ${chartPlans.length}. Keeping only the first.`);
+    chartPlans = [chartPlans[0]];
+  }
+
   const charts: DashboardChart[] = [];
 
   for (const plan of chartPlans) {
@@ -568,32 +589,55 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
         console.warn(`[Data Agent] Primary source "${plan.dataSource}" failed for "${plan.title}": ${fetchError}`);
       }
 
+      if (data && data.length > 0) {
+        const sanity = checkDataSanity(data, plan);
+        if (sanity) {
+          console.warn(`[Data Agent] Data sanity check failed for "${plan.title}": ${sanity}`);
+          data = null;
+          fetchError = sanity;
+        }
+      }
+
       if ((!data || data.length === 0) && fetchError) {
         const fallbackResult = await attemptFallback(plan, fetchError, tokenProfile, companyName);
         if (fallbackResult) {
-          data = fallbackResult.data;
-          plan.dataSource = fallbackResult.dataSource;
-          plan.dataSourceConfig = fallbackResult.dataSourceConfig;
-          plan.chartConfig = fallbackResult.chartConfig || plan.chartConfig;
-          plan.chartType = fallbackResult.chartType || plan.chartType;
-          plan.title = fallbackResult.title || plan.title;
-          console.log(`[Data Agent] Fallback succeeded: re-routed "${plan.title}" via ${plan.dataSource}`);
-          await storage.updateDashboardChart(chart.id, {
-            title: plan.title,
-            dataSource: plan.dataSource,
-            dataSourceConfig: JSON.stringify(plan.dataSourceConfig),
-            chartType: plan.chartType,
-            chartConfig: JSON.stringify(plan.chartConfig),
+          const fallbackSanity = checkDataSanity(fallbackResult.data, {
+            ...plan,
+            chartConfig: fallbackResult.chartConfig || plan.chartConfig,
           });
+          if (fallbackSanity) {
+            console.warn(`[Data Agent] Fallback data also failed sanity check for "${plan.title}": ${fallbackSanity}`);
+          } else {
+            data = fallbackResult.data;
+            plan.dataSource = fallbackResult.dataSource;
+            plan.dataSourceConfig = fallbackResult.dataSourceConfig;
+            plan.chartConfig = fallbackResult.chartConfig || plan.chartConfig;
+            plan.chartType = fallbackResult.chartType || plan.chartType;
+            plan.title = fallbackResult.title || plan.title;
+            console.log(`[Data Agent] Fallback succeeded: re-routed "${plan.title}" via ${plan.dataSource}`);
+            await storage.updateDashboardChart(chart.id, {
+              title: plan.title,
+              dataSource: plan.dataSource,
+              dataSourceConfig: JSON.stringify(plan.dataSourceConfig),
+              chartType: plan.chartType,
+              chartConfig: JSON.stringify(plan.chartConfig),
+            });
+          }
         }
       }
 
       if (!data || data.length === 0) {
         let errorMsg = fetchError || "No data returned from source.";
-        if (/holder|wallet|whale|distribution/i.test(plan.title)) {
+        if (/all values are zero/i.test(fetchError || "")) {
+          errorMsg = `No meaningful data available from this source. The protocol may not report this metric. Try a different query.`;
+        } else if (/raw token amounts|missing decimal/i.test(fetchError || "")) {
+          errorMsg = `Data returned in raw format (not USD). Try asking for a different metric or rephrasing your request.`;
+        } else if (/holder|wallet|whale|distribution/i.test(plan.title)) {
           errorMsg = `Could not fetch holder/distribution data. Ensure the token has a valid contract address and chain configured in Token Intelligence.`;
         } else if (fetchError?.includes("404") || fetchError?.includes("not found")) {
           errorMsg = `Data source not found. Try a different query or add the relevant Dune query in Token Intelligence first.`;
+        } else if (fetchError?.includes("query_state_failed")) {
+          errorMsg = `Query execution failed. The SQL may reference tables that don't exist for this protocol. Try rephrasing your request.`;
         }
         const updatedChart = await storage.updateDashboardChart(chart.id, {
           status: "failed",
@@ -831,6 +875,45 @@ export async function refreshChartData(chartId: string): Promise<DashboardChart>
     });
     return updated || chart;
   }
+}
+
+function checkDataSanity(data: any[], plan: ChartPlan): string | null {
+  if (!data || data.length === 0) return null;
+
+  const yAxes = plan.chartConfig?.yAxes || [];
+  const valueKeys = yAxes.map((y: any) => y.dataKey).filter(Boolean);
+  if (valueKeys.length === 0) {
+    const cols = Object.keys(data[0] || {});
+    const numericCols = cols.filter(c => {
+      const v = data.find(d => d[c] != null)?.[c];
+      return typeof v === "number";
+    });
+    valueKeys.push(...numericCols);
+  }
+  if (valueKeys.length === 0) return null;
+
+  for (const key of valueKeys) {
+    const values = data.map(d => d[key]).filter(v => typeof v === "number" && !isNaN(v));
+    if (values.length === 0) continue;
+
+    const nonZero = values.filter(v => v !== 0);
+    if (nonZero.length === 0) {
+      return `All values are zero for "${key}" — data source returned no meaningful data`;
+    }
+
+    const maxAbs = Math.max(...values.map(Math.abs));
+    if (maxAbs > 1e15) {
+      return `Values appear to be raw token amounts (max: ${maxAbs.toExponential(2)}) — likely missing decimal conversion`;
+    }
+
+    const negCount = values.filter(v => v < 0).length;
+    const isCurrencyField = yAxes.find((y: any) => y.dataKey === key)?.format === "currency";
+    if (isCurrencyField && negCount > values.length * 0.5) {
+      return `Majority of "${key}" values are negative — likely incorrect data transformation`;
+    }
+  }
+
+  return null;
 }
 
 interface FallbackResult {
@@ -1101,14 +1184,14 @@ DuneSQL tips:
 - DEX trades: dex.trades (columns: block_time, token_bought_amount, token_sold_amount, amount_usd, project, blockchain)
 - Token transfers: tokens.transfers (columns: block_time, "from", "to", contract_address, amount_raw, blockchain)
 - Prices: prices.usd (columns: minute, price, symbol, contract_address, blockchain)
-- Lending: lending.borrow, lending.repay, lending.deposit, lending.withdraw
-- Protocol revenue: Look for fee events in decoded contract tables, or aggregate value from transactions
+- Lending: lending.borrow, lending.repay, lending.supply, lending.withdraw (columns include amount_usd)
+- CRITICAL: ALWAYS use amount_usd columns, NEVER raw amount/value columns (they are in wei/native units and produce absurd numbers)
 - Always GROUP BY date_trunc('day', block_time) or 'week' for time series
 - Use block_time >= NOW() - INTERVAL '90' DAY for reasonable timeframes
 - Always ORDER BY the date column
-- Use CAST for bigint/decimal math: CAST(value AS double) / 1e18
-- If you're unsure of exact table names, use dex.trades filtered by project name or raw transaction tables
+- If you're unsure of exact table names, use dex.trades or lending.* Spellbook tables filtered by project name
 - For protocol-specific data, try the naming pattern: {protocol}_{chain}.{Contract}_evt_{Event}
+- Prefer Spellbook tables (lending.*, dex.*, tokens.*) over raw chain tables — they have amount_usd and are more reliable
 NO markdown. Return ONLY the JSON object.`,
     messages: [{ role: "user", content: contextLines }],
   });
