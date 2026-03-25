@@ -134,6 +134,16 @@ export async function getProtocolTvl(slug: string): Promise<ProtocolTvlHistory[]
   }));
 }
 
+export async function getProtocolBorrowedTvl(slug: string): Promise<ProtocolTvlHistory[] | null> {
+  const data = await fetchJson(`${DEFILLAMA_BASE}/protocol/${slug}`);
+  const borrowed = data.chainTvls?.["borrowed"]?.tvl;
+  if (!borrowed || borrowed.length === 0) return null;
+  return borrowed.map((d: any) => ({
+    date: d.date,
+    totalLiquidityUSD: d.totalLiquidityUSD,
+  }));
+}
+
 export async function getProtocolFees(slug: string): Promise<ProtocolFees> {
   const data = await fetchJson(`${DEFILLAMA_BASE}/summary/fees/${slug}?dataType=dailyFees`);
   const totalData = data.totalDataChart || [];

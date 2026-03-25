@@ -1628,7 +1628,8 @@ async function attemptFallback(
   console.log(`[Data Agent] Attempting fallback for "${plan.title}" (original: ${plan.dataSource}, error: ${error})`);
 
   const isPrice = /\bprice\b|price.?history|price.?chart/i.test(combined);
-  const isTvl = /\btvl\b|total.?value.?locked|liquidity|active.?loans|outstanding.?borrow|outstanding.?loan|total.?borrow.?outstanding/i.test(combined);
+  const isTvl = /\btvl\b|total.?value.?locked|liquidity/i.test(combined);
+  const isBorrowedTvl = /active.?loans|outstanding.?borrow|outstanding.?loan|total.?borrow.?outstanding|total.?active.?loan|borrowed.?tvl/i.test(combined);
   const isRevenue = /\brevenue\b|daily.?fees|protocol.?fees|earnings/i.test(combined);
   const isFees = /\bfees\b|interest.?paid|interest.?generated|interest.?earn|yield.?generated|yield.?paid/i.test(combined);
   const isVolume = /\bvolume\b|trading.?volume|daily.?volume|weekly.?volume|perp.?volume|dex.?volume/i.test(combined);
@@ -1707,6 +1708,30 @@ async function attemptFallback(
       }
     } catch (e: any) {
       console.warn(`[Data Agent] CoinGecko price fallback failed: ${e.message}`);
+    }
+  }
+
+  if (isBorrowedTvl) {
+    const slug = await getSlug();
+    try {
+      const borrowedData = await defillama.getProtocolBorrowedTvl(slug);
+      if (borrowedData && borrowedData.length > 0) {
+        const data = borrowedData.map((d) => ({ date: d.date, borrowedTvl: d.totalLiquidityUSD }));
+        console.log(`[Data Agent] Borrowed TVL fallback succeeded via DeFiLlama (${data.length} points)`);
+        return {
+          data,
+          dataSource: "defillama",
+          dataSourceConfig: { endpoint: "borrowed-tvl", slug },
+          chartConfig: {
+            xAxis: { dataKey: "date", label: "Date", type: "date" },
+            yAxes: [{ dataKey: "borrowedTvl", label: "Active Loans (USD)", color: "#f59e0b", format: "currency", yAxisId: "left" }],
+          },
+          chartType: "area",
+          title: `${companyName} Active Loans (Borrowed TVL)`,
+        };
+      }
+    } catch (e: any) {
+      console.warn(`[Data Agent] DeFiLlama borrowed TVL fallback failed: ${e.message}`);
     }
   }
 
