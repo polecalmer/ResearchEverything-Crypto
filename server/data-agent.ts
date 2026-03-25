@@ -376,11 +376,17 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
     }
   }
 
+  try {
+    const resolvedSlug = await defillama.resolveSlug(companyName);
+    const naiveSlug = companyName.toLowerCase().replace(/\s+/g, "-");
+    contextParts.push(`\nDeFiLlama slug for ${companyName}: "${resolvedSlug}"${resolvedSlug !== naiveSlug ? ` (note: NOT "${naiveSlug}")` : ''}`);
+  } catch {}
+
   if (isDuneConfigured()) {
     contextParts.push(`\nDune Analytics: AVAILABLE (API key configured)`);
   }
 
-  contextParts.push(`\nDeFiLlama: AVAILABLE (TVL, fees, revenue for most DeFi protocols)`);
+  contextParts.push(`DeFiLlama: AVAILABLE (TVL, fees, revenue for most DeFi protocols)`);
   contextParts.push(`CoinGecko: AVAILABLE (price history)`);
   contextParts.push(`Allium Prices: AVAILABLE (on-chain OHLCV price history via DEX data)`);
   contextParts.push(`Allium SQL: AVAILABLE (custom SQL analytics — holder distribution, balance queries, on-chain data across 150+ chains)`);
@@ -750,10 +756,17 @@ async function attemptFallback(
   const isVolume = /\bvolume\b|trading.?volume|daily.?volume|weekly.?volume|perp.?volume|dex.?volume/i.test(combined);
   const isHolder = /\bholder|wallet|whale|address|distribution|top.?\d/i.test(combined);
 
-  const defillamaSlug = companyName.toLowerCase().replace(/\s+/g, "-");
+  let defillamaSlug: string | null = null;
+  async function getSlug() {
+    if (!defillamaSlug) {
+      defillamaSlug = await defillama.resolveSlug(companyName);
+      console.log(`[Data Agent] Resolved DeFiLlama slug for "${companyName}" → "${defillamaSlug}"`);
+    }
+    return defillamaSlug;
+  }
 
   if (isVolume) {
-    const slug = defillamaSlug;
+    const slug = await getSlug();
     try {
       const volData = await defillama.getProtocolDerivativesVolume(slug);
       if (volData.dailyVolume && volData.dailyVolume.length > 0) {
@@ -820,7 +833,7 @@ async function attemptFallback(
   }
 
   if (isTvl) {
-    const slug = defillamaSlug;
+    const slug = await getSlug();
     try {
       const tvlData = await defillama.getProtocolTvl(slug);
       if (tvlData && tvlData.length > 0) {
@@ -844,7 +857,7 @@ async function attemptFallback(
   }
 
   if (isRevenue) {
-    const slug = defillamaSlug;
+    const slug = await getSlug();
     try {
       const revData = await defillama.getProtocolRevenue(slug);
       if (revData.dailyRevenue && revData.dailyRevenue.length > 0) {
@@ -1018,33 +1031,50 @@ async function fetchDuneSqlData(config: Record<string, any>): Promise<any[]> {
 }
 
 async function fetchDefiLlamaData(config: Record<string, any>): Promise<any[]> {
-  const slug = config.slug;
+  let slug = config.slug;
   if (!slug) throw new Error("No DeFiLlama protocol slug provided");
+
+  async function tryWithSlugResolution<T>(fn: (s: string) => Promise<T>): Promise<T> {
+    try {
+      return await fn(slug);
+    } catch (e: any) {
+      if (e.message?.includes("404") || e.message?.includes("API error")) {
+        const resolved = await defillama.resolveSlug(slug);
+        if (resolved !== slug) {
+          console.log(`[DeFiLlama] Slug "${slug}" failed, resolved to "${resolved}"`);
+          slug = resolved;
+          config.slug = resolved;
+          return await fn(resolved);
+        }
+      }
+      throw e;
+    }
+  }
 
   switch (config.endpoint) {
     case "tvl": {
-      const tvlData = await defillama.getProtocolTvl(slug);
+      const tvlData = await tryWithSlugResolution(defillama.getProtocolTvl);
       return tvlData.map((d) => ({
         date: d.date,
         totalLiquidityUSD: d.totalLiquidityUSD,
       }));
     }
     case "fees": {
-      const feesData = await defillama.getProtocolFees(slug);
+      const feesData = await tryWithSlugResolution(defillama.getProtocolFees);
       return feesData.dailyFees.map((d) => ({
         date: d.date,
         fees: d.fees,
       }));
     }
     case "revenue": {
-      const revData = await defillama.getProtocolRevenue(slug);
+      const revData = await tryWithSlugResolution(defillama.getProtocolRevenue);
       return revData.dailyRevenue.map((d) => ({
         date: d.date,
         revenue: d.revenue,
       }));
     }
     case "dexVolume": {
-      const volData = await defillama.getProtocolDexVolume(slug);
+      const volData = await tryWithSlugResolution(defillama.getProtocolDexVolume);
       return volData.dailyVolume.map((d) => ({
         date: d.date,
         volume: d.volume,

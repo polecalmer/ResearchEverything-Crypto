@@ -45,8 +45,17 @@ async function fetchJson(url: string): Promise<any> {
   return res.json();
 }
 
+let protocolsCache: DefiLlamaProtocol[] | null = null;
+let protocolsCacheTime = 0;
+const CACHE_TTL = 60 * 60 * 1000;
+
 export async function listProtocols(): Promise<DefiLlamaProtocol[]> {
+  if (protocolsCache && Date.now() - protocolsCacheTime < CACHE_TTL) {
+    return protocolsCache;
+  }
   const data = await fetchJson(`${DEFILLAMA_BASE}/protocols`);
+  protocolsCache = data;
+  protocolsCacheTime = Date.now();
   return data;
 }
 
@@ -59,6 +68,62 @@ export async function findProtocol(name: string): Promise<DefiLlamaProtocol | nu
       p.slug?.toLowerCase() === lower ||
       p.symbol?.toLowerCase() === lower
   ) || null;
+}
+
+const slugCache = new Map<string, { slug: string; time: number }>();
+
+export async function resolveSlug(companyName: string): Promise<string> {
+  const key = companyName.toLowerCase();
+  const cached = slugCache.get(key);
+  if (cached && Date.now() - cached.time < CACHE_TTL) {
+    return cached.slug;
+  }
+
+  const naiveSlug = key.replace(/\s+/g, "-");
+
+  try {
+    const res = await fetch(`${DEFILLAMA_BASE}/protocol/${naiveSlug}`);
+    if (res.ok) {
+      slugCache.set(key, { slug: naiveSlug, time: Date.now() });
+      return naiveSlug;
+    }
+  } catch {}
+
+  try {
+    const protocols = await listProtocols();
+    const exact = protocols.find(
+      (p: any) => p.name?.toLowerCase() === key || p.slug?.toLowerCase() === key
+    );
+    if (exact) {
+      slugCache.set(key, { slug: exact.slug, time: Date.now() });
+      return exact.slug;
+    }
+
+    const startsWith = protocols
+      .filter((p: any) =>
+        p.name?.toLowerCase().startsWith(key) ||
+        p.slug?.toLowerCase().startsWith(key)
+      )
+      .sort((a: any, b: any) => (b.tvl || 0) - (a.tvl || 0));
+    if (startsWith.length > 0) {
+      slugCache.set(key, { slug: startsWith[0].slug, time: Date.now() });
+      return startsWith[0].slug;
+    }
+
+    const contains = protocols
+      .filter((p: any) =>
+        p.name?.toLowerCase().includes(key) ||
+        p.slug?.toLowerCase().includes(key)
+      )
+      .sort((a: any, b: any) => (b.tvl || 0) - (a.tvl || 0));
+    if (contains.length > 0) {
+      slugCache.set(key, { slug: contains[0].slug, time: Date.now() });
+      return contains[0].slug;
+    }
+  } catch {}
+
+  slugCache.set(key, { slug: naiveSlug, time: Date.now() });
+  return naiveSlug;
 }
 
 export async function getProtocolTvl(slug: string): Promise<ProtocolTvlHistory[]> {
