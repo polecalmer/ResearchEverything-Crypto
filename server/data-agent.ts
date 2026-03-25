@@ -759,6 +759,51 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
         }
       }
 
+      if (data && data.length > 0) {
+        const coherence = await checkSemanticCoherence(userPrompt, plan, data, plan.dataSource, finalSql);
+        if (!coherence.pass) {
+          console.warn(`[Data Agent] Coherence check rejected "${plan.title}": ${coherence.reason}`);
+          if (usedProvenQueryId) {
+            await storage.recordProvenQueryFailure(usedProvenQueryId);
+            usedProvenQueryId = null;
+          }
+          const coherenceError = `Semantic mismatch: ${coherence.reason}${coherence.suggestion ? `. Try: ${coherence.suggestion}` : ""}`;
+
+          autoLearnFromFailure(companyName, plan.title, metricType, plan.dataSource, coherenceError, finalSql).catch(() => {});
+
+          fallbackUsed = true;
+          const fallbackResult = await attemptFallback(plan, coherenceError, tokenProfile, companyName);
+          if (fallbackResult) {
+            const fallbackSanity = checkDataSanity(fallbackResult.data, { ...plan, chartConfig: fallbackResult.chartConfig || plan.chartConfig });
+            if (!fallbackSanity) {
+              data = fallbackResult.data;
+              plan.dataSource = fallbackResult.dataSource;
+              plan.dataSourceConfig = fallbackResult.dataSourceConfig;
+              plan.chartConfig = fallbackResult.chartConfig || plan.chartConfig;
+              plan.chartType = fallbackResult.chartType || plan.chartType;
+              plan.title = fallbackResult.title || plan.title;
+              finalSql = fallbackResult.dataSource === "dune-sql" ? fallbackResult.dataSourceConfig?.sql : null;
+              fetchError = null;
+              console.log(`[Data Agent] Coherence fallback succeeded: re-routed "${plan.title}" via ${plan.dataSource}`);
+              await storage.updateDashboardChart(chart.id, {
+                title: plan.title,
+                dataSource: plan.dataSource,
+                dataSourceConfig: JSON.stringify(plan.dataSourceConfig),
+                chartType: plan.chartType,
+                chartConfig: JSON.stringify(plan.chartConfig),
+              });
+            } else {
+              console.warn(`[Data Agent] Coherence fallback also failed sanity: ${fallbackSanity}`);
+              data = null;
+              fetchError = coherenceError;
+            }
+          } else {
+            data = null;
+            fetchError = coherenceError;
+          }
+        }
+      }
+
       if (data && data.length > 0 && finalSql && (plan.dataSource === "dune-sql")) {
         if (usedProvenQueryId) {
           await storage.recordProvenQuerySuccess(usedProvenQueryId);
@@ -1206,6 +1251,54 @@ function checkDataSanityWithHistory(data: any[], plan: ChartPlan, historicalMedi
   }
 
   return null;
+}
+
+async function checkSemanticCoherence(
+  userPrompt: string,
+  plan: ChartPlan,
+  data: any[],
+  dataSource: string,
+  sql: string | null,
+): Promise<{ pass: boolean; reason?: string; suggestion?: string }> {
+  try {
+    const sampleRows = data.slice(0, 3).map(d => JSON.stringify(d)).join("\n");
+    const yAxes = plan.chartConfig?.yAxes || [];
+    const columnNames = yAxes.map((y: any) => `${y.dataKey} (${y.label})`).join(", ");
+
+    const response = await callAnthropicServer({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 200,
+      system: `You verify that chart data semantically matches the user's request. Check for conceptual mismatches where the data technically works but measures the WRONG THING.
+
+Common mismatches to catch:
+- "interest paid" vs "borrow volume" (interest = small fraction of borrows)
+- "revenue" vs "volume" (revenue = fees earned, volume = total traded)
+- "profit" vs "revenue" (profit = revenue minus costs)
+- "active users" vs "transactions" (one user = many txns)
+- "TVL" vs "cumulative deposits" (TVL = net current, not cumulative)
+- "price" vs "market cap"
+
+Return JSON only:
+{"pass": true} if the data semantically matches the request
+{"pass": false, "reason": "brief explanation", "suggestion": "what data source/metric would be correct"}`,
+      messages: [{
+        role: "user",
+        content: `User asked: "${userPrompt}"\nChart title: "${plan.title}"\nData source: ${dataSource}${sql ? `\nSQL: ${sql.substring(0, 300)}` : ""}\nColumns: ${columnNames}\nSample data:\n${sampleRows}`,
+      }],
+    });
+
+    const cleaned = response.text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    const result = JSON.parse(cleaned);
+    if (result.pass === false) {
+      console.log(`[Coherence] FAILED for "${plan.title}": ${result.reason}`);
+    } else {
+      console.log(`[Coherence] Passed for "${plan.title}"`);
+    }
+    return result;
+  } catch (err: any) {
+    console.warn(`[Coherence] Check failed (allowing data through): ${err.message}`);
+    return { pass: true };
+  }
 }
 
 const CANONICAL_METRICS = [

@@ -98,6 +98,7 @@ The Data tab provides a chat-driven interface for building custom charts. Users 
     - **Prompt injection:** Before generating any chart plan, the system loads active learnings for the target protocol + global learnings and appends them to the system prompt. Rules are also injected into retry prompts.
     - **Periodic analysis:** `analyzeFailurePatterns()` reviews recent failures and stale proven queries to identify systemic patterns (admin-triggered via `/api/admin/learnings/analyze`).
   - **LLM metric classification:** When keyword matching can't classify a metric type (the proven_queries cache key), a cheap LLM call canonicalizes it instead of falling back to raw string hashing.
+  - **Semantic coherence check:** After data passes sanity checks, a cheap LLM call verifies the data conceptually matches what the user asked for. Catches mismatches like "interest paid" vs "borrow volume" or "revenue" vs "volume" — where the data looks plausible but measures the wrong thing. On failure, triggers fallback cascade and auto-learn.
   - **Magnitude-change detection:** If a proven query previously returned values in one range and now returns values 100x different, it's flagged as likely incorrect.
   - **Observability:** Full lifecycle logging for every chart: request→cache hit/miss→proven query→retries→fallback→outcome, with timing and error details. `[Lifecycle]` log prefix for easy filtering.
 - Key files: `server/data-agent.ts`, `server/defillama-client.ts`, `client/src/pages/data-tab.tsx`
