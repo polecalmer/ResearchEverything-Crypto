@@ -1,0 +1,99 @@
+
+This is the one your architecture doesn't have yet, and it's probably the highest-leverage addition. The idea: instead of just caching proven queries for exact-match lookup, use them as dynamic few-shot examples in the LLM prompt.
+When a user asks "Show me Compound's weekly borrow volume" and there's no exact cache hit, but you do have a proven query for "Morpho weekly borrow volume," that proven query is a near-perfect few-shot example. The LLM sees: "Here's a working query for a similar request. Adapt it."
+This is qualitatively different from Layer 3's rules. Rules say "don't do X." Few-shot examples say "here's exactly what good looks like for something similar." LLMs are dramatically better at adapting a working example than following abstract instructions.
+The implementation:
+typescript// At query time, find the most similar proven queries
+// Similarity = same metric_type, optionally same protocol category
+async function getFewShotExamples(
+  protocol: string, 
+  metricType: string, 
+  limit: number = 3
+): Promise<ProvenQuery[]> {
+  // First: same metric type, different protocol (most useful — shows the pattern)
+  // Second: same protocol, different metric (shows protocol-specific quirks)
+  // Third: same category (lending/dex/bridge), same metric
+  return db.query(`
+    SELECT * FROM proven_queries 
+    WHERE is_active = true
+      AND metric_type = $1
+      AND protocol != $2
+    ORDER BY success_count DESC 
+    LIMIT $3
+  `, [metricType, protocol, limit]);
+}
+```
+
+Then inject into the generation prompt:
+```
+Here are working queries for similar requests:
+
+Example 1: Aave weekly borrow volume
+SELECT date_trunc('week', block_time) AS period,
+       SUM(amount_usd) AS borrow_volume
+FROM lending.borrow 
+WHERE project = 'aave_v3' AND block_time > now() - interval '90 days'
+GROUP BY 1 ORDER BY 1
+
+Example 2: Spark weekly borrow volume  
+SELECT date_trunc('week', block_time) AS period,
+       SUM(amount_usd) AS borrow_volume
+FROM lending.borrow
+WHERE project = 'spark' AND block_time > now() - interval '90 days'
+GROUP BY 1 ORDER BY 1
+
+Now write a query for: Compound weekly borrow volume
+```
+
+Two working examples and the model virtually can't get this wrong. It sees the table name, the column names, the USD convention, the time filtering pattern. The only thing it needs to figure out is Compound's project identifier, which is a much smaller problem.
+
+This is "recursive training" in the most practical sense — every successful query makes future queries for similar metrics more likely to succeed on the first try. The proven_queries table becomes a growing example bank, not just a cache.
+
+*3. Actual fine-tuning (changing model weights)*
+
+This is what "train" means in the ML sense. You'd collect your successful query traces — (user_request, system_prompt, generated_sql) triples where the SQL passed sanity checks — and fine-tune a model on them.
+
+This is possible via the Anthropic API (fine-tuning is available), but I'd argue against it for your use case for three reasons:
+
+First, you don't have enough volume. Fine-tuning needs thousands of high-quality examples to move the needle. At 100-200 queries per week, you'd need months to accumulate a meaningful training set, and a large fraction of those are cache hits that don't produce new training signal.
+
+Second, fine-tuning is a blunt instrument for this problem. Your failures are specific — wrong identifiers, wrong columns, wrong tables. These are factual errors about Dune's schema, not capability gaps. Fine-tuning a model to know that Morpho's project name is `morpho_blue` is like retraining a chef because the pantry labels changed. You fix the labels, not the chef.
+
+Third, fine-tuned models freeze at their training data. When Dune changes a table name, a fine-tuned model confidently produces the old name. Context-based approaches (Layers 2 and 3) adapt because the context is updated; fine-tuned weights don't.
+
+The exception: if you eventually find that the base model consistently struggles with DuneSQL *syntax* (not schema knowledge but the dialect itself — Trino-specific functions, array handling, etc.), a fine-tune on DuneSQL examples could help. But that's a different problem than what you're currently facing.
+
+**So what does the "recursive training" system actually look like?**
+
+It's your existing three layers plus the few-shot curation layer, all feeding back into each other:
+```
+User request
+    │
+    ▼
+[Layer 2: Exact cache lookup] ──── HIT ──→ Execute, done
+    │ MISS
+    ▼
+[Few-shot retrieval: find similar proven queries]
+    │
+    ▼
+[Layer 3: Inject active rules for this protocol/metric]
+    │
+    ▼
+[LLM generation with few-shots + rules in context]
+    │
+    ▼
+[Execute + sanity check]
+    │
+    ├── SUCCESS ──→ Save to proven_queries (grows the few-shot bank)
+    │                Log to query_attempts (grows Layer 3 evidence)
+    │
+    └── FAIL ──→ [Layer 1: Retry with error context]
+                    │
+                    ├── SUCCESS ──→ Save to proven_queries
+                    │                Retry diff → candidate Layer 3 rule
+                    │
+                    └── FAIL ──→ [Fallback cascade]
+                                    │
+                                    └── Log everything to query_attempts
+Every arrow that says "save" or "log" is the recursive part. Each query that flows through the system makes subsequent queries better in three ways: the cache gets another entry (Layer 2), the few-shot bank gets richer (new layer), and the rules get more evidence (Layer 3).
+The compounding effect is real. Early on, most queries go through full LLM generation. After a month, maybe 40% are cache hits. After three months, 60% are cache hits and the remaining 40% get few-shot examples that push first-try success rate from ~70% to ~90%. After six months, the failure rate on genuinely novel queries (no cache hit, no similar few-shot) might be the only remaining problem, and Layer 3 rules handle many of those.

@@ -519,6 +519,27 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
   const learnedRules = await loadLearningsForPrompt(companyName);
   const systemPrompt = learnedRules ? DATA_AGENT_SYSTEM + learnedRules : DATA_AGENT_SYSTEM;
 
+  const estimatedMetric = extractMetricTypeFast(userPrompt, "");
+  if (estimatedMetric) {
+    try {
+      const fewShots = await storage.getFewShotExamples(companyName, estimatedMetric, 3);
+      if (fewShots.length > 0) {
+        contextParts.push(`\nWorking query examples for similar requests (adapt these — they are proven to work):`);
+        for (let i = 0; i < fewShots.length; i++) {
+          const fs = fewShots[i];
+          contextParts.push(`  Example ${i + 1}: ${fs.protocol} ${fs.metricType} (${fs.successCount} successes, source: ${fs.dataSource})`);
+          if (fs.sqlQuery) {
+            contextParts.push(`    SQL: ${fs.sqlQuery}`);
+          }
+          if (fs.yAxisKey) contextParts.push(`    Y-axis: ${fs.yAxisKey} (${fs.yAxisLabel || ""}, format: ${fs.yAxisFormat || "number"})`);
+        }
+        console.log(`[Few-Shot] Injected ${fewShots.length} examples for "${companyName}/${estimatedMetric}"`);
+      }
+    } catch (e: any) {
+      console.warn(`[Few-Shot] Failed to load examples: ${e.message}`);
+    }
+  }
+
   const dataContext = contextParts.join('\n');
 
   const response = await callAnthropicServerHeavy({
@@ -1896,7 +1917,25 @@ async function llmDuneSqlFallback(
     `Original request title: "${plan.title}"`,
     `Original description: "${plan.description || ""}"`,
     `Original data source "${plan.dataSource}" failed. Write a DuneSQL query to get this data on-chain.`,
-  ].filter(Boolean).join("\n");
+  ].filter(Boolean);
+
+  const fallbackMetric = extractMetricTypeFast(plan.title, plan.description || "");
+  if (fallbackMetric) {
+    try {
+      const fewShots = await storage.getFewShotExamples(companyName, fallbackMetric, 2);
+      if (fewShots.length > 0) {
+        contextLines.push(`\nWorking query examples for similar metrics (adapt these):`);
+        for (let i = 0; i < fewShots.length; i++) {
+          const fs = fewShots[i];
+          if (fs.sqlQuery) {
+            contextLines.push(`Example ${i + 1} (${fs.protocol} ${fs.metricType}): ${fs.sqlQuery}`);
+          }
+        }
+      }
+    } catch {}
+  }
+
+  const contextStr = contextLines.join("\n");
 
   console.log(`[Data Agent] LLM Dune SQL fallback: asking LLM to write query for "${plan.title}"`);
 
@@ -1931,7 +1970,7 @@ DuneSQL tips:
 - For protocol-specific data, try the naming pattern: {protocol}_{chain}.{Contract}_evt_{Event}
 - Prefer Spellbook tables (lending.*, dex.*, tokens.*) over raw chain tables — they have amount_usd and are more reliable
 NO markdown. Return ONLY the JSON object.`,
-    messages: [{ role: "user", content: contextLines }],
+    messages: [{ role: "user", content: contextStr }],
   });
 
   const cleaned = response.text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();

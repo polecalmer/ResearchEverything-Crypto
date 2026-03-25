@@ -17,7 +17,7 @@ import {
   provenQueries, systemLearnings,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, isNull, sql } from "drizzle-orm";
+import { eq, ne, desc, and, isNull, isNotNull, sql } from "drizzle-orm";
 import { pool } from "./db";
 
 export interface IStorage {
@@ -88,6 +88,7 @@ export interface IStorage {
   deleteDashboardChart(id: string): Promise<boolean>;
 
   findProvenQuery(protocol: string, metricType: string): Promise<ProvenQuery | undefined>;
+  getFewShotExamples(protocol: string, metricType: string, limit?: number): Promise<ProvenQuery[]>;
   saveProvenQuery(data: InsertProvenQuery): Promise<ProvenQuery>;
   recordProvenQuerySuccess(id: string): Promise<void>;
   recordProvenQueryFailure(id: string): Promise<void>;
@@ -474,6 +475,38 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(provenQueries.successCount))
       .limit(1);
     return query;
+  }
+
+  async getFewShotExamples(protocol: string, metricType: string, limit: number = 3): Promise<ProvenQuery[]> {
+    const normalizedProtocol = protocol.toLowerCase().trim();
+    const normalizedMetric = metricType.toLowerCase().trim();
+
+    const sameMetricDiffProtocol = await db.select().from(provenQueries)
+      .where(and(
+        eq(provenQueries.metricType, normalizedMetric),
+        eq(provenQueries.isActive, true),
+        ne(provenQueries.protocol, normalizedProtocol),
+        isNotNull(provenQueries.sqlQuery),
+      ))
+      .orderBy(desc(provenQueries.successCount))
+      .limit(limit);
+
+    if (sameMetricDiffProtocol.length >= limit) return sameMetricDiffProtocol;
+
+    const remaining = limit - sameMetricDiffProtocol.length;
+    const existingIds = sameMetricDiffProtocol.map(q => q.id);
+
+    const sameProtocolDiffMetric = await db.select().from(provenQueries)
+      .where(and(
+        eq(provenQueries.protocol, normalizedProtocol),
+        eq(provenQueries.isActive, true),
+        ne(provenQueries.metricType, normalizedMetric),
+        isNotNull(provenQueries.sqlQuery),
+      ))
+      .orderBy(desc(provenQueries.successCount))
+      .limit(remaining);
+
+    return [...sameMetricDiffProtocol, ...sameProtocolDiffMetric.filter(q => !existingIds.includes(q.id))];
   }
 
   async saveProvenQuery(data: InsertProvenQuery): Promise<ProvenQuery> {
