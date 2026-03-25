@@ -10,8 +10,10 @@ import {
   type DuneQuery, type InsertDuneQuery,
   type TokenAnalysis,
   type DashboardChart, type InsertDashboardChart,
+  type ProvenQuery, type InsertProvenQuery,
   users, companies, founders, notes, reports, transactions,
   tokenProfiles, masterDuneQueries, duneQueries, tokenAnalyses, dashboardCharts,
+  provenQueries,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, sql } from "drizzle-orm";
@@ -82,6 +84,11 @@ export interface IStorage {
   getDashboardChart(id: string): Promise<DashboardChart | undefined>;
   getDashboardChartsByCompany(companyId: string, userId: string): Promise<DashboardChart[]>;
   deleteDashboardChart(id: string): Promise<boolean>;
+
+  findProvenQuery(protocol: string, metricType: string): Promise<ProvenQuery | undefined>;
+  saveProvenQuery(data: InsertProvenQuery): Promise<ProvenQuery>;
+  recordProvenQuerySuccess(id: string): Promise<void>;
+  recordProvenQueryFailure(id: string): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -435,6 +442,78 @@ export class DatabaseStorage implements IStorage {
   async deleteDashboardChart(id: string): Promise<boolean> {
     const result = await db.delete(dashboardCharts).where(eq(dashboardCharts.id, id)).returning();
     return result.length > 0;
+  }
+
+  async findProvenQuery(protocol: string, metricType: string): Promise<ProvenQuery | undefined> {
+    const normalizedProtocol = protocol.toLowerCase().trim();
+    const normalizedMetric = metricType.toLowerCase().trim();
+    const [query] = await db.select().from(provenQueries)
+      .where(and(
+        eq(provenQueries.protocol, normalizedProtocol),
+        eq(provenQueries.metricType, normalizedMetric),
+        eq(provenQueries.isActive, true),
+      ))
+      .orderBy(desc(provenQueries.successCount))
+      .limit(1);
+    return query;
+  }
+
+  async saveProvenQuery(data: InsertProvenQuery): Promise<ProvenQuery> {
+    const normalizedData = {
+      ...data,
+      protocol: data.protocol.toLowerCase().trim(),
+      metricType: data.metricType.toLowerCase().trim(),
+    };
+    const existing = await this.findProvenQuery(normalizedData.protocol, normalizedData.metricType);
+    if (existing) {
+      const [updated] = await db.update(provenQueries)
+        .set({
+          sqlQuery: normalizedData.sqlQuery,
+          chartType: normalizedData.chartType,
+          chartConfig: normalizedData.chartConfig,
+          xAxisKey: normalizedData.xAxisKey,
+          yAxisKey: normalizedData.yAxisKey,
+          yAxisLabel: normalizedData.yAxisLabel,
+          yAxisFormat: normalizedData.yAxisFormat,
+          successCount: sql`${provenQueries.successCount} + 1`,
+          failCount: 0,
+          isActive: true,
+          lastUsed: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(provenQueries.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [query] = await db.insert(provenQueries).values(normalizedData).returning();
+    return query;
+  }
+
+  async recordProvenQuerySuccess(id: string): Promise<void> {
+    await db.update(provenQueries)
+      .set({
+        successCount: sql`${provenQueries.successCount} + 1`,
+        failCount: 0,
+        lastUsed: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(provenQueries.id, id));
+  }
+
+  async recordProvenQueryFailure(id: string): Promise<void> {
+    await db.update(provenQueries)
+      .set({
+        failCount: sql`${provenQueries.failCount} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(provenQueries.id, id));
+    const [query] = await db.select().from(provenQueries).where(eq(provenQueries.id, id));
+    if (query && query.failCount >= 3) {
+      await db.update(provenQueries)
+        .set({ isActive: false, updatedAt: new Date() })
+        .where(eq(provenQueries.id, id));
+      console.log(`[ProvenQuery] Deactivated query "${query.metricType}" for "${query.protocol}" after ${query.failCount} failures`);
+    }
   }
 }
 

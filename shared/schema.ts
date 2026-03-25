@@ -242,6 +242,38 @@ export const usageEvents = pgTable("usage_events", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
+export const provenQueries = pgTable("proven_queries", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  protocol: text("protocol").notNull(),
+  metricType: text("metric_type").notNull(),
+  sqlQuery: text("sql_query").notNull(),
+  dataSource: text("data_source").notNull().default("dune-sql"),
+  chartType: text("chart_type"),
+  chartConfig: jsonb("chart_config"),
+  xAxisKey: text("x_axis_key"),
+  yAxisKey: text("y_axis_key"),
+  yAxisLabel: text("y_axis_label"),
+  yAxisFormat: text("y_axis_format"),
+  successCount: integer("success_count").notNull().default(1),
+  failCount: integer("fail_count").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  lastUsed: timestamp("last_used").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertProvenQuerySchema = createInsertSchema(provenQueries).omit({
+  id: true,
+  successCount: true,
+  failCount: true,
+  isActive: true,
+  lastUsed: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type ProvenQuery = typeof provenQueries.$inferSelect;
+export type InsertProvenQuery = z.infer<typeof insertProvenQuerySchema>;
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,

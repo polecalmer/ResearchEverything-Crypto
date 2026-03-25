@@ -88,6 +88,11 @@ The Data tab provides a chat-driven interface for building custom charts. Users 
 - Chart types: line, bar, area, composed (multi-axis overlays)
 - Each chart is saved to `dashboard_charts` table with its data source config, so users can refresh for updated data anytime
 - Agent can create single or multiple charts from one request
+- **Self-learning query system:** The Data Agent uses a closed feedback loop inspired by autoresearch:
+  - **Retry loop (Layer 1):** When a Dune SQL query fails or returns bad data, the error/sample is fed back to the LLM, which rewrites the query. Up to 2 retries before falling back to other sources.
+  - **Query memory (Layer 2):** When a dune-sql query succeeds and passes sanity checks, it's saved to `proven_queries` table with protocol + metric type. On future requests, the system checks for a proven query first — skipping LLM generation entirely. Queries accumulate success counts; queries that fail 3 times are deactivated.
+  - **Data sanity checker:** All chart data goes through `checkDataSanity()` which catches all-zero datasets, raw wei values (>1e15), and majority-negative currency values.
+  - **Data source routing:** DeFiLlama is preferred for aggregate metrics (revenue, fees, TVL, volume). Dune SQL is used only for metrics DeFiLlama doesn't cover (lending, user counts, custom analytics).
 - Key files: `server/data-agent.ts`, `server/defillama-client.ts`, `client/src/pages/data-tab.tsx`
 
 Key files: `server/dune-client.ts`, `server/token-agent.ts`, `server/allium-client.ts`, `client/src/pages/token-intelligence.tsx`

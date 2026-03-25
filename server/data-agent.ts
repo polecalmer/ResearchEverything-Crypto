@@ -581,20 +581,138 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
     try {
       let data: any[] | null = null;
       let fetchError: string | null = null;
+      let usedProvenQueryId: string | null = null;
+      let finalSql: string | null = null;
+      const metricType = extractMetricType(plan.title, plan.description);
 
-      try {
-        data = await fetchChartData(plan.dataSource, { ...plan.dataSourceConfig, forceRefresh: true });
-      } catch (err: any) {
-        fetchError = err.message || "Failed to fetch data";
-        console.warn(`[Data Agent] Primary source "${plan.dataSource}" failed for "${plan.title}": ${fetchError}`);
+      const provenQuery = (plan.dataSource === "dune-sql" || plan.dataSource === "dune")
+        ? await storage.findProvenQuery(companyName, metricType)
+        : null;
+
+      if (provenQuery) {
+        console.log(`[Data Agent] Found proven query for "${companyName}/${metricType}" (${provenQuery.successCount} successes)`);
+        try {
+          plan.dataSource = "dune-sql";
+          plan.dataSourceConfig = { sql: provenQuery.sqlQuery };
+          if (provenQuery.chartConfig) plan.chartConfig = provenQuery.chartConfig as Record<string, any>;
+          if (provenQuery.chartType) plan.chartType = provenQuery.chartType;
+          data = await fetchChartData("dune-sql", { sql: provenQuery.sqlQuery, forceRefresh: true });
+          finalSql = provenQuery.sqlQuery;
+          usedProvenQueryId = provenQuery.id;
+        } catch (err: any) {
+          console.warn(`[Data Agent] Proven query failed for "${plan.title}": ${err.message}`);
+          await storage.recordProvenQueryFailure(provenQuery.id);
+          usedProvenQueryId = null;
+          fetchError = err.message;
+        }
+      }
+
+      if (!data || data.length === 0) {
+        if (!provenQuery) {
+          try {
+            data = await fetchChartData(plan.dataSource, { ...plan.dataSourceConfig, forceRefresh: true });
+            if (plan.dataSource === "dune-sql" && plan.dataSourceConfig?.sql) {
+              finalSql = plan.dataSourceConfig.sql;
+            }
+          } catch (err: any) {
+            fetchError = err.message || "Failed to fetch data";
+            console.warn(`[Data Agent] Primary source "${plan.dataSource}" failed for "${plan.title}": ${fetchError}`);
+            if (plan.dataSource === "dune-sql" && plan.dataSourceConfig?.sql) {
+              finalSql = plan.dataSourceConfig.sql;
+            }
+          }
+        }
       }
 
       if (data && data.length > 0) {
         const sanity = checkDataSanity(data, plan);
         if (sanity) {
           console.warn(`[Data Agent] Data sanity check failed for "${plan.title}": ${sanity}`);
-          data = null;
+          if (usedProvenQueryId) {
+            await storage.recordProvenQueryFailure(usedProvenQueryId);
+            usedProvenQueryId = null;
+          }
           fetchError = sanity;
+
+          if (finalSql && plan.dataSource === "dune-sql") {
+            const sampleValues = data.slice(0, 3).map(d => JSON.stringify(d)).join("\n");
+            const errorDetail = `${sanity}\n\nSample rows from failed query:\n${sampleValues}`;
+            for (let attempt = 1; attempt <= 2; attempt++) {
+              const retryResult = await retryDuneSqlWithFeedback(
+                finalSql, errorDetail, plan, tokenProfile, companyName, attempt,
+              );
+              if (retryResult) {
+                const retrySanity = checkDataSanity(retryResult.data, plan);
+                if (!retrySanity) {
+                  data = retryResult.data;
+                  finalSql = retryResult.sql;
+                  fetchError = null;
+                  plan.dataSourceConfig = { sql: retryResult.sql };
+                  if (retryResult.chartMeta) {
+                    plan.chartConfig = {
+                      xAxis: { dataKey: retryResult.chartMeta.xAxisKey || "date", label: "Date", type: "date" },
+                      yAxes: [{
+                        dataKey: retryResult.chartMeta.yAxisKey || Object.keys(retryResult.data[0] || {}).find(k => k !== (retryResult.chartMeta.xAxisKey || "date")) || "value",
+                        label: retryResult.chartMeta.yAxisLabel || plan.title,
+                        color: "#38bdf8",
+                        format: retryResult.chartMeta.yAxisFormat || "currency",
+                        yAxisId: "left",
+                      }],
+                    };
+                  }
+                  console.log(`[Data Agent] Retry #${attempt} passed sanity check — using retried data`);
+                  break;
+                } else {
+                  console.warn(`[Data Agent] Retry #${attempt} failed sanity: ${retrySanity}`);
+                  finalSql = retryResult.sql;
+                  fetchError = retrySanity;
+                }
+              } else {
+                break;
+              }
+            }
+          }
+
+          if (fetchError) {
+            data = null;
+          }
+        }
+      }
+
+      if ((!data || data.length === 0) && fetchError && plan.dataSource === "dune-sql" && finalSql) {
+        for (let attempt = 1; attempt <= 2; attempt++) {
+          const retryResult = await retryDuneSqlWithFeedback(
+            finalSql, fetchError!, plan, tokenProfile, companyName, attempt,
+          );
+          if (retryResult) {
+            const retrySanity = checkDataSanity(retryResult.data, plan);
+            if (!retrySanity) {
+              data = retryResult.data;
+              finalSql = retryResult.sql;
+              fetchError = null;
+              plan.dataSourceConfig = { sql: retryResult.sql };
+              if (retryResult.chartMeta) {
+                plan.chartConfig = {
+                  xAxis: { dataKey: retryResult.chartMeta.xAxisKey || "date", label: "Date", type: "date" },
+                  yAxes: [{
+                    dataKey: retryResult.chartMeta.yAxisKey || Object.keys(retryResult.data[0] || {}).find(k => k !== (retryResult.chartMeta.xAxisKey || "date")) || "value",
+                    label: retryResult.chartMeta.yAxisLabel || plan.title,
+                    color: "#38bdf8",
+                    format: retryResult.chartMeta.yAxisFormat || "currency",
+                    yAxisId: "left",
+                  }],
+                };
+              }
+              console.log(`[Data Agent] Retry #${attempt} succeeded after primary failure`);
+              break;
+            } else {
+              console.warn(`[Data Agent] Retry #${attempt} also failed sanity: ${retrySanity}`);
+              finalSql = retryResult.sql;
+              fetchError = retrySanity;
+            }
+          } else {
+            break;
+          }
         }
       }
 
@@ -614,6 +732,9 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
             plan.chartConfig = fallbackResult.chartConfig || plan.chartConfig;
             plan.chartType = fallbackResult.chartType || plan.chartType;
             plan.title = fallbackResult.title || plan.title;
+            if (fallbackResult.dataSource === "dune-sql" && fallbackResult.dataSourceConfig?.sql) {
+              finalSql = fallbackResult.dataSourceConfig.sql;
+            }
             console.log(`[Data Agent] Fallback succeeded: re-routed "${plan.title}" via ${plan.dataSource}`);
             await storage.updateDashboardChart(chart.id, {
               title: plan.title,
@@ -622,6 +743,32 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
               chartType: plan.chartType,
               chartConfig: JSON.stringify(plan.chartConfig),
             });
+          }
+        }
+      }
+
+      if (data && data.length > 0 && finalSql && (plan.dataSource === "dune-sql")) {
+        if (usedProvenQueryId) {
+          await storage.recordProvenQuerySuccess(usedProvenQueryId);
+        } else {
+          try {
+            const yAxes = plan.chartConfig?.yAxes || [];
+            const firstY = yAxes[0] || {};
+            await storage.saveProvenQuery({
+              protocol: companyName,
+              metricType,
+              sqlQuery: finalSql,
+              dataSource: "dune-sql",
+              chartType: plan.chartType || null,
+              chartConfig: plan.chartConfig || null,
+              xAxisKey: plan.chartConfig?.xAxis?.dataKey || null,
+              yAxisKey: firstY.dataKey || null,
+              yAxisLabel: firstY.label || null,
+              yAxisFormat: firstY.format || null,
+            });
+            console.log(`[Data Agent] Saved proven query for "${companyName}/${metricType}"`);
+          } catch (saveErr: any) {
+            console.warn(`[Data Agent] Failed to save proven query: ${saveErr.message}`);
           }
         }
       }
@@ -914,6 +1061,120 @@ function checkDataSanity(data: any[], plan: ChartPlan): string | null {
   }
 
   return null;
+}
+
+function extractMetricType(title: string, description: string = ""): string {
+  const combined = `${title} ${description}`.toLowerCase();
+  const patterns: [RegExp, string][] = [
+    [/\brevenue\b/, "revenue"],
+    [/\bfees?\b/, "fees"],
+    [/\btvl\b|total value locked/, "tvl"],
+    [/\bborrow/, "borrow_volume"],
+    [/\bsuppl(?:y|ied)\b|\bdeposit/, "supply_volume"],
+    [/\bliquidat/, "liquidations"],
+    [/\butiliz/, "utilization"],
+    [/\bdex\b.*\bvolume\b|\btrading volume\b/, "dex_volume"],
+    [/\bvolume\b/, "volume"],
+    [/\bprice\b/, "price"],
+    [/\bmarket\s*cap\b|\bmcap\b/, "market_cap"],
+    [/\buser\b.*\b(?:count|growth|active)\b|\bdau\b|\bmau\b/, "user_activity"],
+    [/\bholder\b|\bdistribution\b/, "holder_distribution"],
+    [/\bgovernance\b|\bvot/, "governance"],
+    [/\btransfer\b|\bflow\b/, "token_flows"],
+    [/\bp\/e\b|\bearnings\b/, "pe_ratio"],
+    [/\bgas\b/, "gas_usage"],
+  ];
+  for (const [pattern, metric] of patterns) {
+    if (pattern.test(combined)) return metric;
+  }
+  return combined.replace(/[^a-z0-9]+/g, "_").slice(0, 50);
+}
+
+async function retryDuneSqlWithFeedback(
+  originalSql: string,
+  errorInfo: string,
+  plan: ChartPlan,
+  tokenProfile: TokenProfile | null,
+  companyName: string,
+  attemptNumber: number,
+): Promise<{ data: any[]; sql: string; chartMeta?: any } | null> {
+  const ticker = tokenProfile?.tokenTicker || "";
+  const chain = tokenProfile?.chain || "ethereum";
+  const contractAddress = tokenProfile?.contractAddress || "";
+  const normalizedChain = chain === "hyperliquid" ? "hyperevm" : chain.toLowerCase();
+
+  console.log(`[Data Agent] Retry #${attemptNumber} for "${plan.title}" — feeding error back to LLM`);
+
+  const response = await callAnthropicServerHeavy({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 2000,
+    system: `You write DuneSQL (Trino dialect) queries. A previous query FAILED. Fix it based on the error.
+
+Return ONLY a JSON object:
+{
+  "sql": "SELECT ...",
+  "xAxisKey": "date column name",
+  "yAxisKey": "value column name",
+  "yAxisLabel": "Human Label",
+  "yAxisFormat": "currency" | "number" | "percent"
+}
+
+DuneSQL rules:
+- Chain tables: ${normalizedChain}.transactions, ${normalizedChain}.logs
+- Spellbook tables: dex.trades, lending.borrow, lending.supply, lending.withdraw, tokens.transfers
+- ALWAYS use amount_usd, NEVER raw amount/value columns
+- Prefer Spellbook tables over raw chain tables
+- GROUP BY date_trunc('week', block_time) for time series
+- Always ORDER BY the date column
+- Use block_time >= NOW() - INTERVAL '90' DAY
+- Filter by project name in lowercase
+NO markdown. JSON only.`,
+    messages: [
+      { role: "user", content: `Protocol: ${companyName}${ticker ? `\nToken: ${ticker}` : ""}${contractAddress ? `\nContract: ${contractAddress} on ${chain}` : ""}\n\nChart title: "${plan.title}"\nDescription: "${plan.description || ""}"\n\nPrevious SQL that FAILED:\n${originalSql}\n\nError/Problem:\n${errorInfo}\n\nWrite a FIXED query that avoids this problem.` },
+    ],
+  });
+
+  const cleaned = response.text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+  let parsed: any;
+  try {
+    parsed = JSON.parse(cleaned);
+  } catch {
+    console.warn(`[Data Agent] Retry #${attemptNumber} LLM returned invalid JSON`);
+    return null;
+  }
+
+  if (!parsed.sql) {
+    console.warn(`[Data Agent] Retry #${attemptNumber} LLM returned no SQL`);
+    return null;
+  }
+
+  console.log(`[Data Agent] Retry #${attemptNumber} LLM wrote new SQL: ${parsed.sql.substring(0, 120)}...`);
+
+  try {
+    const result = await executeDuneSQL(parsed.sql, `${companyName.toLowerCase().replace(/\s+/g, "_")}_retry${attemptNumber}_${Date.now()}`);
+    if (result.rows.length === 0) {
+      console.warn(`[Data Agent] Retry #${attemptNumber} returned 0 rows`);
+      return null;
+    }
+
+    const processedData = result.rows.map((row) => {
+      const processed: Record<string, any> = {};
+      for (const [key, value] of Object.entries(row)) {
+        if ((key.toLowerCase().includes('date') || key.toLowerCase().includes('time') || key === 'day' || key === 'week' || key === 'month') && typeof value === 'string' && /\d{4}/.test(value)) {
+          processed[key] = new Date(value).getTime() / 1000;
+        } else {
+          processed[key] = value;
+        }
+      }
+      return processed;
+    });
+
+    console.log(`[Data Agent] Retry #${attemptNumber} succeeded (${result.rows.length} rows)`);
+    return { data: processedData, sql: parsed.sql, chartMeta: parsed };
+  } catch (execErr: any) {
+    console.warn(`[Data Agent] Retry #${attemptNumber} execution failed: ${execErr.message}`);
+    return null;
+  }
 }
 
 interface FallbackResult {
