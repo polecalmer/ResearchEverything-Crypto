@@ -231,12 +231,12 @@ LENDING & BORROWING:
 - lending.borrow — All lending borrows across protocols
   Columns: block_time, blockchain, project, version, borrower, token_address, token_symbol, amount, amount_usd, tx_hash
   project: 'aave', 'compound', 'morpho', 'spark', 'venus', 'benqi', 'radiant', 'silo', etc.
-- lending.repay — Loan repayments (same schema as borrow)
 - lending.supply — Lending deposits/supply
   Columns: block_time, blockchain, project, version, depositor, token_address, token_symbol, amount, amount_usd, tx_hash
 - lending.withdraw — Withdrawals from lending pools
 - lending.flashloans — Flash loan events
 - lending.liquidations — Protocol liquidation events
+IMPORTANT: There is NO "lending.repay" table in Dune Spellbook. Do NOT use it. For outstanding borrows, use lending.borrow only (it tracks net borrow activity). For repayment-like metrics, look at decoded protocol-specific events instead.
 
 STABLECOINS:
 - stablecoin.transfers — Cross-chain stablecoin transfers
@@ -270,9 +270,10 @@ PROTOCOL-SPECIFIC DECODED TABLES (Dune decodes popular protocols):
 
 FINDING PROTOCOL TABLES — DISCOVERY QUERIES:
 When you're not sure which tables exist for a protocol, use the lending.* spellbook tables first (they aggregate across all lending protocols). For protocol-specific decoded tables:
-- Morpho on Ethereum: lending.borrow/supply/repay WHERE project = 'morpho' AND blockchain = 'ethereum'
-- Morpho on Base: lending.borrow/supply/repay WHERE project = 'morpho' AND blockchain = 'base'  
+- Morpho on Ethereum: lending.borrow/supply/withdraw WHERE project = 'morpho' AND blockchain = 'ethereum'
+- Morpho on Base: lending.borrow/supply/withdraw WHERE project = 'morpho' AND blockchain = 'base'  
 - The Spellbook tables (dex.trades, lending.borrow, etc.) are the safest starting point — they're curated and work across protocols.
+- REMINDER: There is NO lending.repay table. Do NOT reference it.
 
 ═══════════════════════════════════════════════════════════════
 COMMON QUERY PATTERNS
@@ -286,13 +287,15 @@ COMMON QUERY PATTERNS
      AND block_time > now() - interval '365' day
    GROUP BY 1 ORDER BY 1
 
-2. LENDING ACTIVITY (borrows + repays):
+2. LENDING ACTIVITY (borrows):
    SELECT date_trunc('week', block_time) as week,
      SUM(amount_usd) as weekly_borrow_volume,
      COUNT(DISTINCT borrower) as unique_borrowers
    FROM lending.borrow
    WHERE project = 'morpho' AND block_time > now() - interval '365' day
+     AND amount_usd IS NOT NULL AND amount_usd > 0
    GROUP BY 1 ORDER BY 1
+   NOTE: There is NO lending.repay table. Do not try to use it.
 
 3. DEX VOLUME (daily):
    SELECT date_trunc('day', block_time) as day,
@@ -1121,13 +1124,16 @@ Return ONLY a JSON object:
 
 DuneSQL rules:
 - Chain tables: ${normalizedChain}.transactions, ${normalizedChain}.logs
-- Spellbook tables: dex.trades, lending.borrow, lending.supply, lending.withdraw, tokens.transfers
+- Spellbook lending tables: lending.borrow, lending.supply, lending.withdraw, lending.flashloans, lending.liquidations
+- THERE IS NO "lending.repay" TABLE. It does not exist. Do NOT use it.
+- Other Spellbook: dex.trades, tokens.transfers
 - ALWAYS use amount_usd, NEVER raw amount/value columns
 - Prefer Spellbook tables over raw chain tables
 - GROUP BY date_trunc('week', block_time) for time series
 - Always ORDER BY the date column
 - Use block_time >= NOW() - INTERVAL '90' DAY
 - Filter by project name in lowercase
+- For "outstanding borrows" or "active loans": use lending.borrow only — SUM(amount_usd) gives net borrow activity
 NO markdown. JSON only.`,
     messages: [
       { role: "user", content: `Protocol: ${companyName}${ticker ? `\nToken: ${ticker}` : ""}${contractAddress ? `\nContract: ${contractAddress} on ${chain}` : ""}\n\nChart title: "${plan.title}"\nDescription: "${plan.description || ""}"\n\nPrevious SQL that FAILED:\n${originalSql}\n\nError/Problem:\n${errorInfo}\n\nWrite a FIXED query that avoids this problem.` },
@@ -1445,7 +1451,8 @@ DuneSQL tips:
 - DEX trades: dex.trades (columns: block_time, token_bought_amount, token_sold_amount, amount_usd, project, blockchain)
 - Token transfers: tokens.transfers (columns: block_time, "from", "to", contract_address, amount_raw, blockchain)
 - Prices: prices.usd (columns: minute, price, symbol, contract_address, blockchain)
-- Lending: lending.borrow, lending.repay, lending.supply, lending.withdraw (columns include amount_usd)
+- Lending: lending.borrow, lending.supply, lending.withdraw, lending.flashloans, lending.liquidations (columns include amount_usd)
+- IMPORTANT: There is NO "lending.repay" table. Do NOT use it. It does not exist in Dune Spellbook.
 - CRITICAL: ALWAYS use amount_usd columns, NEVER raw amount/value columns (they are in wei/native units and produce absurd numbers)
 - Always GROUP BY date_trunc('day', block_time) or 'week' for time series
 - Use block_time >= NOW() - INTERVAL '90' DAY for reasonable timeframes
