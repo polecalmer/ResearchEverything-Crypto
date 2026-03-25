@@ -1016,6 +1016,41 @@ async function attemptFallback(
       } catch (e: any) {
         console.warn(`[Data Agent] Dune revenue fallback failed: ${e.message}`);
       }
+
+      if (contractAddress) {
+        try {
+          const normalizedChain = chain === "hyperliquid" ? "hyperevm" : chain.toLowerCase();
+          const sql = `
+SELECT
+  date_trunc('day', block_time) AS date,
+  SUM(CAST(value AS double) / 1e18) AS revenue
+FROM ${normalizedChain}.transactions
+WHERE "to" = FROM_HEX('${contractAddress.replace("0x", "")}')
+  AND block_time >= NOW() - INTERVAL '90' DAY
+  AND success = true
+GROUP BY 1
+ORDER BY 1
+`;
+          console.log(`[Data Agent] Revenue fallback: writing ad-hoc Dune SQL for ${companyName} (${contractAddress})`);
+          const result = await executeDuneSQL(sql, `${companyName.toLowerCase()}_revenue_fallback`);
+          if (result.rows.length > 0) {
+            console.log(`[Data Agent] Revenue fallback via Dune SQL succeeded (${result.rows.length} rows)`);
+            return {
+              data: result.rows,
+              dataSource: "dune-sql",
+              dataSourceConfig: { sql },
+              chartConfig: {
+                xAxis: { dataKey: "date", label: "Date", type: "date" },
+                yAxes: [{ dataKey: "revenue", label: "Daily Revenue (ETH)", color: "#38bdf8", format: "number", yAxisId: "left" }],
+              },
+              chartType: "bar",
+              title: `${companyName} Daily Revenue (On-Chain)`,
+            };
+          }
+        } catch (e: any) {
+          console.warn(`[Data Agent] Dune SQL revenue fallback failed: ${e.message}`);
+        }
+      }
     }
   }
 
