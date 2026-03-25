@@ -274,6 +274,32 @@ export const insertProvenQuerySchema = createInsertSchema(provenQueries).omit({
 export type ProvenQuery = typeof provenQueries.$inferSelect;
 export type InsertProvenQuery = z.infer<typeof insertProvenQuerySchema>;
 
+export const systemLearnings = pgTable("system_learnings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  scope: text("scope").notNull(),
+  scopeKey: text("scope_key").notNull(),
+  ruleType: text("rule_type").notNull(),
+  ruleText: text("rule_text").notNull(),
+  confidence: integer("confidence").notNull().default(50),
+  source: text("source").notNull().default("auto"),
+  triggeredBy: text("triggered_by"),
+  appliedCount: integer("applied_count").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSystemLearningSchema = createInsertSchema(systemLearnings).omit({
+  id: true,
+  confidence: true,
+  appliedCount: true,
+  isActive: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type SystemLearning = typeof systemLearnings.$inferSelect;
+export type InsertSystemLearning = z.infer<typeof insertSystemLearningSchema>;
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,

@@ -13,7 +13,7 @@ import {
 } from "./enrichment";
 import { requireAuth } from "./auth";
 import { enrichmentPaywall, nextStepsPaywall, deepResearchPaywall, tokenIntelPaywall, duneQueryPaywall, tokenSnapshotPaywall, dataChartPaywall } from "./mpp";
-import { runDataAgent, refreshChartData, DATA_CHART_CHARGE } from "./data-agent";
+import { runDataAgent, refreshChartData, DATA_CHART_CHARGE, analyzeFailurePatterns } from "./data-agent";
 import { fetchTokenSnapshot } from "./allium-client";
 import { executeDuneQuery, getLatestDuneResults, isDuneConfigured } from "./dune-client";
 import { runTokenAnalysis } from "./token-agent";
@@ -1399,6 +1399,57 @@ export async function registerRoutes(
     if (!isAdmin) return res.status(403).json({ message: "Admin only" });
     try {
       const result = await withdrawChannel(req.params.channelId);
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/admin/learnings", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const learnings = await storage.getAllActiveLearnings();
+      res.json(learnings);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/admin/learnings", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const learning = await storage.saveLearning({
+        scope: req.body.scope || "global",
+        scopeKey: req.body.scopeKey || "global",
+        ruleType: req.body.ruleType,
+        ruleText: req.body.ruleText,
+        source: "manual",
+        triggeredBy: "admin",
+      });
+      res.json(learning);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/admin/learnings/:id", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      await storage.deactivateLearning(req.params.id);
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/admin/learnings/analyze", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const result = await analyzeFailurePatterns();
       res.json(result);
     } catch (e: any) {
       res.status(500).json({ message: e.message });

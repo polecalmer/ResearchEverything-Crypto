@@ -93,6 +93,13 @@ The Data tab provides a chat-driven interface for building custom charts. Users 
   - **Query memory (Layer 2):** When a dune-sql query succeeds and passes sanity checks, it's saved to `proven_queries` table with protocol + metric type. On future requests, the system checks for a proven query first — skipping LLM generation entirely. Queries accumulate success counts; queries that fail 3 times are deactivated.
   - **Data sanity checker:** All chart data goes through `checkDataSanity()` which catches all-zero datasets, raw wei values (>1e15), and majority-negative currency values.
   - **Data source routing:** DeFiLlama is preferred for aggregate metrics (revenue, fees, TVL, volume). Dune SQL is used only for metrics DeFiLlama doesn't cover (lending, user counts, custom analytics).
+  - **Prompt evolution (Layer 3):** The system auto-learns from failures and injects accumulated knowledge into future prompts. Three mechanisms:
+    - **Auto-learn on failure:** After all retries/fallbacks are exhausted, an LLM call analyzes the failure and extracts a reusable rule (e.g., "Morpho's DeFiLlama slug is morpho-v1"). Rules stored in `system_learnings` table with scope (global/protocol), rule type (table_warning/slug_hint/routing_override/sql_pattern/data_caveat), confidence, and provenance.
+    - **Prompt injection:** Before generating any chart plan, the system loads active learnings for the target protocol + global learnings and appends them to the system prompt. Rules are also injected into retry prompts.
+    - **Periodic analysis:** `analyzeFailurePatterns()` reviews recent failures and stale proven queries to identify systemic patterns (admin-triggered via `/api/admin/learnings/analyze`).
+  - **LLM metric classification:** When keyword matching can't classify a metric type (the proven_queries cache key), a cheap LLM call canonicalizes it instead of falling back to raw string hashing.
+  - **Magnitude-change detection:** If a proven query previously returned values in one range and now returns values 100x different, it's flagged as likely incorrect.
+  - **Observability:** Full lifecycle logging for every chart: request→cache hit/miss→proven query→retries→fallback→outcome, with timing and error details. `[Lifecycle]` log prefix for easy filtering.
 - Key files: `server/data-agent.ts`, `server/defillama-client.ts`, `client/src/pages/data-tab.tsx`
 
 Key files: `server/dune-client.ts`, `server/token-agent.ts`, `server/allium-client.ts`, `client/src/pages/token-intelligence.tsx`

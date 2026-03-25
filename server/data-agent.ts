@@ -1,4 +1,4 @@
-import { callAnthropicServerHeavy, type AnthropicResponse } from "./mpp-client";
+import { callAnthropicServer, callAnthropicServerHeavy, type AnthropicResponse } from "./mpp-client";
 import { getLatestDuneResults, executeDuneQuery, executeDuneSQL, isDuneConfigured, type DuneQueryResult } from "./dune-client";
 import { fetchTokenSnapshot, type TokenSnapshot } from "./allium-client";
 import { isServerMppReady } from "./mpp-client";
@@ -6,7 +6,7 @@ import * as defillama from "./defillama-client";
 import * as alliumApi from "./allium-api";
 import { storage } from "./storage";
 import { MARKUP_MULTIPLIER } from "./enrichment";
-import type { Company, TokenProfile, DashboardChart, DuneQuery, MasterDuneQuery } from "@shared/schema";
+import type { Company, TokenProfile, DashboardChart, DuneQuery, MasterDuneQuery, SystemLearning } from "@shared/schema";
 
 const DATA_CHART_CHARGE = 0.50;
 
@@ -516,12 +516,15 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
   contextParts.push(`Allium Prices: AVAILABLE (on-chain OHLCV price history via DEX data)`);
   contextParts.push(`Allium SQL: AVAILABLE (custom SQL analytics — holder distribution, balance queries, on-chain data across 150+ chains)`);
 
+  const learnedRules = await loadLearningsForPrompt(companyName);
+  const systemPrompt = learnedRules ? DATA_AGENT_SYSTEM + learnedRules : DATA_AGENT_SYSTEM;
+
   const dataContext = contextParts.join('\n');
 
   const response = await callAnthropicServerHeavy({
     model: "claude-opus-4-6",
     max_tokens: 4000,
-    system: DATA_AGENT_SYSTEM,
+    system: systemPrompt,
     messages: [
       {
         role: "user",
@@ -586,7 +589,10 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
       let fetchError: string | null = null;
       let usedProvenQueryId: string | null = null;
       let finalSql: string | null = null;
-      const metricType = extractMetricType(plan.title, plan.description);
+      let retryCount = 0;
+      let fallbackUsed = false;
+      const chartStartTime = Date.now();
+      const metricType = await extractMetricType(plan.title, plan.description);
 
       const provenQuery = (plan.dataSource === "dune-sql" || plan.dataSource === "dune")
         ? await storage.findProvenQuery(companyName, metricType)
@@ -641,6 +647,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
             const sampleValues = data.slice(0, 3).map(d => JSON.stringify(d)).join("\n");
             const errorDetail = `${sanity}\n\nSample rows from failed query:\n${sampleValues}`;
             for (let attempt = 1; attempt <= 2; attempt++) {
+              retryCount++;
               const retryResult = await retryDuneSqlWithFeedback(
                 finalSql, errorDetail, plan, tokenProfile, companyName, attempt,
               );
@@ -684,6 +691,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
 
       if ((!data || data.length === 0) && fetchError && plan.dataSource === "dune-sql" && finalSql) {
         for (let attempt = 1; attempt <= 2; attempt++) {
+          retryCount++;
           const retryResult = await retryDuneSqlWithFeedback(
             finalSql, fetchError!, plan, tokenProfile, companyName, attempt,
           );
@@ -720,6 +728,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
       }
 
       if ((!data || data.length === 0) && fetchError) {
+        fallbackUsed = true;
         const fallbackResult = await attemptFallback(plan, fetchError, tokenProfile, companyName);
         if (fallbackResult) {
           const fallbackSanity = checkDataSanity(fallbackResult.data, {
@@ -794,6 +803,25 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
           errorMessage: errorMsg,
         });
         charts.push(updatedChart || chart);
+
+        logLifecycle({
+          protocol: companyName,
+          userPrompt,
+          chartTitle: plan.title,
+          metricType,
+          dataSource: plan.dataSource,
+          cacheHit: false,
+          provenQueryUsed: !!usedProvenQueryId,
+          retryCount,
+          fallbackUsed,
+          outcome: "failed",
+          finalDataSource: null,
+          errorMessage: errorMsg,
+          durationMs: Date.now() - chartStartTime,
+          sql: finalSql,
+        });
+
+        autoLearnFromFailure(companyName, plan.title, metricType, plan.dataSource, errorMsg, finalSql).catch(() => {});
         continue;
       }
 
@@ -885,16 +913,118 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
         status: "completed",
       });
       charts.push(updatedChart || chart);
+
+      logLifecycle({
+        protocol: companyName,
+        userPrompt,
+        chartTitle: plan.title,
+        metricType,
+        dataSource: plan.dataSource,
+        cacheHit: !!usedProvenQueryId && !fetchError,
+        provenQueryUsed: !!usedProvenQueryId,
+        retryCount,
+        fallbackUsed,
+        outcome: "success",
+        finalDataSource: plan.dataSource,
+        errorMessage: null,
+        durationMs: Date.now() - chartStartTime,
+        sql: finalSql,
+      });
     } catch (err: any) {
       const updatedChart = await storage.updateDashboardChart(chart.id, {
         status: "failed",
         errorMessage: err.message || "Failed to fetch data",
       });
       charts.push(updatedChart || chart);
+
+      logLifecycle({
+        protocol: companyName,
+        userPrompt,
+        chartTitle: plan.title,
+        metricType,
+        dataSource: plan.dataSource,
+        cacheHit: false,
+        provenQueryUsed: false,
+        retryCount,
+        fallbackUsed,
+        outcome: "failed",
+        finalDataSource: null,
+        errorMessage: err.message,
+        durationMs: Date.now() - chartStartTime,
+        sql: finalSql,
+      });
+
+      autoLearnFromFailure(companyName, plan.title, metricType, plan.dataSource, err.message, finalSql).catch(() => {});
     }
   }
 
   return { charts, totalCost };
+}
+
+export async function analyzeFailurePatterns(): Promise<{ analyzed: number; newLearnings: number }> {
+  try {
+    const staleQueries = await storage.getStaleProvenQueries(30);
+    console.log(`[Layer3] Found ${staleQueries.length} stale proven queries (>30 days)`);
+
+    const allLearnings = await storage.getAllActiveLearnings();
+    const failedCharts = await storage.getDashboardChartsByStatus("failed", 50);
+
+    if (failedCharts.length === 0 && staleQueries.length === 0) {
+      return { analyzed: 0, newLearnings: 0 };
+    }
+
+    const failureSummary = failedCharts.map((c: any) => ({
+      title: c.title,
+      dataSource: c.dataSource,
+      error: c.errorMessage?.substring(0, 150),
+    }));
+
+    const existingRules = allLearnings.map(l => `[${l.scope}/${l.scopeKey}] ${l.ruleText}`).join("\n");
+
+    const response = await callAnthropicServer({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 1000,
+      system: `You analyze patterns in failed data queries to generate reusable rules. Review the failures below and identify systemic issues (NOT one-off errors).
+
+Return a JSON array of new rules:
+[{"scope":"global"|"protocol","scopeKey":"protocol_name_or_global","ruleType":"table_warning"|"slug_hint"|"routing_override"|"sql_pattern"|"data_caveat","ruleText":"instruction for future queries (max 200 chars)"}]
+
+Existing rules (do NOT duplicate these):
+${existingRules || "(none)"}
+
+Return [] if no new patterns found. JSON only.`,
+      messages: [{
+        role: "user",
+        content: `Recent failures (${failureSummary.length}):\n${JSON.stringify(failureSummary, null, 2)}\n\nStale proven queries (${staleQueries.length}):\n${staleQueries.map(q => `${q.protocol}/${q.metricType}: ${q.sqlQuery.substring(0, 100)}...`).join("\n")}`,
+      }],
+    });
+
+    const cleaned = response.text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    const rules = JSON.parse(cleaned);
+
+    let newCount = 0;
+    if (Array.isArray(rules)) {
+      for (const rule of rules) {
+        if (rule.ruleType && rule.ruleText) {
+          await storage.saveLearning({
+            scope: rule.scope || "global",
+            scopeKey: rule.scopeKey || "global",
+            ruleType: rule.ruleType,
+            ruleText: rule.ruleText,
+            source: "analysis",
+            triggeredBy: "periodic_analysis",
+          });
+          newCount++;
+          console.log(`[Layer3] New pattern rule: "${rule.ruleText}"`);
+        }
+      }
+    }
+
+    return { analyzed: failureSummary.length + staleQueries.length, newLearnings: newCount };
+  } catch (err: any) {
+    console.warn(`[Layer3] Pattern analysis failed: ${err.message}`);
+    return { analyzed: 0, newLearnings: 0 };
+  }
 }
 
 export async function refreshChartData(chartId: string): Promise<DashboardChart> {
@@ -1066,7 +1196,29 @@ function checkDataSanity(data: any[], plan: ChartPlan): string | null {
   return null;
 }
 
-function extractMetricType(title: string, description: string = ""): string {
+function checkDataSanityWithHistory(data: any[], plan: ChartPlan, historicalMedian: number | null): string | null {
+  const basic = checkDataSanity(data, plan);
+  if (basic) return basic;
+
+  if (historicalMedian && historicalMedian !== 0) {
+    const magCheck = checkMagnitudeShift(data, { chartConfig: plan.chartConfig }, historicalMedian);
+    if (magCheck) return magCheck;
+  }
+
+  return null;
+}
+
+const CANONICAL_METRICS = [
+  "revenue", "fees", "tvl", "borrow_volume", "supply_volume",
+  "liquidations", "utilization", "dex_volume", "volume", "price",
+  "market_cap", "user_activity", "holder_distribution", "governance",
+  "token_flows", "pe_ratio", "gas_usage", "yield", "staking",
+  "treasury", "buyback", "token_supply",
+];
+
+const metricTypeCache = new Map<string, string>();
+
+function extractMetricTypeFast(title: string, description: string = ""): string {
   const combined = `${title} ${description}`.toLowerCase();
   const patterns: [RegExp, string][] = [
     [/\brevenue\b/, "revenue"],
@@ -1086,11 +1238,183 @@ function extractMetricType(title: string, description: string = ""): string {
     [/\btransfer\b|\bflow\b/, "token_flows"],
     [/\bp\/e\b|\bearnings\b/, "pe_ratio"],
     [/\bgas\b/, "gas_usage"],
+    [/\byield\b|\bapy?\b/, "yield"],
+    [/\bstak/, "staking"],
+    [/\btreasury\b/, "treasury"],
+    [/\bbuyback\b/, "buyback"],
   ];
   for (const [pattern, metric] of patterns) {
     if (pattern.test(combined)) return metric;
   }
-  return combined.replace(/[^a-z0-9]+/g, "_").slice(0, 50);
+  return "";
+}
+
+async function extractMetricType(title: string, description: string = ""): Promise<string> {
+  const cacheKey = `${title}|||${description}`;
+  if (metricTypeCache.has(cacheKey)) return metricTypeCache.get(cacheKey)!;
+
+  const fast = extractMetricTypeFast(title, description);
+  if (fast) {
+    metricTypeCache.set(cacheKey, fast);
+    return fast;
+  }
+
+  try {
+    const response = await callAnthropicServer({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 50,
+      system: `Classify this chart request into exactly one canonical metric type. Reply with ONLY the metric type string, nothing else.\n\nValid types: ${CANONICAL_METRICS.join(", ")}\n\nIf none fit well, create a short snake_case label (max 30 chars).`,
+      messages: [{ role: "user", content: `Title: "${title}"\nDescription: "${description || "none"}"` }],
+    });
+    const metric = response.text.trim().toLowerCase().replace(/[^a-z0-9_]/g, "").slice(0, 50);
+    console.log(`[Layer3] LLM classified "${title}" → "${metric}"`);
+    metricTypeCache.set(cacheKey, metric);
+    return metric || title.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 50);
+  } catch (err: any) {
+    console.warn(`[Layer3] LLM metric classification failed, using fallback: ${err.message}`);
+    const fallback = title.toLowerCase().replace(/[^a-z0-9]+/g, "_").slice(0, 50);
+    metricTypeCache.set(cacheKey, fallback);
+    return fallback;
+  }
+}
+
+interface ChartLifecycleEvent {
+  protocol: string;
+  userPrompt: string;
+  chartTitle: string;
+  metricType: string;
+  dataSource: string;
+  cacheHit: boolean;
+  provenQueryUsed: boolean;
+  retryCount: number;
+  fallbackUsed: boolean;
+  outcome: "success" | "failed";
+  finalDataSource: string | null;
+  errorMessage: string | null;
+  durationMs: number;
+  sql: string | null;
+}
+
+function logLifecycle(event: ChartLifecycleEvent): void {
+  const icon = event.outcome === "success" ? "✓" : "✗";
+  const path = [
+    event.cacheHit ? "cache" : null,
+    event.provenQueryUsed ? "proven" : null,
+    event.retryCount > 0 ? `retry×${event.retryCount}` : null,
+    event.fallbackUsed ? "fallback" : null,
+  ].filter(Boolean).join("→") || "direct";
+  console.log(`[Lifecycle] ${icon} "${event.chartTitle}" | ${event.protocol} | ${path} | ${event.finalDataSource || event.dataSource} | ${event.durationMs}ms${event.errorMessage ? ` | err: ${event.errorMessage.substring(0, 80)}` : ""}`);
+}
+
+async function autoLearnFromFailure(
+  protocol: string,
+  chartTitle: string,
+  metricType: string,
+  dataSource: string,
+  errorMessage: string,
+  sqlUsed: string | null,
+): Promise<void> {
+  try {
+    const response = await callAnthropicServer({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 300,
+      system: `You are a systems analyst reviewing a failed data query. Extract a concise, reusable rule that would prevent this failure in the future.
+
+Return a JSON object:
+{
+  "scope": "protocol" or "global",
+  "ruleType": "table_warning" | "slug_hint" | "routing_override" | "sql_pattern" | "data_caveat",
+  "ruleText": "The actual rule, written as an instruction to a future LLM (max 200 chars)",
+  "confidence": 50-90
+}
+
+Rules should be specific and actionable. Examples:
+- {"scope":"protocol","ruleType":"table_warning","ruleText":"lending.repay does not exist in Dune Spellbook — use lending.borrow for all borrow metrics","confidence":90}
+- {"scope":"protocol","ruleType":"slug_hint","ruleText":"DeFiLlama slug is 'morpho-v1' not 'morpho'","confidence":85}
+- {"scope":"global","ruleType":"sql_pattern","ruleText":"Always filter amount_usd > 0 when querying lending.borrow to exclude repayments","confidence":70}
+
+If the failure is too generic or unclear to learn from, return {"skip":true}.
+JSON only, no markdown.`,
+      messages: [{
+        role: "user",
+        content: `Protocol: ${protocol}\nChart: "${chartTitle}" (metric: ${metricType})\nData source: ${dataSource}\nError: ${errorMessage}${sqlUsed ? `\nSQL that failed: ${sqlUsed.substring(0, 500)}` : ""}`,
+      }],
+    });
+
+    const cleaned = response.text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+
+    if (parsed.skip) {
+      console.log(`[Layer3] Failure too generic to learn from: "${chartTitle}"`);
+      return;
+    }
+
+    if (!parsed.ruleType || !parsed.ruleText) return;
+
+    const learning = await storage.saveLearning({
+      scope: parsed.scope || "protocol",
+      scopeKey: parsed.scope === "global" ? "global" : protocol,
+      ruleType: parsed.ruleType,
+      ruleText: parsed.ruleText,
+      source: "auto",
+      triggeredBy: `${chartTitle} | ${errorMessage.substring(0, 100)}`,
+    });
+
+    console.log(`[Layer3] Learned new rule [${learning.id}]: "${parsed.ruleText}" (confidence: ${parsed.confidence}, scope: ${parsed.scope}/${parsed.scope === "global" ? "global" : protocol})`);
+  } catch (err: any) {
+    console.warn(`[Layer3] Auto-learn failed: ${err.message}`);
+  }
+}
+
+async function loadLearningsForPrompt(protocol: string): Promise<string> {
+  try {
+    const [protocolLearnings, globalLearnings] = await Promise.all([
+      storage.getLearnings("protocol", protocol),
+      storage.getGlobalLearnings(),
+    ]);
+
+    const allLearnings = [...protocolLearnings, ...globalLearnings];
+    if (allLearnings.length === 0) return "";
+
+    for (const l of allLearnings) {
+      storage.incrementLearningApplied(l.id).catch(() => {});
+    }
+
+    const rules = allLearnings.map(l => `- [${l.ruleType}] ${l.ruleText}`).join("\n");
+    console.log(`[Layer3] Injecting ${allLearnings.length} learned rules for "${protocol}"`);
+    return `\n═══════════════════════════════════════════════════════════════
+LEARNED RULES (auto-generated from past failures — follow these)
+═══════════════════════════════════════════════════════════════
+${rules}`;
+  } catch (err: any) {
+    console.warn(`[Layer3] Failed to load learnings: ${err.message}`);
+    return "";
+  }
+}
+
+function checkMagnitudeShift(
+  newData: any[],
+  provenQuery: { chartConfig: any } | null,
+  historicalMedian: number | null,
+): string | null {
+  if (!historicalMedian || historicalMedian === 0) return null;
+
+  const yAxes = provenQuery?.chartConfig?.yAxes || [];
+  const valueKey = yAxes[0]?.dataKey;
+  if (!valueKey) return null;
+
+  const values = newData.map(d => d[valueKey]).filter((v: any) => typeof v === "number" && !isNaN(v) && v !== 0);
+  if (values.length === 0) return null;
+
+  const sortedVals = [...values].sort((a, b) => a - b);
+  const newMedian = sortedVals[Math.floor(sortedVals.length / 2)];
+
+  const ratio = Math.abs(newMedian) / Math.abs(historicalMedian);
+  if (ratio > 100 || ratio < 0.01) {
+    return `Magnitude shift detected: historical median ~${historicalMedian.toExponential(2)}, new median ~${newMedian.toExponential(2)} (${ratio.toFixed(1)}x change) — likely incorrect data`;
+  }
+
+  return null;
 }
 
 async function retryDuneSqlWithFeedback(
@@ -1107,6 +1431,8 @@ async function retryDuneSqlWithFeedback(
   const normalizedChain = chain === "hyperliquid" ? "hyperevm" : chain.toLowerCase();
 
   console.log(`[Data Agent] Retry #${attemptNumber} for "${plan.title}" — feeding error back to LLM`);
+
+  const learnedRules = await loadLearningsForPrompt(companyName);
 
   const response = await callAnthropicServerHeavy({
     model: "claude-sonnet-4-20250514",
@@ -1134,7 +1460,7 @@ DuneSQL rules:
 - Use block_time >= NOW() - INTERVAL '90' DAY
 - Filter by project name in lowercase
 - For "outstanding borrows" or "active loans": use lending.borrow only — SUM(amount_usd) gives net borrow activity
-NO markdown. JSON only.`,
+NO markdown. JSON only.${learnedRules}`,
     messages: [
       { role: "user", content: `Protocol: ${companyName}${ticker ? `\nToken: ${ticker}` : ""}${contractAddress ? `\nContract: ${contractAddress} on ${chain}` : ""}\n\nChart title: "${plan.title}"\nDescription: "${plan.description || ""}"\n\nPrevious SQL that FAILED:\n${originalSql}\n\nError/Problem:\n${errorInfo}\n\nWrite a FIXED query that avoids this problem.` },
     ],

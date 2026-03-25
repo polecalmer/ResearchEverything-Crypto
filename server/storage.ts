@@ -11,9 +11,10 @@ import {
   type TokenAnalysis,
   type DashboardChart, type InsertDashboardChart,
   type ProvenQuery, type InsertProvenQuery,
+  type SystemLearning, type InsertSystemLearning,
   users, companies, founders, notes, reports, transactions,
   tokenProfiles, masterDuneQueries, duneQueries, tokenAnalyses, dashboardCharts,
-  provenQueries,
+  provenQueries, systemLearnings,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, isNull, sql } from "drizzle-orm";
@@ -83,12 +84,22 @@ export interface IStorage {
   updateDashboardChart(id: string, data: Partial<Pick<DashboardChart, 'title' | 'description' | 'chartType' | 'chartConfig' | 'data' | 'status' | 'errorMessage' | 'updatedAt' | 'sortOrder' | 'dataSource' | 'dataSourceConfig'>>): Promise<DashboardChart | undefined>;
   getDashboardChart(id: string): Promise<DashboardChart | undefined>;
   getDashboardChartsByCompany(companyId: string, userId: string): Promise<DashboardChart[]>;
+  getDashboardChartsByStatus(status: string, limit: number): Promise<DashboardChart[]>;
   deleteDashboardChart(id: string): Promise<boolean>;
 
   findProvenQuery(protocol: string, metricType: string): Promise<ProvenQuery | undefined>;
   saveProvenQuery(data: InsertProvenQuery): Promise<ProvenQuery>;
   recordProvenQuerySuccess(id: string): Promise<void>;
   recordProvenQueryFailure(id: string): Promise<void>;
+  getStaleProvenQueries(daysSinceUse: number): Promise<ProvenQuery[]>;
+  updateProvenQueryLastUsed(id: string): Promise<void>;
+
+  getLearnings(scope: string, scopeKey: string): Promise<SystemLearning[]>;
+  getGlobalLearnings(): Promise<SystemLearning[]>;
+  saveLearning(data: InsertSystemLearning): Promise<SystemLearning>;
+  incrementLearningApplied(id: string): Promise<void>;
+  deactivateLearning(id: string): Promise<void>;
+  getAllActiveLearnings(): Promise<SystemLearning[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -439,6 +450,13 @@ export class DatabaseStorage implements IStorage {
       .orderBy(dashboardCharts.sortOrder, desc(dashboardCharts.createdAt));
   }
 
+  async getDashboardChartsByStatus(status: string, limit: number): Promise<DashboardChart[]> {
+    return db.select().from(dashboardCharts)
+      .where(eq(dashboardCharts.status, status))
+      .orderBy(desc(dashboardCharts.updatedAt))
+      .limit(limit);
+  }
+
   async deleteDashboardChart(id: string): Promise<boolean> {
     const result = await db.delete(dashboardCharts).where(eq(dashboardCharts.id, id)).returning();
     return result.length > 0;
@@ -514,6 +532,89 @@ export class DatabaseStorage implements IStorage {
         .where(eq(provenQueries.id, id));
       console.log(`[ProvenQuery] Deactivated query "${query.metricType}" for "${query.protocol}" after ${query.failCount} failures`);
     }
+  }
+
+  async getStaleProvenQueries(daysSinceUse: number): Promise<ProvenQuery[]> {
+    return db.select().from(provenQueries)
+      .where(and(
+        eq(provenQueries.isActive, true),
+        sql`${provenQueries.lastUsed} < NOW() - INTERVAL '${sql.raw(String(daysSinceUse))} days'`,
+      ))
+      .orderBy(provenQueries.lastUsed);
+  }
+
+  async updateProvenQueryLastUsed(id: string): Promise<void> {
+    await db.update(provenQueries)
+      .set({ lastUsed: new Date(), updatedAt: new Date() })
+      .where(eq(provenQueries.id, id));
+  }
+
+  async getLearnings(scope: string, scopeKey: string): Promise<SystemLearning[]> {
+    return db.select().from(systemLearnings)
+      .where(and(
+        eq(systemLearnings.scope, scope),
+        eq(systemLearnings.scopeKey, scopeKey.toLowerCase().trim()),
+        eq(systemLearnings.isActive, true),
+      ))
+      .orderBy(desc(systemLearnings.confidence));
+  }
+
+  async getGlobalLearnings(): Promise<SystemLearning[]> {
+    return db.select().from(systemLearnings)
+      .where(and(
+        eq(systemLearnings.scope, "global"),
+        eq(systemLearnings.isActive, true),
+      ))
+      .orderBy(desc(systemLearnings.confidence));
+  }
+
+  async saveLearning(data: InsertSystemLearning): Promise<SystemLearning> {
+    const normalized = {
+      ...data,
+      scopeKey: data.scopeKey.toLowerCase().trim(),
+    };
+    const existing = await db.select().from(systemLearnings)
+      .where(and(
+        eq(systemLearnings.scope, normalized.scope),
+        eq(systemLearnings.scopeKey, normalized.scopeKey),
+        eq(systemLearnings.ruleType, normalized.ruleType),
+        eq(systemLearnings.ruleText, normalized.ruleText),
+        eq(systemLearnings.isActive, true),
+      ))
+      .limit(1);
+    if (existing.length > 0) {
+      const [updated] = await db.update(systemLearnings)
+        .set({
+          confidence: sql`LEAST(${systemLearnings.confidence} + 10, 100)`,
+          updatedAt: new Date(),
+        })
+        .where(eq(systemLearnings.id, existing[0].id))
+        .returning();
+      return updated;
+    }
+    const [learning] = await db.insert(systemLearnings).values(normalized).returning();
+    return learning;
+  }
+
+  async incrementLearningApplied(id: string): Promise<void> {
+    await db.update(systemLearnings)
+      .set({
+        appliedCount: sql`${systemLearnings.appliedCount} + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(systemLearnings.id, id));
+  }
+
+  async deactivateLearning(id: string): Promise<void> {
+    await db.update(systemLearnings)
+      .set({ isActive: false, updatedAt: new Date() })
+      .where(eq(systemLearnings.id, id));
+  }
+
+  async getAllActiveLearnings(): Promise<SystemLearning[]> {
+    return db.select().from(systemLearnings)
+      .where(eq(systemLearnings.isActive, true))
+      .orderBy(desc(systemLearnings.confidence));
   }
 }
 
