@@ -772,7 +772,8 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
           autoLearnFromFailure(companyName, plan.title, metricType, plan.dataSource, coherenceError, finalSql).catch(() => {});
 
           fallbackUsed = true;
-          const fallbackResult = await attemptFallback(plan, coherenceError, tokenProfile, companyName);
+          const fallbackPlan = { ...plan, description: `${plan.description || ""} ${userPrompt}` };
+          const fallbackResult = await attemptFallback(fallbackPlan, coherenceError, tokenProfile, companyName);
           if (fallbackResult) {
             const fallbackSanity = checkDataSanity(fallbackResult.data, { ...plan, chartConfig: fallbackResult.chartConfig || plan.chartConfig });
             if (!fallbackSanity) {
@@ -1629,6 +1630,7 @@ async function attemptFallback(
   const isPrice = /\bprice\b|price.?history|price.?chart/i.test(combined);
   const isTvl = /\btvl\b|total.?value.?locked|liquidity/i.test(combined);
   const isRevenue = /\brevenue\b|daily.?fees|protocol.?fees|earnings/i.test(combined);
+  const isFees = /\bfees\b|interest.?paid|interest.?generated|interest.?earn|yield.?generated|yield.?paid/i.test(combined);
   const isVolume = /\bvolume\b|trading.?volume|daily.?volume|weekly.?volume|perp.?volume|dex.?volume/i.test(combined);
   const isHolder = /\bholder|wallet|whale|address|distribution|top.?\d/i.test(combined);
 
@@ -1732,7 +1734,31 @@ async function attemptFallback(
     }
   }
 
-  if (isRevenue) {
+  if (isFees && !isRevenue) {
+    const slug = await getSlug();
+    try {
+      const feesData = await defillama.getProtocolFees(slug);
+      if (feesData.dailyFees && feesData.dailyFees.length > 0) {
+        const data = feesData.dailyFees.map((d: any) => ({ date: d.date, fees: d.fees }));
+        console.log(`[Data Agent] Fees/interest fallback succeeded via DeFiLlama fees (${data.length} points)`);
+        return {
+          data,
+          dataSource: "defillama",
+          dataSourceConfig: { endpoint: "fees", slug },
+          chartConfig: {
+            xAxis: { dataKey: "date", label: "Date", type: "date" },
+            yAxes: [{ dataKey: "fees", label: "Daily Fees / Interest Paid", color: "#38bdf8", format: "currency", yAxisId: "left" }],
+          },
+          chartType: "bar",
+          title: `${companyName} Daily Fees (Interest Paid)`,
+        };
+      }
+    } catch (e: any) {
+      console.warn(`[Data Agent] DeFiLlama fees fallback failed: ${e.message}`);
+    }
+  }
+
+  if (isRevenue || isFees) {
     const slug = await getSlug();
     try {
       const revData = await defillama.getProtocolRevenue(slug);
