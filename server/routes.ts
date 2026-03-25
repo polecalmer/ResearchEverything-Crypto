@@ -1456,5 +1456,177 @@ export async function registerRoutes(
     }
   });
 
+  // ═══════════════════════════════════════════════════════════════
+  // BENCHMARK / AUTORESEARCH ADMIN ENDPOINTS
+  // ═══════════════════════════════════════════════════════════════
+
+  app.post("/api/admin/benchmark/seed", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const { seedBenchmark } = await import("./benchmark/seed");
+      const protocolLimit = parseInt(req.query.protocolLimit as string) || 100;
+      const dryRun = req.query.dryRun === "true";
+      const result = await seedBenchmark({ protocolLimit, dryRun });
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // Track active benchmark runs so we don't allow concurrent runs
+  let activeBenchmarkRunId: string | null = null;
+
+  app.post("/api/admin/benchmark/run", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+
+    if (activeBenchmarkRunId) {
+      return res.status(409).json({
+        message: "Benchmark already in progress",
+        runId: activeBenchmarkRunId,
+      });
+    }
+
+    const subset = parseInt(req.query.subset as string) || undefined;
+    const dryRun = req.query.dryRun === "true";
+    const difficulty = req.query.difficulty as string || undefined;
+
+    try {
+      const { runBenchmark } = await import("./benchmark/runner");
+
+      // Fire async — return immediately so the request doesn't timeout
+      const runPromise = runBenchmark({ subset, dryRun, difficulty, verbose: true });
+
+      // Capture run ID as soon as DB row is created
+      runPromise.then(result => {
+        activeBenchmarkRunId = null;
+        console.log(`[Benchmark] Run ${result.run.id} complete: ${(result.run.overallAccuracy * 100).toFixed(1)}% accuracy, ${result.improvements.length} improvements`);
+      }).catch(err => {
+        activeBenchmarkRunId = null;
+        console.error(`[Benchmark] Run failed:`, err.message);
+      });
+
+      // Wait briefly for the run record to be created so we can return the ID
+      await new Promise(r => setTimeout(r, 2000));
+      const latest = await storage.getLatestBenchmarkRun();
+      if (latest && latest.status === "running") {
+        activeBenchmarkRunId = latest.id;
+      }
+
+      res.json({
+        status: "started",
+        runId: activeBenchmarkRunId || "pending",
+        config: { subset, dryRun, difficulty },
+      });
+    } catch (e: any) {
+      activeBenchmarkRunId = null;
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/admin/benchmark/status", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const latest = await storage.getLatestBenchmarkRun();
+      const history = await storage.getBenchmarkRunHistory(10);
+      const caseCount = await storage.getBenchmarkCaseCount();
+
+      // If a run is active, get partial progress
+      let activeProgress = null;
+      if (activeBenchmarkRunId) {
+        const activeResults = await storage.getBenchmarkCaseResultsByRun(activeBenchmarkRunId);
+        const runRecord = history.find(r => r.id === activeBenchmarkRunId);
+        activeProgress = {
+          runId: activeBenchmarkRunId,
+          completedCases: activeResults.length,
+          totalCases: runRecord?.totalCases || "unknown",
+          currentAccuracy: activeResults.length > 0
+            ? (activeResults.filter(r => r.score >= 0.5).length / activeResults.length * 100).toFixed(1) + "%"
+            : "pending",
+        };
+      }
+
+      res.json({
+        benchmarkCases: caseCount,
+        activeRun: activeProgress,
+        latestCompletedRun: latest ? {
+          id: latest.id,
+          configVersion: latest.configVersion,
+          accuracy: (latest.overallAccuracy * 100).toFixed(1) + "%",
+          passed: latest.passedCases,
+          failed: latest.failedCases,
+          total: latest.totalCases,
+          improvements: latest.improvementsApplied,
+          completedAt: latest.createdAt,
+        } : null,
+        runHistory: history.map(r => ({
+          id: r.id,
+          version: r.configVersion,
+          accuracy: (r.overallAccuracy * 100).toFixed(1) + "%",
+          cases: r.totalCases,
+          status: r.status,
+          date: r.createdAt,
+        })),
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/admin/benchmark/failures/:runId", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const failures = await storage.getFailedCaseResultsByRun(req.params.runId);
+      res.json({
+        count: failures.length,
+        failures: failures.map(f => ({
+          caseId: f.caseId,
+          protocol: f.benchmarkCase?.protocol,
+          metricType: f.benchmarkCase?.metricType,
+          query: f.benchmarkCase?.naturalLanguageQuery,
+          score: f.score,
+          magnitudeRatio: f.magnitudeRatio,
+          trendMatch: f.trendMatch,
+          mape: f.mape,
+          dataSource: f.dataSource,
+          error: f.errorMessage,
+          sql: f.sqlUsed?.substring(0, 300),
+        })),
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/admin/benchmark/observability", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const days = parseInt(req.query.days as string) || 30;
+      const [failurePatterns, retryDiffs] = await Promise.all([
+        storage.getFailurePatterns(days),
+        storage.getRetryDiffs(days),
+      ]);
+      res.json({
+        period: `${days} days`,
+        failurePatterns: failurePatterns.slice(0, 20),
+        retryDiffCount: retryDiffs.length,
+        retryDiffs: retryDiffs.slice(0, 10).map(d => ({
+          protocol: d.failed.protocol,
+          metricType: d.failed.metricType,
+          failedSql: d.failed.sqlQuery?.substring(0, 200),
+          fixedSql: d.fixed.sqlQuery?.substring(0, 200),
+          errorType: d.failed.errorType,
+          errorMessage: d.failed.errorMessage,
+        })),
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   return httpServer;
 }

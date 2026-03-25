@@ -6,7 +6,9 @@ import * as defillama from "./defillama-client";
 import * as alliumApi from "./allium-api";
 import { storage } from "./storage";
 import { MARKUP_MULTIPLIER } from "./enrichment";
+import { crossSourceValidate, type CrossValidationResult } from "./benchmark/cross-validate";
 import type { Company, TokenProfile, DashboardChart, DuneQuery, MasterDuneQuery, SystemLearning } from "@shared/schema";
+import crypto from "crypto";
 
 const DATA_CHART_CHARGE = 0.50;
 
@@ -614,6 +616,8 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
       let fallbackUsed = false;
       const chartStartTime = Date.now();
       const metricType = await extractMetricType(plan.title, plan.description);
+      const requestId = crypto.randomUUID();
+      let attemptNumber = 0;
 
       const provenQuery = (plan.dataSource === "dune-sql" || plan.dataSource === "dune")
         ? await storage.findProvenQuery(companyName, metricType)
@@ -650,6 +654,16 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
             if (plan.dataSource === "dune-sql" && plan.dataSourceConfig?.sql) {
               finalSql = plan.dataSourceConfig.sql;
             }
+            // Log initial attempt failure
+            storage.logQueryAttempt({
+              requestId, protocol: companyName, metricType,
+              attemptNumber: ++attemptNumber, dataSource: plan.dataSource,
+              sqlQuery: finalSql, errorType: "execution_error",
+              errorMessage: (fetchError || "Unknown error").substring(0, 500),
+              sampleRows: null, finalOutcome: "retry",
+              llmModel: "claude-opus-4-6", latencyMs: Date.now() - chartStartTime,
+              wasCacheHit: false, crossValidationStatus: null, crossValidationRatio: null,
+            }).catch(() => {});
           }
         }
       }
@@ -658,6 +672,20 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
         const sanity = checkDataSanity(data, plan);
         if (sanity) {
           console.warn(`[Data Agent] Data sanity check failed for "${plan.title}": ${sanity}`);
+          // Log the sanity failure as an attempt
+          storage.logQueryAttempt({
+            requestId, protocol: companyName, metricType,
+            attemptNumber: ++attemptNumber, dataSource: plan.dataSource,
+            sqlQuery: finalSql,
+            errorType: /all values are zero/i.test(sanity) ? "sanity_zero"
+              : /raw token amounts/i.test(sanity) ? "sanity_wei"
+              : /majority.*negative/i.test(sanity) ? "sanity_negative"
+              : "sanity_check",
+            errorMessage: sanity.substring(0, 500),
+            sampleRows: data.slice(0, 3), finalOutcome: "retry",
+            llmModel: "claude-opus-4-6", latencyMs: Date.now() - chartStartTime,
+            wasCacheHit: !!usedProvenQueryId, crossValidationStatus: null, crossValidationRatio: null,
+          }).catch(() => {});
           if (usedProvenQueryId) {
             await storage.recordProvenQueryFailure(usedProvenQueryId);
             usedProvenQueryId = null;
@@ -692,9 +720,28 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
                     };
                   }
                   console.log(`[Data Agent] Retry #${attempt} passed sanity check — using retried data`);
+                  // Log successful retry for eval system (captures the failed→fixed diff)
+                  storage.logQueryAttempt({
+                    requestId, protocol: companyName, metricType,
+                    attemptNumber: ++attemptNumber, dataSource: "dune-sql",
+                    sqlQuery: retryResult.sql, errorType: null, errorMessage: null,
+                    sampleRows: retryResult.data.slice(0, 3), finalOutcome: "success",
+                    llmModel: "claude-sonnet-4-20250514", latencyMs: Date.now() - chartStartTime,
+                    wasCacheHit: false, crossValidationStatus: null, crossValidationRatio: null,
+                  }).catch(() => {});
                   break;
                 } else {
                   console.warn(`[Data Agent] Retry #${attempt} failed sanity: ${retrySanity}`);
+                  // Log failed retry attempt
+                  storage.logQueryAttempt({
+                    requestId, protocol: companyName, metricType,
+                    attemptNumber: ++attemptNumber, dataSource: "dune-sql",
+                    sqlQuery: retryResult.sql, errorType: "sanity_check",
+                    errorMessage: retrySanity.substring(0, 500),
+                    sampleRows: retryResult.data.slice(0, 3), finalOutcome: "retry",
+                    llmModel: "claude-sonnet-4-20250514", latencyMs: Date.now() - chartStartTime,
+                    wasCacheHit: false, crossValidationStatus: null, crossValidationRatio: null,
+                  }).catch(() => {});
                   finalSql = retryResult.sql;
                   fetchError = retrySanity;
                 }
@@ -736,9 +783,26 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
                 };
               }
               console.log(`[Data Agent] Retry #${attempt} succeeded after primary failure`);
+              storage.logQueryAttempt({
+                requestId, protocol: companyName, metricType,
+                attemptNumber: ++attemptNumber, dataSource: "dune-sql",
+                sqlQuery: retryResult.sql, errorType: null, errorMessage: null,
+                sampleRows: retryResult.data.slice(0, 3), finalOutcome: "success",
+                llmModel: "claude-sonnet-4-20250514", latencyMs: Date.now() - chartStartTime,
+                wasCacheHit: false, crossValidationStatus: null, crossValidationRatio: null,
+              }).catch(() => {});
               break;
             } else {
               console.warn(`[Data Agent] Retry #${attempt} also failed sanity: ${retrySanity}`);
+              storage.logQueryAttempt({
+                requestId, protocol: companyName, metricType,
+                attemptNumber: ++attemptNumber, dataSource: "dune-sql",
+                sqlQuery: retryResult.sql, errorType: "sanity_check",
+                errorMessage: retrySanity.substring(0, 500),
+                sampleRows: retryResult.data.slice(0, 3), finalOutcome: "retry",
+                llmModel: "claude-sonnet-4-20250514", latencyMs: Date.now() - chartStartTime,
+                wasCacheHit: false, crossValidationStatus: null, crossValidationRatio: null,
+              }).catch(() => {});
               finalSql = retryResult.sql;
               fetchError = retrySanity;
             }
@@ -827,9 +891,29 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
       }
 
       if (data && data.length > 0 && finalSql && (plan.dataSource === "dune-sql")) {
+        // Cross-source validation — gate what enters the proven_queries bank
+        let crossValResult: CrossValidationResult | null = null;
+        try {
+          crossValResult = await crossSourceValidate(companyName, metricType, data, plan.chartConfig);
+        } catch (cvErr: any) {
+          console.warn(`[CrossValidate] Error during validation: ${cvErr.message}`);
+        }
+
+        const shouldSaveProven = !crossValResult || crossValResult.status !== "likely_wrong";
+
+        if (crossValResult?.status === "likely_wrong") {
+          console.warn(`[CrossValidate] Blocking proven query save for "${companyName}/${metricType}": ${crossValResult.detail}`);
+        }
+
         if (usedProvenQueryId) {
-          await storage.recordProvenQuerySuccess(usedProvenQueryId);
-        } else {
+          if (shouldSaveProven) {
+            await storage.recordProvenQuerySuccess(usedProvenQueryId);
+          } else {
+            // Cross-validation says this proven query is producing bad data
+            await storage.recordProvenQueryFailure(usedProvenQueryId);
+            console.warn(`[CrossValidate] Marked proven query ${usedProvenQueryId} as failed due to cross-validation`);
+          }
+        } else if (shouldSaveProven) {
           try {
             const yAxes = plan.chartConfig?.yAxes || [];
             const firstY = yAxes[0] || {};
@@ -845,11 +929,30 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
               yAxisLabel: firstY.label || null,
               yAxisFormat: firstY.format || null,
             });
-            console.log(`[Data Agent] Saved proven query for "${companyName}/${metricType}"`);
+            console.log(`[Data Agent] Saved proven query for "${companyName}/${metricType}" (cross-validation: ${crossValResult?.status || "skipped"})`);
           } catch (saveErr: any) {
             console.warn(`[Data Agent] Failed to save proven query: ${saveErr.message}`);
           }
         }
+
+        // Log the cross-validation result to query_attempts for the eval system
+        storage.logQueryAttempt({
+          requestId,
+          protocol: companyName,
+          metricType,
+          attemptNumber: ++attemptNumber,
+          dataSource: plan.dataSource,
+          sqlQuery: finalSql,
+          errorType: null,
+          errorMessage: null,
+          sampleRows: data.slice(0, 3),
+          finalOutcome: "success",
+          llmModel: "claude-opus-4-6",
+          latencyMs: Date.now() - chartStartTime,
+          wasCacheHit: !!usedProvenQueryId && !fetchError,
+          crossValidationStatus: crossValResult?.status || null,
+          crossValidationRatio: crossValResult?.ratio || null,
+        }).catch(err => console.warn(`[QueryAttempt] Log failed: ${err.message}`));
       }
 
       if (!data || data.length === 0) {
@@ -889,6 +992,30 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
         });
 
         autoLearnFromFailure(companyName, plan.title, metricType, plan.dataSource, errorMsg, finalSql).catch(() => {});
+
+        // Log failed attempt for eval system
+        storage.logQueryAttempt({
+          requestId,
+          protocol: companyName,
+          metricType,
+          attemptNumber: ++attemptNumber,
+          dataSource: plan.dataSource,
+          sqlQuery: finalSql,
+          errorType: /all values are zero/i.test(errorMsg) ? "sanity_zero"
+            : /raw token amounts/i.test(errorMsg) ? "sanity_wei"
+            : /query_state_failed/i.test(errorMsg) ? "execution_error"
+            : /not found|404/i.test(errorMsg) ? "not_found"
+            : "unknown",
+          errorMessage: errorMsg.substring(0, 500),
+          sampleRows: null,
+          finalOutcome: "failure",
+          llmModel: "claude-opus-4-6",
+          latencyMs: Date.now() - chartStartTime,
+          wasCacheHit: false,
+          crossValidationStatus: null,
+          crossValidationRatio: null,
+        }).catch(err => console.warn(`[QueryAttempt] Log failed: ${err.message}`));
+
         continue;
       }
 

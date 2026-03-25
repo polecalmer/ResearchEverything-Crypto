@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, integer, jsonb, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, integer, jsonb, boolean, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -304,6 +304,100 @@ export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
 });
+
+// ═══════════════════════════════════════════════════════════════
+// AUTORESEARCH EVAL SYSTEM — query logging + benchmark tables
+// ═══════════════════════════════════════════════════════════════
+
+/** Logs every attempt in a chart request lifecycle (first try, retries, fallbacks) */
+export const queryAttempts = pgTable("query_attempts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  requestId: text("request_id").notNull(),        // groups attempts for same user request
+  protocol: text("protocol").notNull(),
+  metricType: text("metric_type").notNull(),
+  attemptNumber: integer("attempt_number").notNull(),
+  dataSource: text("data_source").notNull(),
+  sqlQuery: text("sql_query"),
+  errorType: text("error_type"),                   // null if success
+  errorMessage: text("error_message"),
+  sampleRows: jsonb("sample_rows"),
+  finalOutcome: text("final_outcome").notNull(),   // 'success' | 'retry' | 'fallback' | 'failure'
+  llmModel: text("llm_model"),
+  latencyMs: integer("latency_ms"),
+  wasCacheHit: boolean("was_cache_hit").default(false),
+  crossValidationStatus: text("cross_validation_status"), // 'validated' | 'warning' | 'likely_wrong' | null
+  crossValidationRatio: doublePrecision("cross_validation_ratio"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertQueryAttemptSchema = createInsertSchema(queryAttempts).omit({
+  id: true,
+  createdAt: true,
+});
+export type QueryAttempt = typeof queryAttempts.$inferSelect;
+export type InsertQueryAttempt = z.infer<typeof insertQueryAttemptSchema>;
+
+/** Ground truth benchmark cases — auto-seeded from DeFiLlama */
+export const benchmarkCases = pgTable("benchmark_cases", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  protocol: text("protocol").notNull(),
+  metricType: text("metric_type").notNull(),
+  referenceSource: text("reference_source").notNull(),   // 'defillama_tvl', 'defillama_fees', etc.
+  naturalLanguageQuery: text("natural_language_query").notNull(),
+  referenceFetcher: text("reference_fetcher").notNull(),  // function name to fetch canonical answer
+  tolerance: doublePrecision("tolerance").notNull().default(0.20),
+  difficulty: text("difficulty").notNull().default("standard"),
+  isActive: boolean("is_active").notNull().default(true),
+  protocolSlug: text("protocol_slug"),                    // DeFiLlama slug
+  protocolCategory: text("protocol_category"),            // 'Lending', 'Dexes', etc.
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertBenchmarkCaseSchema = createInsertSchema(benchmarkCases).omit({
+  id: true,
+  createdAt: true,
+});
+export type BenchmarkCase = typeof benchmarkCases.$inferSelect;
+export type InsertBenchmarkCase = z.infer<typeof insertBenchmarkCaseSchema>;
+
+/** A single eval run (one full benchmark pass) */
+export const benchmarkRuns = pgTable("benchmark_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  configVersion: integer("config_version").notNull(),
+  totalCases: integer("total_cases").notNull(),
+  passedCases: integer("passed_cases").notNull(),
+  failedCases: integer("failed_cases").notNull(),
+  overallAccuracy: doublePrecision("overall_accuracy").notNull(),
+  totalCostUsd: doublePrecision("total_cost_usd"),
+  totalLatencyMs: integer("total_latency_ms"),
+  configSnapshot: jsonb("config_snapshot"),              // snapshot of rules + routing at time of run
+  improvementsApplied: jsonb("improvements_applied"),    // what changed vs previous run
+  status: text("status").notNull().default("running"),   // 'running' | 'completed' | 'failed'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type BenchmarkRun = typeof benchmarkRuns.$inferSelect;
+
+/** Per-case result within a benchmark run */
+export const benchmarkCaseResults = pgTable("benchmark_case_results", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  runId: varchar("run_id").notNull(),
+  caseId: varchar("case_id").notNull(),
+  score: doublePrecision("score").notNull(),             // 0-1 composite score
+  magnitudeRatio: doublePrecision("magnitude_ratio"),
+  trendMatch: boolean("trend_match"),
+  mape: doublePrecision("mape"),                         // mean absolute percentage error
+  executionSuccess: boolean("execution_success").notNull(),
+  sanityPassed: boolean("sanity_passed"),
+  dataSource: text("data_source"),
+  sqlUsed: text("sql_used"),
+  errorMessage: text("error_message"),
+  latencyMs: integer("latency_ms"),
+  llmCalls: integer("llm_calls"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type BenchmarkCaseResult = typeof benchmarkCaseResults.$inferSelect;
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;

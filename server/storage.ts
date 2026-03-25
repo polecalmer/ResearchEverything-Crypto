@@ -12,12 +12,16 @@ import {
   type DashboardChart, type InsertDashboardChart,
   type ProvenQuery, type InsertProvenQuery,
   type SystemLearning, type InsertSystemLearning,
+  type QueryAttempt, type InsertQueryAttempt,
+  type BenchmarkCase, type InsertBenchmarkCase,
+  type BenchmarkRun, type BenchmarkCaseResult,
   users, companies, founders, notes, reports, transactions,
   tokenProfiles, masterDuneQueries, duneQueries, tokenAnalyses, dashboardCharts,
   provenQueries, systemLearnings,
+  queryAttempts, benchmarkCases, benchmarkRuns, benchmarkCaseResults,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, ne, desc, and, isNull, isNotNull, sql } from "drizzle-orm";
+import { eq, ne, desc, asc, and, isNull, isNotNull, sql } from "drizzle-orm";
 import { pool } from "./db";
 
 export interface IStorage {
@@ -101,6 +105,26 @@ export interface IStorage {
   incrementLearningApplied(id: string): Promise<void>;
   deactivateLearning(id: string): Promise<void>;
   getAllActiveLearnings(): Promise<SystemLearning[]>;
+
+  // ═══ Eval system ═══
+  logQueryAttempt(data: InsertQueryAttempt): Promise<QueryAttempt>;
+  getQueryAttemptsByRequest(requestId: string): Promise<QueryAttempt[]>;
+  getRetryDiffs(daysSince?: number): Promise<{ failed: QueryAttempt; fixed: QueryAttempt }[]>;
+  getFailurePatterns(daysSince?: number): Promise<{ protocol: string; metricType: string; errorType: string; count: number }[]>;
+
+  insertBenchmarkCases(cases: InsertBenchmarkCase[]): Promise<BenchmarkCase[]>;
+  getActiveBenchmarkCases(difficulty?: string): Promise<BenchmarkCase[]>;
+  getBenchmarkCaseCount(): Promise<number>;
+  deactivateBenchmarkCase(id: string): Promise<void>;
+
+  createBenchmarkRun(data: Partial<BenchmarkRun>): Promise<BenchmarkRun>;
+  updateBenchmarkRun(id: string, data: Partial<BenchmarkRun>): Promise<BenchmarkRun | undefined>;
+  getLatestBenchmarkRun(): Promise<BenchmarkRun | undefined>;
+  getBenchmarkRunHistory(limit?: number): Promise<BenchmarkRun[]>;
+
+  insertBenchmarkCaseResult(data: Partial<BenchmarkCaseResult>): Promise<BenchmarkCaseResult>;
+  getBenchmarkCaseResultsByRun(runId: string): Promise<BenchmarkCaseResult[]>;
+  getFailedCaseResultsByRun(runId: string): Promise<(BenchmarkCaseResult & { benchmarkCase?: BenchmarkCase })[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -648,6 +672,146 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(systemLearnings)
       .where(eq(systemLearnings.isActive, true))
       .orderBy(desc(systemLearnings.confidence));
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // EVAL SYSTEM — query attempts, benchmarks, runs
+  // ═══════════════════════════════════════════════════════════════
+
+  async logQueryAttempt(data: InsertQueryAttempt): Promise<QueryAttempt> {
+    const [attempt] = await db.insert(queryAttempts).values(data).returning();
+    return attempt;
+  }
+
+  async getQueryAttemptsByRequest(requestId: string): Promise<QueryAttempt[]> {
+    return db.select().from(queryAttempts)
+      .where(eq(queryAttempts.requestId, requestId))
+      .orderBy(asc(queryAttempts.attemptNumber));
+  }
+
+  /** Find retry chains where attempt N failed and attempt N+1 succeeded — the diff is learning signal */
+  async getRetryDiffs(daysSince: number = 30): Promise<{ failed: QueryAttempt; fixed: QueryAttempt }[]> {
+    const rows = await db.execute(sql`
+      SELECT
+        a1.id as failed_id, a1.request_id, a1.protocol, a1.metric_type,
+        a1.sql_query as failed_sql, a1.error_type, a1.error_message,
+        a2.id as fixed_id, a2.sql_query as fixed_sql
+      FROM query_attempts a1
+      JOIN query_attempts a2
+        ON a1.request_id = a2.request_id
+        AND a2.attempt_number = a1.attempt_number + 1
+        AND a2.final_outcome = 'success'
+      WHERE a1.final_outcome = 'retry'
+        AND a1.sql_query IS NOT NULL
+        AND a2.sql_query IS NOT NULL
+        AND a1.created_at > NOW() - INTERVAL '${sql.raw(String(daysSince))} days'
+      ORDER BY a1.created_at DESC
+    `);
+    // Map raw rows to typed pairs
+    return (rows.rows || []).map((r: any) => ({
+      failed: { id: r.failed_id, requestId: r.request_id, protocol: r.protocol, metricType: r.metric_type, sqlQuery: r.failed_sql, errorType: r.error_type, errorMessage: r.error_message } as QueryAttempt,
+      fixed: { id: r.fixed_id, requestId: r.request_id, protocol: r.protocol, metricType: r.metric_type, sqlQuery: r.fixed_sql } as QueryAttempt,
+    }));
+  }
+
+  /** Aggregate failure patterns — which protocols/metrics fail most and why */
+  async getFailurePatterns(daysSince: number = 30): Promise<{ protocol: string; metricType: string; errorType: string; count: number }[]> {
+    const rows = await db.execute(sql`
+      SELECT protocol, metric_type, error_type, COUNT(*) as count
+      FROM query_attempts
+      WHERE final_outcome IN ('failure', 'retry')
+        AND error_type IS NOT NULL
+        AND created_at > NOW() - INTERVAL '${sql.raw(String(daysSince))} days'
+      GROUP BY protocol, metric_type, error_type
+      HAVING COUNT(*) >= 2
+      ORDER BY count DESC
+      LIMIT 50
+    `);
+    return (rows.rows || []).map((r: any) => ({
+      protocol: r.protocol,
+      metricType: r.metric_type,
+      errorType: r.error_type,
+      count: Number(r.count),
+    }));
+  }
+
+  // ═══ Benchmark cases ═══
+
+  async insertBenchmarkCases(cases: InsertBenchmarkCase[]): Promise<BenchmarkCase[]> {
+    if (cases.length === 0) return [];
+    const results = await db.insert(benchmarkCases).values(cases).returning();
+    return results;
+  }
+
+  async getActiveBenchmarkCases(difficulty?: string): Promise<BenchmarkCase[]> {
+    if (difficulty) {
+      return db.select().from(benchmarkCases)
+        .where(and(eq(benchmarkCases.isActive, true), eq(benchmarkCases.difficulty, difficulty)));
+    }
+    return db.select().from(benchmarkCases).where(eq(benchmarkCases.isActive, true));
+  }
+
+  async getBenchmarkCaseCount(): Promise<number> {
+    const rows = await db.execute(sql`SELECT COUNT(*) as count FROM benchmark_cases WHERE is_active = true`);
+    return Number((rows.rows || [])[0]?.count || 0);
+  }
+
+  async deactivateBenchmarkCase(id: string): Promise<void> {
+    await db.update(benchmarkCases).set({ isActive: false }).where(eq(benchmarkCases.id, id));
+  }
+
+  // ═══ Benchmark runs ═══
+
+  async createBenchmarkRun(data: Partial<BenchmarkRun>): Promise<BenchmarkRun> {
+    const [run] = await db.insert(benchmarkRuns).values(data as any).returning();
+    return run;
+  }
+
+  async updateBenchmarkRun(id: string, data: Partial<BenchmarkRun>): Promise<BenchmarkRun | undefined> {
+    const [updated] = await db.update(benchmarkRuns).set(data as any).where(eq(benchmarkRuns.id, id)).returning();
+    return updated;
+  }
+
+  async getLatestBenchmarkRun(): Promise<BenchmarkRun | undefined> {
+    const [run] = await db.select().from(benchmarkRuns)
+      .where(eq(benchmarkRuns.status, "completed"))
+      .orderBy(desc(benchmarkRuns.createdAt))
+      .limit(1);
+    return run;
+  }
+
+  async getBenchmarkRunHistory(limit: number = 20): Promise<BenchmarkRun[]> {
+    return db.select().from(benchmarkRuns)
+      .orderBy(desc(benchmarkRuns.createdAt))
+      .limit(limit);
+  }
+
+  // ═══ Benchmark case results ═══
+
+  async insertBenchmarkCaseResult(data: Partial<BenchmarkCaseResult>): Promise<BenchmarkCaseResult> {
+    const [result] = await db.insert(benchmarkCaseResults).values(data as any).returning();
+    return result;
+  }
+
+  async getBenchmarkCaseResultsByRun(runId: string): Promise<BenchmarkCaseResult[]> {
+    return db.select().from(benchmarkCaseResults)
+      .where(eq(benchmarkCaseResults.runId, runId))
+      .orderBy(desc(benchmarkCaseResults.score));
+  }
+
+  async getFailedCaseResultsByRun(runId: string): Promise<(BenchmarkCaseResult & { benchmarkCase?: BenchmarkCase })[]> {
+    const results = await db.select().from(benchmarkCaseResults)
+      .where(and(eq(benchmarkCaseResults.runId, runId), sql`${benchmarkCaseResults.score} < 0.5`))
+      .orderBy(asc(benchmarkCaseResults.score));
+
+    // Hydrate with benchmark case details
+    const caseIds = results.map(r => r.caseId);
+    if (caseIds.length === 0) return [];
+    const cases = await db.select().from(benchmarkCases)
+      .where(sql`${benchmarkCases.id} IN (${sql.join(caseIds.map(id => sql`${id}`), sql`, `)})`);
+    const caseMap = new Map(cases.map(c => [c.id, c]));
+
+    return results.map(r => ({ ...r, benchmarkCase: caseMap.get(r.caseId) }));
   }
 }
 
