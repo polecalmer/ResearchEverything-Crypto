@@ -135,7 +135,7 @@ export async function getProtocolTvl(slug: string): Promise<ProtocolTvlHistory[]
 }
 
 export async function getProtocolFees(slug: string): Promise<ProtocolFees> {
-  const data = await fetchJson(`https://fees.llama.fi/summary/fees/${slug}?dataType=dailyFees`);
+  const data = await fetchJson(`${DEFILLAMA_BASE}/summary/fees/${slug}?dataType=dailyFees`);
   const totalData = data.totalDataChart || [];
   if (totalData.length === 0 && !data.total24h) {
     throw new Error(`No fee data available for protocol "${slug}" on DeFiLlama`);
@@ -150,7 +150,7 @@ export async function getProtocolFees(slug: string): Promise<ProtocolFees> {
 }
 
 export async function getProtocolRevenue(slug: string): Promise<ProtocolRevenue> {
-  const data = await fetchJson(`https://fees.llama.fi/summary/fees/${slug}?dataType=dailyRevenue`);
+  const data = await fetchJson(`${DEFILLAMA_BASE}/summary/fees/${slug}?dataType=dailyRevenue`);
   const totalData = data.totalDataChart || [];
   if (totalData.length === 0 && !data.total24h) {
     throw new Error(`No revenue data available for protocol "${slug}" on DeFiLlama`);
