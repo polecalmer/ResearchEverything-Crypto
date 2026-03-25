@@ -1017,40 +1017,6 @@ async function attemptFallback(
         console.warn(`[Data Agent] Dune revenue fallback failed: ${e.message}`);
       }
 
-      if (contractAddress) {
-        try {
-          const normalizedChain = chain === "hyperliquid" ? "hyperevm" : chain.toLowerCase();
-          const sql = `
-SELECT
-  date_trunc('day', block_time) AS date,
-  SUM(CAST(value AS double) / 1e18) AS revenue
-FROM ${normalizedChain}.transactions
-WHERE "to" = FROM_HEX('${contractAddress.replace("0x", "")}')
-  AND block_time >= NOW() - INTERVAL '90' DAY
-  AND success = true
-GROUP BY 1
-ORDER BY 1
-`;
-          console.log(`[Data Agent] Revenue fallback: writing ad-hoc Dune SQL for ${companyName} (${contractAddress})`);
-          const result = await executeDuneSQL(sql, `${companyName.toLowerCase()}_revenue_fallback`);
-          if (result.rows.length > 0) {
-            console.log(`[Data Agent] Revenue fallback via Dune SQL succeeded (${result.rows.length} rows)`);
-            return {
-              data: result.rows,
-              dataSource: "dune-sql",
-              dataSourceConfig: { sql },
-              chartConfig: {
-                xAxis: { dataKey: "date", label: "Date", type: "date" },
-                yAxes: [{ dataKey: "revenue", label: "Daily Revenue (ETH)", color: "#38bdf8", format: "number", yAxisId: "left" }],
-              },
-              chartType: "bar",
-              title: `${companyName} Daily Revenue (On-Chain)`,
-            };
-          }
-        } catch (e: any) {
-          console.warn(`[Data Agent] Dune SQL revenue fallback failed: ${e.message}`);
-        }
-      }
     }
   }
 
@@ -1080,8 +1046,108 @@ ORDER BY 1
     console.warn(`[Data Agent] No contract address/chain for holder fallback`);
   }
 
+  if (isDuneConfigured()) {
+    try {
+      const result = await llmDuneSqlFallback(plan, tokenProfile, companyName);
+      if (result) return result;
+    } catch (e: any) {
+      console.warn(`[Data Agent] LLM Dune SQL fallback failed: ${e.message}`);
+    }
+  }
+
   console.warn(`[Data Agent] No matching fallback for "${plan.title}"`);
   return null;
+}
+
+async function llmDuneSqlFallback(
+  plan: ChartPlan,
+  tokenProfile: TokenProfile | null,
+  companyName: string,
+): Promise<FallbackResult | null> {
+  const ticker = tokenProfile?.tokenTicker || "";
+  const chain = tokenProfile?.chain || "ethereum";
+  const contractAddress = tokenProfile?.contractAddress || "";
+  const normalizedChain = chain === "hyperliquid" ? "hyperevm" : chain.toLowerCase();
+
+  const contextLines = [
+    `Protocol: ${companyName}`,
+    ticker ? `Token: ${ticker}` : "",
+    contractAddress ? `Contract: ${contractAddress} on ${chain}` : "",
+    `Original request title: "${plan.title}"`,
+    `Original description: "${plan.description || ""}"`,
+    `Original data source "${plan.dataSource}" failed. Write a DuneSQL query to get this data on-chain.`,
+  ].filter(Boolean).join("\n");
+
+  console.log(`[Data Agent] LLM Dune SQL fallback: asking LLM to write query for "${plan.title}"`);
+
+  const response = await callAnthropicServerHeavy({
+    model: "claude-sonnet-4-20250514",
+    max_tokens: 2000,
+    system: `You write DuneSQL (Trino dialect) queries for crypto/DeFi protocols.
+Return ONLY a JSON object with these fields:
+{
+  "sql": "SELECT ...",
+  "title": "Chart Title",
+  "chartType": "bar" | "line" | "area",
+  "xAxisKey": "date column name",
+  "yAxisKey": "value column name",
+  "yAxisLabel": "Human Label",
+  "yAxisFormat": "currency" | "number" | "percent"
+}
+
+DuneSQL tips:
+- Chain tables: ${normalizedChain}.transactions, ${normalizedChain}.logs, ${normalizedChain}.traces
+- Decoded tables: Use project-specific decoded tables when possible (e.g. morpho_ethereum.MorphoBlue_evt_*, uniswap_v3_ethereum.Pair_evt_Swap)
+- DEX trades: dex.trades (columns: block_time, token_bought_amount, token_sold_amount, amount_usd, project, blockchain)
+- Token transfers: tokens.transfers (columns: block_time, "from", "to", contract_address, amount_raw, blockchain)
+- Prices: prices.usd (columns: minute, price, symbol, contract_address, blockchain)
+- Lending: lending.borrow, lending.repay, lending.deposit, lending.withdraw
+- Protocol revenue: Look for fee events in decoded contract tables, or aggregate value from transactions
+- Always GROUP BY date_trunc('day', block_time) or 'week' for time series
+- Use block_time >= NOW() - INTERVAL '90' DAY for reasonable timeframes
+- Always ORDER BY the date column
+- Use CAST for bigint/decimal math: CAST(value AS double) / 1e18
+- If you're unsure of exact table names, use dex.trades filtered by project name or raw transaction tables
+- For protocol-specific data, try the naming pattern: {protocol}_{chain}.{Contract}_evt_{Event}
+NO markdown. Return ONLY the JSON object.`,
+    messages: [{ role: "user", content: contextLines }],
+  });
+
+  const cleaned = response.text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
+  const parsed = JSON.parse(cleaned);
+
+  if (!parsed.sql) {
+    console.warn(`[Data Agent] LLM Dune SQL fallback returned no SQL`);
+    return null;
+  }
+
+  console.log(`[Data Agent] LLM wrote Dune SQL: ${parsed.sql.substring(0, 120)}...`);
+  const result = await executeDuneSQL(parsed.sql, `${companyName.toLowerCase().replace(/\s+/g, "_")}_fallback_${Date.now()}`);
+
+  if (result.rows.length === 0) {
+    console.warn(`[Data Agent] LLM Dune SQL returned 0 rows`);
+    return null;
+  }
+
+  console.log(`[Data Agent] LLM Dune SQL fallback succeeded (${result.rows.length} rows, cols: ${result.columns.join(", ")})`);
+
+  return {
+    data: result.rows,
+    dataSource: "dune-sql",
+    dataSourceConfig: { sql: parsed.sql },
+    chartConfig: {
+      xAxis: { dataKey: parsed.xAxisKey || "date", label: "Date", type: "date" },
+      yAxes: [{
+        dataKey: parsed.yAxisKey || result.columns.find((c: string) => c !== parsed.xAxisKey && c !== "date") || result.columns[1],
+        label: parsed.yAxisLabel || plan.title,
+        color: "#38bdf8",
+        format: parsed.yAxisFormat || "currency",
+        yAxisId: "left",
+      }],
+    },
+    chartType: parsed.chartType || "bar",
+    title: parsed.title || `${companyName} ${plan.title} (On-Chain)`,
+  };
 }
 
 async function fetchChartData(
