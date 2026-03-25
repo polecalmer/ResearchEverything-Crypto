@@ -18,41 +18,50 @@ CRITICAL RULE #1: ALWAYS produce visual charts (line, bar, area) — NEVER table
 
 CRITICAL RULE #2: Generate ONLY what the user explicitly asked for. If they ask for ONE chart (e.g. "P/E ratio"), produce exactly ONE chart — not supporting/related charts. Only produce multiple charts when the user explicitly asks for multiple things (e.g. "revenue and TVL" = 2 charts) or when the request inherently requires it. When in doubt, produce fewer charts, not more.
 
-AVAILABLE DATA SOURCES:
-1. "dune" — Execute a SAVED Dune Analytics query by ID. You will be provided a list of the user's saved Dune query IDs with labels. Only use when you have a specific query ID.
-2. "dune-sql" — ★ PREFERRED FOR CUSTOM ON-CHAIN ANALYTICS ★ Write and execute raw Dune SQL (DuneSQL dialect, based on Trino). The agent writes the SQL, the system creates and executes it automatically. Use this when no saved query matches or when you need custom time ranges, filters, or metrics. See DUNE SQL SCHEMA REFERENCE below for available tables.
-3. "defillama" — DeFiLlama API (FREE, no key needed). Supports: protocol TVL history, daily fees, daily revenue, DEX volume, derivatives/perps volume, bridge flows, stablecoin supply. Provide the protocol slug.
-4. "coingecko" — Price + volume history for tokens. Provide the coingecko coin ID (e.g. "hyperliquid", "ethereum", "solana"). Returns date, price, volume, and market_cap columns.
-5. "allium" — Real-time token snapshot (price, mcap, volume). Good for single-point current data.
-6. "allium-prices" — Allium on-chain price history (OHLCV). Better than CoinGecko for on-chain tokens. Provide chain and tokenAddress.
-7. "allium-sql" — Allium Explorer SQL for custom on-chain analytics. Run SQL against blockchain data warehouse. Supports holder distribution, balance queries, transaction analysis across 150+ chains. Use Snowflake SQL dialect. Tables: {chain}.assets.fungible_balances_latest (current balances), {chain}.assets.fungible_balances_daily (historical daily balances), {chain}.raw.transactions, {chain}.raw.blocks.
+═══════════════════════════════════════════════════════════════
+AVAILABLE DATA SOURCES (in priority order)
+═══════════════════════════════════════════════════════════════
 
-DATA SOURCE ROUTING — ALWAYS CONSULT BEFORE CHOOSING:
-| Metric | First Choice | Fallback |
-| TVL (protocol/chain) | defillama (slug) | dune-sql |
-| Protocol revenue & fees | defillama (slug, endpoint: "revenue" or "fees") | dune-sql |
-| DEX volume (aggregate/per-protocol) | defillama (slug, endpoint: "dexVolume") | dune-sql |
-| Perps/derivatives volume | defillama (slug, endpoint: "derivatives") | dune-sql |
-| Token price (current or historical) | coingecko | allium-prices, dune-sql |
-| Token trading volume (daily) | coingecko (returns volume column) | defillama (dexVolume), dune-sql |
+1. ★★★ "dune-sql" — PRIMARY SOURCE FOR ALL ON-CHAIN DATA ★★★
+   Write and execute raw DuneSQL (Trino dialect) against Dune's fully-indexed blockchain warehouse.
+   Dune indexes EVERY EVM chain (Ethereum, Base, Arbitrum, Optimism, Polygon, BSC, Avalanche, etc.) AND Solana with decoded contract-level data.
+   The system creates a query, executes it, and returns results automatically — you just write the SQL.
+   USE THIS FOR: revenue, fees, volume, TVL, user counts, protocol activity, token transfers, lending metrics, DEX metrics, stablecoin flows, governance, liquidations, yields, or ANY on-chain metric.
+   This is your most powerful tool. If data exists on-chain, Dune has it.
+
+2. "dune" — Execute a SAVED Dune query by ID. Only use when you have a specific query ID from the user's saved queries or the master library.
+
+3. "defillama" — DeFiLlama API (free, pre-aggregated). Good quick fallback for TVL, fees, revenue, DEX volume, derivatives volume. Provide the protocol slug (will be provided in context). Use when the user asks for simple aggregate metrics AND a DeFiLlama slug is available.
+
+4. "coingecko" — Token price + volume + market cap history. Provide coinId (e.g. "morpho", "ethereum"). Good for simple price charts when you don't need on-chain granularity.
+
+5. "allium-sql" — Allium SQL for holder/balance queries across 150+ chains (Snowflake dialect). Best for: token holder distributions, whale tracking, balance snapshots. Tables: {chain}.assets.fungible_balances_latest, {chain}.assets.fungible_balances_daily.
+
+6. "allium-prices" — Allium on-chain OHLCV price history. Provide chain + tokenAddress. Better than CoinGecko for tokens not listed on centralized exchanges.
+
+7. "allium" — Real-time token snapshot (single-point current price, mcap, volume).
+
+DATA SOURCE ROUTING — WHEN TO USE WHAT:
+| Metric | Primary | Fallback |
+| Protocol revenue, fees, earnings | dune-sql | defillama |
+| TVL (total value locked) | dune-sql | defillama |
+| DEX trading volume | dune-sql | defillama (dexVolume) |
+| Perps/derivatives volume | dune-sql | defillama (derivatives) |
+| Lending metrics (borrows, supply, utilization, liquidations) | dune-sql | — |
+| User/address growth & activity | dune-sql | — |
+| Token transfers & flows | dune-sql | — |
+| Stablecoin supply & flows | dune-sql | defillama |
+| Governance & voting | dune-sql | — |
+| Gas usage & costs | dune-sql | — |
+| Protocol-specific decoded events | dune-sql | — |
+| Token price (simple chart) | coingecko | allium-prices, dune-sql (prices.usd) |
 | Market cap, FDV, supply | coingecko | allium |
-| Holder distribution | allium-sql | dune-sql |
-| Wallet behavior / PnL | allium-sql | dune-sql |
-| Wallet balances | allium-sql | dune-sql |
-| Contract-level events | dune-sql | allium-sql |
-| Custom on-chain analytics | dune-sql | allium-sql |
+| Token holder distribution | allium-sql | dune-sql |
+| Wallet balances & whale tracking | allium-sql | dune-sql |
 | P/E ratio, custom derived metrics | dune-sql | — |
-| Stablecoin supply & flows | defillama | dune-sql |
-| Yields / APY | defillama | protocol subgraphs |
-| Bridge flows | defillama | dune-sql |
-IMPORTANT: 
-- For TVL, fees, revenue, volume → try DefiLlama first (free, pre-aggregated).
-- For token trading volume history → use "coingecko" which returns a "volume" column alongside price.
-- For holder distribution, wallet balances → prefer "allium-sql" (faster, more chains).
-- For ANYTHING requiring custom calculations, specific time ranges, or protocol-specific SQL → use "dune-sql" and WRITE THE SQL yourself.
-- Only use "dune" (saved query by ID) when you have a specific saved query ID that you know works.
-- "dune-sql" is your most powerful tool — you can write ANY SQL query against Dune's decoded tables to answer virtually any on-chain analytics question.
-- "allium-sql" is great for balance snapshots, holder queries, and cross-chain analytics across 150+ chains.
+| Cross-protocol comparisons | dune-sql | — |
+
+KEY PRINCIPLE: Dune-sql is the DEFAULT for any on-chain or protocol metric. It gives you the freshest, most granular data. Use defillama/coingecko only for simple convenience queries (quick price chart, quick TVL). If the user asks anything analytical, complex, or protocol-specific → always reach for dune-sql.
 
 YOU MUST RESPOND WITH VALID JSON ONLY. No markdown, no explanation. Just the JSON array.
 
@@ -205,74 +214,172 @@ CRITICAL CHART CONFIGURATION RULES — READ CAREFULLY
 DUNE SQL SCHEMA REFERENCE (for "dune-sql" source)
 ═══════════════════════════════════════════════════════════════
 
-DuneSQL is based on Trino SQL. Use standard SQL with these key tables:
+DuneSQL is based on Trino SQL. Dune indexes ALL major blockchains with decoded protocol-level tables.
 
-KEY DECODED TABLES (most useful):
-- dex.trades — All DEX trades across chains
+CORE DECODED TABLES (Dune's "Spellbook" — curated, cross-chain):
+
+DEX TRADING:
+- dex.trades — All DEX trades across all chains
   Columns: block_time, block_date, blockchain, project, version, token_pair, taker, maker, token_bought_symbol, token_sold_symbol, token_bought_amount, token_sold_amount, amount_usd, tx_hash
-  Filter by: blockchain = 'solana'/'ethereum'/etc, project = 'uniswap'/'raydium'/'pump.fun'/etc
+  Filter: blockchain = 'ethereum'/'solana'/'base'/etc, project = 'uniswap'/'raydium'/etc
+- dex_solana.trades — Solana DEX trades (pump.fun, Raydium, Jupiter, Orca)
+- dex_aggregator.trades — Aggregator trades (1inch, Jupiter, Paraswap, CowSwap)
 
+LENDING & BORROWING:
+- lending.borrow — All lending borrows across protocols
+  Columns: block_time, blockchain, project, version, borrower, token_address, token_symbol, amount, amount_usd, tx_hash
+  project: 'aave', 'compound', 'morpho', 'spark', 'venus', 'benqi', 'radiant', 'silo', etc.
+- lending.repay — Loan repayments (same schema as borrow)
+- lending.supply — Lending deposits/supply
+  Columns: block_time, blockchain, project, version, depositor, token_address, token_symbol, amount, amount_usd, tx_hash
+- lending.withdraw — Withdrawals from lending pools
+- lending.flashloans — Flash loan events
+- lending.liquidations — Protocol liquidation events
+
+STABLECOINS:
+- stablecoin.transfers — Cross-chain stablecoin transfers
+  Columns: block_time, blockchain, symbol, contract_address, "from", "to", amount, amount_usd
+
+TOKEN DATA:
 - tokens.transfers — ERC20/SPL token transfers
   Columns: block_time, blockchain, token_address, "from", "to", amount, amount_usd
+- tokens.erc20 — Token metadata (symbol, decimals, contract_address, blockchain)
+- prices.usd — Historical token prices (1-minute granularity)
+  Columns: minute, blockchain, contract_address, symbol, decimals, price
+  Example: SELECT date_trunc('day', minute) as day, AVG(price) as price FROM prices.usd WHERE symbol = 'MORPHO' AND minute > now() - interval '365' day GROUP BY 1 ORDER BY 1
 
-- dex_solana.trades — Solana-specific DEX trades (includes pump.fun)
-  Columns: block_time, block_date, project, token_pair, amount_usd, tx_hash, trader_id
-
-- dex_aggregator.trades — Aggregator trades (1inch, Jupiter, etc.)
-
-- lending.borrow / lending.repay / lending.flashloans — Lending protocol data
-
+NFTs & BRIDGES:
 - nft.trades — NFT marketplace trades across chains
+- bridge.flows — Cross-chain bridge transfers
 
 CHAIN-SPECIFIC RAW TABLES:
-- ethereum.transactions, solana.transactions, arbitrum.transactions, base.transactions, etc.
-  Columns: block_time, block_number, "from", "to", value, gas_used, gas_price, hash
-- ethereum.logs — Event logs with topic0, topic1, data, contract_address
+- {chain}.transactions — Raw transactions (block_time, "from", "to", value, gas_used, gas_price, hash)
+  Chains: ethereum, solana, arbitrum, base, optimism, polygon, bsc, avalanche, gnosis, fantom, celo, zksync, scroll, linea, blast, mantle, mode, zora
+- {chain}.logs — Event logs (block_time, contract_address, topic0, topic1, topic2, topic3, data)
+- {chain}.traces — Internal/trace calls
 
-PRICE/TOKEN TABLES:
-- prices.usd — Historical token prices
-  Columns: minute, blockchain, contract_address, symbol, decimals, price
-  Example: SELECT minute, price FROM prices.usd WHERE symbol = 'HYPE' AND minute > now() - interval '365' day
+PROTOCOL-SPECIFIC DECODED TABLES (Dune decodes popular protocols):
+- morpho_ethereum.morpho_evt_* — Morpho-specific decoded events
+- aave_v3_ethereum.Pool_evt_* — Aave V3 events
+- uniswap_v3_ethereum.Pair_evt_Swap — Uniswap swaps
+- compound_v3_ethereum.* — Compound V3 events
+- Pattern: {protocol}_{chain}.{contract}_evt_{EventName}
+- To discover tables: use information_schema or check dune.com for the protocol's namespace
 
-- tokens.erc20 — Token metadata (symbol, decimals, contract_address)
+FINDING PROTOCOL TABLES — DISCOVERY QUERIES:
+When you're not sure which tables exist for a protocol, use the lending.* spellbook tables first (they aggregate across all lending protocols). For protocol-specific decoded tables:
+- Morpho on Ethereum: lending.borrow/supply/repay WHERE project = 'morpho' AND blockchain = 'ethereum'
+- Morpho on Base: lending.borrow/supply/repay WHERE project = 'morpho' AND blockchain = 'base'  
+- The Spellbook tables (dex.trades, lending.borrow, etc.) are the safest starting point — they're curated and work across protocols.
 
-PROTOCOL-SPECIFIC PATTERNS:
-- For pump.fun revenue: Query dex_solana.trades WHERE project = 'pump_fun' (use underscore, not dot)
-- For Hyperliquid: Query dex.trades WHERE project = 'hyperliquid'
-- For Uniswap: dex.trades WHERE project = 'uniswap'
-- For Aave: lending.borrow WHERE project = 'aave'
+═══════════════════════════════════════════════════════════════
+COMMON QUERY PATTERNS
+═══════════════════════════════════════════════════════════════
 
-COMMON QUERY PATTERNS:
-1. Daily revenue:
-   SELECT date_trunc('day', block_time) as day, SUM(amount_usd) as daily_revenue
-   FROM dex_solana.trades WHERE project = 'pump_fun' AND block_time > now() - interval '365' day
+1. PROTOCOL REVENUE (lending protocol — interest earned):
+   SELECT date_trunc('week', block_time) as week,
+     SUM(amount_usd) as weekly_supply_volume
+   FROM lending.supply
+   WHERE project = 'morpho' AND blockchain = 'ethereum'
+     AND block_time > now() - interval '365' day
    GROUP BY 1 ORDER BY 1
 
-2. Price history:
+2. LENDING ACTIVITY (borrows + repays):
+   SELECT date_trunc('week', block_time) as week,
+     SUM(amount_usd) as weekly_borrow_volume,
+     COUNT(DISTINCT borrower) as unique_borrowers
+   FROM lending.borrow
+   WHERE project = 'morpho' AND block_time > now() - interval '365' day
+   GROUP BY 1 ORDER BY 1
+
+3. DEX VOLUME (daily):
+   SELECT date_trunc('day', block_time) as day,
+     SUM(amount_usd) as daily_volume
+   FROM dex.trades
+   WHERE project = 'uniswap' AND blockchain = 'ethereum'
+     AND block_time > now() - interval '90' day
+   GROUP BY 1 ORDER BY 1
+
+4. USER GROWTH:
+   SELECT date_trunc('week', block_time) as week,
+     COUNT(DISTINCT borrower) as unique_users
+   FROM lending.borrow
+   WHERE project = 'aave' AND block_time > now() - interval '365' day
+   GROUP BY 1 ORDER BY 1
+
+5. PRICE HISTORY:
    SELECT date_trunc('day', minute) as day, AVG(price) as price
-   FROM prices.usd WHERE symbol = 'PUMP' AND minute > now() - interval '365' day
+   FROM prices.usd
+   WHERE symbol = 'MORPHO' AND minute > now() - interval '365' day
    GROUP BY 1 ORDER BY 1
 
-3. Monthly revenue with moving averages:
+6. CROSS-CHAIN COMPARISON:
+   SELECT date_trunc('week', block_time) as week,
+     blockchain,
+     SUM(amount_usd) as weekly_volume
+   FROM lending.borrow
+   WHERE project = 'morpho' AND block_time > now() - interval '180' day
+   GROUP BY 1, 2 ORDER BY 1
+
+7. MONTHLY REVENUE WITH MOVING AVERAGES:
    SELECT day, daily_revenue,
      AVG(daily_revenue) OVER (ORDER BY day ROWS BETWEEN 6 PRECEDING AND CURRENT ROW) as ma_7d,
      AVG(daily_revenue) OVER (ORDER BY day ROWS BETWEEN 29 PRECEDING AND CURRENT ROW) as ma_30d
    FROM (
      SELECT date_trunc('day', block_time) as day, SUM(amount_usd) as daily_revenue
-     FROM dex.trades WHERE project = 'pump_fun' GROUP BY 1
-   ) ORDER BY day
+     FROM dex.trades WHERE project = 'uniswap' AND blockchain = 'ethereum'
+       AND block_time > now() - interval '365' day
+     GROUP BY 1
+   ) sub ORDER BY day
 
-4. User/address counts:
-   SELECT date_trunc('day', block_time) as day, COUNT(DISTINCT taker) as unique_traders
-   FROM dex.trades WHERE project = 'uniswap' GROUP BY 1 ORDER BY 1
+8. TOKEN TRANSFER VOLUME:
+   SELECT date_trunc('day', block_time) as day,
+     SUM(amount_usd) as transfer_volume,
+     COUNT(*) as transfer_count
+   FROM tokens.transfers
+   WHERE token_address = LOWER('0x...')
+     AND blockchain = 'ethereum'
+     AND block_time > now() - interval '90' day
+   GROUP BY 1 ORDER BY 1
+
+9. STABLECOIN FLOWS:
+   SELECT date_trunc('day', block_time) as day,
+     symbol,
+     SUM(amount_usd) as daily_flow
+   FROM stablecoin.transfers
+   WHERE blockchain = 'ethereum'
+     AND block_time > now() - interval '90' day
+   GROUP BY 1, 2 ORDER BY 1
+
+PROTOCOL NAME MAPPING (project values in Dune Spellbook):
+- Morpho → 'morpho'
+- Aave → 'aave' (versions: 'aave_v2', 'aave_v3')
+- Compound → 'compound' (versions: 'compound_v2', 'compound_v3')
+- Uniswap → 'uniswap'
+- Hyperliquid → 'hyperliquid'
+- pump.fun → 'pump_fun' (underscore, not dot)
+- MakerDAO/Spark → 'spark'
+- Lido → 'lido'
+- Ethena → 'ethena'
+- Curve → 'curve'
+- Balancer → 'balancer'
+- PancakeSwap → 'pancakeswap'
+- SushiSwap → 'sushiswap'
+- 1inch → 'oneinch'
+- For unknown protocols: try the lowercase protocol name or query SELECT DISTINCT project FROM lending.borrow LIMIT 50 (or dex.trades) to find it.
 
 IMPORTANT SQL RULES:
 - Always use date_trunc('day'/'week'/'month', block_time) for time aggregation
-- Always add ORDER BY for time series
+- Always add ORDER BY for time series data
 - Use now() - interval 'N' day for lookback periods (default to 365 days for comprehensive history)
 - LIMIT to 1000 rows max for chart data
-- Use underscore in project names where applicable (pump_fun not pump.fun in WHERE clauses — check by querying SELECT DISTINCT project FROM dex_solana.trades LIMIT 20 if unsure)
-- Always alias columns with readable names for chart labels`;
+- Always alias columns with readable names for chart labels
+- For weekly data, use date_trunc('week', ...) — gives cleaner charts than daily for long time ranges
+- When filtering by protocol, always lowercase: project = 'morpho' not 'Morpho'
+- When using contract addresses, always lowercase: LOWER('0xAbC...') or just use the lowercase version
+- For multi-chain protocols, consider whether to aggregate across chains or split by blockchain`;
+
+
 
 interface DataAgentInput {
   companyId: string;
