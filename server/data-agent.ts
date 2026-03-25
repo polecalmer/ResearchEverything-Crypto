@@ -1628,7 +1628,7 @@ async function attemptFallback(
   console.log(`[Data Agent] Attempting fallback for "${plan.title}" (original: ${plan.dataSource}, error: ${error})`);
 
   const isPrice = /\bprice\b|price.?history|price.?chart/i.test(combined);
-  const isTvl = /\btvl\b|total.?value.?locked|liquidity/i.test(combined);
+  const isTvl = /\btvl\b|total.?value.?locked|liquidity|active.?loans|outstanding.?borrow|outstanding.?loan|total.?borrow.?outstanding/i.test(combined);
   const isRevenue = /\brevenue\b|daily.?fees|protocol.?fees|earnings/i.test(combined);
   const isFees = /\bfees\b|interest.?paid|interest.?generated|interest.?earn|yield.?generated|yield.?paid/i.test(combined);
   const isVolume = /\bvolume\b|trading.?volume|daily.?volume|weekly.?volume|perp.?volume|dex.?volume/i.test(combined);
