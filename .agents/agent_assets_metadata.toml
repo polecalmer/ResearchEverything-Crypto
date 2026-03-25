@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "2h-DqYWz13H_NSl3qyQdm"
+uri = "file://.local/self-learning-system-note.md"
+type = "text"
+title = "Self-Learning Query System — Architecture Note"
