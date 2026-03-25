@@ -1461,7 +1461,8 @@ export async function registerRoutes(
     if (!query || typeof query !== "string") return res.status(400).json({ message: "query is required" });
     try {
       const result = await pool.query(query);
-      res.json({ rows: result.rows, rowCount: result.rowCount, fields: result.fields?.map((f: any) => f.name) });
+      res.setHeader("Content-Type", "application/json");
+      res.send(JSON.stringify({ rows: result.rows, rowCount: result.rowCount, fields: result.fields?.map((f: any) => f.name) }));
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
