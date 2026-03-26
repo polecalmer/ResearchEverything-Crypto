@@ -562,14 +562,12 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
 
   let chartPlans: ChartPlan[];
   try {
-    const cleaned = response.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    chartPlans = JSON.parse(cleaned);
-    if (!Array.isArray(chartPlans)) chartPlans = [chartPlans];
+    chartPlans = repairAndParseJSON(response.text);
   } catch (e) {
     throw new Error(`AI returned invalid chart plan: ${response.text.substring(0, 200)}`);
   }
 
-  const validSources = ["dune", "dune-sql", "defillama", "coingecko", "allium", "allium-prices", "allium-sql"];
+  const validSources = ["dune", "dune-sql", "defillama", "coingecko", "allium", "allium-prices", "allium-sql", "derived"];
   const validChartTypes = ["line", "bar", "area", "composed", "table"];
 
   chartPlans = chartPlans.filter(plan => {
@@ -640,6 +638,28 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
           await storage.recordProvenQueryFailure(provenQuery.id);
           usedProvenQueryId = null;
           fetchError = err.message;
+        }
+      }
+
+      // Check if this is a derived metric (P/E ratio) that needs multi-source execution
+      if (!data || data.length === 0) {
+        const isDerivedPE = detectDerivedPE(plan, metricType);
+        if (isDerivedPE) {
+          try {
+            console.log(`[Data Agent] Detected P/E ratio query — using derived execution path`);
+            const slug = await defillama.resolveSlug(companyName).catch(() => companyName.toLowerCase().replace(/\s+/g, "-"));
+            data = await executePeRatioProduction(companyName, slug);
+            if (data && data.length > 0) {
+              // Update plan metadata to reflect derived source
+              plan.dataSource = "derived";
+              plan.chartConfig = plan.chartConfig || {};
+              plan.chartConfig.xAxis = { dataKey: "date", label: "Date", type: "date" };
+              plan.chartConfig.yAxes = [{ dataKey: "pe_ratio", label: "P/E Ratio", color: "#38bdf8", format: "number", yAxisId: "left" }];
+            }
+          } catch (peErr: any) {
+            console.warn(`[Data Agent] Derived P/E failed: ${peErr.message}`);
+            // Fall through to normal execution
+          }
         }
       }
 
@@ -2137,6 +2157,179 @@ NO markdown. Return ONLY the JSON object.`,
     chartType: parsed.chartType || "bar",
     title: parsed.title || `${companyName} ${plan.title} (On-Chain)`,
   };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// JSON REPAIR — fix common LLM output issues
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Attempt to repair and parse LLM JSON output.
+ * Handles: markdown fences, trailing commas, mixed text+JSON,
+ * single objects vs arrays.
+ */
+function repairAndParseJSON(raw: string): any[] {
+  // Step 1: Strip markdown code fences
+  let text = raw
+    .replace(/```json\s*/gi, "")
+    .replace(/```sql\s*/gi, "")
+    .replace(/```\s*/g, "")
+    .trim();
+
+  // Step 2: Extract JSON from mixed text
+  const firstBracket = text.indexOf("[");
+  const firstBrace = text.indexOf("{");
+  if (firstBracket === -1 && firstBrace === -1) {
+    throw new Error("No JSON found in response");
+  }
+
+  const jsonStart = (firstBracket !== -1 && (firstBrace === -1 || firstBracket < firstBrace))
+    ? firstBracket : firstBrace;
+  const isArray = text[jsonStart] === "[";
+
+  // Find matching end bracket/brace
+  let depth = 0;
+  let jsonEnd = jsonStart;
+  const openChar = isArray ? "[" : "{";
+  const closeChar = isArray ? "]" : "}";
+  let inString = false;
+  let escaped = false;
+
+  for (let i = jsonStart; i < text.length; i++) {
+    const ch = text[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\") { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === openChar) depth++;
+    if (ch === closeChar) { depth--; if (depth === 0) { jsonEnd = i; break; } }
+  }
+
+  let jsonStr = text.substring(jsonStart, jsonEnd + 1);
+
+  // Step 3: Fix trailing commas before ] or }
+  jsonStr = jsonStr.replace(/,\s*([}\]])/g, "$1");
+
+  // Step 4: Parse
+  try {
+    const parsed = JSON.parse(jsonStr);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    // Last resort: try the whole text
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DERIVED METRICS — P/E Ratio
+// ═══════════════════════════════════════════════════════════════
+
+import { resolveCoinGeckoId, getRevenueSlugs } from "./coingecko-ids";
+
+/**
+ * Detect if a chart plan is a P/E ratio query that needs derived execution.
+ */
+function detectDerivedPE(plan: any, metricType: string): boolean {
+  if (metricType === "pe_ratio") return true;
+  const title = (plan.title || "").toLowerCase();
+  if (title.includes("p/e") || title.includes("price-to-earnings") || title.includes("pe ratio")) return true;
+  const endpoint = plan.dataSourceConfig?.endpoint;
+  if (endpoint === "pe_ratio" || endpoint === "p_e_ratio") return true;
+  return false;
+}
+
+/**
+ * Execute P/E ratio computation for production.
+ * Fetches revenue from DeFiLlama + mcap from CoinGecko, computes P/E time series.
+ */
+async function executePeRatioProduction(protocol: string, slug: string): Promise<any[]> {
+  const coinId = resolveCoinGeckoId(slug) || resolveCoinGeckoId(protocol);
+  const revSlugs = getRevenueSlugs(slug);
+
+  console.log(`[P/E] Computing for ${protocol}: slug=${slug}, coinId=${coinId}`);
+
+  // 1. Fetch daily revenue (try slug fallbacks)
+  let dailyRevenue: { date: number; revenue: number }[] = [];
+  for (const rs of revSlugs) {
+    try {
+      const revData = await defillama.getProtocolRevenue(rs);
+      const parsed = (revData.dailyRevenue || [])
+        .map((d: any) => ({ date: d.date, revenue: d.revenue || d.value || 0 }))
+        .filter((d: any) => d.revenue > 0);
+      if (parsed.length > dailyRevenue.length) {
+        dailyRevenue = parsed;
+        console.log(`[P/E] Revenue from '${rs}': ${parsed.length} daily points`);
+        break;
+      }
+    } catch {}
+  }
+  if (dailyRevenue.length < 30) {
+    throw new Error(`Insufficient revenue data for ${protocol} (${dailyRevenue.length} points)`);
+  }
+  dailyRevenue.sort((a, b) => a.date - b.date);
+
+  // 2. Fetch price history (same token as mcap)
+  const priceData = await defillama.getCoinPriceHistory(coinId, 365);
+  if (priceData.prices.length < 7) {
+    throw new Error(`Insufficient price data for ${coinId}`);
+  }
+
+  // 3. Get current mcap from CoinGecko
+  const cgData: any = await fetch(
+    `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd&include_market_cap=true`
+  ).then(r => r.json()).catch(() => ({}));
+  const cgEntry = cgData[coinId];
+  if (!cgEntry?.usd_market_cap || cgEntry.usd_market_cap <= 0 || !cgEntry.usd || cgEntry.usd <= 0) {
+    throw new Error(`Could not get market cap for ${coinId}`);
+  }
+  const mcapScale = cgEntry.usd_market_cap / cgEntry.usd;
+  console.log(`[P/E] MCap: $${cgEntry.usd_market_cap.toFixed(0)}, scale=${mcapScale.toFixed(0)}`);
+
+  // 4. Group revenue by month, compute P/E
+  const monthlyRevSum = new Map<string, number>();
+  const monthlyRevDays = new Map<string, number>();
+  for (const d of dailyRevenue) {
+    const mk = new Date(d.date * 1000).toISOString().substring(0, 7);
+    monthlyRevSum.set(mk, (monthlyRevSum.get(mk) || 0) + d.revenue);
+    monthlyRevDays.set(mk, (monthlyRevDays.get(mk) || 0) + 1);
+  }
+
+  const monthlyPrice = new Map<string, { sum: number; count: number }>();
+  for (const p of priceData.prices) {
+    const mk = new Date(p.date * 1000).toISOString().substring(0, 7);
+    const entry = monthlyPrice.get(mk) || { sum: 0, count: 0 };
+    entry.sum += p.price;
+    entry.count++;
+    monthlyPrice.set(mk, entry);
+  }
+
+  const result: any[] = [];
+  for (const month of [...monthlyRevSum.keys()].sort()) {
+    const revSum = monthlyRevSum.get(month) || 0;
+    const revDays = monthlyRevDays.get(month) || 1;
+    const priceEntry = monthlyPrice.get(month);
+    if (!priceEntry || revSum <= 0) continue;
+
+    const avgPrice = priceEntry.sum / priceEntry.count;
+    const annualizedRev = (revSum / revDays) * 365;
+    const mcap = avgPrice * mcapScale;
+    const peRatio = mcap / annualizedRev;
+
+    if (peRatio > 0 && peRatio < 100000) {
+      result.push({
+        date: new Date(month + "-15T00:00:00Z").getTime() / 1000,
+        pe_ratio: peRatio,
+        price: avgPrice,
+        mcap: mcap,
+        revenue: revSum,
+        arr: annualizedRev,
+      });
+    }
+  }
+
+  console.log(`[P/E] Computed ${result.length} monthly data points`);
+  return result;
 }
 
 async function fetchChartData(

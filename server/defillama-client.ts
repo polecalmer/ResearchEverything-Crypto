@@ -159,19 +159,41 @@ export async function getProtocolFees(slug: string): Promise<ProtocolFees> {
   };
 }
 
+/** Revenue slug fallbacks for rebranded protocols */
+const REVENUE_SLUG_FALLBACKS: Record<string, string[]> = {
+  makerdao: ["makerdao", "maker", "sky"],
+  maker: ["maker", "makerdao", "sky"],
+  sky: ["sky", "makerdao", "maker"],
+};
+
 export async function getProtocolRevenue(slug: string): Promise<ProtocolRevenue> {
-  const data = await fetchJson(`${DEFILLAMA_BASE}/summary/fees/${slug}?dataType=dailyRevenue`);
-  const totalData = data.totalDataChart || [];
-  if (totalData.length === 0 && !data.total24h) {
-    throw new Error(`No revenue data available for protocol "${slug}" on DeFiLlama`);
+  const slugsToTry = REVENUE_SLUG_FALLBACKS[slug.toLowerCase()] || [slug];
+  let lastError: Error | null = null;
+
+  for (const trySlug of slugsToTry) {
+    try {
+      const data = await fetchJson(`${DEFILLAMA_BASE}/summary/fees/${trySlug}?dataType=dailyRevenue`);
+      const totalData = data.totalDataChart || [];
+      if (totalData.length === 0 && !data.total24h) {
+        lastError = new Error(`No revenue data for "${trySlug}"`);
+        continue;
+      }
+      if (trySlug !== slug) {
+        console.log(`[DeFiLlama] Revenue: slug '${slug}' failed, used fallback '${trySlug}'`);
+      }
+      return {
+        total24h: data.total24h ?? null,
+        total7d: data.total7d ?? null,
+        total30d: data.total30d ?? null,
+        totalAllTime: data.totalAllTime ?? null,
+        dailyRevenue: totalData.map((d: any) => ({ date: d[0], revenue: d[1] })),
+      };
+    } catch (e) {
+      lastError = e as Error;
+    }
   }
-  return {
-    total24h: data.total24h ?? null,
-    total7d: data.total7d ?? null,
-    total30d: data.total30d ?? null,
-    totalAllTime: data.totalAllTime ?? null,
-    dailyRevenue: totalData.map((d: any) => ({ date: d[0], revenue: d[1] })),
-  };
+
+  throw lastError || new Error(`No revenue data available for protocol "${slug}" on DeFiLlama`);
 }
 
 export async function getCoinPriceHistory(
