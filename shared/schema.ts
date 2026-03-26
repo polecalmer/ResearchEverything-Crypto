@@ -399,6 +399,57 @@ export const benchmarkCaseResults = pgTable("benchmark_case_results", {
 
 export type BenchmarkCaseResult = typeof benchmarkCaseResults.$inferSelect;
 
+/** Compound financial query templates (SQL with placeholders) */
+export const queryTemplates = pgTable("query_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  businessModel: text("business_model").notNull(),
+  description: text("description"),
+  sqlTemplate: text("sql_template").notNull(),
+  requiredParams: jsonb("required_params").notNull(),
+  outputMetrics: jsonb("output_metrics").notNull(),
+  exampleProtocol: text("example_protocol"),
+  savedQueryDependencies: jsonb("saved_query_dependencies"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertQueryTemplateSchema = createInsertSchema(queryTemplates).omit({
+  id: true,
+  createdAt: true,
+});
+export type QueryTemplate = typeof queryTemplates.$inferSelect;
+export type InsertQueryTemplate = z.infer<typeof insertQueryTemplateSchema>;
+
+/** Protocol revenue models — researched and validated revenue logic per protocol */
+export const protocolRevenueModels = pgTable("protocol_revenue_models", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  protocol: text("protocol").notNull(),
+  protocolSlug: text("protocol_slug"),                         // DeFiLlama slug
+  protocolType: text("protocol_type").notNull(),               // 'lending', 'dex', 'staking', 'stablecoin_yield', 'derivatives'
+  revenueSources: jsonb("revenue_sources").notNull(),          // [{ name, description, onChainSignal }]
+  keyContracts: jsonb("key_contracts").notNull(),              // [{ label, address, chain }]
+  feeStructure: text("fee_structure"),                         // human-readable description
+  suggestedDuneTables: jsonb("suggested_dune_tables"),         // ["lending.borrow", "tokens.transfers", ...]
+  existingDuneQueryIds: jsonb("existing_dune_query_ids"),      // [number, ...]
+  revenueSqlDraft: text("revenue_sql_draft"),                  // Working SQL that produces revenue time series
+  validationStatus: text("validation_status").notNull().default("unvalidated"), // 'unvalidated', 'validated', 'failed'
+  validationScore: doublePrecision("validation_score"),        // cross-validation score vs DeFiLlama
+  validationError: text("validation_error"),                   // error details if validation failed
+  coinGeckoId: text("coingecko_id"),                           // for price/mcap lookups
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertProtocolRevenueModelSchema = createInsertSchema(protocolRevenueModels).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type ProtocolRevenueModel = typeof protocolRevenueModels.$inferSelect;
+export type InsertProtocolRevenueModel = z.infer<typeof insertProtocolRevenueModelSchema>;
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;

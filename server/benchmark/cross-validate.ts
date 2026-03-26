@@ -160,6 +160,145 @@ export async function crossSourceValidate(
 }
 
 /**
+ * Fetch reference data for a derived metric (e.g. P/E ratio).
+ * P/E = market_cap / annualized_revenue
+ *
+ * Revenue from DeFiLlama, price from CoinGecko (via DeFiLlama coins API).
+ * We compute weekly P/E: trailing 30d revenue annualized × price-implied mcap.
+ */
+export async function fetchDerivedReference(
+  protocol: string,
+  metricType: string,
+  slug?: string,
+  coinId?: string,
+): Promise<{ date: number; value: number }[] | null> {
+  if (metricType !== "pe_ratio" || !coinId) return null;
+
+  // Canonical CoinGecko ID mapping — price + mcap must come from SAME token
+  const COIN_MAP: Record<string, string> = {
+    ethena: "ethena", aave: "aave", uniswap: "uniswap",
+    "lido-dao": "lido-dao", lido: "lido-dao", morpho: "morpho",
+    makerdao: "sky", maker: "sky", sky: "sky",
+  };
+  const resolvedCoinId = COIN_MAP[coinId.toLowerCase()] || COIN_MAP[slug?.toLowerCase() || ""] || coinId;
+
+  // Revenue slug fallbacks (same as executePeRatio)
+  const REVENUE_SLUGS: Record<string, string[]> = {
+    makerdao: ["makerdao", "maker", "sky"],
+    maker: ["maker", "makerdao", "sky"],
+  };
+  const resolvedSlug = slug || await defillama.resolveSlug(protocol).catch(() => null);
+  if (!resolvedSlug) return null;
+  const revSlugs = REVENUE_SLUGS[resolvedSlug.toLowerCase()] || [resolvedSlug];
+
+  try {
+    // Fetch revenue from DeFiLlama (with slug fallbacks)
+    let dailyRev: { date: number; revenue: number }[] = [];
+    for (const rs of revSlugs) {
+      try {
+        const revData = await defillama.getProtocolRevenue(rs);
+        const parsed = (revData.dailyRevenue || [])
+          .map((d: any) => ({ date: d.date, revenue: d.revenue || d.value || 0 }))
+          .filter((d: any) => d.revenue > 0);
+        if (parsed.length > dailyRev.length) {
+          dailyRev = parsed;
+          break;
+        }
+      } catch {}
+    }
+    if (dailyRev.length < 30) return null;
+    dailyRev.sort((a, b) => a.date - b.date);
+
+    // Fetch price history from DeFiLlama coins API (same token as mcap)
+    const priceData = await defillama.getCoinPriceHistory(resolvedCoinId, 365);
+    if (!priceData.prices.length) return null;
+
+    // Fetch current mcap from CoinGecko simple/price (same token)
+    const cgData: any = await fetch(
+      `https://api.coingecko.com/api/v3/simple/price?ids=${resolvedCoinId}&vs_currencies=usd&include_market_cap=true`
+    ).then(r => r.json()).catch(() => ({}));
+    const cgEntry = cgData[resolvedCoinId];
+    if (!cgEntry?.usd_market_cap || cgEntry.usd_market_cap <= 0 || !cgEntry.usd || cgEntry.usd <= 0) return null;
+
+    // mcapScaleFactor = mcap / price (constant supply assumption)
+    const mcapScale = cgEntry.usd_market_cap / cgEntry.usd;
+
+    // Compute rolling 30d annualized revenue
+    const rolling: Map<number, number> = new Map();
+    for (let i = 29; i < dailyRev.length; i++) {
+      let sum30d = 0;
+      for (let j = i - 29; j <= i; j++) {
+        sum30d += dailyRev[j].revenue;
+      }
+      // Annualize: (30-day sum / 30) × 365
+      rolling.set(dailyRev[i].date, (sum30d / 30) * 365);
+    }
+
+    // Build P/E time series: for each price point, find nearest rolling revenue
+    const rollingDates = Array.from(rolling.keys());
+    const result: { date: number; value: number }[] = [];
+
+    for (const pp of priceData.prices) {
+      const nearest = findNearestDate(pp.date, rollingDates, 86400 * 4);
+      if (nearest === null) continue;
+      const annualRev = rolling.get(nearest);
+      if (!annualRev || annualRev <= 0) continue;
+
+      const mcap = pp.price * mcapScale;
+      const pe = mcap / annualRev;
+
+      if (pe > 0 && pe < 100000) {
+        result.push({ date: pp.date, value: pe });
+      }
+    }
+
+    console.log(`[CrossValidate] Derived P/E reference for ${protocol}: ${result.length} points, coinId=${resolvedCoinId}, mcapScale=${mcapScale.toFixed(0)}`);
+    return result.length > 5 ? result : null;
+  } catch (err: any) {
+    console.warn(`[CrossValidate] Derived reference fetch failed for ${protocol}/${metricType}: ${err.message}`);
+    return null;
+  }
+}
+
+function findNearestDate(target: number, dates: number[], maxDist: number): number | null {
+  let nearest: number | null = null;
+  let minDist = Infinity;
+  for (const d of dates) {
+    const dist = Math.abs(target - d);
+    if (dist < minDist) {
+      minDist = dist;
+      nearest = d;
+    }
+  }
+  return minDist <= maxDist ? nearest : null;
+}
+
+/**
+ * Fetch multiple reference time series for compound financial statements.
+ * Returns array of { metricType, data } for each available metric.
+ */
+export async function fetchCompoundReference(
+  protocol: string,
+  slug?: string,
+  metrics: string[] = ["revenue", "fees", "tvl"],
+): Promise<{ metricType: string; data: { date: number; value: number }[] }[]> {
+  const results: { metricType: string; data: { date: number; value: number }[] }[] = [];
+
+  for (const metric of metrics) {
+    try {
+      const data = await fetchReferenceTimeSeries(protocol, metric, slug);
+      if (data && data.length > 0) {
+        results.push({ metricType: metric, data });
+      }
+    } catch (err: any) {
+      console.warn(`[CrossValidate] Compound reference fetch failed for ${protocol}/${metric}: ${err.message}`);
+    }
+  }
+
+  return results;
+}
+
+/**
  * Fetch full reference time series for benchmark evaluation.
  * Returns data in the same shape the agent produces: { date, value }[]
  */
@@ -194,6 +333,12 @@ export async function fetchReferenceTimeSeries(
           const data = await defillama.getProtocolDerivativesVolume(resolvedSlug);
           return data.dailyVolume.map(d => ({ date: d.date, value: d.volume }));
         }
+      }
+      case "price": {
+        // For price reference, extract coinId from slug or use the slug directly
+        const coinId = resolvedSlug;
+        const priceData = await defillama.getCoinPriceHistory(coinId, 365);
+        return priceData.prices.map(p => ({ date: p.date, value: p.price }));
       }
       default:
         return null;

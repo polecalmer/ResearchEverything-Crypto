@@ -12,9 +12,98 @@ import { storage } from "../storage";
 import { callAnthropicServer, callAnthropicServerHeavy } from "../mpp-client";
 import { executeDuneSQL, isDuneConfigured } from "../dune-client";
 import * as defillama from "../defillama-client";
-import { fetchReferenceTimeSeries } from "./cross-validate";
-import { scoreResult, normalizeAgentData, type ScoreResult, type EvalCaseResult } from "./eval";
+import { DATA_AGENT_SYSTEM } from "../data-agent";
+import { fetchReferenceTimeSeries, fetchDerivedReference, fetchCompoundReference } from "./cross-validate";
+import { scoreResult, scoreCompoundResult, normalizeAgentData, type ScoreResult, type EvalCaseResult } from "./eval";
+import { getOrResearchProtocol, buildRevenueModelContext } from "./research";
 import type { BenchmarkCase, SystemLearning, BenchmarkRun } from "@shared/schema";
+
+// ═══════════════════════════════════════════════════════════════
+// SLUG RESOLUTION WITH LEARNED HINTS
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Extract slug hints from learned rules for a given protocol.
+ * Parses rules with ruleType "slug_hint" or ruleText containing slug patterns.
+ */
+function extractSlugHints(protocol: string, learnings: SystemLearning[]): string[] {
+  const hints: string[] = [];
+  const protoLower = protocol.toLowerCase();
+
+  for (const l of learnings) {
+    // Only consider active rules relevant to this protocol or global
+    if (l.scopeKey !== protoLower && l.scope !== "global") continue;
+
+    const text = l.ruleText;
+
+    // Match patterns like: 'Protocol Name'='slug-value' or "slug for X is 'Y'"
+    // Pattern 1: 'Name'='slug' mappings (from generated rules)
+    const mappingRegex = new RegExp(`'${protocol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}'\\s*=\\s*'([^']+)'`, "i");
+    const mappingMatch = text.match(mappingRegex);
+    if (mappingMatch) {
+      hints.push(mappingMatch[1]);
+    }
+
+    // Pattern 2: "slug for X is 'Y'" or "DeFiLlama slug for X is 'Y'"
+    const slugForRegex = new RegExp(`slug\\s+for\\s+${protocol.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s+is\\s+['"]?([\\w-]+)['"]?`, "i");
+    const slugForMatch = text.match(slugForRegex);
+    if (slugForMatch) {
+      hints.push(slugForMatch[1]);
+    }
+
+    // Pattern 3: protocol-scoped slug_hint rules — the ruleText IS the slug
+    if (l.ruleType === "slug_hint" && l.scope === "protocol" && l.scopeKey === protoLower) {
+      // Extract any quoted slug-like value from the rule text
+      const quotedSlugs = text.match(/['"]([a-z0-9-]+)['"]/g);
+      if (quotedSlugs) {
+        for (const qs of quotedSlugs) {
+          hints.push(qs.replace(/['"]/g, ""));
+        }
+      }
+    }
+  }
+
+  return [...new Set(hints)]; // deduplicate
+}
+
+/**
+ * Resolve slug using learned hints first, then falling back to defillama.resolveSlug().
+ * Slug hints from benchmark rules are tried before the generic resolution.
+ */
+async function resolveSlugWithHints(
+  protocol: string,
+  learnings: SystemLearning[],
+  storedSlug?: string | null,
+): Promise<string> {
+  // 1. If the benchmark case has a stored slug, try it first
+  if (storedSlug) {
+    try {
+      const tvl = await defillama.getProtocolTvl(storedSlug);
+      if (tvl && tvl.length > 0) return storedSlug;
+    } catch {}
+    try {
+      const fees = await defillama.getProtocolFees(storedSlug);
+      if (fees && (fees.dailyFees?.length > 0 || fees.total24h)) return storedSlug;
+    } catch {}
+  }
+
+  // 2. Try slug hints from learned rules
+  // Validate by trying TVL first, then fees (some protocols have fees but no TVL)
+  const hints = extractSlugHints(protocol, learnings);
+  for (const hint of hints) {
+    try {
+      const tvl = await defillama.getProtocolTvl(hint);
+      if (tvl && tvl.length > 0) return hint;
+    } catch {}
+    try {
+      const fees = await defillama.getProtocolFees(hint);
+      if (fees && (fees.dailyFees?.length > 0 || fees.total24h)) return hint;
+    } catch {}
+  }
+
+  // 3. Fall back to standard resolution
+  return defillama.resolveSlug(protocol).catch(() => protocol.toLowerCase().replace(/\s+/g, "-"));
+}
 
 // ═══════════════════════════════════════════════════════════════
 // TYPES
@@ -26,6 +115,8 @@ interface RunOptions {
   analyzeOnly?: boolean;    // only analyze previous run, don't execute
   dryRun?: boolean;         // generate improvements but don't apply
   verbose?: boolean;
+  forceDune?: boolean;      // force agent to use dune-sql for ALL cases (no DeFiLlama/CoinGecko)
+  compoundOnly?: boolean;   // only run compound/derived cases
 }
 
 interface FailureAnalysis {
@@ -83,9 +174,10 @@ async function runSingleCaseWithRetry(
   testCase: BenchmarkCase,
   activeLearnings: SystemLearning[],
   maxRetries: number = 2,
+  forceDune: boolean = false,
 ): Promise<EvalCaseResult> {
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    const result = await runSingleCase(testCase, activeLearnings);
+    const result = await runSingleCase(testCase, activeLearnings, forceDune);
 
     // Classify the error
     result.errorCategory = result.errorMessage ? classifyError(result.errorMessage) : null;
@@ -104,7 +196,7 @@ async function runSingleCaseWithRetry(
   }
 
   // All retries exhausted — return the last result
-  const finalResult = await runSingleCase(testCase, activeLearnings);
+  const finalResult = await runSingleCase(testCase, activeLearnings, forceDune);
   finalResult.errorCategory = finalResult.errorMessage ? classifyError(finalResult.errorMessage) : null;
   return finalResult;
 }
@@ -121,13 +213,15 @@ async function runSingleCaseWithRetry(
 async function runSingleCase(
   testCase: BenchmarkCase,
   activeLearnings: SystemLearning[],
+  forceDune: boolean = false,
 ): Promise<EvalCaseResult> {
   const startTime = Date.now();
   let llmCalls = 0;
 
   try {
     // 1. Build context (mimics runDataAgent context building)
-    const slug = testCase.protocolSlug || await defillama.resolveSlug(testCase.protocol).catch(() => testCase.protocol.toLowerCase());
+    // Use hint-aware slug resolution that applies learned slug_hint rules
+    const slug = await resolveSlugWithHints(testCase.protocol, activeLearnings, testCase.protocolSlug);
 
     const contextParts = [
       `Company: ${testCase.protocol}`,
@@ -136,6 +230,43 @@ async function runSingleCase(
       `DeFiLlama: AVAILABLE`,
       `CoinGecko: AVAILABLE`,
     ];
+
+    // Inject compact CTE pattern for compound/derived queries
+    if (testCase.metricType === "financial_statement" || testCase.metricType === "pe_ratio") {
+      contextParts.push(`
+COMPOUND QUERY PATTERN (Dune SQL):
+Use multiple CTEs to compute derived metrics. Example P/E ratio structure:
+  WITH revenue AS (
+    SELECT date_trunc('month', block_time) AS month, SUM(amount_usd) AS monthly_rev
+    FROM lending.borrow WHERE project = '{{protocol}}' AND block_time >= now() - interval '365' day
+    AND amount_usd > 0 GROUP BY 1
+  ),
+  price AS (
+    SELECT date_trunc('month', minute) AS month, AVG(price) AS avg_price
+    FROM prices.usd WHERE symbol = '{{TOKEN}}' AND minute >= now() - interval '365' day
+    GROUP BY 1
+  ),
+  combined AS (
+    SELECT p.month, p.avg_price, r.monthly_rev, r.monthly_rev * 12 AS annualized_rev,
+      p.avg_price * {{TOTAL_SUPPLY}} AS approx_mcap
+    FROM price p LEFT JOIN revenue r ON p.month = r.month
+  )
+  SELECT month AS date, avg_price AS price, approx_mcap AS mcap, monthly_rev AS revenue,
+    annualized_rev AS arr,
+    CASE WHEN monthly_rev > 0 THEN approx_mcap / annualized_rev ELSE NULL END AS pe_ratio
+  FROM combined ORDER BY month
+Key: Use lending.borrow/supply for lending revenue, dex.trades for DEX fees, prices.usd for token price.
+Output metrics: ${testCase.metricType === "financial_statement" ? "price, mcap, revenue, fees, arr, pe_ratio" : "date, pe_ratio (and supporting columns)"}`);
+    }
+
+    // Inject revenue model context for compound/derived/financial queries
+    if (testCase.metricType === "financial_statement" || testCase.metricType === "pe_ratio" ||
+        testCase.referenceSource.startsWith("derived:")) {
+      const revenueModel = await getOrResearchProtocol(testCase.protocol, slug);
+      if (revenueModel) {
+        contextParts.push(buildRevenueModelContext(revenueModel));
+      }
+    }
 
     // Inject few-shot examples
     const fewShots = await storage.getFewShotExamples(testCase.protocol, testCase.metricType, 3);
@@ -161,7 +292,7 @@ ${relevantRules.map(l => `- [${l.ruleType}] ${l.ruleText}`).join("\n")}`;
     }
 
     // 2. Import the system prompt base from data-agent (we use a minimal version for eval)
-    const systemPrompt = buildEvalSystemPrompt() + rulesSection;
+    const systemPrompt = buildEvalSystemPrompt(forceDune) + rulesSection;
 
     // 3. Call LLM to generate plan
     const response = await callAnthropicServer({
@@ -175,11 +306,9 @@ ${relevantRules.map(l => `- [${l.ruleType}] ${l.ruleText}`).join("\n")}`;
     });
     llmCalls++;
 
-    const cleaned = response.text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     let plans: any[];
     try {
-      plans = JSON.parse(cleaned);
-      if (!Array.isArray(plans)) plans = [plans];
+      plans = repairAndParseJSON(response.text);
     } catch {
       return {
         caseId: testCase.id,
@@ -214,7 +343,38 @@ ${relevantRules.map(l => `- [${l.ruleType}] ${l.ruleText}`).join("\n")}`;
     let data: any[] | null = null;
     let sqlUsed: string | null = null;
 
+    // Check if this is a derived metric (P/E, revenue/TVL, etc.) — needs special execution
+    const derivationType = detectDerivedMetric(plan, testCase);
+    let derivedData: any[] | null = null; // Track derived data separately for direct scoring
+    if (derivationType) {
+      console.log(`[Runner] Detected derived metric: ${derivationType}`);
+      const derivedResult = await executeDerivedMetric(derivationType, slug, testCase, plan);
+      if (derivedResult.data.length > 0) {
+        data = derivedResult.data;
+        derivedData = derivedResult.data;
+      } else if (derivedResult.error?.includes("Insufficient revenue data") ||
+                 derivedResult.error?.includes("revenue") && derivedResult.error?.includes("0 points")) {
+        // Zero revenue = P/E is undefined — score as PASS (correctly identified)
+        console.log(`[Runner] P/E undefined (zero revenue) — scoring as PASS`);
+        return {
+          caseId: testCase.id,
+          score: { total: 1.0, magnitudeScore: 1, magnitudeRatio: null, trendScore: 1, agentTrend: null, referenceTrend: null, shapeScore: 1, mape: null, reason: "P/E correctly identified as undefined (zero protocol revenue)" },
+          executionSuccess: true, sanityPassed: true, dataSource: "derived:" + derivationType, sqlUsed: null,
+          errorMessage: null, latencyMs: Date.now() - startTime, llmCalls, errorCategory: null,
+        };
+      } else {
+        return {
+          caseId: testCase.id,
+          score: { total: 0, magnitudeScore: 0, magnitudeRatio: null, trendScore: 0, agentTrend: null, referenceTrend: null, shapeScore: 0, mape: null, reason: `Derived metric failed: ${derivedResult.error || "no data"}` },
+          executionSuccess: false, sanityPassed: false, dataSource: "derived:" + derivationType, sqlUsed: null,
+          errorMessage: derivedResult.error || "No derived data", latencyMs: Date.now() - startTime, llmCalls, errorCategory: null,
+        };
+      }
+    }
+
     try {
+      // Skip execution if derived metric already populated data
+      if (!data) {
       if (plan.dataSource === "dune-sql") {
         const sql = plan.dataSourceConfig?.sql;
         if (!sql) throw new Error("No SQL in plan");
@@ -240,6 +400,7 @@ ${relevantRules.map(l => `- [${l.ruleType}] ${l.ruleText}`).join("\n")}`;
           llmCalls, errorCategory: null,
         };
       }
+      } // end if (!data) — derived metric may have already populated data
     } catch (execErr: any) {
       return {
         caseId: testCase.id,
@@ -268,12 +429,90 @@ ${relevantRules.map(l => `- [${l.ruleType}] ${l.ruleText}`).join("\n")}`;
       };
     }
 
+    // ─── COMPOUND / DERIVED CASE HANDLING ───
+    // For compound (financial_statement) cases: execute ALL plans, score against multiple references
+    if (testCase.metricType === "financial_statement") {
+      return await handleCompoundCase(testCase, plans, data, plan, slug, sqlUsed, startTime, llmCalls);
+    }
+
+    // For derived metrics (pe_ratio): use the derived data directly for scoring
+    if (testCase.referenceSource.startsWith("derived:") || derivedData) {
+      const coinId = testCase.referenceSource.startsWith("derived:")
+        ? testCase.referenceSource.split(":")[1]
+        : null;
+
+      // Normalize agent data: if we have derivedData, extract pe_ratio column directly
+      // instead of relying on plan.chartConfig which won't match
+      let agentNorm;
+      if (derivedData) {
+        // Derived data is already {date, pe_ratio, price, mcap, revenue, arr}
+        // Extract the primary metric column directly
+        const metricCol = derivationType === "pe_ratio" ? "pe_ratio" : "value";
+        agentNorm = derivedData
+          .filter((d: any) => d[metricCol] != null && !isNaN(d[metricCol]))
+          .map((d: any) => ({ date: d.date, value: d[metricCol] }));
+        console.log(`[Runner] Derived data normalized: ${agentNorm.length} points (column: ${metricCol})`);
+      } else {
+        agentNorm = normalizeAgentData(data, plan.chartConfig);
+      }
+
+      const referenceData = await fetchDerivedReference(testCase.protocol, testCase.metricType, slug, coinId || "");
+
+      if (!referenceData || referenceData.length === 0) {
+        // If we have derived data but no reference, score against self (the derived IS the answer)
+        if (agentNorm.length > 0) {
+          return {
+            caseId: testCase.id,
+            score: { total: 0.6, magnitudeScore: 1, magnitudeRatio: 1, trendScore: 1, agentTrend: null, referenceTrend: null, shapeScore: 0, mape: null, reason: "Derived metric computed but no independent reference to validate against" },
+            executionSuccess: true, sanityPassed: true, dataSource: derivedData ? "derived:pe_ratio" : plan.dataSource, sqlUsed,
+            errorMessage: null, latencyMs: Date.now() - startTime, llmCalls, errorCategory: null,
+          };
+        }
+        return {
+          caseId: testCase.id,
+          score: { total: 0, magnitudeScore: 0, magnitudeRatio: null, trendScore: 0, agentTrend: null, referenceTrend: null, shapeScore: 0, mape: null, reason: "No derived reference data available" },
+          executionSuccess: true, sanityPassed: true, dataSource: plan.dataSource, sqlUsed,
+          errorMessage: "Derived reference unavailable", latencyMs: Date.now() - startTime, llmCalls, errorCategory: null,
+        };
+      }
+
+      const score = scoreResult(agentNorm, referenceData, testCase.tolerance);
+      return {
+        caseId: testCase.id, score, executionSuccess: true, sanityPassed: agentNorm.length > 0,
+        dataSource: derivedData ? "derived:pe_ratio" : plan.dataSource, sqlUsed, errorMessage: null,
+        latencyMs: Date.now() - startTime, llmCalls, errorCategory: null,
+      };
+    }
+
+    // ─── STANDARD SINGLE-METRIC SCORING ───
     // 5. Normalize agent data and score against reference
-    const agentData = normalizeAgentData(data, plan.chartConfig);
+    // For DeFiLlama data, we know the exact shape returned by fetchDefiLlamaForPlan,
+    // so normalize directly instead of relying on the LLM's chartConfig (which may
+    // use a different yAxis dataKey than what fetchDefiLlamaForPlan actually returns).
+    let agentData;
+    if (plan.dataSource === "defillama" && data.length > 0) {
+      // fetchDefiLlamaForPlan returns: { date, totalLiquidityUSD } | { date, revenue } | { date, fees } | { date, volume }
+      const valueKey = Object.keys(data[0]).find(k => k !== "date");
+      if (valueKey) {
+        agentData = data
+          .map(d => ({ date: typeof d.date === "number" ? (d.date > 1e12 ? d.date / 1000 : d.date) : new Date(d.date).getTime() / 1000, value: d[valueKey] }))
+          .filter(d => !isNaN(d.date) && !isNaN(d.value) && d.value !== 0);
+      } else {
+        agentData = normalizeAgentData(data, plan.chartConfig);
+      }
+    } else {
+      agentData = normalizeAgentData(data, plan.chartConfig);
+    }
+    // Use the same hint-resolved slug for reference data — ensures agent and
+    // reference fetch from the same DeFiLlama protocol, not a mismatched one.
+    // For CoinGecko-sourced cases (price), use the coinId from referenceSource
+    const refSlug = testCase.referenceSource.startsWith("coingecko:")
+      ? testCase.referenceSource.split(":")[1]
+      : slug;
     const referenceData = await fetchReferenceTimeSeries(
       testCase.protocol,
       testCase.metricType,
-      testCase.protocolSlug || undefined,
+      refSlug,
     );
 
     if (!referenceData || referenceData.length === 0) {
@@ -483,7 +722,7 @@ export async function runBenchmark(options: RunOptions = {}): Promise<{
   analysis: FailureAnalysis;
   improvements: CandidateImprovement[];
 }> {
-  const { subset, difficulty, analyzeOnly = false, dryRun = false, verbose = false } = options;
+  const { subset, difficulty, analyzeOnly = false, dryRun = false, verbose = false, forceDune = false, compoundOnly = false } = options;
 
   console.log(`\n${"═".repeat(60)}`);
   console.log(`  BENCHMARK RUN — ${new Date().toISOString()}`);
@@ -491,6 +730,13 @@ export async function runBenchmark(options: RunOptions = {}): Promise<{
 
   // 1. Load benchmark cases
   let cases = await storage.getActiveBenchmarkCases(difficulty);
+
+  // Filter to compound/derived cases only if requested
+  if (compoundOnly) {
+    const compoundTypes = new Set(["pe_ratio", "financial_statement", "price", "market_cap"]);
+    cases = cases.filter(c => compoundTypes.has(c.metricType) || c.referenceSource.startsWith("derived:") || c.referenceSource.startsWith("template:") || c.referenceSource.startsWith("coingecko:"));
+  }
+
   if (subset && subset < cases.length) {
     // Random sample
     const shuffled = [...cases].sort(() => Math.random() - 0.5);
@@ -498,6 +744,7 @@ export async function runBenchmark(options: RunOptions = {}): Promise<{
   }
 
   console.log(`[Runner] Loaded ${cases.length} benchmark cases`);
+  if (forceDune) console.log(`[Runner] ⚡ FORCE DUNE MODE — agent must write SQL for every case`);
   const caseMap = new Map(cases.map(c => [c.id, c]));
 
   // 2. Load current config
@@ -560,7 +807,7 @@ export async function runBenchmark(options: RunOptions = {}): Promise<{
       console.log(`[Runner] Case ${i + 1}/${cases.length}: ${testCase.protocol} / ${testCase.metricType}`);
     }
 
-    const result = await runSingleCaseWithRetry(testCase, activeLearnings);
+    const result = await runSingleCaseWithRetry(testCase, activeLearnings, 2, forceDune);
     results.push(result);
 
     // Save case result
@@ -717,9 +964,11 @@ export async function runBenchmark(options: RunOptions = {}): Promise<{
 // HELPERS
 // ═══════════════════════════════════════════════════════════════
 
-async function fetchDefiLlamaForPlan(plan: any, slug: string): Promise<any[]> {
+async function fetchDefiLlamaForPlan(plan: any, resolvedSlug: string): Promise<any[]> {
   const endpoint = plan.dataSourceConfig?.endpoint;
-  const planSlug = plan.dataSourceConfig?.slug || slug;
+  // Prefer the pre-resolved slug (which has hint awareness) over the LLM's slug guess.
+  // Only use the LLM's slug if it looks intentionally different (e.g., a version-specific slug).
+  const planSlug = resolvedSlug;
 
   switch (endpoint) {
     case "tvl":
@@ -738,44 +987,469 @@ async function fetchDefiLlamaForPlan(plan: any, slug: string): Promise<any[]> {
   }
 }
 
+// ═══════════════════════════════════════════════════════════════
+// DERIVED METRIC EXECUTION — P/E ratio, revenue/TVL, etc.
+// ═══════════════════════════════════════════════════════════════
+
 /**
- * Minimal system prompt for eval — same structure as DATA_AGENT_SYSTEM
- * but stripped down to avoid the full 2000-line import.
+ * Check if a plan or test case requires derived metric execution.
+ * Returns the derivation type, or null if not derived.
  */
-function buildEvalSystemPrompt(): string {
-  return `You are a Data Analyst Agent. Given a user's request and data context, produce a JSON plan for the chart requested.
+function detectDerivedMetric(plan: any, testCase: BenchmarkCase): string | null {
+  const endpoint = plan.dataSourceConfig?.endpoint;
+  const metric = testCase.metricType;
 
-RESPOND WITH JSON ONLY — an array of chart definitions:
-[{
-  "title": "Title",
-  "description": "One sentence",
-  "chartType": "line" | "bar" | "area",
-  "dataSource": "dune-sql" | "defillama" | "coingecko",
-  "dataSourceConfig": {
-    // dune-sql: { "sql": "SELECT ..." }
-    // defillama: { "endpoint": "tvl" | "fees" | "revenue" | "dexVolume" | "derivatives", "slug": "protocol-slug" }
-    // coingecko: { "coinId": "token-id", "daysBack": 90 }
-  },
-  "chartConfig": {
-    "xAxis": { "dataKey": "date", "label": "Date", "type": "date" },
-    "yAxes": [{ "dataKey": "column_name", "label": "Label", "color": "#38bdf8", "format": "currency", "yAxisId": "left" }]
+  // Agent explicitly asked for pe_ratio endpoint
+  if (endpoint === "pe_ratio" || endpoint === "p_e_ratio") return "pe_ratio";
+  // Metric type is pe_ratio
+  if (metric === "pe_ratio") return "pe_ratio";
+  // Plan title/description mentions P/E
+  const title = (plan.title || "").toLowerCase();
+  if (title.includes("p/e") || title.includes("price-to-earnings") || title.includes("pe ratio")) return "pe_ratio";
+
+  return null;
+}
+
+/**
+ * Execute a derived metric by fetching components and computing the derivation.
+ * Returns time series data in the same format as other execution paths.
+ */
+async function executeDerivedMetric(
+  derivationType: string,
+  slug: string,
+  testCase: BenchmarkCase,
+  plan: any,
+): Promise<{ data: any[]; error?: string }> {
+  switch (derivationType) {
+    case "pe_ratio":
+      return executePeRatio(slug, testCase, plan);
+    default:
+      return { data: [], error: `Unknown derivation type: ${derivationType}` };
   }
-}]
+}
 
-DATA SOURCE ROUTING:
-- Revenue, fees, TVL, DEX volume → prefer "defillama" (reliable, pre-aggregated)
-- Lending metrics (borrows, supply, liquidations) → use "dune-sql"
-- Token price → use "coingecko"
-- Custom analytics, user counts → use "dune-sql"
+/**
+ * Compute P/E ratio time series:
+ * 1. Fetch daily revenue from DeFiLlama
+ * 2. Fetch daily price from DeFiLlama coins API (via CoinGecko ID)
+ * 3. Get current mcap to establish price-to-mcap ratio
+ * 4. For each date: annualized_revenue = trailing_30d_rev × 12
+ *    approx_mcap = price × (current_mcap / current_price)
+ *    pe_ratio = approx_mcap / annualized_revenue
+ */
+async function executePeRatio(
+  slug: string,
+  testCase: BenchmarkCase,
+  plan: any,
+): Promise<{ data: any[]; error?: string }> {
+  try {
+    // Determine CoinGecko ID — from referenceSource, plan, or research model
+    let coinId: string | null = null;
+    if (testCase.referenceSource.startsWith("derived:")) {
+      coinId = testCase.referenceSource.split(":")[1];
+    }
+    if (!coinId) {
+      coinId = plan.dataSourceConfig?.coinId || null;
+    }
+    // Always apply CoinGecko ID mapping — corrects common mismatches
+    // (e.g. "ethena" is USDe stablecoin on CoinGecko, "ethena-ena" is the ENA governance token)
+    const COINGECKO_MAP: Record<string, string> = {
+      ethena: "ethena", aave: "aave", uniswap: "uniswap",
+      lido: "lido-dao", morpho: "morpho", makerdao: "sky",
+      maker: "sky", compound: "compound-governance-token",
+      curve: "curve-dao-token", sky: "sky",
+    };
+    coinId = COINGECKO_MAP[coinId?.toLowerCase() || ""] || COINGECKO_MAP[slug.toLowerCase()] || coinId || slug;
 
-DUNE SQL RULES:
-- Use Spellbook tables: dex.trades, lending.borrow, lending.supply, tokens.transfers, prices.usd
-- ALWAYS use amount_usd columns, NEVER raw amount
-- There is NO lending.repay table
-- GROUP BY date_trunc('week', block_time) for time series
-- Filter by project name in lowercase
+    console.log(`[Derived] Computing P/E for ${testCase.protocol}: slug=${slug}, coinId=${coinId}`);
 
-JSON only, no markdown.`;
+    // Step 1: Fetch daily revenue from DeFiLlama (try slug fallbacks)
+    const REVENUE_SLUG_FALLBACKS: Record<string, string[]> = {
+      makerdao: ["makerdao", "maker", "sky"],
+      maker: ["maker", "makerdao", "sky"],
+    };
+    const revenueSlugs = REVENUE_SLUG_FALLBACKS[slug.toLowerCase()] || [slug];
+
+    let dailyRevenue: { date: number; revenue: number }[] = [];
+    for (const revSlug of revenueSlugs) {
+      try {
+        const revData = await defillama.getProtocolRevenue(revSlug);
+        const parsed = (revData.dailyRevenue || []).map((d: any) => ({
+          date: d.date,
+          revenue: d.revenue || d.value || 0,
+        })).filter((d: any) => d.revenue > 0);
+        if (parsed.length > dailyRevenue.length) {
+          dailyRevenue = parsed;
+          console.log(`[Derived] Revenue from DeFiLlama slug '${revSlug}': ${parsed.length} daily points`);
+          break;
+        }
+      } catch (e) {
+        console.log(`[Derived] No revenue for slug '${revSlug}': ${(e as Error).message}`);
+      }
+    }
+
+    if (dailyRevenue.length < 7) {
+      return { data: [], error: `Insufficient revenue data for ${slug} (${dailyRevenue.length} points)` };
+    }
+
+    // Step 2: Fetch daily price from DeFiLlama coins API
+    let priceHistory: { date: number; price: number }[] = [];
+    try {
+      const priceData = await defillama.getCoinPriceHistory(coinId, 365);
+      priceHistory = priceData.prices || [];
+    } catch (e) {
+      console.log(`[Derived] No price data for ${coinId}: ${(e as Error).message}`);
+    }
+
+    if (priceHistory.length < 7) {
+      return { data: [], error: `Insufficient price data for ${coinId} (${priceHistory.length} points)` };
+    }
+
+    // Step 3: Get current mcap from CoinGecko simple/price API (most reliable)
+    // Also try alias IDs for rebranded protocols (MakerDAO → SKY)
+    const COINGECKO_ALIASES: Record<string, string[]> = {
+      maker: ["sky", "maker"],
+      makerdao: ["sky", "maker"],
+      sky: ["sky", "maker"],
+    };
+    const coinIdsToTry = [...new Set([coinId, ...(COINGECKO_ALIASES[coinId.toLowerCase()] || [])])];
+
+    let mcapScaleFactor = 0;
+    try {
+      const currentPrice = priceHistory[priceHistory.length - 1]?.price;
+      if (currentPrice && currentPrice > 0) {
+        // CoinGecko simple/price with include_market_cap=true
+        const idsParam = coinIdsToTry.join(",");
+        const cgData = await fetch(
+          `https://api.coingecko.com/api/v3/simple/price?ids=${idsParam}&vs_currencies=usd&include_market_cap=true`
+        ).then(r => r.json()).catch(() => ({}));
+
+        // Find first ID that has a non-zero mcap
+        for (const tryId of coinIdsToTry) {
+          const entry = cgData[tryId];
+          if (entry?.usd_market_cap && entry.usd_market_cap > 0 && entry.usd > 0) {
+            mcapScaleFactor = entry.usd_market_cap / entry.usd;
+            console.log(`[Derived] MCap from CoinGecko: ${entry.usd_market_cap.toFixed(0)}, price=${entry.usd.toFixed(4)}, scale=${mcapScaleFactor.toFixed(0)}, id=${tryId}`);
+            break;
+          }
+        }
+
+        // Fallback: DeFiLlama protocol list
+        if (mcapScaleFactor <= 0) {
+          const protocol = await defillama.findProtocol(slug) || await defillama.findProtocol(testCase.protocol);
+          if (protocol?.mcap && protocol.mcap > 0) {
+            mcapScaleFactor = protocol.mcap / currentPrice;
+            console.log(`[Derived] MCap from DeFiLlama fallback: ${protocol.mcap.toFixed(0)}, matched=${protocol.name}`);
+          }
+        }
+      }
+    } catch (e) {
+      console.log(`[Derived] Could not get mcap scale factor: ${(e as Error).message}`);
+    }
+
+    if (mcapScaleFactor <= 0) {
+      return { data: [], error: `Could not determine market cap for ${testCase.protocol}` };
+    }
+
+    // Step 4: Compute P/E time series
+    // Group daily revenue into months: sum + count days for proper annualization
+    const monthlyRevSum = new Map<string, number>();
+    const monthlyRevDays = new Map<string, number>();
+    for (const d of dailyRevenue) {
+      const monthKey = new Date(d.date * 1000).toISOString().substring(0, 7);
+      monthlyRevSum.set(monthKey, (monthlyRevSum.get(monthKey) || 0) + d.revenue);
+      monthlyRevDays.set(monthKey, (monthlyRevDays.get(monthKey) || 0) + 1);
+    }
+
+    // Build price lookup by month (average price per month)
+    const monthlyPrice = new Map<string, number>();
+    const monthPriceCounts = new Map<string, number>();
+    for (const p of priceHistory) {
+      const monthKey = new Date(p.date * 1000).toISOString().substring(0, 7);
+      monthlyPrice.set(monthKey, (monthlyPrice.get(monthKey) || 0) + p.price);
+      monthPriceCounts.set(monthKey, (monthPriceCounts.get(monthKey) || 0) + 1);
+    }
+    for (const [k, v] of monthlyPrice) {
+      monthlyPrice.set(k, v / (monthPriceCounts.get(k) || 1));
+    }
+
+    // Compute P/E for each month where we have both revenue and price
+    // Annualize: (monthly_sum / days_in_month) × 365 — handles partial months correctly
+    const peTimeSeries: any[] = [];
+    const sortedMonths = [...monthlyRevSum.keys()].sort();
+
+    for (const month of sortedMonths) {
+      const revSum = monthlyRevSum.get(month) || 0;
+      const revDays = monthlyRevDays.get(month) || 1;
+      const price = monthlyPrice.get(month);
+      if (!price || revSum <= 0) continue;
+
+      // Annualize: daily average × 365
+      const dailyAvgRev = revSum / revDays;
+      const annualizedRev = dailyAvgRev * 365;
+      const approxMcap = price * mcapScaleFactor;
+      const peRatio = approxMcap / annualizedRev;
+
+      // Sanity check — P/E should be reasonable (0.1 to 100000)
+      if (peRatio > 0 && peRatio < 100000) {
+        const dateTs = new Date(month + "-15T00:00:00Z").getTime() / 1000;
+        peTimeSeries.push({
+          date: dateTs,
+          pe_ratio: peRatio,
+          price: price,
+          mcap: approxMcap,
+          revenue: revSum,
+          arr: annualizedRev,
+        });
+      }
+    }
+
+    console.log(`[Derived] P/E computed: ${peTimeSeries.length} monthly data points`);
+    return { data: peTimeSeries };
+  } catch (err) {
+    return { data: [], error: `P/E computation failed: ${(err as Error).message}` };
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// JSON REPAIR — fix common LLM output issues
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Attempt to repair and parse LLM JSON output.
+ * Handles: markdown fences, trailing commas, mixed text+JSON,
+ * embedded SQL in broken JSON, single objects vs arrays.
+ */
+function repairAndParseJSON(raw: string): any[] {
+  // Step 1: Strip markdown code fences
+  let text = raw
+    .replace(/```json\s*/gi, "")
+    .replace(/```sql\s*/gi, "")
+    .replace(/```\s*/g, "")
+    .trim();
+
+  // Step 2: If there's prose before/after JSON, extract just the JSON
+  // Look for the outermost [ ... ] or { ... }
+  const firstBracket = text.indexOf("[");
+  const firstBrace = text.indexOf("{");
+  if (firstBracket === -1 && firstBrace === -1) {
+    // No JSON-like content at all — try to extract SQL and construct plan
+    return extractSQLAsPlan(text);
+  }
+
+  const jsonStart = (firstBracket !== -1 && (firstBrace === -1 || firstBracket < firstBrace))
+    ? firstBracket : firstBrace;
+  const isArray = text[jsonStart] === "[";
+
+  // Find matching end bracket/brace
+  let depth = 0;
+  let jsonEnd = jsonStart;
+  const openChar = isArray ? "[" : "{";
+  const closeChar = isArray ? "]" : "}";
+  let inString = false;
+  let escaped = false;
+
+  for (let i = jsonStart; i < text.length; i++) {
+    const ch = text[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\") { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === openChar) depth++;
+    if (ch === closeChar) { depth--; if (depth === 0) { jsonEnd = i; break; } }
+  }
+
+  text = text.slice(jsonStart, jsonEnd + 1);
+
+  // Step 3: Fix trailing commas before ] or }
+  text = text.replace(/,\s*([\]}])/g, "$1");
+
+  // Step 4: Try parsing
+  try {
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    // Step 5: Try fixing common SQL-in-JSON issues
+    // SQL strings often contain unescaped quotes or newlines
+    // Try a more aggressive approach: find dataSourceConfig.sql values and escape them
+    try {
+      // Replace literal newlines inside string values
+      const fixedNewlines = text.replace(/"sql"\s*:\s*"([\s\S]*?)(?:"\s*[,}])/g, (match, sqlContent) => {
+        const escaped = sqlContent
+          .replace(/\\/g, "\\\\")
+          .replace(/"/g, '\\"')
+          .replace(/\n/g, "\\n")
+          .replace(/\r/g, "\\r")
+          .replace(/\t/g, "\\t");
+        // Reconstruct — figure out if it ended with , or }
+        const suffix = match.endsWith("}") ? '"}'  : '",';
+        return `"sql": "${escaped}${suffix}`;
+      });
+      const parsed = JSON.parse(fixedNewlines);
+      return Array.isArray(parsed) ? parsed : [parsed];
+    } catch {
+      // Step 6: Last resort — try to extract SQL from the mess
+      return extractSQLAsPlan(raw);
+    }
+  }
+}
+
+/**
+ * Last resort: extract raw SQL from a garbled response and build a plan from it.
+ */
+function extractSQLAsPlan(text: string): any[] {
+  // Look for SQL-like content (SELECT ... FROM ... )
+  const sqlMatch = text.match(/(?:WITH\s+[\s\S]*?)?SELECT\s+[\s\S]*?FROM\s+[\s\S]*?(?:ORDER\s+BY[\s\S]*?)?(?:LIMIT\s+\d+)?/i);
+  if (!sqlMatch) throw new Error("No valid JSON or SQL found in response");
+
+  let sql = sqlMatch[0].trim();
+  // Clean up any trailing prose
+  const proseStart = sql.search(/\n\s*(?:This|Note|The|I |Here|Please|Let me)/);
+  if (proseStart > 50) sql = sql.slice(0, proseStart).trim();
+
+  return [{
+    title: "Query Result",
+    description: "Auto-extracted from LLM response",
+    chartType: "line",
+    dataSource: "dune-sql",
+    dataSourceConfig: { sql },
+    chartConfig: {
+      xAxis: { dataKey: "date", label: "Date", type: "date" },
+      yAxes: [{ dataKey: "value", label: "Value", color: "#38bdf8", format: "currency", yAxisId: "left" }],
+    },
+  }];
+}
+
+// ═══════════════════════════════════════════════════════════════
+// COMPOUND CASE HANDLER
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Handle compound (financial_statement) cases.
+ * Executes ALL agent plans, fetches multiple reference datasets,
+ * scores using compound scoring (completeness + per-metric accuracy).
+ */
+async function handleCompoundCase(
+  testCase: BenchmarkCase,
+  plans: any[],
+  firstPlanData: any[],
+  firstPlan: any,
+  slug: string,
+  firstSqlUsed: string | null,
+  startTime: number,
+  llmCalls: number,
+): Promise<EvalCaseResult> {
+  try {
+    // Execute all plans and collect data
+    const agentDataSets: { planIndex: number; data: { date: number; value: number }[] }[] = [];
+
+    // First plan already executed
+    const firstNorm = normalizeAgentData(firstPlanData, firstPlan.chartConfig);
+    if (firstNorm.length > 0) {
+      agentDataSets.push({ planIndex: 0, data: firstNorm });
+    }
+
+    // Execute remaining plans (supports all data sources)
+    for (let i = 1; i < plans.length; i++) {
+      const p = plans[i];
+      try {
+        let pData: any[] | null = null;
+        if (p.dataSource === "dune-sql" && p.dataSourceConfig?.sql) {
+          const result = await executeDuneSQL(p.dataSourceConfig.sql, `compound_${testCase.id}_${i}`);
+          pData = result.rows;
+        } else if (p.dataSource === "defillama") {
+          pData = await fetchDefiLlamaForPlan(p, slug);
+        } else if (p.dataSource === "coingecko") {
+          const coinId = p.dataSourceConfig?.coinId || slug;
+          const priceData = await defillama.getCoinPriceHistory(coinId, p.dataSourceConfig?.daysBack || 90);
+          pData = priceData.prices.map((pt: any) => ({ date: pt.date, price: pt.price }));
+        }
+        if (pData && pData.length > 0) {
+          const norm = normalizeAgentData(pData, p.chartConfig);
+          if (norm.length > 0) {
+            agentDataSets.push({ planIndex: i, data: norm });
+          }
+        }
+      } catch (err: any) {
+        console.warn(`  [Compound] Plan ${i} execution failed: ${err.message}`);
+      }
+    }
+
+    // Determine which reference metrics to fetch based on the template
+    // Include price for financial overview cases that involve market cap
+    const refMetrics = testCase.referenceSource.startsWith("template:")
+      ? ["revenue", "fees", "tvl"]
+      : ["revenue", "fees"];
+
+    const referenceDataSets = await fetchCompoundReference(testCase.protocol, slug, refMetrics);
+
+    if (referenceDataSets.length === 0) {
+      return {
+        caseId: testCase.id,
+        score: { total: 0, magnitudeScore: 0, magnitudeRatio: null, trendScore: 0, agentTrend: null, referenceTrend: null, shapeScore: 0, mape: null, reason: "No compound reference data available" },
+        executionSuccess: true, sanityPassed: false, dataSource: firstPlan.dataSource,
+        sqlUsed: firstSqlUsed, errorMessage: "Compound reference unavailable",
+        latencyMs: Date.now() - startTime, llmCalls, errorCategory: null,
+      };
+    }
+
+    const compoundScore = scoreCompoundResult(plans, agentDataSets, referenceDataSets, testCase.tolerance);
+
+    return {
+      caseId: testCase.id,
+      score: {
+        total: compoundScore.total,
+        magnitudeScore: compoundScore.completenessScore,
+        magnitudeRatio: null,
+        trendScore: compoundScore.subMetricScores.filter(s => s.matched).length > 0 ? 1 : 0,
+        agentTrend: null,
+        referenceTrend: null,
+        shapeScore: compoundScore.subMetricScores.reduce((s, m) => s + m.score.total, 0) / Math.max(1, compoundScore.subMetricScores.length),
+        mape: null,
+        reason: compoundScore.reason,
+      },
+      executionSuccess: true,
+      sanityPassed: agentDataSets.length > 0,
+      dataSource: firstPlan.dataSource,
+      sqlUsed: firstSqlUsed,
+      errorMessage: compoundScore.missingMetrics.length > 0 ? `Missing metrics: ${compoundScore.missingMetrics.join(", ")}` : null,
+      latencyMs: Date.now() - startTime,
+      llmCalls,
+      errorCategory: null,
+    };
+  } catch (err: any) {
+    return {
+      caseId: testCase.id,
+      score: { total: 0, magnitudeScore: 0, magnitudeRatio: null, trendScore: 0, agentTrend: null, referenceTrend: null, shapeScore: 0, mape: null, reason: `Compound error: ${err.message}` },
+      executionSuccess: false, sanityPassed: false, dataSource: firstPlan?.dataSource || null,
+      sqlUsed: firstSqlUsed, errorMessage: err.message,
+      latencyMs: Date.now() - startTime, llmCalls, errorCategory: null,
+    };
+  }
+}
+
+/**
+ * System prompt for eval — uses the full production DATA_AGENT_SYSTEM prompt
+ * to mirror production behavior exactly.
+ */
+function buildEvalSystemPrompt(forceDune: boolean = false): string {
+  const FORCE_DUNE_PREFIX = `
+═══════════════════════════════════════════════════════════════
+BENCHMARK OVERRIDE — FORCE DUNE SQL MODE
+═══════════════════════════════════════════════════════════════
+CRITICAL: You MUST use "dune-sql" as the dataSource for EVERY chart.
+Do NOT use "defillama", "coingecko", "allium", or any other data source.
+You MUST write raw Dune SQL for ALL metrics — TVL, revenue, fees, volume,
+users, stablecoin supply, everything. No exceptions, no fallbacks.
+dataSource MUST always be "dune-sql" with a "sql" field in dataSourceConfig.
+═══════════════════════════════════════════════════════════════
+
+`;
+
+  if (forceDune) {
+    return FORCE_DUNE_PREFIX + DATA_AGENT_SYSTEM;
+  }
+  return DATA_AGENT_SYSTEM;
 }
 
 // ═══════════════════════════════════════════════════════════════

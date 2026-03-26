@@ -15,10 +15,14 @@ import {
   type QueryAttempt, type InsertQueryAttempt,
   type BenchmarkCase, type InsertBenchmarkCase,
   type BenchmarkRun, type BenchmarkCaseResult,
+  type QueryTemplate, type InsertQueryTemplate,
+  type ProtocolRevenueModel, type InsertProtocolRevenueModel,
   users, companies, founders, notes, reports, transactions,
   tokenProfiles, masterDuneQueries, duneQueries, tokenAnalyses, dashboardCharts,
   provenQueries, systemLearnings,
   queryAttempts, benchmarkCases, benchmarkRuns, benchmarkCaseResults,
+  queryTemplates,
+  protocolRevenueModels,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, ne, desc, asc, and, isNull, isNotNull, sql } from "drizzle-orm";
@@ -125,6 +129,17 @@ export interface IStorage {
   insertBenchmarkCaseResult(data: Partial<BenchmarkCaseResult>): Promise<BenchmarkCaseResult>;
   getBenchmarkCaseResultsByRun(runId: string): Promise<BenchmarkCaseResult[]>;
   getFailedCaseResultsByRun(runId: string): Promise<(BenchmarkCaseResult & { benchmarkCase?: BenchmarkCase })[]>;
+
+  // Query templates
+  insertQueryTemplate(template: InsertQueryTemplate): Promise<QueryTemplate>;
+  getQueryTemplateByName(name: string, businessModel: string): Promise<QueryTemplate | undefined>;
+  getActiveQueryTemplates(): Promise<QueryTemplate[]>;
+
+  // Protocol revenue models
+  insertProtocolRevenueModel(model: InsertProtocolRevenueModel): Promise<ProtocolRevenueModel>;
+  getProtocolRevenueModel(protocol: string): Promise<ProtocolRevenueModel | undefined>;
+  updateProtocolRevenueModel(id: string, data: Partial<InsertProtocolRevenueModel & { validationStatus: string; validationScore: number; validationError: string }>): Promise<ProtocolRevenueModel>;
+  getActiveProtocolRevenueModels(): Promise<ProtocolRevenueModel[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -812,6 +827,54 @@ export class DatabaseStorage implements IStorage {
     const caseMap = new Map(cases.map(c => [c.id, c]));
 
     return results.map(r => ({ ...r, benchmarkCase: caseMap.get(r.caseId) }));
+  }
+
+  async insertQueryTemplate(template: InsertQueryTemplate): Promise<QueryTemplate> {
+    const [result] = await db.insert(queryTemplates).values(template).returning();
+    return result;
+  }
+
+  async getQueryTemplateByName(name: string, businessModel: string): Promise<QueryTemplate | undefined> {
+    const [result] = await db.select().from(queryTemplates)
+      .where(and(eq(queryTemplates.name, name), eq(queryTemplates.businessModel, businessModel), eq(queryTemplates.isActive, true)));
+    return result;
+  }
+
+  async getActiveQueryTemplates(): Promise<QueryTemplate[]> {
+    return db.select().from(queryTemplates).where(eq(queryTemplates.isActive, true));
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // PROTOCOL REVENUE MODELS
+  // ═══════════════════════════════════════════════════════════════
+
+  async insertProtocolRevenueModel(model: InsertProtocolRevenueModel): Promise<ProtocolRevenueModel> {
+    const [result] = await db.insert(protocolRevenueModels).values(model).returning();
+    return result;
+  }
+
+  async getProtocolRevenueModel(protocol: string): Promise<ProtocolRevenueModel | undefined> {
+    const [result] = await db.select().from(protocolRevenueModels)
+      .where(and(
+        eq(protocolRevenueModels.isActive, true),
+        sql`LOWER(${protocolRevenueModels.protocol}) = LOWER(${protocol})`
+      ));
+    return result;
+  }
+
+  async updateProtocolRevenueModel(
+    id: string,
+    data: Partial<InsertProtocolRevenueModel & { validationStatus: string; validationScore: number; validationError: string }>
+  ): Promise<ProtocolRevenueModel> {
+    const [result] = await db.update(protocolRevenueModels)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(protocolRevenueModels.id, id))
+      .returning();
+    return result;
+  }
+
+  async getActiveProtocolRevenueModels(): Promise<ProtocolRevenueModel[]> {
+    return db.select().from(protocolRevenueModels).where(eq(protocolRevenueModels.isActive, true));
   }
 }
 

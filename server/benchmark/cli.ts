@@ -21,6 +21,9 @@ import("dotenv/config").catch(() => {});
 import { storage } from "../storage";
 import { seedBenchmark } from "./seed";
 import { runBenchmark } from "./runner";
+import { seedCompoundBenchmark } from "./seed-compound";
+import { seedTemplates } from "./seed-templates";
+import { seedEthenaModel } from "./research";
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -41,18 +44,23 @@ async function main() {
 Benchmark CLI — Autoresearch Eval System
 
 Commands:
-  seed          Generate benchmark cases from DeFiLlama
-  run           Execute benchmark and apply improvements
-  status        Show latest run results and history
-  failures      Show failure details for a specific run
-  observability Show production query attempt patterns
-  full-cycle    Seed (if needed) + full run + report
+  seed            Generate benchmark cases from DeFiLlama
+  seed-templates  Seed compound query templates (income statement, etc.)
+  seed-compound   Seed compound benchmark cases (P/E, financial overviews)
+  seed-research   Seed Ethena revenue model and research pipeline
+  run             Execute benchmark and apply improvements
+  status          Show latest run results and history
+  failures        Show failure details for a specific run
+  observability   Show production query attempt patterns
+  full-cycle      Seed (if needed) + full run + report
 
 Flags:
   --subset N       Only run N random cases
   --difficulty X   Filter by easy/standard/hard
   --dry-run        Don't apply improvements
   --verbose        Print every case result
+  --force-dune     Force agent to use Dune SQL for ALL cases (no DeFiLlama/CoinGecko)
+  --compound       Only run compound/derived cases (pe_ratio, financial_statement, price)
   --limit N        Protocol limit for seeding (default 100)
   --days N         Lookback period for observability (default 30)
 `);
@@ -69,16 +77,41 @@ Flags:
       break;
     }
 
+    case "seed-templates": {
+      const dryRun = getFlag("dry-run");
+      console.log(`\nSeeding query templates (${dryRun ? "DRY RUN" : "LIVE"})...\n`);
+      const result = await seedTemplates(dryRun);
+      console.log(`\nSeed templates complete:`, JSON.stringify(result, null, 2));
+      break;
+    }
+
+    case "seed-research": {
+      console.log(`\nSeeding protocol revenue models...\n`);
+      const ethena = await seedEthenaModel();
+      console.log(`\nSeed research complete:`, ethena ? `Ethena model ready (id: ${ethena.id})` : "Failed");
+      break;
+    }
+
+    case "seed-compound": {
+      const dryRun = getFlag("dry-run");
+      console.log(`\nSeeding compound benchmark cases (${dryRun ? "DRY RUN" : "LIVE"})...\n`);
+      const result = await seedCompoundBenchmark(dryRun);
+      console.log(`\nSeed compound complete:`, JSON.stringify(result, null, 2));
+      break;
+    }
+
     case "run": {
       const subset = getFlagValue("subset") ? parseInt(getFlagValue("subset")!) : undefined;
       const difficulty = getFlagValue("difficulty");
       const dryRun = getFlag("dry-run");
       const verbose = getFlag("verbose");
+      const forceDune = getFlag("force-dune");
+      const compoundOnly = getFlag("compound");
 
-      console.log(`\nRunning benchmark (${subset ? `subset=${subset}` : "all cases"}, ${dryRun ? "DRY RUN" : "LIVE"})...\n`);
+      console.log(`\nRunning benchmark (${subset ? `subset=${subset}` : "all cases"}, ${dryRun ? "DRY RUN" : "LIVE"}${forceDune ? ", FORCE DUNE SQL" : ""}${compoundOnly ? ", COMPOUND ONLY" : ""})...\n`);
 
       const { run, analysis, improvements } = await runBenchmark({
-        subset, difficulty, dryRun, verbose,
+        subset, difficulty, dryRun, verbose, forceDune, compoundOnly,
       });
 
       // Print summary report

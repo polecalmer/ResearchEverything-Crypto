@@ -12,7 +12,7 @@ import crypto from "crypto";
 
 const DATA_CHART_CHARGE = 0.50;
 
-const DATA_AGENT_SYSTEM = `You are a Data Analyst Agent in a VC deal intelligence platform called Research Everything. You specialize in crypto/DeFi data visualization.
+export const DATA_AGENT_SYSTEM = `You are a Data Analyst Agent in a VC deal intelligence platform called Research Everything. You specialize in crypto/DeFi data visualization.
 
 Your job: Given a user's request and available data context, produce a JSON plan for the chart(s) requested.
 
@@ -60,7 +60,8 @@ DATA SOURCE ROUTING — WHEN TO USE WHAT:
 | Protocol-specific decoded events | dune-sql | — |
 | Token holder distribution | allium-sql | dune-sql |
 | Wallet balances & whale tracking | allium-sql | dune-sql |
-| P/E ratio, custom derived metrics | dune-sql | — |
+| P/E ratio, earnings multiples | defillama (revenue) + coingecko (mcap) | dune-sql |
+| Custom derived metrics | dune-sql | — |
 | Cross-protocol comparisons | dune-sql | — |
 | Outstanding loans / borrows over time | dune-sql | — |
 | Lending supply / deposits over time | dune-sql | — |
@@ -397,7 +398,8 @@ CRITICAL — DATA SOURCE PREFERENCE:
 - For DeFi protocol metrics (revenue, fees, TVL): ALWAYS try DeFiLlama FIRST (it's pre-aggregated and reliable)
 - Only use dune-sql for DeFi metrics when: (a) DeFiLlama doesn't cover the protocol, (b) the user asks for granularity DeFiLlama doesn't have, or (c) the user specifically asks for on-chain data
 - DeFiLlama is the PREFERRED source for: revenue, fees, TVL, DEX volume, derivatives volume — it's faster and more reliable than writing SQL
-- Use dune-sql as PRIMARY only for: lending activity (borrows/supplies), user counts, governance, custom analytics, cross-chain breakdowns`;
+- Use dune-sql as PRIMARY only for: lending activity (borrows/supplies), user counts, governance, custom analytics, cross-chain breakdowns
+- For P/E ratios and earnings multiples: ALWAYS derive from DeFiLlama revenue + CoinGecko market cap. NEVER attempt to compute revenue from raw Dune SQL — protocol revenue is a business concept that differs per protocol and cannot be reliably derived from on-chain tables like lending.borrow or dex.trades. Fetch revenue from defillama, mcap from coingecko, compute P/E = mcap / annualized_revenue.`;
 
 
 

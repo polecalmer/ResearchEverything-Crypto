@@ -166,6 +166,152 @@ function normalizeDate(val: any): number {
  * Score agent output against reference data.
  * This is the core loss function for the autoresearch loop.
  */
+// ═══════════════════════════════════════════════════════════════
+// COMPOUND SCORING — for multi-metric and derived metric cases
+// ═══════════════════════════════════════════════════════════════
+
+export interface CompoundScoreResult {
+  total: number;                  // 0-1 composite score
+  completenessScore: number;      // fraction of required metrics produced
+  subMetricScores: {
+    metricType: string;
+    score: ScoreResult;
+    matched: boolean;
+  }[];
+  missingMetrics: string[];
+  reason: string;
+}
+
+/** Keyword map for matching agent chart outputs to reference sub-metrics */
+const METRIC_KEYWORDS: Record<string, string[]> = {
+  tvl: ["tvl", "total_value_locked", "totalLiquidityUSD", "liquidity", "tvl_usd"],
+  revenue: ["revenue", "daily_revenue", "weekly_revenue", "monthly_revenue", "protocol_revenue", "earnings"],
+  fees: ["fees", "daily_fees", "weekly_fees", "total_fees", "fee"],
+  price: ["price", "token_price", "avg_price", "close", "usd_price"],
+  pe_ratio: ["pe_ratio", "p_e_ratio", "pe", "price_to_earnings", "price_earnings"],
+  mcap: ["mcap", "market_cap", "market_capitalization", "fdv", "approx_mcap"],
+  volume: ["volume", "daily_volume", "weekly_volume", "amount_usd", "trade_volume"],
+  arr: ["arr", "annualized", "annualized_revenue", "annualized_fees"],
+  usde_supply: ["usde_supply", "supply", "total_supply", "circulating_supply"],
+};
+
+/**
+ * Match an agent chart plan to a sub-metric type using title + yAxis keywords.
+ * Returns the best-matching metric type, or null if no match.
+ */
+function matchPlanToMetric(plan: any, availableMetrics: string[]): string | null {
+  const title = (plan.title || "").toLowerCase();
+  const yKeys = (plan.chartConfig?.yAxes || []).map((y: any) => (y.dataKey || "").toLowerCase());
+  const yLabels = (plan.chartConfig?.yAxes || []).map((y: any) => (y.label || "").toLowerCase());
+  const allText = [title, ...yKeys, ...yLabels].join(" ");
+
+  let bestMatch: string | null = null;
+  let bestScore = 0;
+
+  for (const metric of availableMetrics) {
+    const keywords = METRIC_KEYWORDS[metric] || [metric];
+    let matchScore = 0;
+    for (const kw of keywords) {
+      if (allText.includes(kw)) matchScore++;
+    }
+    if (matchScore > bestScore) {
+      bestScore = matchScore;
+      bestMatch = metric;
+    }
+  }
+
+  return bestMatch;
+}
+
+/**
+ * Score a compound query result — multiple agent charts scored against
+ * multiple reference datasets.
+ */
+export function scoreCompoundResult(
+  agentPlans: any[],
+  agentDataSets: { planIndex: number; data: DataPoint[] }[],
+  referenceDataSets: { metricType: string; data: DataPoint[] }[],
+  tolerance: number = 0.30,
+): CompoundScoreResult {
+  const requiredMetrics = referenceDataSets.map(r => r.metricType);
+  const matched: Map<string, { planIndex: number; data: DataPoint[] }> = new Map();
+  const remainingMetrics = new Set(requiredMetrics);
+  const remainingPlans = new Set(agentDataSets.map(d => d.planIndex));
+
+  // Greedy match: for each reference metric, find the best-matching agent chart
+  for (const refDS of referenceDataSets) {
+    let bestPlanIdx: number | null = null;
+    let bestScore = -1;
+
+    for (const agentDS of agentDataSets) {
+      if (!remainingPlans.has(agentDS.planIndex)) continue;
+      // Try keyword match first
+      const plan = agentPlans[agentDS.planIndex];
+      const matchedMetric = matchPlanToMetric(plan, [refDS.metricType]);
+      if (matchedMetric) {
+        // Score it to see if the data actually matches
+        const testScore = scoreResult(agentDS.data, refDS.data, tolerance);
+        if (testScore.total > bestScore) {
+          bestScore = testScore.total;
+          bestPlanIdx = agentDS.planIndex;
+        }
+      }
+    }
+
+    // If keyword match failed, try scoring all remaining plans against this reference
+    if (bestPlanIdx === null) {
+      for (const agentDS of agentDataSets) {
+        if (!remainingPlans.has(agentDS.planIndex)) continue;
+        if (agentDS.data.length === 0) continue;
+        const testScore = scoreResult(agentDS.data, refDS.data, tolerance);
+        if (testScore.total > bestScore) {
+          bestScore = testScore.total;
+          bestPlanIdx = agentDS.planIndex;
+        }
+      }
+    }
+
+    if (bestPlanIdx !== null && bestScore > 0) {
+      const agentDS = agentDataSets.find(d => d.planIndex === bestPlanIdx)!;
+      matched.set(refDS.metricType, agentDS);
+      remainingMetrics.delete(refDS.metricType);
+      remainingPlans.delete(bestPlanIdx);
+    }
+  }
+
+  // Score each matched pair
+  const subMetricScores: CompoundScoreResult["subMetricScores"] = [];
+  for (const refDS of referenceDataSets) {
+    const agentDS = matched.get(refDS.metricType);
+    if (agentDS) {
+      const score = scoreResult(agentDS.data, refDS.data, tolerance);
+      subMetricScores.push({ metricType: refDS.metricType, score, matched: true });
+    } else {
+      subMetricScores.push({
+        metricType: refDS.metricType,
+        score: { total: 0, magnitudeScore: 0, magnitudeRatio: null, trendScore: 0, agentTrend: null, referenceTrend: null, shapeScore: 0, mape: null, reason: "Missing — agent did not produce this metric" },
+        matched: false,
+      });
+    }
+  }
+
+  const completenessScore = (requiredMetrics.length - remainingMetrics.size) / requiredMetrics.length;
+  const avgSubScore = subMetricScores.reduce((s, m) => s + m.score.total, 0) / requiredMetrics.length;
+  const total = completenessScore * 0.3 + avgSubScore * 0.7;
+
+  const missingMetrics = Array.from(remainingMetrics);
+  const subReasons = subMetricScores.map(s =>
+    `${s.metricType}: ${s.matched ? `${(s.score.total * 100).toFixed(0)}%` : "MISSING"}`
+  );
+  const reason = `Completeness: ${(completenessScore * 100).toFixed(0)}% (${requiredMetrics.length - missingMetrics.length}/${requiredMetrics.length}) | ${subReasons.join(", ")}`;
+
+  return { total, completenessScore, subMetricScores, missingMetrics, reason };
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SINGLE-METRIC SCORING
+// ═══════════════════════════════════════════════════════════════
+
 export function scoreResult(
   agentData: DataPoint[],
   referenceData: DataPoint[],
