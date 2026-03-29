@@ -309,6 +309,87 @@ export function scoreCompoundResult(
 }
 
 // ═══════════════════════════════════════════════════════════════
+// LLM JUDGE SCORING — for intent interpretation cases
+// ═══════════════════════════════════════════════════════════════
+
+export interface IntentJudgeResult {
+  score: number;          // 0-1
+  reasoning: string;      // LLM's explanation
+  intentCategory: string; // vague, implicit, timerange, comparison, multichain
+}
+
+/**
+ * Build the LLM judge prompt for scoring an intent case.
+ * Returns the prompt string — the caller makes the LLM call.
+ */
+export function buildIntentJudgePrompt(
+  userQuery: string,
+  intentCategory: string,
+  acceptableBehaviors: string,
+  agentPlans: any[],
+  agentDataSummaries: { planIndex: number; dataPoints: number; columns: string[]; sampleValues: any }[],
+): string {
+  const plansJson = JSON.stringify(agentPlans, null, 2);
+  const dataSummary = agentDataSummaries.map(d =>
+    `  Plan ${d.planIndex}: ${d.dataPoints} data points, columns: [${d.columns.join(", ")}], sample: ${JSON.stringify(d.sampleValues)}`
+  ).join("\n");
+
+  return `You are an evaluation judge. Score whether an AI data agent correctly interpreted a user's intent.
+
+USER QUERY: "${userQuery}"
+
+INTENT CATEGORY: ${intentCategory}
+
+ACCEPTABLE BEHAVIORS:
+${acceptableBehaviors}
+
+AGENT'S RESPONSE (chart plans):
+${plansJson}
+
+AGENT'S DATA (summary):
+${dataSummary || "  No data returned"}
+
+SCORING RULES:
+- Score 0.0 to 1.0 based on how well the agent understood and addressed the user's intent
+- For "vague" queries: any reasonable interpretation with real data = 0.7+. Multiple relevant metrics = 0.9+
+- For "implicit" queries: correct metric type = 0.8+. Wrong metric type (e.g., TVL when user asked about revenue) = 0.2
+- For "timerange" queries: correct time range within 2x = 0.8+. Wildly wrong range = 0.2. Right metric wrong range = 0.5
+- For "comparison" queries: all entities present = 0.8+. Missing an entity = 0.4. Only one entity = 0.1
+- For "multichain" queries: correct chain filter = 0.8+. No chain filter (aggregate) = 0.2. Wrong chain = 0.1
+- If the agent returned NO data (empty plans or 0 data points), score 0.0
+- If the agent returned data but for the wrong thing entirely, score 0.1-0.2
+
+RESPOND WITH JSON ONLY:
+{"score": 0.XX, "reasoning": "One sentence explanation"}`;
+}
+
+/**
+ * Parse the LLM judge response into a score.
+ */
+export function parseIntentJudgeResponse(response: string, intentCategory: string): IntentJudgeResult {
+  try {
+    // Try to extract JSON from the response
+    const jsonMatch = response.match(/\{[\s\S]*"score"[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      return {
+        score: Math.max(0, Math.min(1, parsed.score || 0)),
+        reasoning: parsed.reasoning || "No reasoning provided",
+        intentCategory,
+      };
+    }
+  } catch {}
+
+  // Fallback: try to find a number
+  const numMatch = response.match(/(\d+\.?\d*)/);
+  return {
+    score: numMatch ? Math.max(0, Math.min(1, parseFloat(numMatch[1]))) : 0,
+    reasoning: response.substring(0, 200),
+    intentCategory,
+  };
+}
+
+// ═══════════════════════════════════════════════════════════════
 // SINGLE-METRIC SCORING
 // ═══════════════════════════════════════════════════════════════
 

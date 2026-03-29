@@ -18,11 +18,20 @@
 // @ts-ignore — dotenv is optional, only needed for local development
 import("dotenv/config").catch(() => {});
 
+// Prevent crashes from unhandled rejections / DB socket errors
+process.on("uncaughtException", (err) => {
+  console.error("[CLI] Uncaught exception (continuing):", err.message);
+});
+process.on("unhandledRejection", (err: any) => {
+  console.error("[CLI] Unhandled rejection (continuing):", err?.message || err);
+});
+
 import { storage } from "../storage";
 import { seedBenchmark } from "./seed";
 import { runBenchmark } from "./runner";
 import { seedCompoundBenchmark } from "./seed-compound";
 import { seedTemplates } from "./seed-templates";
+import { seedIntentBenchmark } from "./seed-intent";
 import { seedEthenaModel } from "./research";
 
 const args = process.argv.slice(2);
@@ -47,6 +56,7 @@ Commands:
   seed            Generate benchmark cases from DeFiLlama
   seed-templates  Seed compound query templates (income statement, etc.)
   seed-compound   Seed compound benchmark cases (P/E, financial overviews)
+  seed-intent     Seed intent interpretation cases (50 cases across 5 categories)
   seed-research   Seed Ethena revenue model and research pipeline
   run             Execute benchmark and apply improvements
   status          Show latest run results and history
@@ -61,6 +71,7 @@ Flags:
   --verbose        Print every case result
   --force-dune     Force agent to use Dune SQL for ALL cases (no DeFiLlama/CoinGecko)
   --compound       Only run compound/derived cases (pe_ratio, financial_statement, price)
+  --intent         Only run intent interpretation cases (vague, implicit, timerange, comparison, multichain)
   --limit N        Protocol limit for seeding (default 100)
   --days N         Lookback period for observability (default 30)
 `);
@@ -92,6 +103,14 @@ Flags:
       break;
     }
 
+    case "seed-intent": {
+      const dryRun = getFlag("dry-run");
+      console.log(`\nSeeding intent benchmark cases (${dryRun ? "DRY RUN" : "LIVE"})...\n`);
+      const result = await seedIntentBenchmark(dryRun);
+      console.log(`\nSeed intent complete:`, JSON.stringify(result, null, 2));
+      break;
+    }
+
     case "seed-compound": {
       const dryRun = getFlag("dry-run");
       console.log(`\nSeeding compound benchmark cases (${dryRun ? "DRY RUN" : "LIVE"})...\n`);
@@ -107,11 +126,12 @@ Flags:
       const verbose = getFlag("verbose");
       const forceDune = getFlag("force-dune");
       const compoundOnly = getFlag("compound");
+      const intentOnly = getFlag("intent");
 
-      console.log(`\nRunning benchmark (${subset ? `subset=${subset}` : "all cases"}, ${dryRun ? "DRY RUN" : "LIVE"}${forceDune ? ", FORCE DUNE SQL" : ""}${compoundOnly ? ", COMPOUND ONLY" : ""})...\n`);
+      console.log(`\nRunning benchmark (${subset ? `subset=${subset}` : "all cases"}, ${dryRun ? "DRY RUN" : "LIVE"}${forceDune ? ", FORCE DUNE SQL" : ""}${compoundOnly ? ", COMPOUND ONLY" : ""}${intentOnly ? ", INTENT ONLY" : ""})...\n`);
 
       const { run, analysis, improvements } = await runBenchmark({
-        subset, difficulty, dryRun, verbose, forceDune, compoundOnly,
+        subset, difficulty, dryRun, verbose, forceDune, compoundOnly, intentOnly,
       });
 
       // Print summary report

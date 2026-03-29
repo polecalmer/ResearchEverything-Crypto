@@ -14,7 +14,8 @@ import { executeDuneSQL, isDuneConfigured } from "../dune-client";
 import * as defillama from "../defillama-client";
 import { DATA_AGENT_SYSTEM } from "../data-agent";
 import { fetchReferenceTimeSeries, fetchDerivedReference, fetchCompoundReference } from "./cross-validate";
-import { scoreResult, scoreCompoundResult, normalizeAgentData, type ScoreResult, type EvalCaseResult } from "./eval";
+import { scoreResult, scoreCompoundResult, normalizeAgentData, buildIntentJudgePrompt, parseIntentJudgeResponse, type ScoreResult, type EvalCaseResult } from "./eval";
+import { getAcceptableBehaviors, getIntentCategory } from "./seed-intent";
 import { getOrResearchProtocol, buildRevenueModelContext } from "./research";
 import type { BenchmarkCase, SystemLearning, BenchmarkRun } from "@shared/schema";
 
@@ -117,6 +118,7 @@ interface RunOptions {
   verbose?: boolean;
   forceDune?: boolean;      // force agent to use dune-sql for ALL cases (no DeFiLlama/CoinGecko)
   compoundOnly?: boolean;   // only run compound/derived cases
+  intentOnly?: boolean;      // only run intent interpretation cases
 }
 
 interface FailureAnalysis {
@@ -338,6 +340,11 @@ ${relevantRules.map(l => `- [${l.ruleType}] ${l.ruleText}`).join("\n")}`;
     }
 
     const plan = plans[0];
+
+    // 3b. Intent case — use LLM judge instead of data execution + reference scoring
+    if (testCase.metricType.startsWith("intent_")) {
+      return await runIntentCase(testCase, plans, activeLearnings, startTime, llmCalls);
+    }
 
     // 4. Execute the plan
     let data: any[] | null = null;
@@ -722,7 +729,7 @@ export async function runBenchmark(options: RunOptions = {}): Promise<{
   analysis: FailureAnalysis;
   improvements: CandidateImprovement[];
 }> {
-  const { subset, difficulty, analyzeOnly = false, dryRun = false, verbose = false, forceDune = false, compoundOnly = false } = options;
+  const { subset, difficulty, analyzeOnly = false, dryRun = false, verbose = false, forceDune = false, compoundOnly = false, intentOnly = false } = options;
 
   console.log(`\n${"═".repeat(60)}`);
   console.log(`  BENCHMARK RUN — ${new Date().toISOString()}`);
@@ -735,6 +742,10 @@ export async function runBenchmark(options: RunOptions = {}): Promise<{
   if (compoundOnly) {
     const compoundTypes = new Set(["pe_ratio", "financial_statement", "price", "market_cap"]);
     cases = cases.filter(c => compoundTypes.has(c.metricType) || c.referenceSource.startsWith("derived:") || c.referenceSource.startsWith("template:") || c.referenceSource.startsWith("coingecko:"));
+  }
+
+  if (intentOnly) {
+    cases = cases.filter(c => c.metricType.startsWith("intent_"));
   }
 
   if (subset && subset < cases.length) {
@@ -867,15 +878,19 @@ export async function runBenchmark(options: RunOptions = {}): Promise<{
   const scoredResults = results.filter(r => r.errorCategory !== "infrastructure");
   const accuracy = scoredResults.length > 0 ? passCount / scoredResults.length : 0;
 
-  // Update run record
+  // Update run record AND the in-memory object so callers get correct values
   const wasAborted = consecutiveInfraErrors >= CIRCUIT_BREAKER_THRESHOLD;
-  await storage.updateBenchmarkRun(run.id, {
+  const runUpdate = {
     passedCases: passCount,
     failedCases: failCount,
     overallAccuracy: accuracy,
     totalLatencyMs: totalLatency,
+    totalCostUsd: totalLlmCalls * 0.035, // approximate: ~$0.035 per LLM call via MPP
     status: wasAborted ? "failed" : "completed",
-  });
+  };
+  await storage.updateBenchmarkRun(run.id, runUpdate);
+  // Mutate the run object so the returned value reflects final state
+  Object.assign(run, runUpdate);
 
   console.log(`\n${"─".repeat(60)}`);
   console.log(`  RESULTS: ${passCount}/${scoredResults.length} passed (${(accuracy * 100).toFixed(1)}%)`);
@@ -1426,6 +1441,135 @@ async function handleCompoundCase(
       latencyMs: Date.now() - startTime, llmCalls, errorCategory: null,
     };
   }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// INTENT CASE HANDLER
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Run an intent interpretation case using LLM judge scoring.
+ * The agent's plan is evaluated by a second LLM call that checks
+ * whether the agent understood the user's intent correctly.
+ */
+async function runIntentCase(
+  testCase: BenchmarkCase,
+  plans: any[],
+  activeLearnings: SystemLearning[],
+  startTime: number,
+  llmCalls: number,
+): Promise<EvalCaseResult> {
+  const intentCategory = getIntentCategory(testCase.naturalLanguageQuery) || "vague";
+  const acceptableBehaviors = getAcceptableBehaviors(testCase.naturalLanguageQuery) || "Any reasonable chart with real data is a pass.";
+
+  // Try to execute each plan to see if it actually returns data
+  const dataSummaries: { planIndex: number; dataPoints: number; columns: string[]; sampleValues: any }[] = [];
+
+  for (let i = 0; i < Math.min(plans.length, 5); i++) {
+    const p = plans[i];
+    let dataPoints = 0;
+    let columns: string[] = [];
+    let sampleValues: any = null;
+
+    try {
+      const ds = p.dataSource || "";
+      const cfg = p.dataSourceConfig || {};
+
+      if (ds === "dune-sql" && cfg.sql) {
+        const result = await executeDuneSQL(cfg.sql, `intent_${testCase.id}_${i}`);
+        dataPoints = result.rows?.length || 0;
+        columns = result.columns?.map((c: any) => c.name || c) || Object.keys(result.rows?.[0] || {});
+        sampleValues = result.rows?.slice(0, 2);
+      } else if (ds === "defillama") {
+        const endpoint = cfg.endpoint || "tvl";
+        // Resolve slug: use plan's slug, fall back to hint-resolved slug, fall back to case slug
+        const slug = cfg.slug || testCase.protocolSlug;
+        const resolvedSlug = await resolveSlugWithHints(testCase.protocol, slug);
+        let apiData: any[] = [];
+        if (endpoint === "tvl") {
+          apiData = await defillama.getProtocolTvl(resolvedSlug) || [];
+        } else if (endpoint === "revenue") {
+          const rev = await defillama.getProtocolRevenue(resolvedSlug);
+          apiData = rev?.dailyRevenue || [];
+        } else if (endpoint === "fees") {
+          const fees = await defillama.getProtocolFees(resolvedSlug);
+          apiData = fees?.dailyFees || [];
+        } else if (endpoint === "dexVolume") {
+          const vol = await defillama.getProtocolDexVolume(resolvedSlug);
+          apiData = vol?.dailyVolume || [];
+        } else if (endpoint === "derivatives") {
+          const vol = await defillama.getProtocolDexVolume(resolvedSlug);
+          apiData = vol?.dailyVolume || [];
+        }
+        dataPoints = apiData.length;
+        columns = dataPoints > 0 ? Object.keys(apiData[0]) : [];
+        sampleValues = apiData.slice(0, 2);
+      } else if (ds === "coingecko") {
+        // Map common protocol names to CoinGecko IDs
+        const COINGECKO_MAP: Record<string, string> = {
+          "aave": "aave", "uniswap": "uniswap", "compound": "compound-governance-token",
+          "maker": "maker", "makerdao": "maker", "lido": "lido-dao", "curve": "curve-dao-token",
+          "morpho": "morpho", "ethena": "ethena", "hyperliquid": "hyperliquid",
+          "pancakeswap": "pancakeswap-token", "sushiswap": "sushi",
+        };
+        const coinId = cfg.coinId || COINGECKO_MAP[testCase.protocol.toLowerCase()] || testCase.protocolSlug;
+        const prices = await defillama.getCoinPriceHistory(coinId, cfg.daysBack || 90);
+        dataPoints = prices?.length || 0;
+        columns = dataPoints > 0 ? Object.keys(prices[0]) : [];
+        sampleValues = prices?.slice(0, 2);
+      }
+    } catch (err: any) {
+      // Log the error so the judge has context, but don't crash the case
+      console.log(`  [Intent] Plan ${i} execution failed: ${err.message?.substring(0, 100)}`)
+    }
+
+    dataSummaries.push({ planIndex: i, dataPoints, columns, sampleValues });
+  }
+
+  // Call LLM judge
+  const judgePrompt = buildIntentJudgePrompt(
+    testCase.naturalLanguageQuery,
+    intentCategory,
+    acceptableBehaviors,
+    plans,
+    dataSummaries,
+  );
+
+  const judgeResponse = await callAnthropicServer({
+    model: "claude-opus-4-6",
+    max_tokens: 500,
+    system: "You are an evaluation judge. Return JSON only.",
+    messages: [{ role: "user", content: judgePrompt }],
+  });
+  llmCalls++;
+
+  const judgeResult = parseIntentJudgeResponse(judgeResponse.text, intentCategory);
+
+  const totalDataPoints = dataSummaries.reduce((s, d) => s + d.dataPoints, 0);
+  const dataSources = plans.map(p => p.dataSource).filter(Boolean).join(", ");
+
+  return {
+    caseId: testCase.id,
+    score: {
+      total: judgeResult.score,
+      magnitudeScore: judgeResult.score >= 0.5 ? 1 : 0,
+      magnitudeRatio: judgeResult.score,
+      trendScore: judgeResult.score >= 0.5 ? 1 : 0,
+      agentTrend: null,
+      referenceTrend: null,
+      shapeScore: judgeResult.score,
+      mape: null,
+      reason: `[${intentCategory}] ${judgeResult.reasoning} (${plans.length} charts, ${totalDataPoints} data points)`,
+    },
+    executionSuccess: totalDataPoints > 0,
+    sanityPassed: judgeResult.score >= 0.5,
+    dataSource: dataSources || null,
+    sqlUsed: plans.find(p => p.dataSourceConfig?.sql)?.dataSourceConfig?.sql || null,
+    errorMessage: judgeResult.score < 0.5 ? judgeResult.reasoning : null,
+    latencyMs: Date.now() - startTime,
+    llmCalls,
+    errorCategory: null,
+  };
 }
 
 /**
