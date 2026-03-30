@@ -537,6 +537,27 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
 
   if (isDuneConfigured()) {
     contextParts.push(`\nDune Analytics: AVAILABLE (API key configured)`);
+
+    // Dune MCP table discovery — find available tables BEFORE SQL generation
+    try {
+      const { discoverTablesForProtocol, discoverTablesForToken } = await import("./dune-mcp-client");
+
+      // Discover protocol tables
+      const tableContext = await discoverTablesForProtocol(companyName);
+      contextParts.push(tableContext);
+
+      // If we have a contract address, also discover decoded tables for it
+      if (tokenProfile?.contractAddress) {
+        const tokenTableContext = await discoverTablesForToken(
+          tokenProfile.contractAddress,
+          tokenProfile.chain || "ethereum",
+        );
+        contextParts.push(tokenTableContext);
+      }
+    } catch (err: any) {
+      // MCP discovery is optional — continue without it
+      console.warn(`[Dune MCP] Table discovery failed: ${err.message}`);
+    }
   }
 
   contextParts.push(`DeFiLlama: AVAILABLE (TVL, fees, revenue for most DeFi protocols)`);

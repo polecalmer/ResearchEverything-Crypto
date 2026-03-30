@@ -221,6 +221,22 @@ Fetched At: ${tokenSnapshot.fetchedAt}
       dataContext += "\n## Note\nNo Dune queries attached to this company. Analysis is based on company context and token data only. Recommend attaching relevant Dune queries for deeper on-chain analysis.\n";
     }
 
+    // Dune MCP table discovery — find decoded tables for this token's contract
+    try {
+      const { discoverTablesForToken, discoverTablesForProtocol } = await import("./dune-mcp-client");
+      if (tokenProfile.contractAddress) {
+        const tokenTables = await discoverTablesForToken(
+          tokenProfile.contractAddress,
+          tokenProfile.chain || "ethereum",
+        );
+        dataContext += `\n${tokenTables}\n`;
+      }
+      const protocolTables = await discoverTablesForProtocol(company.name);
+      dataContext += `\n${protocolTables}\n`;
+    } catch (err: any) {
+      console.warn(`[TokenAgent] Dune MCP table discovery failed: ${err.message}`);
+    }
+
     console.log(`[TokenAgent] Phase 1/3: Market data research for ${company.name}`);
     const phase1Request: AnthropicRequest = {
       model: "claude-opus-4-6",

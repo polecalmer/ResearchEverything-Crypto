@@ -442,6 +442,37 @@ export const protocolRevenueModels = pgTable("protocol_revenue_models", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+/** Protocol knowledge base — crawled from DeFiLlama + CoinGecko + Dune */
+export const projectKnowledge = pgTable("project_knowledge", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),              // DeFiLlama slug
+  category: text("category"),                          // 'Lending', 'Dexs', 'Liquid Staking', 'CEX', etc.
+  protocolType: text("protocol_type"),                 // normalized: 'lending', 'dex', 'liquid_staking', 'cex', 'bridge', etc.
+  primaryChain: text("primary_chain"),                 // highest TVL chain
+  chains: jsonb("chains"),                             // all chains
+  tvl: doublePrecision("tvl"),                         // latest TVL
+  tvlRank: integer("tvl_rank"),                        // rank by TVL
+  geckoId: text("gecko_id"),                           // CoinGecko token ID
+  symbol: text("symbol"),                              // token symbol
+  hasFeeData: boolean("has_fee_data").default(false),
+  hasRevenueData: boolean("has_revenue_data").default(false),
+  hasDexVolumeData: boolean("has_dex_volume_data").default(false),
+  fees24h: doublePrecision("fees_24h"),
+  revenue24h: doublePrecision("revenue_24h"),
+  duneSpellbookCoverage: jsonb("dune_spellbook_coverage"),  // { dex_trades: true, lending_borrow: true, ... }
+  duneProjectName: text("dune_project_name"),          // project name in Dune Spellbook (e.g., 'aave', 'uniswap')
+  lastCrawledAt: timestamp("last_crawled_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertProjectKnowledgeSchema = createInsertSchema(projectKnowledge).omit({
+  id: true,
+  createdAt: true,
+});
+export type ProjectKnowledge = typeof projectKnowledge.$inferSelect;
+export type InsertProjectKnowledge = z.infer<typeof insertProjectKnowledgeSchema>;
+
 export const insertProtocolRevenueModelSchema = createInsertSchema(protocolRevenueModels).omit({
   id: true,
   createdAt: true,
