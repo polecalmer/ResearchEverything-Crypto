@@ -84,7 +84,7 @@ Company detail pages feature four tabs: "Project Intelligence" (deal content), "
 
 **Data Tab (AI Chart Dashboard):**
 The Data tab provides a chat-driven interface for building custom charts. Users describe what they want (e.g. "HYPE price vs revenue 90D"), and the Data Agent (Opus 4.6) determines the best data source, fetches data, and creates interactive Recharts visualizations. Supports:
-- Data sources: Dune Analytics saved queries (by ID), Dune SQL (agent writes raw DuneSQL/Trino queries on the fly — the most powerful source for custom on-chain analytics, any protocol, any time range), DeFiLlama (TVL, fees, revenue), CoinGecko (price history via DeFiLlama coins API), Allium (real-time snapshots), Allium Prices (on-chain OHLCV price history), Allium SQL (custom on-chain analytics — holder distribution, balance queries across 150+ chains)
+- Data sources: Dune Analytics saved queries (by ID), Dune SQL (agent writes raw DuneSQL/Trino queries on the fly — the most powerful source for custom on-chain analytics, any protocol, any time range), DeFiLlama (TVL, fees, revenue), CoinGecko (price history via DeFiLlama coins API), Allium (real-time snapshots), Allium Prices (on-chain OHLCV price history), Allium SQL (custom on-chain analytics — holder distribution, balance queries across 150+ chains), StonksOnChain (Hyperliquid HIP-3 fee data — deployer revenue, asset-level fees, HL contribution HAF/HLP split, growth mode impact)
 - Chart types: line, bar, area, composed (multi-axis overlays)
 - Each chart is saved to `dashboard_charts` table with its data source config, so users can refresh for updated data anytime
 - Agent can create single or multiple charts from one request
@@ -121,6 +121,7 @@ The admin page includes a Server Wallet panel (`server/wallet-manager.ts`) that 
 -   **Blockchain/Wallet:** Tempo chain (chain ID 4217) for embedded wallets and USDC for transactions. Tempo MPP skill reference at `server/skills/tempo-mpp.md`.
 -   **DeFiLlama API:** Free public API for protocol TVL, fees, revenue, and coin price history
 -   **Dune Analytics:** On-chain data queries via API key (`DUNE_API_KEY`)
+-   **StonksOnChain API:** Hyperliquid HIP-3 fee analytics (`STONKS_API_KEY`, rate limit 60/min). Endpoints: summary, deployer-revenue, deployer-hl-contribution, asset-revenue, asset-hl-contribution. Client: `server/stonksonchain-client.ts`.
 -   **Allium API:** On-chain analytics via CLI (`allium` installed at `~/.local/share/../bin/allium`). Authenticated with Tempo wallet (chain-id 4217, uses `MPP_SERVER_WALLET_KEY`). Endpoints: realtime prices, wallet balances, Explorer SQL for custom analytics. Costs: $0.01-0.03 per call, paid from server wallet PathUSD.
 -   **Telegram Bot Framework:** Grammy
 

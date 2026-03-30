@@ -4,6 +4,7 @@ import { fetchTokenSnapshot, type TokenSnapshot } from "./allium-client";
 import { isServerMppReady } from "./mpp-client";
 import * as defillama from "./defillama-client";
 import * as alliumApi from "./allium-api";
+import * as stonks from "./stonksonchain-client";
 import { storage } from "./storage";
 import { MARKUP_MULTIPLIER } from "./enrichment";
 import type { Company, TokenProfile, DashboardChart, DuneQuery, MasterDuneQuery, SystemLearning } from "@shared/schema";
@@ -41,6 +42,8 @@ AVAILABLE DATA SOURCES (in priority order)
 
 7. "allium" — Real-time token snapshot (single-point current price, mcap, volume).
 
+8. "stonks" — StonksOnChain API for Hyperliquid HIP-3 fee data. Provides deployer revenue, asset-level fees, HL contribution (HAF/HLP split), growth mode impact analysis. This is the ONLY source for HIP-3 fee data. Use when the user asks about Hyperliquid deployer fees, HIP-3 revenue, deployer earnings, growth mode impact, or asset-level fee breakdowns on Hyperliquid.
+
 DATA SOURCE ROUTING — WHEN TO USE WHAT:
 | Metric | Primary | Fallback |
 | Protocol revenue, fees, earnings | defillama | dune-sql |
@@ -62,6 +65,10 @@ DATA SOURCE ROUTING — WHEN TO USE WHAT:
 | Cross-protocol comparisons | dune-sql | — |
 | Outstanding loans / borrows over time | dune-sql | — |
 | Lending supply / deposits over time | dune-sql | — |
+| Hyperliquid HIP-3 fees, deployer revenue | stonks | — |
+| Hyperliquid deployer HL contribution (HAF/HLP) | stonks | — |
+| Hyperliquid asset-level fee breakdown | stonks | — |
+| Growth mode impact on Hyperliquid fees | stonks | — |
 
 KEY PRINCIPLE: Use DeFiLlama/CoinGecko for aggregate metrics they cover well (revenue, fees, TVL, price, volume). Use dune-sql ONLY when: (1) the metric isn't available on DeFiLlama/CoinGecko, (2) the user asks for on-chain granularity or custom analytics, or (3) the request involves lending activity, user counts, or protocol-specific events. Dune SQL is powerful but queries can fail — prefer reliable pre-aggregated sources when they cover the metric.
 
@@ -74,7 +81,7 @@ Response format — array of chart/table definitions:
     "subtitle": "ALL CAPS analytical insight — you MUST base this ONLY on what the data columns actually measure. Do NOT assume causation or drivers you cannot see in the data. GOOD: 'RATIO ROSE FROM 20x TO 30x SINCE JAN 2026' (describes what happened). BAD: 'BACK TO 30x ON RISING EARNINGS' (invents a cause). For P/E ratios: a rising ratio means EITHER price rose faster than earnings OR earnings fell — do NOT assume which without earnings data. For revenue: describe the trend shape, not why. Keep it factual and data-grounded. E.g. 'REVENUE 2X H2 VS H1 2025', '30-DAY MA TRENDING UP SINCE OCT', 'RATIO COMPRESSED FROM 40x PEAK TO 25x'. Should read like a Bloomberg terminal headline.",
     "description": "One sentence",
     "chartType": "line" | "bar" | "area" | "table",  // CHART TYPE RULES: Revenue/fees/earnings per period → "bar". Annualized run-rate or moving-average revenue → "line". Cumulative revenue/TVL/supply → "area". Prices/ratios/P&E → "line". Volume per period → "bar". Holder counts/distributions → "bar". Default to "bar" for periodic financial metrics.
-    "dataSource": "dune" | "dune-sql" | "defillama" | "coingecko" | "allium" | "allium-prices" | "allium-sql",
+    "dataSource": "dune" | "dune-sql" | "defillama" | "coingecko" | "allium" | "allium-prices" | "allium-sql" | "stonks",
     "dataSourceConfig": {
       // For dune: { "queryId": 12345, "params": {} }
       // For dune-sql: { "sql": "SELECT date_trunc('day', block_time) as day, SUM(amount_usd) as daily_revenue FROM dex_solana.trades WHERE project = 'pump.fun' GROUP BY 1 ORDER BY 1", "name": "pump_fun_daily_revenue" }
@@ -83,6 +90,7 @@ Response format — array of chart/table definitions:
       // For allium: { "ticker": "HYPE", "chain": "hyperliquid", "contractAddress": "" }
       // For allium-prices: { "chain": "hyperevm", "tokenAddress": "0x555...", "daysBack": 30, "granularity": "1d" }
       // For allium-sql: { "sql": "SELECT address, balance FROM hyperevm.assets.fungible_balances_latest WHERE token_address = '0x555...' AND balance > 0 ORDER BY balance DESC LIMIT 50", "limit": 5 }
+      // For stonks: { "endpoint": "summary" | "deployer-revenue" | "deployer-hl-contribution" | "asset-revenue" | "asset-hl-contribution", "deployer": "xyz" (optional filter), "asset": "GOLD" (optional filter), "top": 10 (optional, default 20 for asset endpoints) }
     },
     "chartConfig": {
       // For chartType "table": just provide "columns" array with column names to display
@@ -565,7 +573,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
     throw new Error(`AI returned invalid chart plan: ${response.text.substring(0, 200)}`);
   }
 
-  const validSources = ["dune", "dune-sql", "defillama", "coingecko", "allium", "allium-prices", "allium-sql"];
+  const validSources = ["dune", "dune-sql", "defillama", "coingecko", "allium", "allium-prices", "allium-sql", "stonks"];
   const validChartTypes = ["line", "bar", "area", "composed", "table"];
 
   chartPlans = chartPlans.filter(plan => {
@@ -1357,6 +1365,7 @@ function extractMetricTypeFast(title: string, description: string = ""): string 
     [/\bstak/, "staking"],
     [/\btreasury\b/, "treasury"],
     [/\bbuyback\b/, "buyback"],
+    [/\bhip[\s-]?3\b|\bdeployer\b.*\b(?:fee|revenue)\b|\bgrowth\s*mode\b/, "hip3_fees"],
   ];
   for (const [pattern, metric] of patterns) {
     if (pattern.test(combined)) return metric;
@@ -2029,6 +2038,8 @@ async function fetchChartData(
       return fetchAlliumPricesData(config);
     case "allium-sql":
       return fetchAlliumSqlData(config);
+    case "stonks":
+      return fetchStonksData(config);
     default:
       throw new Error(`Unknown data source: ${dataSource}`);
   }
@@ -2261,6 +2272,142 @@ async function fetchAlliumSqlData(config: Record<string, any>): Promise<any[]> {
     }
     return processed;
   });
+}
+
+async function fetchStonksData(config: Record<string, any>): Promise<any[]> {
+  if (!stonks.isStonksConfigured()) throw new Error("STONKS_API_KEY not configured");
+
+  const endpoint = config.endpoint;
+  if (!endpoint) throw new Error("No stonks endpoint specified");
+
+  console.log(`[Stonks] Fetching ${endpoint}${config.deployer ? ` (deployer: ${config.deployer})` : ""}${config.asset ? ` (asset: ${config.asset})` : ""}`);
+
+  const now = Math.floor(Date.now() / 1000);
+
+  switch (endpoint) {
+    case "summary": {
+      const data = await stonks.getSummary();
+      return [{
+        date: now,
+        volume_24h: data.volume.current24h,
+        volume_7d_avg: data.volume.avg7d,
+        total_fees_24h: data.totalFees.withGrowthMode.estimated24h,
+        total_fees_24h_no_growth: data.totalFees.withoutGrowthMode.estimated24h,
+        deployer_revenue_24h: data.deployerRevenue.withGrowthMode.estimated24h,
+        hl_contribution_24h: data.hlContribution.withGrowthMode.total24h,
+        haf_24h: data.hlContribution.withGrowthMode.haf24h,
+        hlp_24h: data.hlContribution.withGrowthMode.hlp24h,
+        growth_mode_fee_reduction_pct: data.growthModeImpact.feeReductionPct,
+        growth_mode_daily_savings: data.growthModeImpact.dailySavings,
+        total_assets: data.assets.total,
+        growth_mode_assets: data.assets.growthMode,
+        non_growth_mode_assets: data.assets.nonGrowthMode,
+        avg_fee_bps: data.totalFees.withGrowthMode.avgFeeBps,
+      }];
+    }
+
+    case "deployer-revenue": {
+      const data = await stonks.getDeployerRevenue();
+      let deployers = data.deployers;
+      if (config.deployer) {
+        deployers = deployers.filter(d => d.name.toLowerCase() === config.deployer.toLowerCase() || d.fullName.toLowerCase() === config.deployer.toLowerCase());
+      }
+      return deployers.map(d => ({
+        date: now,
+        deployer: d.fullName || d.name,
+        deployer_code: d.name,
+        asset_count: d.assetCount,
+        growth_mode_assets: d.growthModeAssets,
+        volume_24h: d.volume24h,
+        revenue_with_growth: d.revenue.withGrowthMode,
+        revenue_without_growth: d.revenue.withoutGrowthMode,
+        fee_bps_with_growth: d.revenue.effectiveFeeBps.withGrowthMode,
+        fee_bps_without_growth: d.revenue.effectiveFeeBps.withoutGrowthMode,
+        deployer_share_pct: d.deployerSharePct,
+      }));
+    }
+
+    case "deployer-hl-contribution": {
+      const data = await stonks.getDeployerHlContribution();
+      let deployers = data.deployers;
+      if (config.deployer) {
+        deployers = deployers.filter(d => d.name.toLowerCase() === config.deployer.toLowerCase() || d.fullName.toLowerCase() === config.deployer.toLowerCase());
+      }
+      return deployers.map(d => ({
+        date: now,
+        deployer: d.fullName || d.name,
+        deployer_code: d.name,
+        asset_count: d.assetCount,
+        volume_24h: d.volume24h,
+        hl_total_with_growth: d.hlContribution.withGrowthMode.total,
+        hl_haf_with_growth: d.hlContribution.withGrowthMode.haf,
+        hl_hlp_with_growth: d.hlContribution.withGrowthMode.hlp,
+        hl_total_without_growth: d.hlContribution.withoutGrowthMode.total,
+        fee_bps_with_growth: d.hlContribution.effectiveFeeBps.withGrowthMode,
+        fee_bps_without_growth: d.hlContribution.effectiveFeeBps.withoutGrowthMode,
+      }));
+    }
+
+    case "asset-revenue": {
+      const data = await stonks.getAssetRevenue();
+      let assets = data.assets;
+      if (config.deployer) {
+        assets = assets.filter(a => a.deployer.toLowerCase() === config.deployer.toLowerCase() || a.deployerFullName.toLowerCase() === config.deployer.toLowerCase());
+      }
+      if (config.asset) {
+        assets = assets.filter(a => a.displayName.toLowerCase() === config.asset.toLowerCase() || a.symbol.toLowerCase().includes(config.asset.toLowerCase()));
+      }
+      if (config.top) {
+        assets = assets.slice(0, config.top);
+      } else {
+        assets = assets.slice(0, 20);
+      }
+      return assets.map(a => ({
+        date: now,
+        symbol: a.symbol,
+        asset: a.displayName,
+        deployer: a.deployerFullName,
+        growth_mode: a.growthMode,
+        volume_24h: a.volume24h,
+        revenue_with_growth: a.revenue.withGrowthMode,
+        revenue_without_growth: a.revenue.withoutGrowthMode,
+        fee_bps_with_growth: a.effectiveFeeBps.withGrowthMode,
+        fee_bps_without_growth: a.effectiveFeeBps.withoutGrowthMode,
+      }));
+    }
+
+    case "asset-hl-contribution": {
+      const data = await stonks.getAssetHlContribution();
+      let assets = data.assets;
+      if (config.deployer) {
+        assets = assets.filter(a => a.deployer.toLowerCase() === config.deployer.toLowerCase() || a.deployerFullName.toLowerCase() === config.deployer.toLowerCase());
+      }
+      if (config.asset) {
+        assets = assets.filter(a => a.displayName.toLowerCase() === config.asset.toLowerCase() || a.symbol.toLowerCase().includes(config.asset.toLowerCase()));
+      }
+      if (config.top) {
+        assets = assets.slice(0, config.top);
+      } else {
+        assets = assets.slice(0, 20);
+      }
+      return assets.map(a => ({
+        date: now,
+        symbol: a.symbol,
+        asset: a.displayName,
+        deployer: a.deployerFullName,
+        growth_mode: a.growthMode,
+        volume_24h: a.volume24h,
+        hl_total_with_growth: a.hlContribution.withGrowthMode.total,
+        hl_haf_with_growth: a.hlContribution.withGrowthMode.haf,
+        hl_total_without_growth: a.hlContribution.withoutGrowthMode.total,
+        fee_bps_with_growth: a.effectiveFeeBps.withGrowthMode,
+        fee_bps_without_growth: a.effectiveFeeBps.withoutGrowthMode,
+      }));
+    }
+
+    default:
+      throw new Error(`Unknown stonks endpoint: ${endpoint}. Valid: summary, deployer-revenue, deployer-hl-contribution, asset-revenue, asset-hl-contribution`);
+  }
 }
 
 export { DATA_CHART_CHARGE };
