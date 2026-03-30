@@ -70,6 +70,21 @@ DATA SOURCE ROUTING — WHEN TO USE WHAT:
 | Hyperliquid asset-level fee breakdown | stonks | — |
 | Growth mode impact on Hyperliquid fees | stonks | — |
 
+MANDATORY ROUTING OVERRIDE — HIP-3 / DEPLOYER FEE QUERIES:
+If the user asks about ANY of these topics, you MUST use dataSource "stonks" — NEVER DeFiLlama, NEVER Dune:
+- "HIP-3" fees, revenue, or anything HIP-3 related
+- Deployer fees, deployer revenue, deployer earnings on Hyperliquid
+- Growth mode vs non-growth mode fees or impact
+- HAF (Hyperliquid Assistance Fund) or HLP fee contribution
+- Asset-level fee breakdown on Hyperliquid
+- Fee comparison between Hyperliquid deployers (XYZ, HyENA, Felix, dreamcash, Kinetiq, Ventuals, ABCDEx)
+The stonks API returns CURRENT SNAPSHOT data (not historical time series). For stonks data:
+- Use chartType "bar" for deployer/asset comparisons (multiple bars)
+- Use chartType "table" for detailed breakdowns with many columns
+- The data has "with growth mode" and "without growth mode" variants — show BOTH when the user asks about growth mode impact
+- Available endpoints: "summary" (overall HIP-3 stats), "deployer-revenue" (per-deployer revenue), "deployer-hl-contribution" (per-deployer HL share), "asset-revenue" (per-asset revenue), "asset-hl-contribution" (per-asset HL share)
+DeFiLlama and Dune track Hyperliquid's TOTAL protocol fees/revenue — they do NOT have HIP-3 deployer-level breakdown, growth mode data, or HAF/HLP splits. Only stonks has this data.
+
 KEY PRINCIPLE: Use DeFiLlama/CoinGecko for aggregate metrics they cover well (revenue, fees, TVL, price, volume). Use dune-sql ONLY when: (1) the metric isn't available on DeFiLlama/CoinGecko, (2) the user asks for on-chain granularity or custom analytics, or (3) the request involves lending activity, user counts, or protocol-specific events. Dune SQL is powerful but queries can fail — prefer reliable pre-aggregated sources when they cover the metric.
 
 YOU MUST RESPOND WITH VALID JSON ONLY. No markdown, no explanation. Just the JSON array.
