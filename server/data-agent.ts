@@ -983,9 +983,22 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
         data = data.slice(0, 5);
       }
 
+      let updatedDescription: string | undefined;
+      try {
+        const subtitleData = generateDataDrivenSubtitle(data, plan);
+        if (subtitleData) {
+          updatedDescription = `${subtitleData}|||${plan.description || ""}`;
+        }
+      } catch (e: any) {
+        console.warn(`[Data Agent] Subtitle generation failed: ${e.message}`);
+      }
+
       const updatedChart = await storage.updateDashboardChart(chart.id, {
         data: JSON.stringify(data),
         status: "completed",
+        dataSource: plan.dataSource,
+        dataSourceConfig: JSON.stringify(plan.dataSourceConfig),
+        ...(updatedDescription ? { description: updatedDescription } : {}),
       });
       charts.push(updatedChart || chart);
 
@@ -2272,6 +2285,47 @@ async function fetchAlliumSqlData(config: Record<string, any>): Promise<any[]> {
     }
     return processed;
   });
+}
+
+function generateDataDrivenSubtitle(data: any[], plan: ChartPlan): string | null {
+  if (!data || data.length === 0) return null;
+
+  const yAxes = plan.chartConfig?.yAxes || [];
+  if (yAxes.length === 0) return null;
+
+  const primaryKey = yAxes[0]?.dataKey;
+  const format = yAxes[0]?.format || "number";
+  if (!primaryKey) return null;
+
+  const values = data.map(d => d[primaryKey]).filter(v => typeof v === "number" && !isNaN(v));
+  if (values.length === 0) return null;
+
+  const latest = values[values.length - 1];
+  const first = values[0];
+
+  function fmtVal(v: number): string {
+    const abs = Math.abs(v);
+    if (format === "currency") {
+      if (abs >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
+      if (abs >= 1e6) return `$${(v / 1e6).toFixed(1)}M`;
+      if (abs >= 1e3) return `$${(v / 1e3).toFixed(1)}K`;
+      return `$${v.toFixed(0)}`;
+    }
+    if (format === "percent") return `${(v * 100).toFixed(1)}%`;
+    if (abs >= 1e9) return `${(v / 1e9).toFixed(1)}B`;
+    if (abs >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
+    if (abs >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
+    return v.toFixed(0);
+  }
+
+  if (values.length >= 3 && first !== 0) {
+    const changePct = ((latest - first) / Math.abs(first)) * 100;
+    const direction = changePct > 0 ? "UP" : changePct < 0 ? "DOWN" : "FLAT";
+    const absChange = Math.abs(changePct).toFixed(0);
+    return `LATEST ${fmtVal(latest)} — ${direction} ${absChange}% OVER PERIOD (${values.length} DATA POINTS)`;
+  }
+
+  return `LATEST ${fmtVal(latest)} — ${values.length} DATA POINTS`;
 }
 
 async function fetchStonksData(config: Record<string, any>): Promise<any[]> {

@@ -864,7 +864,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
       )}
 
       <div className="flex items-center justify-between px-3 py-1.5 text-[9px] text-muted-foreground/60 italic">
-        <span>Source: {chart.dataSource === "dune" ? "Dune Analytics" : chart.dataSource === "defillama" ? "DeFiLlama" : chart.dataSource === "coingecko" ? "CoinGecko" : chart.dataSource === "allium-sql" ? "Allium SQL" : chart.dataSource === "allium-prices" ? "Allium" : chart.dataSource === "allium" ? "Allium" : chart.dataSource}</span>
+        <span>Source: {chart.dataSource === "dune" ? "Dune Analytics" : chart.dataSource === "defillama" ? "DeFiLlama" : chart.dataSource === "coingecko" ? "CoinGecko" : chart.dataSource === "allium-sql" ? "Allium SQL" : chart.dataSource === "allium-prices" ? "Allium" : chart.dataSource === "allium" ? "Allium" : chart.dataSource === "stonks" ? "StonksOnChain" : chart.dataSource}</span>
         <span className="not-italic text-muted-foreground/40">{format(new Date(chart.updatedAt), "MMM d, h:mm a")}</span>
       </div>
     </div>
