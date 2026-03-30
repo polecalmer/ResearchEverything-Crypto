@@ -539,6 +539,10 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
   contextParts.push(`Allium Prices: AVAILABLE (on-chain OHLCV price history via DEX data)`);
   contextParts.push(`Allium SQL: AVAILABLE (custom SQL analytics — holder distribution, balance queries, on-chain data across 150+ chains)`);
 
+  if (stonks.isStonksConfigured()) {
+    contextParts.push(`StonksOnChain: AVAILABLE (Hyperliquid HIP-3 fee data — deployer revenue, asset fees, HL contribution, growth mode impact). MANDATORY for any HIP-3/deployer fee/growth mode query. Use dataSource "stonks".`);
+  }
+
   const learnedRules = await loadLearningsForPrompt(companyName);
   const systemPrompt = learnedRules ? DATA_AGENT_SYSTEM + learnedRules : DATA_AGENT_SYSTEM;
 
@@ -591,6 +595,9 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
   const validSources = ["dune", "dune-sql", "defillama", "coingecko", "allium", "allium-prices", "allium-sql", "stonks"];
   const validChartTypes = ["line", "bar", "area", "composed", "table"];
 
+  const stonksKeywords = /hip[\s-]?3|deployer.*(?:fee|revenue|earn)|growth[\s-]?mode|haf[\s/]hlp|hl[\s-]?contribution/i;
+  const isHyperliquid = /hyperliquid/i.test(companyName);
+
   chartPlans = chartPlans.filter(plan => {
     if (!plan.title || typeof plan.title !== "string") return false;
     if (!plan.dataSource || !validSources.includes(plan.dataSource)) return false;
@@ -598,6 +605,16 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
     if (!plan.chartConfig || typeof plan.chartConfig !== "object") return false;
     if (plan.chartType && !validChartTypes.includes(plan.chartType)) plan.chartType = "line";
     plan.chartType = inferChartType(plan.title, plan.chartType || "line", plan.chartConfig);
+
+    if (isHyperliquid && stonks.isStonksConfigured() && plan.dataSource !== "stonks") {
+      const queryText = `${userPrompt} ${plan.title} ${plan.description || ""}`;
+      if (stonksKeywords.test(queryText)) {
+        console.log(`[Data Agent] ROUTING OVERRIDE: Forcing "${plan.title}" from "${plan.dataSource}" → "stonks" (HIP-3/deployer keyword match)`);
+        plan.dataSource = "stonks";
+        plan.dataSourceConfig = { endpoint: "summary" };
+      }
+    }
+
     return true;
   });
 
