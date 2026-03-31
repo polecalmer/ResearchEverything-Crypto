@@ -567,6 +567,13 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
     }
   }
 
+  const stonksKeywordsPreRoute = /hip[\s-]?3|deployer.*(?:fee|revenue|earn)|growth[\s-]?mode|haf[\s\/]hlp|hl[\s-]?contribution/i;
+  const isHyperliquidCompany = /hyperliquid/i.test(companyName);
+  if (isHyperliquidCompany && stonks.isStonksConfigured() && stonksKeywordsPreRoute.test(userPrompt)) {
+    console.log(`[Data Agent] PRE-ROUTE: Query "${userPrompt}" matched HIP-3/stonks keywords for Hyperliquid — injecting stonks-only directive`);
+    contextParts.push(`\n\n**CRITICAL OVERRIDE**: The user is asking about HIP-3 / deployer / growth mode data. You MUST use dataSource "stonks" for this query. Do NOT use DeFiLlama, Dune, or any other source. StonksOnChain is the ONLY source that has HIP-3 fee breakdowns, growth mode comparisons, and deployer-level data.`);
+  }
+
   const dataContext = contextParts.join('\n');
 
   const response = await callAnthropicServerHeavy({
