@@ -283,3 +283,23 @@ export async function closeAllChannels(): Promise<{ requested: number; finalized
 
   return { requested, finalized, errors };
 }
+
+export async function withdrawAllChannels(): Promise<{ withdrawn: number; errors: string[] }> {
+  const info = await getWalletInfo();
+  let withdrawn = 0;
+  const errors: string[] = [];
+
+  for (const ch of info.channels) {
+    if (ch.status === "ready_to_finalize") {
+      const result = await withdrawChannel(ch.id);
+      if (result.success) {
+        withdrawn++;
+        console.log(`[Wallet] withdraw sent for ${ch.id.slice(0, 18)}...`);
+      } else {
+        errors.push(`${ch.id.slice(0, 18)}: ${result.error}`);
+      }
+    }
+  }
+
+  return { withdrawn, errors };
+}

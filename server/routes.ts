@@ -19,7 +19,7 @@ import { executeDuneQuery, getLatestDuneResults, isDuneConfigured } from "./dune
 import { runTokenAnalysis } from "./token-agent";
 import { callAnthropicServer, callAnthropicServerHeavy, isServerMppReady, getChannelStats } from "./mpp-client";
 import { generateTelegramLinkCode } from "./telegram";
-import { getWalletInfo, closeAllChannels, requestCloseChannel, withdrawChannel } from "./wallet-manager";
+import { getWalletInfo, closeAllChannels, withdrawAllChannels, requestCloseChannel, withdrawChannel } from "./wallet-manager";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { db, pool } from "./db";
 import { sql } from "drizzle-orm";
@@ -1168,6 +1168,25 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/companies/:id/charts/refresh-all", requireAuth, async (req, res) => {
+    try {
+      const allCharts = await storage.getDashboardChartsByCompany(req.params.id, req.user!.id);
+      const refreshable = allCharts.filter(c => c.status === "completed" || c.status === "failed");
+      if (refreshable.length === 0) return res.json({ refreshed: 0, total: 0, charts: [] });
+
+      const results = await Promise.allSettled(
+        refreshable.map(c => refreshChartData(c.id))
+      );
+      const allResults = results
+        .filter(r => r.status === "fulfilled")
+        .map(r => (r as any).value);
+      const succeeded = allResults.filter(c => c.status === "completed");
+      res.json({ refreshed: succeeded.length, total: refreshable.length, charts: allResults });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.post("/api/companies/:id/charts/refresh-failed", requireAuth, async (req, res) => {
     try {
       const allCharts = await storage.getDashboardChartsByCompany(req.params.id, req.user!.id);
@@ -1377,6 +1396,17 @@ export async function registerRoutes(
     if (!isAdmin) return res.status(403).json({ message: "Admin only" });
     try {
       const result = await closeAllChannels();
+      res.json(result);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/admin/wallet/withdraw-all", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const result = await withdrawAllChannels();
       res.json(result);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
