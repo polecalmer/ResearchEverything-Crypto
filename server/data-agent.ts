@@ -569,9 +569,110 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
 
   const stonksKeywordsPreRoute = /hip[\s-]?3|deployer.*(?:fee|revenue|earn)|growth[\s-]?mode|haf[\s\/]hlp|hl[\s-]?contribution/i;
   const isHyperliquidCompany = /hyperliquid/i.test(companyName);
+
   if (isHyperliquidCompany && stonks.isStonksConfigured() && stonksKeywordsPreRoute.test(userPrompt)) {
-    console.log(`[Data Agent] PRE-ROUTE: Query "${userPrompt}" matched HIP-3/stonks keywords for Hyperliquid — injecting stonks-only directive`);
-    contextParts.push(`\n\n**CRITICAL OVERRIDE**: The user is asking about HIP-3 / deployer / growth mode data. You MUST use dataSource "stonks" for this query. Do NOT use DeFiLlama, Dune, or any other source. StonksOnChain is the ONLY source that has HIP-3 fee breakdowns, growth mode comparisons, and deployer-level data.`);
+    console.log(`[Data Agent] HARD ROUTE: Query "${userPrompt}" matched HIP-3/stonks keywords — bypassing AI, generating stonks chart plan directly`);
+
+    const wantsDeployer = /deployer/i.test(userPrompt);
+    const wantsAsset = /asset/i.test(userPrompt);
+    const wantsGrowth = /growth[\s-]?mode/i.test(userPrompt);
+    const wantsContribution = /haf|hlp|contribution/i.test(userPrompt);
+
+    let endpoint = "summary";
+    let chartType = "table";
+    let title = "HIP-3 Fee Summary";
+    let yAxes: any[] = [];
+
+    if (wantsDeployer && wantsContribution) {
+      endpoint = "deployer-hl-contribution";
+      title = "HIP-3 Deployer HL Contribution";
+      chartType = "table";
+    } else if (wantsDeployer) {
+      endpoint = "deployer-revenue";
+      title = "HIP-3 Deployer Revenue Breakdown";
+      chartType = "bar";
+      yAxes = [
+        { dataKey: "revenue_with_growth", label: "Revenue (Growth Mode)", format: "currency" },
+        { dataKey: "revenue_without_growth", label: "Revenue (No Growth)", format: "currency" },
+      ];
+    } else if (wantsAsset && wantsContribution) {
+      endpoint = "asset-hl-contribution";
+      title = "HIP-3 Asset HL Contribution";
+      chartType = "table";
+    } else if (wantsAsset) {
+      endpoint = "asset-revenue";
+      title = "HIP-3 Asset Revenue Breakdown";
+      chartType = "bar";
+      yAxes = [
+        { dataKey: "revenue_with_growth", label: "Revenue (Growth Mode)", format: "currency" },
+        { dataKey: "revenue_without_growth", label: "Revenue (No Growth)", format: "currency" },
+      ];
+    } else if (wantsGrowth) {
+      endpoint = "summary";
+      title = "HIP-3 Growth Mode Fee Impact";
+      chartType = "bar";
+      yAxes = [
+        { dataKey: "total_fees_24h", label: "Fees (With Growth Mode)", format: "currency" },
+        { dataKey: "total_fees_24h_no_growth", label: "Fees (Without Growth Mode)", format: "currency" },
+      ];
+    } else {
+      endpoint = "summary";
+      title = "HIP-3 Fee Overview";
+      chartType = "table";
+    }
+
+    const hardPlan: ChartPlan = {
+      title,
+      description: `StonksOnChain HIP-3 data for Hyperliquid`,
+      chartType,
+      dataSource: "stonks",
+      dataSourceConfig: { endpoint },
+      chartConfig: { xAxisKey: yAxes.length > 0 ? "deployer" : "date", yAxes },
+    };
+
+    const charts: DashboardChart[] = [];
+    const chart = await storage.createDashboardChart({
+      companyId,
+      userId,
+      title: hardPlan.title,
+      description: hardPlan.description,
+      chartType: hardPlan.chartType,
+      dataSource: hardPlan.dataSource,
+      dataSourceConfig: JSON.stringify(hardPlan.dataSourceConfig),
+      chartConfig: JSON.stringify(hardPlan.chartConfig),
+      data: null,
+      status: "generating",
+      errorMessage: null,
+    });
+
+    try {
+      const data = await fetchChartData("stonks", { ...hardPlan.dataSourceConfig, forceRefresh: true });
+      if (data && data.length > 0) {
+        const subtitle = generateDataDrivenSubtitle(data, hardPlan);
+        const updated = await storage.updateDashboardChart(chart.id, {
+          data: JSON.stringify(data),
+          status: "completed",
+          description: subtitle ? `${subtitle}|||${hardPlan.description}` : hardPlan.description,
+          dataSource: "stonks",
+        });
+        charts.push(updated || chart);
+      } else {
+        const updated = await storage.updateDashboardChart(chart.id, {
+          status: "failed",
+          errorMessage: "No data returned from StonksOnChain",
+        });
+        charts.push(updated || chart);
+      }
+    } catch (err: any) {
+      console.error(`[Data Agent] Stonks hard route fetch failed: ${err.message}`);
+      const updated = await storage.updateDashboardChart(chart.id, {
+        status: "failed",
+        errorMessage: err.message,
+      });
+      charts.push(updated || chart);
+    }
+
+    return { charts, totalCost: 0 };
   }
 
   const dataContext = contextParts.join('\n');
@@ -602,9 +703,6 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
   const validSources = ["dune", "dune-sql", "defillama", "coingecko", "allium", "allium-prices", "allium-sql", "stonks"];
   const validChartTypes = ["line", "bar", "area", "composed", "table"];
 
-  const stonksKeywords = /hip[\s-]?3|deployer.*(?:fee|revenue|earn)|growth[\s-]?mode|haf[\s/]hlp|hl[\s-]?contribution/i;
-  const isHyperliquid = /hyperliquid/i.test(companyName);
-
   chartPlans = chartPlans.filter(plan => {
     if (!plan.title || typeof plan.title !== "string") return false;
     if (!plan.dataSource || !validSources.includes(plan.dataSource)) return false;
@@ -612,16 +710,6 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
     if (!plan.chartConfig || typeof plan.chartConfig !== "object") return false;
     if (plan.chartType && !validChartTypes.includes(plan.chartType)) plan.chartType = "line";
     plan.chartType = inferChartType(plan.title, plan.chartType || "line", plan.chartConfig);
-
-    if (isHyperliquid && stonks.isStonksConfigured() && plan.dataSource !== "stonks") {
-      const queryText = `${userPrompt} ${plan.title} ${plan.description || ""}`;
-      if (stonksKeywords.test(queryText)) {
-        console.log(`[Data Agent] ROUTING OVERRIDE: Forcing "${plan.title}" from "${plan.dataSource}" → "stonks" (HIP-3/deployer keyword match)`);
-        plan.dataSource = "stonks";
-        plan.dataSourceConfig = { endpoint: "summary" };
-      }
-    }
-
     return true;
   });
 
