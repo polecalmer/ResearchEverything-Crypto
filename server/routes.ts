@@ -519,6 +519,36 @@ export async function registerRoutes(
     sectionStartIndex: z.number().int().min(0).optional(),
   });
 
+  app.post("/api/reports/:id/edit-section/validate", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const report = await storage.getReport(req.params.id);
+      if (!report) return res.status(404).json({ message: "Report not found" });
+      if (report.userId !== userId) {
+        const isAdmin = await storage.checkIsAdmin(userId);
+        if (!isAdmin) return res.status(403).json({ message: "Not authorized to edit this report" });
+      }
+      if (report.status !== "complete") return res.status(400).json({ message: "Cannot edit a report that is still generating" });
+
+      const parsed = reportEditSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
+
+      const { selectedText, sectionStartIndex } = parsed.data;
+      let matchIndex = -1;
+      if (typeof sectionStartIndex === "number" && sectionStartIndex >= 0) {
+        const candidateSlice = report.content.substring(sectionStartIndex, sectionStartIndex + selectedText.length);
+        if (candidateSlice === selectedText) matchIndex = sectionStartIndex;
+      }
+      if (matchIndex === -1) matchIndex = report.content.indexOf(selectedText);
+      if (matchIndex === -1) return res.status(400).json({ message: "Selected text not found in report. The report may have changed." });
+      if (!isServerMppReady()) return res.status(503).json({ message: "AI service not configured" });
+
+      res.json({ valid: true });
+    } catch (error: any) {
+      res.status(500).json({ message: "Validation failed", error: error.message });
+    }
+  });
+
   app.post("/api/reports/:id/edit-section", requireAuth, reportEditPaywall, async (req, res) => {
     try {
       const userId = req.user!.id;

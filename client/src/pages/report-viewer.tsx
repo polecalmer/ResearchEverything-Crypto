@@ -220,6 +220,16 @@ export default function ReportViewer() {
 
   const editSectionMutation = useMutation({
     mutationFn: async ({ selectedText, userInsight, sectionStartIndex }: { selectedText: string; userInsight: string; sectionStartIndex: number }) => {
+      const validateRes = await apiRequest("POST", `/api/reports/${id}/edit-section/validate`, {
+        selectedText,
+        userInsight,
+        sectionStartIndex,
+      });
+      const validation = await validateRes.json();
+      if (!validation.valid) {
+        throw new Error(validation.message || "Validation failed");
+      }
+
       const res = await apiRequest("POST", `/api/reports/${id}/edit-section`, {
         selectedText,
         userInsight,
