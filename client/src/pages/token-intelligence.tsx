@@ -5,7 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { AddToMasterReport } from "@/components/add-to-master-report";
 import { format } from "date-fns";
 import {
   Select,
@@ -1223,6 +1224,125 @@ interface UnifiedReport {
   createdAt: string;
 }
 
+function SelectedReportView({ selected, onBack, onDelete }: { selected: UnifiedReport; onBack: () => void; onDelete: () => void }) {
+  const [selectedText, setSelectedText] = useState("");
+  const [floatingPos, setFloatingPos] = useState<{ top: number; left: number } | null>(null);
+  const reportBodyRef = useRef<HTMLDivElement>(null);
+  const floatingRef = useRef<HTMLDivElement>(null);
+
+  const realId = selected.id.replace(/^(analysis-|report-)/, "");
+  const isDeepResearch = selected.type === "deep-research";
+
+  const handleTextSelection = useCallback(() => {
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || !selection.toString().trim()) {
+      setFloatingPos(null);
+      setSelectedText("");
+      return;
+    }
+    const text = selection.toString().trim();
+    if (text.length < 20) {
+      setFloatingPos(null);
+      setSelectedText("");
+      return;
+    }
+    if (reportBodyRef.current && !reportBodyRef.current.contains(selection.anchorNode)) {
+      setFloatingPos(null);
+      setSelectedText("");
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    const containerRect = reportBodyRef.current?.getBoundingClientRect();
+    if (!containerRect) return;
+    setSelectedText(text);
+    setFloatingPos({
+      top: Math.max(0, rect.top - containerRect.top - 44),
+      left: Math.max(0, Math.min(containerRect.width - 180, rect.left - containerRect.left + rect.width / 2 - 90)),
+    });
+  }, []);
+
+  useEffect(() => {
+    document.addEventListener("mouseup", handleTextSelection);
+    return () => document.removeEventListener("mouseup", handleTextSelection);
+  }, [handleTextSelection]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (floatingRef.current && !floatingRef.current.contains(e.target as Node)) {
+        setFloatingPos(null);
+      }
+    };
+    if (floatingPos) {
+      setTimeout(() => document.addEventListener("mousedown", handleClickOutside), 100);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [floatingPos]);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          data-testid="button-back-to-reports"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          Back to Reports
+        </button>
+        <div className="flex items-center gap-2">
+          {isDeepResearch && (
+            <AddToMasterReport
+              blockType="report-section"
+              referenceId={realId}
+              label="Add to Master Report"
+              className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-foreground/80 transition-colors"
+            />
+          )}
+          <AddToMasterReport
+            blockType="text"
+            content={selected.content}
+            label="Add Full Text"
+            className="flex items-center gap-1 text-[10px] text-muted-foreground/60 hover:text-foreground/80 transition-colors"
+          />
+          <button
+            onClick={onDelete}
+            className="p-1.5 rounded hover:bg-destructive/20 text-muted-foreground/50 hover:text-destructive transition-colors"
+            data-testid="button-delete-report"
+            title="Delete this report"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      </div>
+      <div className="text-[10px] text-muted-foreground/60 mb-4">
+        {format(new Date(selected.createdAt), "MMMM d, yyyy h:mm a")}
+        <span className="ml-2 text-muted-foreground/40">
+          {selected.type === "token-analysis" ? "Token Analysis" : "Deep Research"}
+        </span>
+      </div>
+      <div className="relative" ref={reportBodyRef}>
+        <ResearchReport content={selected.content} />
+        {floatingPos && (
+          <div
+            ref={floatingRef}
+            className="absolute z-50 animate-in fade-in slide-in-from-bottom-1 duration-150"
+            style={{ top: floatingPos.top, left: Math.max(0, floatingPos.left) }}
+          >
+            <AddToMasterReport
+              blockType="text"
+              content={selectedText}
+              label="Add to Master Report"
+              className="h-8 gap-1.5 text-xs shadow-lg bg-card border border-border/50 hover:bg-accent/20 text-foreground/80 rounded-full px-3 flex items-center transition-colors"
+              onAdded={() => setFloatingPos(null)}
+            />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function ReportsTab({ companyId, companyName }: { companyId: string; companyName: string }) {
   const { toast } = useToast();
   const { getAccessToken } = useAuth();
@@ -1362,37 +1482,15 @@ export function ReportsTab({ companyId, companyName }: { companyId: string; comp
 
   if (selected) {
     return (
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <button
-            onClick={() => setSelectedId(null)}
-            className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
-            data-testid="button-back-to-reports"
-          >
-            <ArrowLeft className="w-3.5 h-3.5" />
-            Back to Reports
-          </button>
-          <button
-            onClick={() => {
-              const realId = selected.id.replace(/^(analysis-|report-)/, "");
-              if (selected.type === "token-analysis") deleteAnalysisMutation.mutate(realId);
-              else deleteReportMutation.mutate(realId);
-            }}
-            className="p-1.5 rounded hover:bg-destructive/20 text-muted-foreground/50 hover:text-destructive transition-colors"
-            data-testid="button-delete-report"
-            title="Delete this report"
-          >
-            <Trash2 className="w-3.5 h-3.5" />
-          </button>
-        </div>
-        <div className="text-[10px] text-muted-foreground/60 mb-4">
-          {format(new Date(selected.createdAt), "MMMM d, yyyy h:mm a")}
-          <span className="ml-2 text-muted-foreground/40">
-            {selected.type === "token-analysis" ? "Token Analysis" : "Deep Research"}
-          </span>
-        </div>
-        <ResearchReport content={selected.content} />
-      </div>
+      <SelectedReportView
+        selected={selected}
+        onBack={() => setSelectedId(null)}
+        onDelete={() => {
+          const realId = selected.id.replace(/^(analysis-|report-)/, "");
+          if (selected.type === "token-analysis") deleteAnalysisMutation.mutate(realId);
+          else deleteReportMutation.mutate(realId);
+        }}
+      />
     );
   }
 
