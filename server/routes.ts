@@ -2106,20 +2106,79 @@ RULES:
         try {
           const contextData = await buildModellingContext(company, userId);
           const userMessage = buildModelUserMessage(contextData, prompt);
+          let totalMppCost = 0;
+          let totalInput = 0;
+          let totalOutput = 0;
 
-          const totalChars = userMessage.length + MODELLING_SYSTEM_PROMPT.length;
-          console.log(`[Modelling] Create streaming: ${totalChars} chars for model ${model.id}`);
+          console.log(`[Modelling] Phase 1/3: Analysis & assumptions for model ${model.id} (${userMessage.length} chars context)`);
+          const phase1System = `You are a quantitative analyst. Analyze the provided company data and modelling request. Produce a detailed analysis plan.
 
-          const result = await callAnthropicServerHeavy({
+OUTPUT FORMAT — Return a structured analysis with these sections:
+1. MODEL TITLE: A concise Title Case name for this model
+2. KEY METRICS EXTRACTED: List every real number from the data (revenue, TVL, volume, fees, growth rates, etc.)
+3. ASSUMPTIONS: For each assumption needed, provide: label, value, and basis
+4. SECTIONS PLAN: List each section you will build (tables, charts, scenarios, metrics) with column names and key figures
+5. METHODOLOGY: Brief description of the modelling approach
+
+Be extremely specific with numbers — use exact figures from the data, not approximations.`;
+
+          const phase1Result = await callAnthropicServerHeavy({
             model: "claude-opus-4-6",
-            max_tokens: 16000,
-            system: MODELLING_SYSTEM_PROMPT,
+            max_tokens: 4000,
+            system: phase1System,
             messages: [{ role: "user", content: userMessage }],
           });
+          totalMppCost += phase1Result.mppCost;
+          totalInput += phase1Result.usage.input_tokens;
+          totalOutput += phase1Result.usage.output_tokens;
+          console.log(`[Modelling] Phase 1 complete: ${phase1Result.text.length} chars. Cost: $${phase1Result.mppCost.toFixed(4)}`);
 
-          const modelData = tryParseModelJSON(result.text);
+          console.log(`[Modelling] Phase 2/3: Building model sections for ${model.id}`);
+          const phase2System = `You are a quantitative analyst. Using the analysis plan provided, build the financial model as a JSON object.
+
+${MODELLING_SYSTEM_PROMPT.substring(MODELLING_SYSTEM_PROMPT.indexOf("OUTPUT FORMAT"))}`;
+
+          const phase2UserMsg = `## Analysis Plan (from Phase 1)\n${phase1Result.text}\n\n## Original Request\n${prompt}\n\n## Key Data Context\n${userMessage.substring(0, 30000)}`;
+
+          const phase2Result = await callAnthropicServerHeavy({
+            model: "claude-opus-4-6",
+            max_tokens: 12000,
+            system: phase2System,
+            messages: [{ role: "user", content: phase2UserMsg }],
+          });
+          totalMppCost += phase2Result.mppCost;
+          totalInput += phase2Result.usage.input_tokens;
+          totalOutput += phase2Result.usage.output_tokens;
+          console.log(`[Modelling] Phase 2 complete: ${phase2Result.text.length} chars. Cost: $${phase2Result.mppCost.toFixed(4)}`);
+
+          let modelData = tryParseModelJSON(phase2Result.text);
+
+          if (!modelData || !modelData.title || !Array.isArray(modelData.sections) || (modelData.sections as unknown[]).length === 0) {
+            console.log(`[Modelling] Phase 3/3: Repair/finalize for ${model.id}`);
+            const phase3System = `You are a JSON repair specialist. The following text is a partially-generated financial model. Extract or reconstruct a valid JSON object from it.
+
+${MODELLING_SYSTEM_PROMPT.substring(MODELLING_SYSTEM_PROMPT.indexOf("OUTPUT FORMAT"), MODELLING_SYSTEM_PROMPT.indexOf("MODELLING CAPABILITIES"))}
+
+Return ONLY valid JSON. No markdown, no fences.`;
+
+            const phase3Result = await callAnthropicServerHeavy({
+              model: "claude-opus-4-6",
+              max_tokens: 8000,
+              system: phase3System,
+              messages: [{ role: "user", content: `Raw model output to repair:\n${phase2Result.text}\n\nAnalysis plan for reference:\n${phase1Result.text.substring(0, 3000)}` }],
+            });
+            totalMppCost += phase3Result.mppCost;
+            totalInput += phase3Result.usage.input_tokens;
+            totalOutput += phase3Result.usage.output_tokens;
+            console.log(`[Modelling] Phase 3 complete: ${phase3Result.text.length} chars. Cost: $${phase3Result.mppCost.toFixed(4)}`);
+
+            modelData = tryParseModelJSON(phase3Result.text);
+          } else {
+            console.log(`[Modelling] Phase 2 JSON valid — skipping Phase 3`);
+          }
+
           if (!modelData) {
-            throw new Error(`JSON parse failed (response ${result.text.length} chars)`);
+            throw new Error(`JSON parse failed across all phases (phase2: ${phase2Result.text.length} chars)`);
           }
 
           const hasValidStructure = modelData &&
@@ -2151,10 +2210,10 @@ RULES:
               type: "financial_model",
               description: `AI model: ${modelData.title || prompt.substring(0, 50)}`,
               amount: "0.5000",
-              apiCost: result.mppCost.toFixed(4),
+              apiCost: totalMppCost.toFixed(4),
               companyName: company.name,
-              inputTokens: result.usage.input_tokens,
-              outputTokens: result.usage.output_tokens,
+              inputTokens: totalInput,
+              outputTokens: totalOutput,
             });
           } catch (err) {
             console.error("[Transaction] Failed to log financial_model:", err);
@@ -2166,7 +2225,7 @@ RULES:
             promptLength: prompt.length,
           });
 
-          console.log(`[Modelling] Create complete for model ${model.id}: "${modelData.title}"`);
+          console.log(`[Modelling] Create complete for model ${model.id}: "${modelData.title}" (total cost: $${totalMppCost.toFixed(4)})`);
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : "Unknown error";
           console.error(`[Modelling] Create failed for model ${model.id}: ${errMsg.slice(0, 200)}`);
@@ -2243,18 +2302,66 @@ RULES:
           ];
 
           const totalChars = messages.reduce((sum, m) => sum + m.content.length, 0) + MODELLING_SYSTEM_PROMPT.length;
-          console.log(`[Modelling] Iterate streaming: ${totalChars} chars, ${messages.length} messages for model ${existingModel.id}`);
+          console.log(`[Modelling] Iterate Phase 1/2: Analysis for model ${existingModel.id} (${totalChars} chars)`);
+          let totalMppCost = 0;
+          let totalInput = 0;
+          let totalOutput = 0;
 
-          const result = await callAnthropicServerHeavy({
+          const iterPhase1System = `You are a quantitative analyst. Review the existing model and the iteration request. Produce a concise plan for what to change.
+
+OUTPUT FORMAT — Return:
+1. CHANGES NEEDED: What sections/assumptions/figures need updating
+2. KEY DATA POINTS: Relevant numbers from the data context
+3. UPDATED ASSUMPTIONS: Any assumptions that change, with new values and basis
+4. SECTION MODIFICATIONS: Which sections to add/modify/remove
+
+Be specific with numbers.`;
+
+          const iterPhase1Result = await callAnthropicServerHeavy({
             model: "claude-opus-4-6",
-            max_tokens: 16000,
-            system: MODELLING_SYSTEM_PROMPT,
+            max_tokens: 3000,
+            system: iterPhase1System,
             messages,
           });
+          totalMppCost += iterPhase1Result.mppCost;
+          totalInput += iterPhase1Result.usage.input_tokens;
+          totalOutput += iterPhase1Result.usage.output_tokens;
+          console.log(`[Modelling] Iterate Phase 1 complete: ${iterPhase1Result.text.length} chars`);
 
-          const modelData = tryParseModelJSON(result.text);
+          console.log(`[Modelling] Iterate Phase 2/2: Building updated model for ${existingModel.id}`);
+          const iterPhase2System = `You are a quantitative analyst. Using the change plan provided, produce the COMPLETE updated financial model as JSON.
+
+${MODELLING_SYSTEM_PROMPT.substring(MODELLING_SYSTEM_PROMPT.indexOf("OUTPUT FORMAT"))}`;
+
+          const iterPhase2UserMsg = `## Change Plan\n${iterPhase1Result.text}\n\n## Original Request\n${iteratePrompt}\n\n## Data Context\n${userMessage.substring(0, 30000)}`;
+
+          const iterPhase2Result = await callAnthropicServerHeavy({
+            model: "claude-opus-4-6",
+            max_tokens: 12000,
+            system: iterPhase2System,
+            messages: [{ role: "user", content: iterPhase2UserMsg }],
+          });
+          totalMppCost += iterPhase2Result.mppCost;
+          totalInput += iterPhase2Result.usage.input_tokens;
+          totalOutput += iterPhase2Result.usage.output_tokens;
+          console.log(`[Modelling] Iterate Phase 2 complete: ${iterPhase2Result.text.length} chars`);
+
+          let modelData = tryParseModelJSON(iterPhase2Result.text);
+          if (!modelData || !modelData.title || !Array.isArray(modelData.sections) || (modelData.sections as unknown[]).length === 0) {
+            const repairResult = await callAnthropicServerHeavy({
+              model: "claude-opus-4-6",
+              max_tokens: 8000,
+              system: `Extract or reconstruct valid JSON from the text below.\n\n${MODELLING_SYSTEM_PROMPT.substring(MODELLING_SYSTEM_PROMPT.indexOf("OUTPUT FORMAT"), MODELLING_SYSTEM_PROMPT.indexOf("MODELLING CAPABILITIES"))}\n\nReturn ONLY valid JSON.`,
+              messages: [{ role: "user", content: iterPhase2Result.text }],
+            });
+            totalMppCost += repairResult.mppCost;
+            totalInput += repairResult.usage.input_tokens;
+            totalOutput += repairResult.usage.output_tokens;
+            modelData = tryParseModelJSON(repairResult.text);
+          }
+
           if (!modelData) {
-            throw new Error(`JSON parse failed (response ${result.text.length} chars)`);
+            throw new Error(`JSON parse failed (iterate phase2: ${iterPhase2Result.text.length} chars)`);
           }
 
           const hasValidStructure = modelData &&
@@ -2291,10 +2398,10 @@ RULES:
               type: "financial_model_iterate",
               description: `AI model iteration: ${modelData.title}`,
               amount: "0.5000",
-              apiCost: result.mppCost.toFixed(4),
+              apiCost: totalMppCost.toFixed(4),
               companyName: company.name,
-              inputTokens: result.usage.input_tokens,
-              outputTokens: result.usage.output_tokens,
+              inputTokens: totalInput,
+              outputTokens: totalOutput,
             });
           } catch (logErr) {
             console.error("[Transaction] Failed to log model iterate:", logErr);

@@ -741,11 +741,11 @@ function ModelSectionRenderer({ section, onEdit, isQueued }: { section: ModelSec
 
 const GENERATION_STEPS = [
   { label: "Collecting company data & market context", minSec: 0 },
-  { label: "Analyzing sector comparables & on-chain metrics", minSec: 8 },
-  { label: "Building financial projections & assumptions", minSec: 20 },
-  { label: "Running scenario analysis (bull / base / bear)", minSec: 35 },
-  { label: "Generating charts & sensitivity tables", minSec: 50 },
-  { label: "Finalizing model & cross-checking outputs", minSec: 65 },
+  { label: "Phase 1: Extracting key metrics & assumptions", minSec: 8 },
+  { label: "Phase 1: Building analysis plan", minSec: 25 },
+  { label: "Phase 2: Constructing financial projections", minSec: 50 },
+  { label: "Phase 2: Running scenario analysis & charts", minSec: 80 },
+  { label: "Finalizing model & cross-checking outputs", minSec: 110 },
 ];
 
 function GeneratingIndicator({ createdAt }: { createdAt: string | Date }) {
