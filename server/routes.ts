@@ -2220,8 +2220,10 @@ RULES:
         const MAX_ITERATE_ATTEMPTS = 3;
         let lastError = "";
 
+        const startCompact = 1;
+
         for (let attempt = 0; attempt < MAX_ITERATE_ATTEMPTS; attempt++) {
-          const compactLevel = attempt;
+          const compactLevel = Math.min(startCompact + attempt, 2);
           try {
             console.log(`[Modelling] Iterate attempt ${attempt + 1}/${MAX_ITERATE_ATTEMPTS} (compact level ${compactLevel}) for model ${existingModel.id}`);
 
@@ -2230,7 +2232,7 @@ RULES:
 
             const priorHistory = trimConversationHistory(
               existingModel.conversationHistory,
-              compactLevel >= 2 ? 1 : compactLevel >= 1 ? 2 : 3
+              compactLevel >= 2 ? 1 : 2
             );
 
             const messages = [
