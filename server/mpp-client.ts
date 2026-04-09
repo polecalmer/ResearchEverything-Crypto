@@ -320,8 +320,8 @@ async function callAnthropicStreaming(request: AnthropicRequest): Promise<Anthro
       const reader = body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      const FIRST_TOKEN_TIMEOUT = 3 * 60 * 1000;
-      const INTER_TOKEN_TIMEOUT = 60 * 1000;
+      const THINKING_TIMEOUT = 5 * 60 * 1000;
+      const INTER_TOKEN_TIMEOUT = 90 * 1000;
 
       function readWithTimeout(timeoutMs: number): Promise<ReadableStreamReadResult<Uint8Array>> {
         return new Promise((resolve, reject) => {
@@ -337,13 +337,12 @@ async function callAnthropicStreaming(request: AnthropicRequest): Promise<Anthro
       }
 
       try {
-        let gotFirstData = false;
+        let gotFirstTextToken = false;
         while (true) {
-          const timeout = gotFirstData ? INTER_TOKEN_TIMEOUT : FIRST_TOKEN_TIMEOUT;
+          const timeout = gotFirstTextToken ? INTER_TOKEN_TIMEOUT : THINKING_TIMEOUT;
           const { done, value } = await readWithTimeout(timeout);
           if (done) break;
 
-          gotFirstData = true;
           buffer += decoder.decode(value, { stream: true });
 
           const lines = buffer.split("\n");
@@ -359,6 +358,10 @@ async function callAnthropicStreaming(request: AnthropicRequest): Promise<Anthro
 
               if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
                 fullText += event.delta.text;
+                if (!gotFirstTextToken) {
+                  gotFirstTextToken = true;
+                  console.log(`[MPP-Channel] First text token received, switching to inter-token timeout`);
+                }
               } else if (event.type === "message_delta" && event.usage) {
                 outputTokens = event.usage.output_tokens || outputTokens;
               } else if (event.type === "message_start" && event.message?.usage) {
