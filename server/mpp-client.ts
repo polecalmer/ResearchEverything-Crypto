@@ -320,12 +320,30 @@ async function callAnthropicStreaming(request: AnthropicRequest): Promise<Anthro
       const reader = body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
+      const FIRST_TOKEN_TIMEOUT = 3 * 60 * 1000;
+      const INTER_TOKEN_TIMEOUT = 60 * 1000;
+
+      function readWithTimeout(timeoutMs: number): Promise<ReadableStreamReadResult<Uint8Array>> {
+        return new Promise((resolve, reject) => {
+          const timer = setTimeout(() => {
+            reader.cancel().catch(() => {});
+            reject(new Error(`Stream read timed out after ${Math.round(timeoutMs / 1000)}s`));
+          }, timeoutMs);
+          reader.read().then(
+            (result) => { clearTimeout(timer); resolve(result); },
+            (err) => { clearTimeout(timer); reject(err); },
+          );
+        });
+      }
 
       try {
+        let gotFirstData = false;
         while (true) {
-          const { done, value } = await reader.read();
+          const timeout = gotFirstData ? INTER_TOKEN_TIMEOUT : FIRST_TOKEN_TIMEOUT;
+          const { done, value } = await readWithTimeout(timeout);
           if (done) break;
 
+          gotFirstData = true;
           buffer += decoder.decode(value, { stream: true });
 
           const lines = buffer.split("\n");
@@ -395,10 +413,15 @@ async function callAnthropicStreaming(request: AnthropicRequest): Promise<Anthro
       }
 
       const isRetryableError = errMsg.includes("fetch") ||
-        errMsg.includes("timeout") || errMsg.includes("ECONNRESET") ||
+        errMsg.includes("timeout") || errMsg.includes("timed out") ||
+        errMsg.includes("ECONNRESET") ||
         errMsg.includes("terminated") ||
         errMsg.includes("503") || errMsg.includes("429");
       if (attempt < MAX_RETRIES && isRetryableError) {
+        if (errMsg.includes("terminated") || errMsg.includes("timed out")) {
+          console.log(`[MPP-Channel] Forcing new channel after: ${errMsg.slice(0, 60)}`);
+          forceNewChannel();
+        }
         const delay = RETRY_DELAY_MS * (attempt + 1);
         console.log(`[MPP-Channel] Stream error: "${errMsg.slice(0, 80)}", retrying in ${delay}ms...`);
         await new Promise((r) => setTimeout(r, delay));
