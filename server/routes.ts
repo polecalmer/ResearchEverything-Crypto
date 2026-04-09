@@ -29,7 +29,8 @@ import { generateTelegramLinkCode } from "./telegram";
 import { getWalletInfo, closeAllChannels, withdrawAllChannels, requestCloseChannel, withdrawChannel } from "./wallet-manager";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { db, pool } from "./db";
-import { sql } from "drizzle-orm";
+import { sql, eq } from "drizzle-orm";
+import { financialModels } from "@shared/schema";
 import { trackEvent } from "./usage-tracker";
 
 function buildDuneChartConfig(columns: string[], rows: any[]): any {
@@ -96,6 +97,23 @@ export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  (async () => {
+    try {
+      const stuck = await db.select({ id: financialModels.id, content: financialModels.content })
+        .from(financialModels)
+        .where(eq(financialModels.status, "generating"));
+      for (const m of stuck) {
+        const hasContent = m.content && m.content !== "{}" && m.content.length > 10;
+        await db.update(financialModels)
+          .set({ status: hasContent ? "complete" : "error", title: hasContent ? undefined : "Generation Interrupted", updatedAt: new Date() })
+          .where(eq(financialModels.id, m.id));
+      }
+      if (stuck.length > 0) console.log(`[Startup] Recovered ${stuck.length} stuck model(s)`);
+    } catch (err) {
+      console.error("[Startup] Model recovery failed:", err);
+    }
+  })();
 
   app.post("/api/ai/proxy", requireAuth, async (req, res) => {
     try {
@@ -1923,7 +1941,7 @@ RULES:
         try {
           const result = await callAnthropicServerHeavy({
             model: "claude-opus-4-6",
-            max_tokens: 8000,
+            max_tokens: 16000,
             system: MODELLING_SYSTEM_PROMPT,
             messages: [{ role: "user", content: userMessage }],
           });
