@@ -12,7 +12,7 @@ import {
   MARKUP_MULTIPLIER,
 } from "./enrichment";
 import { requireAuth } from "./auth";
-import { enrichmentPaywall, nextStepsPaywall, deepResearchPaywall, tokenIntelPaywall, duneQueryPaywall, tokenSnapshotPaywall, dataChartPaywall } from "./mpp";
+import { enrichmentPaywall, nextStepsPaywall, deepResearchPaywall, tokenIntelPaywall, duneQueryPaywall, tokenSnapshotPaywall, dataChartPaywall, reportEditPaywall } from "./mpp";
 import { runDataAgent, refreshChartData, DATA_CHART_CHARGE, analyzeFailurePatterns } from "./data-agent";
 import { fetchTokenSnapshot } from "./allium-client";
 import { executeDuneQuery, getLatestDuneResults, isDuneConfigured } from "./dune-client";
@@ -508,6 +508,126 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("Report prepare error:", error);
       res.status(500).json({ message: "Failed to prepare report generation", error: error.message });
+    }
+  });
+
+  // ─── IN-REPORT AI EDITING ─────────────────────────────────────────────
+
+  const reportEditSchema = z.object({
+    selectedText: z.string().min(1, "Selected text is required").max(10000, "Selected text is too long"),
+    userInsight: z.string().min(1, "Your insight or instruction is required").max(2000, "Insight is too long (max 2000 characters)"),
+    sectionStartIndex: z.number().int().min(0).optional(),
+  });
+
+  app.post("/api/reports/:id/edit-section", requireAuth, reportEditPaywall, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const report = await storage.getReport(req.params.id);
+      if (!report) {
+        return res.status(404).json({ message: "Report not found" });
+      }
+      if (report.userId !== userId) {
+        const isAdmin = await storage.checkIsAdmin(userId);
+        if (!isAdmin) return res.status(403).json({ message: "Not authorized to edit this report" });
+      }
+      if (report.status !== "complete") {
+        return res.status(400).json({ message: "Cannot edit a report that is still generating" });
+      }
+
+      const parsed = reportEditSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
+      }
+
+      const { selectedText, userInsight, sectionStartIndex } = parsed.data;
+
+      let matchIndex = -1;
+      if (typeof sectionStartIndex === "number" && sectionStartIndex >= 0) {
+        const candidateSlice = report.content.substring(sectionStartIndex, sectionStartIndex + selectedText.length);
+        if (candidateSlice === selectedText) {
+          matchIndex = sectionStartIndex;
+        }
+      }
+      if (matchIndex === -1) {
+        matchIndex = report.content.indexOf(selectedText);
+      }
+      if (matchIndex === -1) {
+        return res.status(400).json({ message: "Selected text not found in report. The report may have changed." });
+      }
+
+      if (!isServerMppReady()) {
+        return res.status(503).json({ message: "AI service not configured" });
+      }
+
+      const surroundingContext = (() => {
+        const contextRadius = 1500;
+        const start = Math.max(0, matchIndex - contextRadius);
+        const end = Math.min(report.content.length, matchIndex + selectedText.length + contextRadius);
+        return report.content.substring(start, end);
+      })();
+
+      const systemPrompt = `You are an expert investment research analyst. The user has highlighted a section of an existing research report and wants you to rewrite ONLY that section based on their additional insight or correction.
+
+Rules:
+- Rewrite ONLY the highlighted section. Do not add headers, introductions, or conclusions that weren't in the original.
+- Maintain the same markdown formatting style (headers, bullet points, tables, bold, etc.) as the original.
+- Integrate the user's insight naturally into the analysis — don't just append it.
+- Keep the same level of depth and analytical rigor as the surrounding content.
+- If the user provides a factual correction, update the analysis to reflect it.
+- If the user provides new context, weave it into the existing analysis.
+- Return ONLY the rewritten section text — nothing else. No preamble, no "Here's the updated section:", just the content.`;
+
+      const userMessage = `## Surrounding Context (for reference only — do NOT rewrite this)
+${surroundingContext}
+
+## Section to Rewrite
+${selectedText}
+
+## User's Insight / Instruction
+${userInsight}
+
+Rewrite the "Section to Rewrite" above, incorporating the user's insight. Return ONLY the rewritten section.`;
+
+      const result = await callAnthropicServerHeavy({
+        model: "claude-opus-4-6",
+        max_tokens: 4000,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userMessage }],
+      });
+
+      const rewrittenSection = result.text.trim();
+      const updatedContent = report.content.substring(0, matchIndex) + rewrittenSection + report.content.substring(matchIndex + selectedText.length);
+
+      await storage.updateReport(report.id, { content: updatedContent });
+
+      try {
+        await storage.logTransaction({
+          userId,
+          type: "report_edit",
+          description: `AI report edit: ${report.title}`,
+          amount: result.mppCost.toFixed(4),
+          apiCost: result.mppCost.toFixed(4),
+          companyName: report.title,
+          inputTokens: result.usage.input_tokens,
+          outputTokens: result.usage.output_tokens,
+        });
+      } catch (err) {
+        console.error("[Transaction] Failed to log report-edit:", err);
+      }
+
+      trackEvent(userId, "report_section_edited", {
+        reportId: report.id,
+        selectedLength: selectedText.length,
+        rewrittenLength: rewrittenSection.length,
+      });
+
+      res.json({
+        rewrittenSection,
+        updatedContent,
+      });
+    } catch (error: any) {
+      console.error("Report edit error:", error.message);
+      res.status(500).json({ message: "Failed to edit report section", error: error.message });
     }
   });
 

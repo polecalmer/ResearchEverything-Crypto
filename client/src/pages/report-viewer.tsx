@@ -1,11 +1,12 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, Link, useLocation } from "wouter";
-import { ArrowLeft, Download, Loader2, FileText, AlertCircle, Trash2 } from "lucide-react";
+import { ArrowLeft, Download, Loader2, FileText, AlertCircle, Trash2, Sparkles, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Report } from "@shared/schema";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 
 function escapeHtml(text: string): string {
   return text
@@ -122,12 +123,89 @@ function renderMarkdown(md: string): string {
   return result.join("\n");
 }
 
+function findMarkdownForSelection(selectedText: string, fullMarkdown: string): { text: string; startIndex: number } | null {
+  const cleanSelected = selectedText.replace(/\s+/g, " ").trim();
+  if (cleanSelected.length < 10) return null;
+
+  const lines = fullMarkdown.split("\n");
+  let bestStart = -1;
+  let bestEnd = -1;
+  let bestScore = 0;
+
+  const selectedWords = cleanSelected.split(/\s+/);
+
+  for (let start = 0; start < lines.length; start++) {
+    let accumulated = "";
+    for (let end = start; end < Math.min(start + 80, lines.length); end++) {
+      const line = lines[end];
+      if (line.match(/^\|[\s\-:|]+\|$/)) continue;
+      const cleanLine = line
+        .replace(/^#{1,3}\s+/, "")
+        .replace(/^\d+\.\s+/, "")
+        .replace(/^[-*]\s+/, "")
+        .replace(/\*\*(.+?)\*\*/g, "$1")
+        .replace(/\*(.+?)\*/g, "$1")
+        .replace(/`(.+?)`/g, "$1")
+        .replace(/\[(.+?)\]\(.+?\)/g, "$1")
+        .replace(/\|/g, " ")
+        .trim();
+      if (cleanLine) {
+        accumulated += (accumulated ? " " : "") + cleanLine;
+      }
+
+      const accWords = accumulated.split(/\s+/);
+      const matchingWords = selectedWords.filter(w => accWords.some(aw => aw.includes(w) || w.includes(aw)));
+      const score = matchingWords.length / selectedWords.length;
+
+      if (score > bestScore && score > 0.5) {
+        bestScore = score;
+        bestStart = start;
+        bestEnd = end;
+      }
+
+      if (accumulated.length > cleanSelected.length * 2) break;
+    }
+  }
+
+  if (bestStart === -1) return null;
+
+  while (bestStart > 0 && lines[bestStart - 1].trim() !== "" && !lines[bestStart - 1].match(/^#{1,3} /)) {
+    bestStart--;
+  }
+  while (bestEnd < lines.length - 1 && lines[bestEnd + 1].trim() !== "" && !lines[bestEnd + 1].match(/^#{1,3} /)) {
+    bestEnd++;
+  }
+
+  const matchedText = lines.slice(bestStart, bestEnd + 1).join("\n");
+  let charIndex = 0;
+  for (let i = 0; i < bestStart; i++) {
+    charIndex += lines[i].length + 1;
+  }
+
+  return { text: matchedText, startIndex: charIndex };
+}
+
+interface FloatingButtonPos {
+  top: number;
+  left: number;
+}
+
 export default function ReportViewer() {
   const { id } = useParams<{ id: string }>();
   const [, navigate] = useLocation();
   const { toast } = useToast();
   const [pollingEnabled, setPollingEnabled] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  const [selectedText, setSelectedText] = useState("");
+  const [selectedMarkdown, setSelectedMarkdown] = useState("");
+  const [sectionStartIndex, setSectionStartIndex] = useState(0);
+  const [floatingBtnPos, setFloatingBtnPos] = useState<FloatingButtonPos | null>(null);
+  const [showEditPanel, setShowEditPanel] = useState(false);
+  const [userInsight, setUserInsight] = useState("");
+
+  const reportBodyRef = useRef<HTMLDivElement>(null);
+  const floatingBtnRef = useRef<HTMLDivElement>(null);
 
   const { data: report, isLoading, error } = useQuery<Report>({
     queryKey: ["/api/reports", id],
@@ -139,6 +217,29 @@ export default function ReportViewer() {
       setPollingEnabled(false);
     }
   }, [report]);
+
+  const editSectionMutation = useMutation({
+    mutationFn: async ({ selectedText, userInsight, sectionStartIndex }: { selectedText: string; userInsight: string; sectionStartIndex: number }) => {
+      const res = await apiRequest("POST", `/api/reports/${id}/edit-section`, {
+        selectedText,
+        userInsight,
+        sectionStartIndex,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/reports", id] });
+      toast({ title: "Section updated", description: "The AI has rewritten the selected section with your insight." });
+      setShowEditPanel(false);
+      setSelectedText("");
+      setSelectedMarkdown("");
+      setSectionStartIndex(0);
+      setUserInsight("");
+    },
+    onError: (error: any) => {
+      toast({ title: "Edit failed", description: error.message || "Failed to edit section", variant: "destructive" });
+    },
+  });
 
   const deleteReportMutation = useMutation({
     mutationFn: async () => {
@@ -155,6 +256,78 @@ export default function ReportViewer() {
       toast({ title: "Failed to delete report", description: error.message, variant: "destructive" });
     },
   });
+
+  const handleTextSelection = useCallback(() => {
+    if (showEditPanel) return;
+
+    const selection = window.getSelection();
+    if (!selection || selection.isCollapsed || !selection.toString().trim()) {
+      setFloatingBtnPos(null);
+      setSelectedText("");
+      return;
+    }
+
+    const text = selection.toString().trim();
+    if (text.length < 20) {
+      setFloatingBtnPos(null);
+      setSelectedText("");
+      return;
+    }
+
+    if (reportBodyRef.current && !reportBodyRef.current.contains(selection.anchorNode)) {
+      setFloatingBtnPos(null);
+      setSelectedText("");
+      return;
+    }
+
+    const range = selection.getRangeAt(0);
+    const rect = range.getBoundingClientRect();
+    const containerRect = reportBodyRef.current?.getBoundingClientRect();
+    if (!containerRect) return;
+
+    setSelectedText(text);
+    setFloatingBtnPos({
+      top: Math.max(0, rect.top - containerRect.top - 44),
+      left: Math.max(0, Math.min(containerRect.width - 140, rect.left - containerRect.left + rect.width / 2 - 70)),
+    });
+  }, [showEditPanel]);
+
+  useEffect(() => {
+    document.addEventListener("mouseup", handleTextSelection);
+    return () => document.removeEventListener("mouseup", handleTextSelection);
+  }, [handleTextSelection]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (floatingBtnRef.current && !floatingBtnRef.current.contains(e.target as Node)) {
+        setFloatingBtnPos(null);
+      }
+    };
+    if (floatingBtnPos) {
+      setTimeout(() => document.addEventListener("mousedown", handleClickOutside), 100);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [floatingBtnPos]);
+
+  const handleEditWithAI = () => {
+    if (!report || !selectedText) return;
+
+    const match = findMarkdownForSelection(selectedText, report.content);
+    if (!match) {
+      toast({ title: "Could not locate section", description: "Please try selecting a larger portion of text.", variant: "destructive" });
+      return;
+    }
+
+    setSelectedMarkdown(match.text);
+    setSectionStartIndex(match.startIndex);
+    setShowEditPanel(true);
+    setFloatingBtnPos(null);
+  };
+
+  const handleSubmitEdit = () => {
+    if (!selectedMarkdown || !userInsight.trim()) return;
+    editSectionMutation.mutate({ selectedText: selectedMarkdown, userInsight: userInsight.trim(), sectionStartIndex });
+  };
 
   const handleDownload = () => {
     if (!report) return;
@@ -263,15 +436,123 @@ export default function ReportViewer() {
               <p className="report-date">
                 {new Date(report.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
               </p>
+              <p className="text-[10px] text-muted-foreground/60 mt-1 tracking-wide uppercase">
+                Select text to edit with AI
+              </p>
             </div>
-            <div
-              className="report-body"
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(report.content) }}
-              data-testid="report-content"
-            />
+            <div className="relative" ref={reportBodyRef}>
+              <div
+                className="report-body"
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(report.content) }}
+                data-testid="report-content"
+              />
+
+              {floatingBtnPos && (
+                <div
+                  ref={floatingBtnRef}
+                  className="absolute z-50 animate-in fade-in slide-in-from-bottom-1 duration-150"
+                  style={{ top: floatingBtnPos.top, left: Math.max(0, floatingBtnPos.left) }}
+                >
+                  <Button
+                    size="sm"
+                    className="h-8 gap-1.5 text-xs shadow-lg bg-primary hover:bg-primary/90 text-primary-foreground rounded-full px-3"
+                    onClick={handleEditWithAI}
+                    data-testid="button-edit-with-ai"
+                  >
+                    <Sparkles className="w-3 h-3" />
+                    Edit with AI
+                  </Button>
+                </div>
+              )}
+            </div>
           </article>
         )}
       </div>
+
+      {showEditPanel && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" data-testid="edit-panel-overlay">
+          <div className="bg-white dark:bg-[#1e1e1e] rounded-xl shadow-2xl w-full max-w-xl mx-4 max-h-[80vh] flex flex-col border border-border/50">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-primary" />
+                <h3 className="text-sm font-semibold">Edit Section with AI</h3>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 p-0"
+                onClick={() => { setShowEditPanel(false); setUserInsight(""); }}
+                disabled={editSectionMutation.isPending}
+                data-testid="button-close-edit-panel"
+              >
+                <X className="w-3.5 h-3.5" />
+              </Button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+              <div>
+                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5 block">
+                  Selected Section
+                </label>
+                <div className="text-xs text-foreground/80 bg-muted/50 dark:bg-white/5 rounded-lg p-3 max-h-32 overflow-y-auto border border-border/30 leading-relaxed" data-testid="text-selected-section">
+                  {selectedText.length > 500 ? selectedText.substring(0, 500) + "..." : selectedText}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-medium text-muted-foreground uppercase tracking-wider mb-1.5 block">
+                  Your Insight or Instruction
+                </label>
+                <Textarea
+                  placeholder="e.g., 'This doesn't account for the recent governance vote that changed fee distribution' or 'Add context about their Series B funding round in Q3 2025'"
+                  value={userInsight}
+                  onChange={(e) => setUserInsight(e.target.value.slice(0, 2000))}
+                  className="min-h-[100px] text-sm resize-none"
+                  maxLength={2000}
+                  disabled={editSectionMutation.isPending}
+                  data-testid="input-user-insight"
+                />
+                <p className="text-[10px] text-muted-foreground/50 text-right mt-1">{userInsight.length}/2000</p>
+              </div>
+            </div>
+
+            <div className="px-5 py-4 border-t border-border/50 flex items-center justify-between">
+              <p className="text-[10px] text-muted-foreground">$0.50 per edit</p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-xs"
+                  onClick={() => { setShowEditPanel(false); setUserInsight(""); }}
+                  disabled={editSectionMutation.isPending}
+                  data-testid="button-cancel-edit"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  className="text-xs gap-1.5"
+                  onClick={handleSubmitEdit}
+                  disabled={!userInsight.trim() || editSectionMutation.isPending}
+                  data-testid="button-submit-edit"
+                >
+                  {editSectionMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Rewriting...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3 h-3" />
+                      Rewrite Section
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

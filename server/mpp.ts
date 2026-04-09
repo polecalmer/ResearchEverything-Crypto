@@ -74,3 +74,10 @@ export const dataChartPaywall: RequestHandler = withAdminBypass(
     description: `Data chart generation ($${FLAT_FEE})`,
   }) as RequestHandler
 );
+
+export const reportEditPaywall: RequestHandler = withAdminBypass(
+  mppx.charge({
+    amount: FLAT_FEE,
+    description: `AI report section edit ($${FLAT_FEE})`,
+  }) as RequestHandler
+);
