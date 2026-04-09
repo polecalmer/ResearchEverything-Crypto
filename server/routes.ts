@@ -2162,7 +2162,7 @@ RULES:
         const isAdmin = await storage.checkIsAdmin(userId);
         if (!isAdmin) return res.status(403).json({ message: "Not authorized" });
       }
-      if (model.status !== "complete") return res.status(400).json({ message: "Model is not in a complete state" });
+      if (model.status !== "complete" && model.status !== "error") return res.status(400).json({ message: "Model is not in a complete state" });
       const parsed = modelPromptSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
       if (!isServerMppReady()) return res.status(503).json({ message: "AI service not configured" });

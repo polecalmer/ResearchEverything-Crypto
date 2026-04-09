@@ -13,7 +13,9 @@ import {
   TrendingUp,
   Target,
   BarChart3,
-  MessageSquare,
+  Pencil,
+  X,
+  Link2,
   Plus,
 } from "lucide-react";
 import { AddToMasterReport } from "@/components/add-to-master-report";
@@ -84,6 +86,16 @@ interface ParsedModel {
   methodology?: string;
 }
 
+interface EditTarget {
+  kind: "assumption" | "table-row" | "table-cell" | "metric" | "scenario" | "section" | "methodology";
+  label: string;
+  currentValue: string;
+  sectionHeading?: string;
+  rowIndex?: number;
+  colIndex?: number;
+  colName?: string;
+}
+
 const EXAMPLE_PROMPTS = [
   "Build a DCF model with 3-year projections",
   "Comparable analysis vs top protocols in the sector",
@@ -118,9 +130,131 @@ function formatChartValue(value: number, fmt?: string): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+function buildEditPrompt(target: EditTarget, rationale: string, referenceUrl?: string): string {
+  let prompt = "";
+  switch (target.kind) {
+    case "assumption":
+      prompt = `Update the assumption "${target.label}" (currently: ${target.currentValue}).`;
+      break;
+    case "table-cell":
+      prompt = `In the table "${target.sectionHeading}", update the cell at row ${(target.rowIndex || 0) + 1}, column "${target.colName}" (currently: ${target.currentValue}).`;
+      break;
+    case "table-row":
+      prompt = `In the table "${target.sectionHeading}", update row ${(target.rowIndex || 0) + 1}: "${target.currentValue}".`;
+      break;
+    case "metric":
+      prompt = `Update the metric "${target.label}" (currently: ${target.currentValue}).`;
+      break;
+    case "scenario":
+      prompt = `Update the "${target.label}" scenario (currently: ${target.currentValue}).`;
+      break;
+    case "section":
+      prompt = `Update the section "${target.label}".`;
+      break;
+    case "methodology":
+      prompt = `Update the methodology section.`;
+      break;
+  }
+  prompt += `\n\nRationale: ${rationale}`;
+  if (referenceUrl) prompt += `\n\nReference: ${referenceUrl}`;
+  prompt += `\n\nIMPORTANT: Update this specific component AND recalculate/adjust any downstream values, tables, charts, and commentary that depend on this change. Keep everything else unchanged unless it needs to reflect this update.`;
+  return prompt;
+}
+
+function InlineEditForm({ target, onSubmit, onCancel, isPending }: {
+  target: EditTarget;
+  onSubmit: (rationale: string, referenceUrl?: string) => void;
+  onCancel: () => void;
+  isPending: boolean;
+}) {
+  const [rationale, setRationale] = useState("");
+  const [refUrl, setRefUrl] = useState("");
+  const [showRef, setShowRef] = useState(false);
+
+  return (
+    <div className="mt-2 border border-blue-500/20 bg-blue-500/5 rounded-lg p-3 space-y-2" data-testid={`edit-form-${target.label}`}>
+      <div className="flex items-center justify-between">
+        <div className="text-[10px] text-blue-400/80 font-medium uppercase tracking-wider">
+          Edit: {target.label}
+        </div>
+        <button onClick={onCancel} className="p-0.5 text-muted-foreground/40 hover:text-muted-foreground" data-testid="button-cancel-edit">
+          <X className="w-3 h-3" />
+        </button>
+      </div>
+      <div className="text-[10px] text-muted-foreground/60 truncate">
+        Current: {target.currentValue.length > 120 ? target.currentValue.slice(0, 120) + "..." : target.currentValue}
+      </div>
+      <textarea
+        value={rationale}
+        onChange={(e) => setRationale(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            if (rationale.trim()) onSubmit(rationale.trim(), refUrl.trim() || undefined);
+          }
+        }}
+        placeholder="What should change and why? e.g. 'Growth rate should be 35% based on Q1 actuals showing acceleration...'"
+        className="w-full bg-background/50 border border-border/30 rounded px-2.5 py-2 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-blue-500/30 resize-none"
+        rows={2}
+        autoFocus
+        disabled={isPending}
+        data-testid="input-edit-rationale"
+      />
+      {showRef ? (
+        <input
+          type="url"
+          value={refUrl}
+          onChange={(e) => setRefUrl(e.target.value)}
+          placeholder="https://... (supporting data, article, or report)"
+          className="w-full bg-background/50 border border-border/30 rounded px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-blue-500/30"
+          disabled={isPending}
+          data-testid="input-edit-reference"
+        />
+      ) : (
+        <button
+          onClick={() => setShowRef(true)}
+          className="flex items-center gap-1 text-[10px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+          data-testid="button-add-reference"
+        >
+          <Link2 className="w-2.5 h-2.5" />
+          Add reference link
+        </button>
+      )}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => { if (rationale.trim()) onSubmit(rationale.trim(), refUrl.trim() || undefined); }}
+          disabled={!rationale.trim() || isPending}
+          className="flex items-center gap-1 px-2.5 py-1 text-[11px] bg-blue-500/15 text-blue-400 rounded hover:bg-blue-500/25 transition-colors disabled:opacity-40"
+          data-testid="button-submit-edit"
+        >
+          {isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+          Update ($0.50)
+        </button>
+        <button
+          onClick={onCancel}
+          className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground"
+        >
+          cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function EditButton({ onClick, testId }: { onClick: () => void; testId?: string }) {
+  return (
+    <button
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+      className="opacity-0 group-hover/editable:opacity-100 focus:opacity-100 p-0.5 text-muted-foreground/30 hover:text-blue-400 focus:text-blue-400 transition-all"
+      data-testid={testId || "button-inline-edit"}
+    >
+      <Pencil className="w-2.5 h-2.5" />
+    </button>
+  );
+}
+
 function ChartSectionRenderer({ section }: { section: ChartSection }) {
   const color = section.color || "#3b6fd4";
-  const ChartComp = section.chartType === "line" ? LineChart : BarChart;
 
   return (
     <div className="space-y-2">
@@ -156,15 +290,35 @@ function ChartSectionRenderer({ section }: { section: ChartSection }) {
   );
 }
 
-function ModelSectionRenderer({ section }: { section: ModelSection }) {
+function ModelSectionRenderer({ section, onEdit }: { section: ModelSection; onEdit: (target: EditTarget) => void }) {
   if (section.type === "chart" && Array.isArray((section as ChartSection).data)) {
-    return <ChartSectionRenderer section={section as ChartSection} />;
+    return (
+      <div className="group/editable relative">
+        <div className="absolute right-0 top-0">
+          <EditButton testId={`button-edit-chart-${section.heading}`} onClick={() => onEdit({
+            kind: "section",
+            label: section.heading,
+            currentValue: `Chart: ${(section as ChartSection).data.map(d => `${d.label}=${d.value}`).join(", ")}`,
+            sectionHeading: section.heading,
+          })} />
+        </div>
+        <ChartSectionRenderer section={section as ChartSection} />
+      </div>
+    );
   }
 
   if (section.type === "table") {
     return (
       <div className="space-y-2">
-        <h4 className="text-xs font-medium text-foreground/90 uppercase tracking-wider" data-testid={`text-section-heading-${section.heading}`}>{section.heading}</h4>
+        <div className="flex items-center gap-2 group/editable">
+          <h4 className="text-xs font-medium text-foreground/90 uppercase tracking-wider" data-testid={`text-section-heading-${section.heading}`}>{section.heading}</h4>
+          <EditButton testId={`button-edit-table-${section.heading}`} onClick={() => onEdit({
+            kind: "section",
+            label: section.heading,
+            currentValue: `Table with ${section.rows.length} rows`,
+            sectionHeading: section.heading,
+          })} />
+        </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs" data-testid={`table-${section.heading}`}>
             <thead>
@@ -176,9 +330,24 @@ function ModelSectionRenderer({ section }: { section: ModelSection }) {
             </thead>
             <tbody>
               {(section.rows || []).map((row, ri) => (
-                <tr key={ri} className="border-b border-border/10 hover:bg-accent/5 transition-colors">
+                <tr key={ri} className="border-b border-border/10 group/editable hover:bg-accent/5 transition-colors">
                   {(Array.isArray(row) ? row : []).map((cell, ci) => (
-                    <td key={ci} className={`py-2 px-3 whitespace-nowrap ${ci === 0 ? "text-foreground/80 font-medium" : "text-foreground/70 tabular-nums"}`}>{cell}</td>
+                    <td key={ci} className={`py-2 px-3 whitespace-nowrap ${ci === 0 ? "text-foreground/80 font-medium" : "text-foreground/70 tabular-nums"}`}>
+                      <span className="inline-flex items-center gap-1">
+                        {cell}
+                        {ci > 0 && (
+                          <EditButton testId={`button-edit-cell-${ri}-${ci}`} onClick={() => onEdit({
+                            kind: "table-cell",
+                            label: `${row[0]} → ${section.columns[ci]}`,
+                            currentValue: cell,
+                            sectionHeading: section.heading,
+                            rowIndex: ri,
+                            colIndex: ci,
+                            colName: section.columns[ci],
+                          })} />
+                        )}
+                      </span>
+                    </td>
                   ))}
                 </tr>
               ))}
@@ -198,7 +367,15 @@ function ModelSectionRenderer({ section }: { section: ModelSection }) {
         <h4 className="text-xs font-medium text-foreground/90 uppercase tracking-wider">{section.heading}</h4>
         <div className="grid grid-cols-2 gap-3">
           {(section.items || []).map((item, i) => (
-            <div key={i} className="bg-accent/5 border border-border/20 rounded-md p-3" data-testid={`metric-${item.label}`}>
+            <div key={i} className="bg-accent/5 border border-border/20 rounded-md p-3 group/editable relative" data-testid={`metric-${item.label}`}>
+              <div className="absolute right-2 top-2">
+                <EditButton testId={`button-edit-metric-${item.label}`} onClick={() => onEdit({
+                  kind: "metric",
+                  label: item.label,
+                  currentValue: `${item.value}${item.detail ? ` — ${item.detail}` : ""}`,
+                  sectionHeading: section.heading,
+                })} />
+              </div>
               <div className="text-[11px] text-muted-foreground mb-1">{item.label}</div>
               <div className="text-sm font-semibold text-foreground tabular-nums">{item.value}</div>
               {item.detail && <div className="text-[10px] text-muted-foreground/60 mt-1">{item.detail}</div>}
@@ -229,7 +406,15 @@ function ModelSectionRenderer({ section }: { section: ModelSection }) {
             const colorClass = scenarioColors[key] || "border-border/30 bg-accent/5";
             const IconComp = scenarioIcons[key] || Target;
             return (
-              <div key={i} className={`border rounded-md p-3 ${colorClass}`} data-testid={`scenario-${s.name}`}>
+              <div key={i} className={`border rounded-md p-3 ${colorClass} group/editable relative`} data-testid={`scenario-${s.name}`}>
+                <div className="absolute right-2 top-2">
+                  <EditButton testId={`button-edit-scenario-${s.name}`} onClick={() => onEdit({
+                    kind: "scenario",
+                    label: s.name,
+                    currentValue: `${s.outcome} (${s.probability}) — ${s.keyDrivers.slice(0, 80)}`,
+                    sectionHeading: section.heading,
+                  })} />
+                </div>
                 <div className="flex items-center gap-1.5 mb-2">
                   <IconComp className="w-3 h-3 text-foreground/60" />
                   <span className="text-xs font-medium text-foreground/90">{s.name}</span>
@@ -247,8 +432,16 @@ function ModelSectionRenderer({ section }: { section: ModelSection }) {
 
   if (section.type === "text") {
     return (
-      <div className="space-y-2">
-        <h4 className="text-xs font-medium text-foreground/90 uppercase tracking-wider">{section.heading}</h4>
+      <div className="space-y-2 group/editable relative">
+        <div className="flex items-center gap-2">
+          <h4 className="text-xs font-medium text-foreground/90 uppercase tracking-wider">{section.heading}</h4>
+          <EditButton testId={`button-edit-text-${section.heading}`} onClick={() => onEdit({
+            kind: "section",
+            label: section.heading,
+            currentValue: section.content.slice(0, 200),
+            sectionHeading: section.heading,
+          })} />
+        </div>
         <div className="text-xs text-foreground/75 leading-relaxed whitespace-pre-wrap">{section.content}</div>
       </div>
     );
@@ -259,8 +452,7 @@ function ModelSectionRenderer({ section }: { section: ModelSection }) {
 
 function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; companyId: string; onDelete: (id: string) => void }) {
   const [expanded, setExpanded] = useState(false);
-  const [iteratePrompt, setIteratePrompt] = useState("");
-  const [showIterate, setShowIterate] = useState(false);
+  const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const { toast } = useToast();
   const parsed = (model.status === "complete" || (model.status === "error" && model.content)) ? parseModelContent(model.content) : null;
   const isGenerating = model.status === "generating";
@@ -270,8 +462,8 @@ function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; comp
     ? (() => { try { return (JSON.parse(model.conversationHistory) as Array<{ role: string }>).filter(h => h.role === "user").length; } catch { return 0; } })()
     : 0;
 
-  const iterateMutation = useMutation({
-    mutationFn: async (prompt: string) => {
+  const editMutation = useMutation({
+    mutationFn: async ({ prompt }: { prompt: string }) => {
       const validateRes = await apiRequest("POST", `/api/models/${model.id}/iterate/validate`, { prompt });
       const validation = await validateRes.json();
       if (!validation.valid) throw new Error(validation.message || "Validation failed");
@@ -280,15 +472,24 @@ function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; comp
       return res.json();
     },
     onSuccess: () => {
-      setIteratePrompt("");
-      setShowIterate(false);
+      setEditTarget(null);
       queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "models"] });
-      toast({ title: "Model iteration started", description: "Updating your model..." });
+      toast({ title: "Model update started", description: "Applying your change and recalculating..." });
     },
     onError: (err: any) => {
-      toast({ title: "Iteration failed", description: err.message, variant: "destructive" });
+      toast({ title: "Update failed", description: err.message, variant: "destructive" });
     },
   });
+
+  const handleEdit = (target: EditTarget) => {
+    setEditTarget(target);
+  };
+
+  const handleEditSubmit = (rationale: string, referenceUrl?: string) => {
+    if (!editTarget) return;
+    const prompt = buildEditPrompt(editTarget, rationale, referenceUrl);
+    editMutation.mutate({ prompt });
+  };
 
   return (
     <div className="border border-border/30 rounded-lg bg-card/30 overflow-hidden" data-testid={`card-model-${model.id}`}>
@@ -354,74 +555,65 @@ function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; comp
               <h4 className="text-xs font-medium text-foreground/90 uppercase tracking-wider">Key Assumptions</h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 {parsed.assumptions.map((a, i) => (
-                  <div key={i} className="flex items-start gap-2 text-[11px] bg-accent/5 border border-border/15 rounded px-2.5 py-2" data-testid={`assumption-${a.label}`}>
+                  <div key={i} className="group/editable flex items-start gap-2 text-[11px] bg-accent/5 border border-border/15 rounded px-2.5 py-2 relative" data-testid={`assumption-${a.label}`}>
                     <span className="text-muted-foreground whitespace-nowrap">{a.label}:</span>
                     <span className="text-foreground font-medium">{a.value}</span>
-                    {a.basis && <span className="text-muted-foreground/50 italic ml-auto text-[10px]">({a.basis})</span>}
+                    {a.basis && <span className="text-muted-foreground/50 italic text-[10px]">({a.basis})</span>}
+                    <div className="ml-auto flex-shrink-0">
+                      <EditButton testId={`button-edit-assumption-${a.label}`} onClick={() => handleEdit({
+                        kind: "assumption",
+                        label: a.label,
+                        currentValue: `${a.value} (${a.basis})`,
+                      })} />
+                    </div>
                   </div>
                 ))}
               </div>
+              {editTarget?.kind === "assumption" && (
+                <InlineEditForm
+                  target={editTarget}
+                  onSubmit={handleEditSubmit}
+                  onCancel={() => setEditTarget(null)}
+                  isPending={editMutation.isPending}
+                />
+              )}
             </div>
           )}
 
           {parsed.sections.map((section, i) => (
-            <ModelSectionRenderer key={i} section={section} />
+            <div key={i}>
+              <ModelSectionRenderer section={section} onEdit={handleEdit} />
+              {editTarget && editTarget.sectionHeading === section.heading && editTarget.kind !== "assumption" && (
+                <InlineEditForm
+                  target={editTarget}
+                  onSubmit={handleEditSubmit}
+                  onCancel={() => setEditTarget(null)}
+                  isPending={editMutation.isPending}
+                />
+              )}
+            </div>
           ))}
 
           {parsed.methodology && (
-            <div className="pt-2 border-t border-border/15">
-              <p className="text-[10px] text-muted-foreground/50 italic">{parsed.methodology}</p>
+            <div className="pt-2 border-t border-border/15 group/editable">
+              <div className="flex items-center gap-2">
+                <p className="text-[10px] text-muted-foreground/50 italic flex-1">{parsed.methodology}</p>
+                <EditButton testId="button-edit-methodology" onClick={() => handleEdit({
+                  kind: "methodology",
+                  label: "Methodology",
+                  currentValue: parsed.methodology!.slice(0, 200),
+                })} />
+              </div>
+              {editTarget?.kind === "methodology" && (
+                <InlineEditForm
+                  target={editTarget}
+                  onSubmit={handleEditSubmit}
+                  onCancel={() => setEditTarget(null)}
+                  isPending={editMutation.isPending}
+                />
+              )}
             </div>
           )}
-
-          <div className="pt-3 border-t border-border/15">
-            {!showIterate ? (
-              <button
-                onClick={() => setShowIterate(true)}
-                className="flex items-center gap-1.5 text-[11px] text-blue-400/80 hover:text-blue-400 transition-colors"
-                data-testid={`button-iterate-${model.id}`}
-              >
-                <MessageSquare className="w-3 h-3" />
-                Iterate on this model ($0.50)
-              </button>
-            ) : (
-              <div className="space-y-2">
-                <textarea
-                  value={iteratePrompt}
-                  onChange={(e) => setIteratePrompt(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      if (iteratePrompt.trim()) iterateMutation.mutate(iteratePrompt.trim());
-                    }
-                  }}
-                  placeholder="e.g. Change growth rate to 50% and add sensitivity analysis..."
-                  className="w-full bg-accent/5 border border-border/30 rounded px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-blue-500/30 resize-none"
-                  rows={2}
-                  disabled={iterateMutation.isPending}
-                  data-testid={`input-iterate-${model.id}`}
-                />
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => { if (iteratePrompt.trim()) iterateMutation.mutate(iteratePrompt.trim()); }}
-                    disabled={!iteratePrompt.trim() || iterateMutation.isPending}
-                    className="flex items-center gap-1 px-2.5 py-1 text-[11px] bg-blue-500/15 text-blue-400 rounded hover:bg-blue-500/25 transition-colors disabled:opacity-40"
-                    data-testid={`button-submit-iterate-${model.id}`}
-                  >
-                    {iterateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-                    Update Model
-                  </button>
-                  <button
-                    onClick={() => { setShowIterate(false); setIteratePrompt(""); }}
-                    className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground"
-                    data-testid={`button-cancel-iterate-${model.id}`}
-                  >
-                    cancel
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
         </div>
       )}
 
