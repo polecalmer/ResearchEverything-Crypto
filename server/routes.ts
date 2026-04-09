@@ -2006,7 +2006,83 @@ RULES:
     return null;
   }
 
-  function buildModelUserMessage(contextData: Awaited<ReturnType<typeof buildModellingContext>>, prompt: string, priorModel?: string, compactLevel: number = 0) {
+  const STONKS_BASE_URL = "https://stonksonchain.net";
+
+  async function fetchDataSources(dataSources: string[]): Promise<string> {
+    if (!dataSources || dataSources.length === 0) return "";
+
+    const apiKey = process.env.STONKS_API_KEY;
+    const MAX_PER_SOURCE = 3000;
+    const MAX_TOTAL = 15000;
+    let totalChars = 0;
+    const results: string[] = [];
+
+    const fetchPromises = dataSources.slice(0, 10).map(async (source) => {
+      const trimmed = source.trim();
+      if (!trimmed) return null;
+
+      let url: string;
+      if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        url = trimmed;
+      } else if (trimmed.startsWith("/")) {
+        url = `${STONKS_BASE_URL}${trimmed}`;
+      } else {
+        url = `${STONKS_BASE_URL}/${trimmed}`;
+      }
+
+      try {
+        const headers: Record<string, string> = { "Accept": "application/json" };
+        if (apiKey && url.includes("stonksonchain")) {
+          headers["X-API-Key"] = apiKey;
+        }
+
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000);
+
+        const res = await fetch(url, { headers, signal: controller.signal });
+        clearTimeout(timeout);
+
+        if (!res.ok) {
+          console.warn(`[DataSource] ${trimmed} returned ${res.status}`);
+          return { source: trimmed, error: `HTTP ${res.status}` };
+        }
+
+        const data = await res.json();
+        const dataStr = JSON.stringify(data);
+        const truncated = dataStr.length > MAX_PER_SOURCE
+          ? dataStr.substring(0, MAX_PER_SOURCE) + "...(truncated)"
+          : dataStr;
+
+        return { source: trimmed, data: truncated };
+      } catch (err: any) {
+        console.warn(`[DataSource] Failed to fetch ${trimmed}: ${err.message?.slice(0, 80)}`);
+        return { source: trimmed, error: err.message?.slice(0, 80) || "fetch failed" };
+      }
+    });
+
+    const settled = await Promise.allSettled(fetchPromises);
+
+    for (const result of settled) {
+      if (result.status !== "fulfilled" || !result.value) continue;
+      const { source, data, error } = result.value;
+      if (totalChars >= MAX_TOTAL) break;
+
+      if (data) {
+        const budgetLeft = MAX_TOTAL - totalChars;
+        const entry = `### ${source}\n${data.substring(0, budgetLeft)}`;
+        results.push(entry);
+        totalChars += entry.length;
+        console.log(`[DataSource] Fetched ${source}: ${data.length} chars`);
+      } else {
+        results.push(`### ${source}\n[fetch error: ${error}]`);
+      }
+    }
+
+    if (results.length === 0) return "";
+    return results.join("\n\n");
+  }
+
+  function buildModelUserMessage(contextData: Awaited<ReturnType<typeof buildModellingContext>>, prompt: string, priorModel?: string, compactLevel: number = 0, fetchedDataSources?: string) {
     const parts = [
       "## Company Context",
       contextData.companyContext,
@@ -2019,6 +2095,9 @@ RULES:
     if (compactLevel < 2 && contextData.tokenAnalysisSummary) {
       const analysisLimit = compactLevel >= 1 ? contextData.tokenAnalysisSummary.substring(0, 2000) : contextData.tokenAnalysisSummary;
       parts.push(`\n## Token Intelligence Analysis\n${analysisLimit}`);
+    }
+    if (fetchedDataSources) {
+      parts.push(`\n## Fetched Data Sources (LIVE API DATA — use these real numbers)\n${fetchedDataSources}`);
     }
     if (priorModel) {
       const compacted = compactModelContent(priorModel, compactLevel);
@@ -2212,6 +2291,7 @@ RULES:
       const existingModel = (req as ValidatedModelRequest)._validatedModel!;
       const company = (req as ValidatedModelRequest)._validatedCompany;
       const iteratePrompt = (req as ValidatedModelRequest)._validatedPrompt;
+      const dataSources: string[] = Array.isArray(req.body.dataSources) ? req.body.dataSources : [];
 
       await storage.updateFinancialModel(existingModel.id, { status: "generating" });
       res.json({ id: existingModel.id, status: "generating" });
@@ -2219,6 +2299,17 @@ RULES:
       (async () => {
         const MAX_ITERATE_ATTEMPTS = 3;
         let lastError = "";
+
+        let fetchedDataSourcesText = "";
+        if (dataSources.length > 0) {
+          console.log(`[Modelling] Fetching ${dataSources.length} data sources before iteration...`);
+          try {
+            fetchedDataSourcesText = await fetchDataSources(dataSources);
+            console.log(`[Modelling] Data sources fetched: ${fetchedDataSourcesText.length} chars`);
+          } catch (err: any) {
+            console.warn(`[Modelling] Data source fetch failed: ${err.message}`);
+          }
+        }
 
         const startCompact = 1;
 
@@ -2228,7 +2319,8 @@ RULES:
             console.log(`[Modelling] Iterate attempt ${attempt + 1}/${MAX_ITERATE_ATTEMPTS} (compact level ${compactLevel}) for model ${existingModel.id}`);
 
             const contextData = await buildModellingContext(company, userId);
-            const userMessage = buildModelUserMessage(contextData, iteratePrompt, existingModel.content, compactLevel);
+            const dsText = compactLevel >= 2 ? fetchedDataSourcesText.substring(0, 5000) : fetchedDataSourcesText;
+            const userMessage = buildModelUserMessage(contextData, iteratePrompt, existingModel.content, compactLevel, dsText || undefined);
 
             const priorHistory = trimConversationHistory(
               existingModel.conversationHistory,

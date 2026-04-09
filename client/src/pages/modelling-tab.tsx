@@ -345,15 +345,11 @@ interface GlaringMiss {
 const GLARING_MISS_PROMPT_BUDGET = 4500;
 
 function buildGlaringMissPrompt(miss: GlaringMiss): string {
-  const sources = miss.dataSources.length > 0
-    ? `\nDATA SOURCES: ${miss.dataSources.join(" | ")}\nUse these for real figures; reference in assumptions.`
-    : "";
-
   const prompt = `[GLARING MISS] Deep-research a critical gap in this model and augment it:
 
 MISSING: ${miss.description}
 
-SIGNIFICANCE: ${miss.significance}${sources}
+SIGNIFICANCE: ${miss.significance}
 
 INSTRUCTIONS: (1) Deeply research the missing topic — understand mechanics, fee flows, growth dynamics. (2) Add NEW assumptions, sections (tables/metrics/charts/scenarios). (3) Update ALL existing values affected — DCF, multiples, scenarios, sensitivity, commentary. (4) Return complete recalibrated model JSON.`;
 
@@ -786,12 +782,12 @@ function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; comp
   });
 
   const glaringMissMutation = useMutation({
-    mutationFn: async ({ prompt }: { prompt: string }) => {
+    mutationFn: async ({ prompt, dataSources }: { prompt: string; dataSources?: string[] }) => {
       const validateRes = await apiRequest("POST", `/api/models/${model.id}/iterate/validate`, { prompt });
       const validation = await validateRes.json();
       if (!validation.valid) throw new Error(validation.message || "Validation failed");
 
-      const res = await apiRequest("POST", `/api/models/${model.id}/iterate`, { prompt });
+      const res = await apiRequest("POST", `/api/models/${model.id}/iterate`, { prompt, dataSources });
       return res.json();
     },
     onSuccess: () => {
@@ -806,7 +802,8 @@ function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; comp
 
   const handleGlaringMiss = (miss: GlaringMiss) => {
     const prompt = buildGlaringMissPrompt(miss);
-    glaringMissMutation.mutate({ prompt });
+    const dataSources = miss.dataSources.filter(s => s.trim().length > 0);
+    glaringMissMutation.mutate({ prompt, dataSources: dataSources.length > 0 ? dataSources : undefined });
   };
 
   const anyMutating = batchMutation.isPending || glaringMissMutation.isPending;
