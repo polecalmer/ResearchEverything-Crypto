@@ -2243,12 +2243,13 @@ RULES:
         }
       }
       const existingBlocks = await storage.getMasterReportBlocks(report.id);
+      const maxOrder = existingBlocks.length > 0 ? Math.max(...existingBlocks.map(b => b.displayOrder)) : -1;
       const block = await storage.addMasterReportBlock({
         masterReportId: report.id,
         blockType,
         content: content || null,
         referenceId: referenceId || null,
-        displayOrder: displayOrder ?? existingBlocks.length,
+        displayOrder: displayOrder ?? (maxOrder + 1),
       });
       res.json(block);
     } catch (error: any) {

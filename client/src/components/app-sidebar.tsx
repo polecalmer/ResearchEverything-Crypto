@@ -21,7 +21,7 @@ const navItems = [
   { title: "Wallet", url: "/wallet", icon: Wallet },
   { title: "Extension", url: "/extension", icon: Chrome },
   { title: "Data", url: "/data", icon: BarChart3 },
-  { title: "Reports", url: "/master-reports", icon: FileText },
+  { title: "Master Reports", url: "/master-reports", icon: FileText },
 ];
 
 const ADMIN_EMAILS = ["allmysubscriptions10@proton.me"];
