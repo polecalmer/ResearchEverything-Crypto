@@ -1,7 +1,7 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useRoute, useLocation } from "wouter";
-import { useState, useCallback, useRef, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -14,16 +14,35 @@ import {
 } from "@/components/ui/select";
 import {
   ArrowLeft, Plus, Trash2, GripVertical, Download, Loader2,
-  ChevronUp, ChevronDown, Type, BarChart3, FileText, Calculator, Table,
+  Type, BarChart3, FileText, Calculator, Table,
   Pencil, Check, X,
 } from "lucide-react";
-import type { MasterReport, MasterReportBlock, DashboardChart, Report, FinancialModel } from "@shared/schema";
+import type { MasterReport, MasterReportBlock, DashboardChart, Report, FinancialModel, Company } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+import { InlineChartRenderer } from "@/components/inline-chart";
+import DOMPurify from "dompurify";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 
 type ReportWithBlocks = MasterReport & { blocks: MasterReportBlock[] };
 
-function renderSimpleMarkdown(md: string): string {
-  return md
+function sanitizeMarkdown(md: string): string {
+  const html = md
     .replace(/^### (.+)$/gm, '<h3 class="text-sm font-semibold mt-3 mb-1">$1</h3>')
     .replace(/^## (.+)$/gm, '<h2 class="text-base font-semibold mt-4 mb-1">$1</h2>')
     .replace(/^# (.+)$/gm, '<h1 class="text-lg font-semibold mt-4 mb-2">$1</h1>')
@@ -31,7 +50,9 @@ function renderSimpleMarkdown(md: string): string {
     .replace(/\*(.+?)\*/g, "<em>$1</em>")
     .replace(/`(.+?)`/g, '<code class="px-1 py-0.5 bg-muted rounded text-xs">$1</code>')
     .replace(/^[-*] (.+)$/gm, '<li class="ml-4 text-sm">$1</li>')
-    .replace(/\n/g, "<br/>");
+    .replace(/\n\n/g, '<br/><br/>')
+    .replace(/\n/g, '<br/>');
+  return DOMPurify.sanitize(html);
 }
 
 const BLOCK_TYPE_LABELS: Record<string, string> = {
@@ -50,24 +71,30 @@ const BLOCK_TYPE_ICONS: Record<string, typeof Type> = {
   table: Table,
 };
 
-function BlockCard({
+function SortableBlockCard({
   block,
   reportId,
-  index,
-  total,
-  onMoveUp,
-  onMoveDown,
 }: {
   block: MasterReportBlock;
   reportId: string;
-  index: number;
-  total: number;
-  onMoveUp: () => void;
-  onMoveDown: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [editContent, setEditContent] = useState(block.content || "");
-  const { toast } = useToast();
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: block.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
 
   const updateMutation = useMutation({
     mutationFn: async (content: string) => {
@@ -94,25 +121,25 @@ function BlockCard({
 
   return (
     <div
-      className="border border-border/50 rounded-lg group relative"
+      ref={setNodeRef}
+      style={style}
+      className="border border-border/50 rounded-lg"
       data-testid={`block-${block.id}`}
     >
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border/30 bg-muted/30 rounded-t-lg">
-        <GripVertical className="w-3.5 h-3.5 text-muted-foreground/50 cursor-grab" />
+        <button
+          className="cursor-grab active:cursor-grabbing touch-none"
+          {...attributes}
+          {...listeners}
+          data-testid={`drag-handle-${block.id}`}
+        >
+          <GripVertical className="w-3.5 h-3.5 text-muted-foreground/50" />
+        </button>
         <Icon className="w-3.5 h-3.5 text-muted-foreground" />
         <span className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
           {BLOCK_TYPE_LABELS[block.blockType] || block.blockType}
         </span>
-        {block.referenceId && (
-          <span className="text-xs text-muted-foreground/60 ml-1">#{block.referenceId.slice(0, 8)}</span>
-        )}
         <div className="ml-auto flex items-center gap-0.5">
-          <Button variant="ghost" size="icon" className="h-6 w-6" disabled={index === 0} onClick={onMoveUp} data-testid={`button-move-up-${block.id}`}>
-            <ChevronUp className="w-3 h-3" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-6 w-6" disabled={index === total - 1} onClick={onMoveDown} data-testid={`button-move-down-${block.id}`}>
-            <ChevronDown className="w-3 h-3" />
-          </Button>
           {(block.blockType === "text" || block.blockType === "table") && (
             <Button
               variant="ghost"
@@ -142,7 +169,7 @@ function BlockCard({
             <Textarea
               value={editContent}
               onChange={(e) => setEditContent(e.target.value)}
-              rows={6}
+              rows={8}
               className="text-sm font-mono"
               data-testid={`textarea-edit-${block.id}`}
             />
@@ -165,11 +192,11 @@ function BlockCard({
 
 function BlockContent({ block }: { block: MasterReportBlock }) {
   if (block.blockType === "text" || block.blockType === "table") {
-    if (!block.content) return <p className="text-xs text-muted-foreground italic">Empty block</p>;
+    if (!block.content) return <p className="text-xs text-muted-foreground italic">Empty block — click edit to add content</p>;
     return (
       <div
         className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed"
-        dangerouslySetInnerHTML={{ __html: renderSimpleMarkdown(block.content) }}
+        dangerouslySetInnerHTML={{ __html: sanitizeMarkdown(block.content) }}
       />
     );
   }
@@ -186,7 +213,7 @@ function BlockContent({ block }: { block: MasterReportBlock }) {
     return <ReferencedChart chartId={block.referenceId} />;
   }
 
-  return <p className="text-xs text-muted-foreground italic">Unknown block type</p>;
+  return <p className="text-xs text-muted-foreground italic">No content configured</p>;
 }
 
 function ReferencedReport({ reportId }: { reportId: string }) {
@@ -202,14 +229,13 @@ function ReferencedReport({ reportId }: { reportId: string }) {
   if (isLoading) return <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Loading report...</div>;
   if (!report) return <p className="text-xs text-muted-foreground italic">Report not found</p>;
 
-  const preview = report.content?.slice(0, 500) || "";
   return (
-    <div className="space-y-1">
+    <div className="space-y-2">
       <div className="text-sm font-medium">{report.title}</div>
-      <div className="text-xs text-muted-foreground line-clamp-4" dangerouslySetInnerHTML={{ __html: renderSimpleMarkdown(preview) }} />
-      {report.content && report.content.length > 500 && (
-        <p className="text-xs text-muted-foreground/60">...truncated in preview</p>
-      )}
+      <div
+        className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed max-h-[600px] overflow-y-auto"
+        dangerouslySetInnerHTML={{ __html: sanitizeMarkdown(report.content || "") }}
+      />
     </div>
   );
 }
@@ -227,11 +253,13 @@ function ReferencedModel({ modelId }: { modelId: string }) {
   if (isLoading) return <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Loading model...</div>;
   if (!model) return <p className="text-xs text-muted-foreground italic">Model not found</p>;
 
-  const preview = model.content?.slice(0, 500) || "";
   return (
-    <div className="space-y-1">
+    <div className="space-y-2">
       <div className="text-sm font-medium">{model.title}</div>
-      <div className="text-xs text-muted-foreground line-clamp-4" dangerouslySetInnerHTML={{ __html: renderSimpleMarkdown(preview) }} />
+      <div
+        className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed max-h-[600px] overflow-y-auto"
+        dangerouslySetInnerHTML={{ __html: sanitizeMarkdown(model.content || "") }}
+      />
     </div>
   );
 }
@@ -250,10 +278,89 @@ function ReferencedChart({ chartId }: { chartId: string }) {
   if (!chart) return <p className="text-xs text-muted-foreground italic">Chart not found</p>;
 
   return (
-    <div className="space-y-1">
+    <div className="space-y-2">
       <div className="text-sm font-medium">{chart.title}</div>
-      <div className="text-xs text-muted-foreground">Type: {chart.chartType} | Status: {chart.status}</div>
       {chart.description && <div className="text-xs text-muted-foreground">{chart.description}</div>}
+      <InlineChartRenderer chart={chart} />
+    </div>
+  );
+}
+
+interface PickableReport { id: string; title: string; companyId: string; }
+interface PickableModel { id: string; title: string; companyId: string; }
+interface PickableChart { id: string; title: string; companyId: string; }
+
+function EntityPicker({
+  blockType,
+  onSelect,
+}: {
+  blockType: string;
+  onSelect: (id: string) => void;
+}) {
+  const { data: companies = [] } = useQuery<Company[]>({ queryKey: ["/api/companies"] });
+
+  const allCompanyIds = companies.map(c => c.id);
+  const [selectedCompany, setSelectedCompany] = useState<string>("");
+
+  const { data: reports = [] } = useQuery<PickableReport[]>({
+    queryKey: ["/api/companies", selectedCompany, "reports"],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${selectedCompany}/reports`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: blockType === "report-section" && !!selectedCompany,
+  });
+
+  const { data: models = [] } = useQuery<PickableModel[]>({
+    queryKey: ["/api/companies", selectedCompany, "models"],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${selectedCompany}/models`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: blockType === "model" && !!selectedCompany,
+  });
+
+  const { data: charts = [] } = useQuery<PickableChart[]>({
+    queryKey: ["/api/companies", selectedCompany, "charts"],
+    queryFn: async () => {
+      const res = await fetch(`/api/companies/${selectedCompany}/charts`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: blockType === "chart" && !!selectedCompany,
+  });
+
+  const items = blockType === "report-section" ? reports : blockType === "model" ? models : charts;
+
+  return (
+    <div className="flex gap-2 items-center flex-wrap">
+      <Select value={selectedCompany} onValueChange={setSelectedCompany}>
+        <SelectTrigger className="w-[180px] h-8 text-sm" data-testid="select-company-picker">
+          <SelectValue placeholder="Select company..." />
+        </SelectTrigger>
+        <SelectContent>
+          {companies.map(c => (
+            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      {selectedCompany && items.length > 0 && (
+        <Select onValueChange={onSelect}>
+          <SelectTrigger className="w-[220px] h-8 text-sm" data-testid="select-entity-picker">
+            <SelectValue placeholder={`Select ${BLOCK_TYPE_LABELS[blockType]}...`} />
+          </SelectTrigger>
+          <SelectContent>
+            {items.map(item => (
+              <SelectItem key={item.id} value={item.id}>{item.title}</SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
+      {selectedCompany && items.length === 0 && (
+        <span className="text-xs text-muted-foreground">No {BLOCK_TYPE_LABELS[blockType]}s found for this company</span>
+      )}
     </div>
   );
 }
@@ -265,10 +372,13 @@ export default function MasterReportEditor() {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleValue, setTitleValue] = useState("");
   const [addBlockType, setAddBlockType] = useState<string>("text");
-  const [addRefId, setAddRefId] = useState("");
-  const titleInputRef = useRef<HTMLInputElement>(null);
 
   const reportId = params?.id || "";
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
 
   const { data: report, isLoading } = useQuery<ReportWithBlocks>({
     queryKey: ["/api/master-reports", reportId],
@@ -281,31 +391,27 @@ export default function MasterReportEditor() {
     }
   }, [report, editingTitle]);
 
+  const invalidateReport = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: ["/api/master-reports", reportId] });
+    queryClient.invalidateQueries({ queryKey: ["/api/master-reports"] });
+  }, [reportId]);
+
   const updateTitleMutation = useMutation({
     mutationFn: async (title: string) => {
       await apiRequest("PATCH", `/api/master-reports/${reportId}`, { title });
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/master-reports", reportId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/master-reports"] });
+      invalidateReport();
       setEditingTitle(false);
     },
   });
 
-  const invalidateReport = () => {
-    queryClient.invalidateQueries({ queryKey: ["/api/master-reports", reportId] });
-    queryClient.invalidateQueries({ queryKey: ["/api/master-reports"] });
-  };
-
   const addBlockMutation = useMutation({
-    mutationFn: async (data: { blockType: string; content?: string; referenceId?: string }) => {
+    mutationFn: async (data: { blockType: string; content?: string | null; referenceId?: string | null }) => {
       const res = await apiRequest("POST", `/api/master-reports/${reportId}/blocks`, data);
       return res.json();
     },
-    onSuccess: () => {
-      invalidateReport();
-      setAddRefId("");
-    },
+    onSuccess: invalidateReport,
   });
 
   const reorderMutation = useMutation({
@@ -315,25 +421,31 @@ export default function MasterReportEditor() {
     onSuccess: invalidateReport,
   });
 
-  const handleAddBlock = () => {
-    const needsRef = ["chart", "report-section", "model"].includes(addBlockType);
-    if (needsRef && !addRefId.trim()) {
-      toast({ title: "Reference ID required", description: "Enter the ID of the chart, report, or model to reference.", variant: "destructive" });
-      return;
-    }
+  const handleAddTextOrTable = () => {
     addBlockMutation.mutate({
       blockType: addBlockType,
-      content: needsRef ? null : "New block — click edit to add content",
-      referenceId: needsRef ? addRefId.trim() : undefined,
-    } as any);
+      content: "",
+      referenceId: null,
+    });
   };
 
-  const handleMove = useCallback((blocks: MasterReportBlock[], index: number, direction: "up" | "down") => {
-    const newBlocks = [...blocks];
-    const swapIdx = direction === "up" ? index - 1 : index + 1;
-    [newBlocks[index], newBlocks[swapIdx]] = [newBlocks[swapIdx], newBlocks[index]];
-    reorderMutation.mutate(newBlocks.map((b) => b.id));
-  }, [reorderMutation]);
+  const handleAddReference = (referenceId: string) => {
+    addBlockMutation.mutate({
+      blockType: addBlockType,
+      content: null,
+      referenceId,
+    });
+  };
+
+  const handleDragEnd = useCallback((event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !report?.blocks) return;
+    const oldIndex = report.blocks.findIndex(b => b.id === active.id);
+    const newIndex = report.blocks.findIndex(b => b.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+    const newOrder = arrayMove(report.blocks, oldIndex, newIndex);
+    reorderMutation.mutate(newOrder.map(b => b.id));
+  }, [report?.blocks, reorderMutation]);
 
   const handleExport = async () => {
     try {
@@ -385,7 +497,6 @@ export default function MasterReportEditor() {
           {editingTitle ? (
             <div className="flex items-center gap-2 flex-1">
               <Input
-                ref={titleInputRef}
                 value={titleValue}
                 onChange={(e) => setTitleValue(e.target.value)}
                 onKeyDown={(e) => {
@@ -418,28 +529,28 @@ export default function MasterReportEditor() {
           </Button>
         </div>
 
-        <div className="space-y-3">
-          {blocks.length === 0 && (
-            <div className="text-center py-8 text-muted-foreground text-sm border border-dashed border-border/50 rounded-lg" data-testid="text-empty-blocks">
-              No blocks yet. Add your first block below.
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+          <SortableContext items={blocks.map(b => b.id)} strategy={verticalListSortingStrategy}>
+            <div className="space-y-3">
+              {blocks.length === 0 && (
+                <div className="text-center py-8 text-muted-foreground text-sm border border-dashed border-border/50 rounded-lg" data-testid="text-empty-blocks">
+                  No blocks yet. Add your first block below.
+                </div>
+              )}
+              {blocks.map((block) => (
+                <SortableBlockCard
+                  key={block.id}
+                  block={block}
+                  reportId={reportId}
+                />
+              ))}
             </div>
-          )}
-          {blocks.map((block, i) => (
-            <BlockCard
-              key={block.id}
-              block={block}
-              reportId={reportId}
-              index={i}
-              total={blocks.length}
-              onMoveUp={() => handleMove(blocks, i, "up")}
-              onMoveDown={() => handleMove(blocks, i, "down")}
-            />
-          ))}
-        </div>
+          </SortableContext>
+        </DndContext>
 
         <div className="border border-border/50 rounded-lg p-3 space-y-3 bg-muted/20">
           <div className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Add Block</div>
-          <div className="flex gap-2 flex-wrap">
+          <div className="flex gap-2 flex-wrap items-end">
             <Select value={addBlockType} onValueChange={setAddBlockType}>
               <SelectTrigger className="w-[160px] h-8 text-sm" data-testid="select-block-type">
                 <SelectValue />
@@ -452,20 +563,16 @@ export default function MasterReportEditor() {
                 <SelectItem value="table">Table</SelectItem>
               </SelectContent>
             </Select>
-            {needsRef && (
-              <Input
-                placeholder="Reference ID (e.g. chart or report UUID)"
-                value={addRefId}
-                onChange={(e) => setAddRefId(e.target.value)}
-                className="flex-1 h-8 text-sm"
-                data-testid="input-reference-id"
-              />
+            {!needsRef && (
+              <Button size="sm" className="h-8" onClick={handleAddTextOrTable} disabled={addBlockMutation.isPending} data-testid="button-add-block">
+                {addBlockMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                <span className="ml-1">Add</span>
+              </Button>
             )}
-            <Button size="sm" className="h-8" onClick={handleAddBlock} disabled={addBlockMutation.isPending} data-testid="button-add-block">
-              {addBlockMutation.isPending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-              <span className="ml-1">Add</span>
-            </Button>
           </div>
+          {needsRef && (
+            <EntityPicker blockType={addBlockType} onSelect={handleAddReference} />
+          )}
         </div>
       </div>
     </div>
