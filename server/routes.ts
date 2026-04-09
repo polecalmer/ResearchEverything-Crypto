@@ -1677,7 +1677,7 @@ Rewrite the "Section to Rewrite" above, incorporating the user's insight. Return
 
   // ─── FINANCIAL MODELLING ──────────────────────────────────────────────
   const modelPromptSchema = z.object({
-    prompt: z.string().min(5, "Describe what you want to model").max(3000),
+    prompt: z.string().min(5, "Describe what you want to model").max(5000),
   });
 
   app.get("/api/companies/:id/models", requireAuth, async (req, res) => {
