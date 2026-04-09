@@ -1001,7 +1001,7 @@ function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; comp
 
       {expanded && isError && (
         <div className="border-t border-border/20 px-4 py-3">
-          <p className="text-xs text-red-400/80">Model generation failed. Please try again with a different prompt.</p>
+          <p className="text-xs text-red-400/80">{model.errorMessage || "Model generation failed. Please try again with a different prompt."}</p>
         </div>
       )}
 

@@ -2093,7 +2093,11 @@ RULES:
             modelData = JSON.parse(cleaned);
           } catch (parseErr) {
             console.error("[Modelling] Iterate JSON parse failed, response length:", result.text.length, "stop_reason:", (result as any).stop_reason || "unknown");
-            await storage.updateFinancialModel(existingModel.id, savedState);
+            await storage.updateFinancialModel(existingModel.id, {
+              ...savedState,
+              status: "error",
+              errorMessage: "AI returned malformed output — the response was too large or got truncated. Try a simpler edit.",
+            });
             return;
           }
 
@@ -2104,7 +2108,11 @@ RULES:
 
           if (!hasValidStructure) {
             console.error("[Modelling] Iterate produced invalid structure — missing title or sections");
-            await storage.updateFinancialModel(existingModel.id, savedState);
+            await storage.updateFinancialModel(existingModel.id, {
+              ...savedState,
+              status: "error",
+              errorMessage: "AI produced an incomplete model structure. Try rephrasing your edit.",
+            });
             return;
           }
 
@@ -2120,6 +2128,7 @@ RULES:
             conversationHistory: JSON.stringify(updatedHistory),
             status: "complete",
             title: modelData.title as string,
+            errorMessage: null,
           });
 
           try {
@@ -2144,7 +2153,14 @@ RULES:
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : "Unknown error";
           console.error("[Modelling] Iteration failed:", errMsg);
-          await storage.updateFinancialModel(existingModel.id, savedState);
+          const is524 = errMsg.includes("524") || errMsg.includes("timeout") || errMsg.includes("Gateway");
+          await storage.updateFinancialModel(existingModel.id, {
+            ...savedState,
+            status: "error",
+            errorMessage: is524
+              ? "AI request timed out — the prompt may be too large. Try with fewer data sources or a shorter description."
+              : `Iteration failed: ${errMsg.slice(0, 200)}`,
+          });
         }
       })();
     } catch (error: unknown) {
