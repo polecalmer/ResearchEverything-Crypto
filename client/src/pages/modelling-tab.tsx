@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -739,6 +739,82 @@ function ModelSectionRenderer({ section, onEdit, isQueued }: { section: ModelSec
   return null;
 }
 
+const GENERATION_STEPS = [
+  { label: "Collecting company data & market context", minSec: 0 },
+  { label: "Analyzing sector comparables & on-chain metrics", minSec: 8 },
+  { label: "Building financial projections & assumptions", minSec: 20 },
+  { label: "Running scenario analysis (bull / base / bear)", minSec: 35 },
+  { label: "Generating charts & sensitivity tables", minSec: 50 },
+  { label: "Finalizing model & cross-checking outputs", minSec: 65 },
+];
+
+function GeneratingIndicator({ createdAt }: { createdAt: string | Date }) {
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    const start = new Date(createdAt).getTime();
+    const tick = () => setElapsed(Math.floor((Date.now() - start) / 1000));
+    tick();
+    const interval = setInterval(tick, 1000);
+    return () => clearInterval(interval);
+  }, [createdAt]);
+
+  const currentStepIdx = GENERATION_STEPS.reduce((acc, step, i) => (elapsed >= step.minSec ? i : acc), 0);
+  const mins = Math.floor(elapsed / 60);
+  const secs = elapsed % 60;
+  const timeStr = mins > 0 ? `${mins}:${secs.toString().padStart(2, "0")}` : `${secs}s`;
+
+  return (
+    <div className="border-t border-border/15 px-3 py-3 space-y-2" data-testid="generating-indicator">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Loader2 className="w-3 h-3 text-blue-400 animate-spin" />
+          <span className="text-[10px] font-medium text-blue-400/90">Building Model</span>
+        </div>
+        <span className="text-[10px] text-muted-foreground/50 tabular-nums">{timeStr}</span>
+      </div>
+
+      <div className="space-y-0.5">
+        {GENERATION_STEPS.map((step, i) => {
+          const isActive = i === currentStepIdx;
+          const isDone = i < currentStepIdx;
+          const isPending = i > currentStepIdx;
+          return (
+            <div
+              key={i}
+              className={`flex items-center gap-2 py-0.5 transition-all duration-300 ${isPending ? "opacity-30" : ""}`}
+            >
+              <div className="w-3 flex items-center justify-center flex-shrink-0">
+                {isDone ? (
+                  <div className="w-1.5 h-1.5 rounded-full bg-emerald-500/60" />
+                ) : isActive ? (
+                  <div className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
+                ) : (
+                  <div className="w-1 h-1 rounded-full bg-muted-foreground/20" />
+                )}
+              </div>
+              <span className={`text-[10px] ${isActive ? "text-foreground/80 font-medium" : isDone ? "text-muted-foreground/60" : "text-muted-foreground/30"}`}>
+                {step.label}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="h-0.5 w-full bg-border/10 rounded-full overflow-hidden">
+        <div
+          className="h-full bg-blue-500/40 rounded-full transition-all duration-1000 ease-out"
+          style={{ width: `${Math.min(95, (currentStepIdx / (GENERATION_STEPS.length - 1)) * 90 + 5)}%` }}
+        />
+      </div>
+
+      <p className="text-[9px] text-muted-foreground/35">
+        This typically takes 60–90 seconds. The model will appear automatically when ready.
+      </p>
+    </div>
+  );
+}
+
 function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; companyId: string; onDelete: (id: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
@@ -992,14 +1068,7 @@ function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; comp
       )}
 
       {isGenerating && (
-        <div className="border-t border-border/15 px-3 py-2">
-          <div className="flex items-center gap-2">
-            <div className="h-0.5 flex-1 bg-accent/8 rounded-full overflow-hidden">
-              <div className="h-full bg-blue-500/30 rounded-full animate-pulse" style={{ width: "60%" }} />
-            </div>
-            <span className="text-[9px] text-muted-foreground/50">Generating model...</span>
-          </div>
-        </div>
+        <GeneratingIndicator createdAt={model.createdAt} />
       )}
     </div>
   );
