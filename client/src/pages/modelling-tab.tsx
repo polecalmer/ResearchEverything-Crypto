@@ -20,7 +20,6 @@ import {
   ListChecks,
   Zap,
   AlertTriangle,
-  ExternalLink,
   Search,
 } from "lucide-react";
 import { AddToMasterReport } from "@/components/add-to-master-report";
@@ -370,20 +369,18 @@ function GlaringMissForm({ onSubmit, onCancel, isPending }: {
 }) {
   const [description, setDescription] = useState("");
   const [significance, setSignificance] = useState("");
-  const [dataSources, setDataSources] = useState<string[]>([""]);
-
-  const addSource = () => setDataSources(prev => [...prev, ""]);
-  const removeSource = (index: number) => setDataSources(prev => prev.filter((_, i) => i !== index));
-  const updateSource = (index: number, value: string) => {
-    setDataSources(prev => prev.map((s, i) => i === index ? value : s));
-  };
+  const [dataSourcesText, setDataSourcesText] = useState("");
 
   const handleSubmit = () => {
     if (!description.trim() || !significance.trim()) return;
+    const parsedSources = dataSourcesText
+      .split(/[\n,]+/)
+      .map(s => s.trim())
+      .filter(s => s.length > 0 && (s.startsWith("/") || s.startsWith("http")));
     onSubmit({
       description: description.trim(),
       significance: significance.trim(),
-      dataSources: dataSources.map(s => s.trim()).filter(Boolean),
+      dataSources: parsedSources,
     });
   };
 
@@ -429,45 +426,22 @@ function GlaringMissForm({ onSubmit, onCancel, isPending }: {
       </div>
 
       <div className="space-y-1.5">
-        <div className="flex items-center justify-between">
-          <label className="text-[10px] text-muted-foreground/70 font-medium uppercase tracking-wider">Data Sources (Optional)</label>
-          <button
-            onClick={addSource}
-            className="text-[10px] text-orange-400/60 hover:text-orange-400 transition-colors"
-            data-testid="button-add-data-source"
-          >
-            + add source
-          </button>
-        </div>
+        <label className="text-[10px] text-muted-foreground/70 font-medium uppercase tracking-wider">Data Sources (Optional)</label>
         <p className="text-[9px] text-muted-foreground/40">
-          API endpoints, dashboards, or article URLs with relevant data. The agent will use these if available, or research independently.
+          Paste API endpoints or URLs, one per line. The agent will fetch live data from these before analyzing.
         </p>
-        {dataSources.map((source, i) => (
-          <div key={i} className="flex items-center gap-1.5">
-            <ExternalLink className="w-2.5 h-2.5 text-muted-foreground/30 flex-shrink-0" />
-            <input
-              type="url"
-              value={source}
-              onChange={(e) => updateSource(i, e.target.value)}
-              placeholder="https://api.example.com/data or https://dune.com/queries/..."
-              className="flex-1 bg-background/50 border border-border/30 rounded px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-orange-500/30"
-              data-testid={`input-data-source-${i}`}
-            />
-            {dataSources.length > 1 && (
-              <button
-                onClick={() => removeSource(i)}
-                className="p-0.5 text-muted-foreground/30 hover:text-red-400 transition-colors"
-                data-testid={`button-remove-source-${i}`}
-              >
-                <X className="w-2.5 h-2.5" />
-              </button>
-            )}
-          </div>
-        ))}
+        <textarea
+          value={dataSourcesText}
+          onChange={(e) => setDataSourcesText(e.target.value)}
+          placeholder={"/api/v1/fees/summary\n/api/v1/fees/deployer-revenue\nhttps://api.example.com/data"}
+          className="w-full bg-background/50 border border-border/30 rounded px-2.5 py-2 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-orange-500/30 resize-none font-mono"
+          rows={4}
+          data-testid="input-data-sources"
+        />
       </div>
 
       {(() => {
-        const estimatedLen = 200 + description.length + significance.length + dataSources.join(" | ").length;
+        const estimatedLen = 200 + description.length + significance.length + dataSourcesText.length;
         const remaining = GLARING_MISS_PROMPT_BUDGET - estimatedLen;
         return remaining < 500 ? (
           <p className={`text-[9px] ${remaining < 0 ? "text-red-400" : "text-amber-400/60"}`}>
