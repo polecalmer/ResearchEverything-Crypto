@@ -1676,43 +1676,69 @@ Rewrite the "Section to Rewrite" above, incorporating the user's insight. Return
   });
 
   async function buildModellingContext(company: Company, userId: string) {
-    const [reportsData, chartsData, tokenProfile, duneQueriesData, tokenAnalysesData] = await Promise.all([
-      storage.getReportsByCompany(company.id, userId),
+    const [chartsData, tokenProfile, tokenAnalysesData] = await Promise.all([
       storage.getDashboardChartsByCompany(company.id, userId),
       storage.getTokenProfile(company.id),
-      storage.getDuneQueries(company.id),
       storage.getTokenAnalysesByCompany(company.id, userId),
     ]);
 
-    const reportsSummary = reportsData
-      .filter(r => r.status === "complete")
-      .slice(0, 3)
-      .map(r => `### ${r.title}\n${r.content.substring(0, 2000)}`)
-      .join("\n\n");
+    const MAX_ROWS_PER_DATASET = 200;
+    const MAX_TOTAL_DATA_CHARS = 50000;
 
-    const chartsSummary = chartsData
-      .filter(c => c.status === "complete" && c.data)
-      .slice(0, 5)
-      .map(c => {
-        try {
-          const data = JSON.parse(c.data!);
-          const sampleRows = Array.isArray(data) ? data.slice(0, 5) : [];
-          return `- ${c.title} (${c.chartType}): ${JSON.stringify(sampleRows)}`;
-        } catch {
-          return `- ${c.title} (${c.chartType}): [data unavailable]`;
+    let totalDataChars = 0;
+    const liveDatasets: string[] = [];
+
+    const completedCharts = chartsData.filter(c => c.status === "complete" && c.data);
+    for (const chart of completedCharts) {
+      if (totalDataChars >= MAX_TOTAL_DATA_CHARS) break;
+      try {
+        const rawData = JSON.parse(chart.data!);
+        const rows = Array.isArray(rawData) ? rawData.slice(0, MAX_ROWS_PER_DATASET) : rawData;
+        const source = chart.dataSource || "unknown";
+        const dataStr = JSON.stringify(rows);
+        const budgetLeft = MAX_TOTAL_DATA_CHARS - totalDataChars;
+        const truncatedData = dataStr.length > budgetLeft ? dataStr.substring(0, budgetLeft) + "...(truncated)" : dataStr;
+        totalDataChars += truncatedData.length;
+
+        const configInfo = chart.dataSourceConfig
+          ? (() => { try { const c = JSON.parse(chart.dataSourceConfig); return c.queryId ? ` (Dune #${c.queryId})` : c.sql ? " (Dune SQL)" : c.protocol ? ` (${c.protocol})` : ""; } catch { return ""; } })()
+          : "";
+
+        liveDatasets.push(`### ${chart.title} [source: ${source}${configInfo}]\nType: ${chart.chartType || "table"}\nData (${Array.isArray(rawData) ? rawData.length : "N/A"} rows, showing up to ${MAX_ROWS_PER_DATASET}):\n${truncatedData}`);
+      } catch {
+        liveDatasets.push(`### ${chart.title} [source: ${chart.dataSource || "unknown"}]\n[parse error — data unavailable]`);
+      }
+    }
+
+    let tokenSnapshotText = "";
+    if (tokenProfile?.contractAddress && tokenProfile?.chain) {
+      try {
+        const { snapshot } = await fetchTokenSnapshot(tokenProfile.contractAddress, tokenProfile.chain, tokenProfile.tokenTicker || company.tokenTicker || "TOKEN");
+        const fields: string[] = [];
+        if (snapshot.price !== null) fields.push(`Price: $${snapshot.price}`);
+        if (snapshot.marketCap !== null) fields.push(`Market Cap: $${Number(snapshot.marketCap).toLocaleString()}`);
+        if (snapshot.fdv !== null) fields.push(`FDV: $${Number(snapshot.fdv).toLocaleString()}`);
+        if (snapshot.volume24h !== null) fields.push(`24h Volume: $${Number(snapshot.volume24h).toLocaleString()}`);
+        if (snapshot.priceChange24h !== null) fields.push(`24h Change: ${snapshot.priceChange24h}%`);
+        if (snapshot.holderCount !== null) fields.push(`Holders: ${Number(snapshot.holderCount).toLocaleString()}`);
+        if (snapshot.circulatingSupply !== null) fields.push(`Circulating Supply: ${Number(snapshot.circulatingSupply).toLocaleString()}`);
+        if (snapshot.totalSupply !== null) fields.push(`Total Supply: ${Number(snapshot.totalSupply).toLocaleString()}`);
+        if (fields.length > 0) {
+          tokenSnapshotText = `### Live Token Data (${snapshot.source}, fetched ${snapshot.fetchedAt})\n${fields.join("\n")}`;
         }
-      })
-      .join("\n");
-
-    const duneQueriesSummary = duneQueriesData.length > 0
-      ? duneQueriesData.map(q => `- ${q.label} (query ID: ${q.queryId})`).join("\n")
-      : "";
+      } catch (err) {
+        console.warn("[Modelling] Token snapshot fetch failed, continuing without:", err);
+      }
+    }
 
     const tokenAnalysisSummary = tokenAnalysesData
       .filter(t => t.status === "complete")
-      .slice(0, 1)
-      .map(t => t.content.substring(0, 2000))
-      .join("");
+      .slice(0, 2)
+      .map(t => {
+        const duneContext = t.duneData ? `\nDune data used: ${t.duneData.substring(0, 3000)}` : "";
+        return `${t.content.substring(0, 4000)}${duneContext}`;
+      })
+      .join("\n\n---\n\n");
 
     const companyContext = [
       `Company: ${company.name}`,
@@ -1725,15 +1751,14 @@ Rewrite the "Section to Rewrite" above, incorporating the user's insight. Return
       company.fundingHistory ? `Funding: ${company.fundingHistory}` : "",
       company.competitiveLandscape ? `Competitive landscape: ${company.competitiveLandscape}` : "",
       company.hasLiquidToken ? `Token: ${company.tokenTicker || "Yes"} on ${company.tokenChain || "unknown chain"}` : "",
-      company.liquidTokenAnalysis ? `Token analysis: ${company.liquidTokenAnalysis.substring(0, 1000)}` : "",
+      company.liquidTokenAnalysis ? `Token analysis: ${company.liquidTokenAnalysis.substring(0, 2000)}` : "",
       tokenProfile ? `Token contract: ${tokenProfile.contractAddress} on ${tokenProfile.chain} (${tokenProfile.tokenTicker || "unknown"})` : "",
     ].filter(Boolean).join("\n");
 
     return {
       companyContext,
-      reportsSummary,
-      chartsSummary,
-      duneQueriesSummary,
+      liveDatasets: liveDatasets.join("\n\n"),
+      tokenSnapshotText,
       tokenAnalysisSummary,
     };
   }
@@ -1816,25 +1841,27 @@ MODELLING CAPABILITIES:
 - Market sizing (TAM/SAM/SOM for protocol verticals)
 
 RULES:
-1. Use REAL data from the company context wherever possible — never invent metrics you can see in the data.
-2. When you don't have specific data, state assumptions clearly and explain basis.
-3. All financial figures should use proper formatting ($1.2M, 30%, 25x).
-4. Include at least one table section with projections.
-5. Always include a scenario analysis section.
-6. Be quantitative and specific — avoid vague language.
-7. For crypto/DeFi: use protocol-native metrics (TVL, volume, fees, active addresses) as revenue drivers.
-8. Include at least one "chart" section with visualizable data.
-9. Return ONLY the JSON object. No markdown wrapping, no \`\`\`json fences, just the raw JSON.`;
+1. CRITICAL: You are provided with LIVE DATABASE DATA from Dune Analytics, DeFiLlama, CoinGecko, Allium, and StonksOnChain. Use this ACTUAL data for all calculations — these are real on-chain metrics, not estimates.
+2. When live token market data is provided (price, market cap, FDV, volume, supply), use these exact figures as your starting point.
+3. When dashboard data is provided, extract real numbers (TVL, revenue, fees, volume, user counts) and build your model FROM these actuals.
+4. Never invent or estimate a metric that exists in the provided data. If data shows TVL of $50M, use $50M — not a round number.
+5. When you don't have specific data, state assumptions clearly and explain basis.
+6. All financial figures should use proper formatting ($1.2M, 30%, 25x).
+7. Include at least one table section with projections.
+8. Always include a scenario analysis section.
+9. Be quantitative and specific — avoid vague language.
+10. For crypto/DeFi: use protocol-native metrics (TVL, volume, fees, active addresses) as revenue drivers.
+11. Include at least one "chart" section with visualizable data derived from the real data.
+12. Return ONLY the JSON object. No markdown wrapping, no \`\`\`json fences, just the raw JSON.`;
 
   function buildModelUserMessage(contextData: Awaited<ReturnType<typeof buildModellingContext>>, prompt: string, priorModel?: string) {
     const parts = [
       "## Company Context",
       contextData.companyContext,
     ];
-    if (contextData.reportsSummary) parts.push(`\n## Research Reports (excerpts)\n${contextData.reportsSummary}`);
-    if (contextData.chartsSummary) parts.push(`\n## Dashboard Data\n${contextData.chartsSummary}`);
-    if (contextData.duneQueriesSummary) parts.push(`\n## Linked Dune Queries\n${contextData.duneQueriesSummary}`);
-    if (contextData.tokenAnalysisSummary) parts.push(`\n## Token Analysis\n${contextData.tokenAnalysisSummary}`);
+    if (contextData.tokenSnapshotText) parts.push(`\n## Live Token Market Data\n${contextData.tokenSnapshotText}`);
+    if (contextData.liveDatasets) parts.push(`\n## Live Database Data (Dune / DeFiLlama / On-Chain)\nIMPORTANT: Use this real data for all calculations. Do NOT invent numbers when data is available here.\n\n${contextData.liveDatasets}`);
+    if (contextData.tokenAnalysisSummary) parts.push(`\n## Token Intelligence Analysis\n${contextData.tokenAnalysisSummary}`);
     if (priorModel) parts.push(`\n## Previous Model Output (iterate on this)\n${priorModel}`);
     parts.push(`\n## Modelling Request\n${prompt}`);
     return parts.filter(Boolean).join("\n");
