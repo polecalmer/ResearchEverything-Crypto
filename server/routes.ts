@@ -2568,31 +2568,29 @@ Be specific and evidence-based. Cite data points from the provided information.`
       .filter(c => /lighter|competitor|market.share|vs/i.test(c.title))
       .map(c => formatChartForAgent(c, 400));
 
-    console.log(`[MultiAgent] Phase 1: Launching 4 parallel research agents...`);
+    console.log(`[MultiAgent] Phase 1: Running 4 research agents sequentially (MPP channel serialization)...`);
     console.log(`[MultiAgent] Data: ${Object.keys(data.chartDataMap).length} charts, token snapshot: ${!!data.tokenSnapshot}, token analysis: ${data.tokenAnalysis.length} chars`);
 
-    const [revenueResult, valuationResult, supplyResult, marketResult] = await Promise.all([
-      runResearchAgent(
-        "Revenue Agent",
-        REVENUE_AGENT_PROMPT,
-        `## Company\n${data.companyBrief}\n\n## Token Market Data\n${tokenSnapshotStr}\n\n## Revenue & Fee Data\n${revenueCharts.length > 0 ? revenueCharts.join("\n\n") : "No dedicated revenue charts"}\n\n## Volume Data\n${volumeCharts.length > 0 ? volumeCharts.join("\n\n") : "No volume charts"}\n\n## All Available Charts\n${allChartsStr}\n\n## Token Analysis Excerpt\n${data.tokenAnalysis.substring(0, 4000) || "None available"}\n\n## User Request\n${prompt}`,
-      ),
-      runResearchAgent(
-        "Valuation Agent",
-        VALUATION_AGENT_PROMPT,
-        `## Company\n${data.companyBrief}\n\n## Token Market Data\n${tokenSnapshotStr}\n\n## P/E & Valuation Data\n${peCharts.length > 0 ? peCharts.join("\n\n") : "No P/E charts"}\n\n## Revenue Data\n${revenueCharts.length > 0 ? revenueCharts.join("\n\n") : "No revenue charts"}\n\n## Token Analysis Excerpt\n${data.tokenAnalysis.substring(0, 4000) || "None available"}\n\n## User Request\n${prompt}`,
-      ),
-      runResearchAgent(
-        "Supply Agent",
-        SUPPLY_AGENT_PROMPT,
-        `## Company\n${data.companyBrief}\n\n## Token Market Data\n${tokenSnapshotStr}\n\n## Token Analysis (supply/unlock details)\n${data.tokenAnalysis || "None available"}\n\n## Revenue Data (for buyback calculations)\n${revenueCharts.length > 0 ? revenueCharts.join("\n\n") : "No revenue charts"}\n\n## User Request\n${prompt}`,
-      ),
-      runResearchAgent(
-        "Market Agent",
-        MARKET_AGENT_PROMPT,
-        `## Company\n${data.companyBrief}\n${data.companyDetail}\n\n## Competitive Data\n${competitiveCharts.length > 0 ? competitiveCharts.join("\n\n") : "No competitive charts"}\n\n## Volume & Market Data\n${volumeCharts.length > 0 ? volumeCharts.join("\n\n") : "No volume charts"}\n\n## Token Analysis Excerpt\n${data.tokenAnalysis.substring(0, 3000) || "None available"}\n\n## User Request\n${prompt}`,
-      ),
-    ]);
+    const revenueResult = await runResearchAgent(
+      "Revenue Agent",
+      REVENUE_AGENT_PROMPT,
+      `## Company\n${data.companyBrief}\n\n## Token Market Data\n${tokenSnapshotStr}\n\n## Revenue & Fee Data\n${revenueCharts.length > 0 ? revenueCharts.join("\n\n") : "No dedicated revenue charts"}\n\n## Volume Data\n${volumeCharts.length > 0 ? volumeCharts.join("\n\n") : "No volume charts"}\n\n## All Available Charts\n${allChartsStr}\n\n## Token Analysis Excerpt\n${data.tokenAnalysis.substring(0, 4000) || "None available"}\n\n## User Request\n${prompt}`,
+    );
+    const valuationResult = await runResearchAgent(
+      "Valuation Agent",
+      VALUATION_AGENT_PROMPT,
+      `## Company\n${data.companyBrief}\n\n## Token Market Data\n${tokenSnapshotStr}\n\n## P/E & Valuation Data\n${peCharts.length > 0 ? peCharts.join("\n\n") : "No P/E charts"}\n\n## Revenue Data\n${revenueCharts.length > 0 ? revenueCharts.join("\n\n") : "No revenue charts"}\n\n## Token Analysis Excerpt\n${data.tokenAnalysis.substring(0, 4000) || "None available"}\n\n## User Request\n${prompt}`,
+    );
+    const supplyResult = await runResearchAgent(
+      "Supply Agent",
+      SUPPLY_AGENT_PROMPT,
+      `## Company\n${data.companyBrief}\n\n## Token Market Data\n${tokenSnapshotStr}\n\n## Token Analysis (supply/unlock details)\n${data.tokenAnalysis || "None available"}\n\n## Revenue Data (for buyback calculations)\n${revenueCharts.length > 0 ? revenueCharts.join("\n\n") : "No revenue charts"}\n\n## User Request\n${prompt}`,
+    );
+    const marketResult = await runResearchAgent(
+      "Market Agent",
+      MARKET_AGENT_PROMPT,
+      `## Company\n${data.companyBrief}\n${data.companyDetail}\n\n## Competitive Data\n${competitiveCharts.length > 0 ? competitiveCharts.join("\n\n") : "No competitive charts"}\n\n## Volume & Market Data\n${volumeCharts.length > 0 ? volumeCharts.join("\n\n") : "No volume charts"}\n\n## Token Analysis Excerpt\n${data.tokenAnalysis.substring(0, 3000) || "None available"}\n\n## User Request\n${prompt}`,
+    );
 
     for (const r of [revenueResult, valuationResult, supplyResult, marketResult]) {
       totalMppCost += r.mppCost;
