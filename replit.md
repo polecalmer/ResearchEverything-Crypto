@@ -51,6 +51,8 @@ Focus on user experience and intuitive design.
 
 **Data Tab (AI Chart Dashboard):** A chat-driven interface for building custom charts. The Data Agent (Opus 4.6) determines data sources (Dune Analytics, DeFiLlama, CoinGecko, Allium, StonksOnChain), fetches data, and creates interactive visualizations. It incorporates a self-learning query system with retry loops, query memory, data sanity checks, and prompt evolution based on failures and successes to continuously improve accuracy and efficiency.
 
+**NLP-Driven Modelling Tab:** A financial modelling workspace powered by Opus 4.6 acting as a quantitative analyst. Users describe what they want to model in natural language (e.g., "Build a DCF with 3-year projections", "Comparable analysis vs sector"), and the AI generates structured financial models with assumptions, projection tables, key metrics, scenario analysis (bull/base/bear), and analytical commentary. Models leverage full company context — research reports, data charts, token intelligence, and company metadata. $0.50 per model via MPP paywall. Stored in the `financial_models` table with validate-first pattern.
+
 **Admin Wallet Management:** An admin panel for managing the server wallet, discovering payment channels, and allowing channel closure/withdrawal.
 
 **Chrome Extension:** A Manifest V3 extension for quick capture of web links, utilizing context menus, content scripts, and a background service worker to interact with the backend API.

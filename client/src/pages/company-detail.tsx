@@ -21,6 +21,7 @@ import { format } from "date-fns";
 import type { Report } from "@shared/schema";
 import TokenIntelligenceTab, { ReportsTab } from "./token-intelligence";
 import DataTab from "./data-tab";
+import ModellingTab from "./modelling-tab";
 
 const STAGE_COLORS: Record<PipelineStage, string> = {
   discovered: "text-blue-400",
@@ -417,7 +418,7 @@ export default function CompanyDetail() {
   const [, navigate] = useLocation();
   const [noteContent, setNoteContent] = useState("");
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState<"deal" | "token" | "report" | "data">("deal");
+  const [activeTab, setActiveTab] = useState<"deal" | "token" | "report" | "data" | "modelling">("deal");
 
   const { data: company, isLoading: companyLoading } = useQuery<Company>({ queryKey: ["/api/companies", params.id] });
   const { data: founders = [] } = useQuery<Founder[]>({ queryKey: ["/api/companies", params.id, "founders"] });
@@ -599,6 +600,16 @@ export default function CompanyDetail() {
               data-testid="tab-data"
             >
               Data
+            </button>
+            <button
+              role="tab"
+              aria-selected={activeTab === "modelling"}
+              aria-controls="panel-modelling"
+              onClick={() => setActiveTab("modelling")}
+              className={`text-xs px-3 py-1.5 rounded transition-colors ${activeTab === "modelling" ? "text-foreground bg-blue-500/15 dark:bg-blue-400/15" : "text-muted-foreground hover:text-foreground hover:bg-accent/30"}`}
+              data-testid="tab-modelling"
+            >
+              Modelling
             </button>
           </div>
         </div>
@@ -835,6 +846,10 @@ export default function CompanyDetail() {
         ) : activeTab === "data" ? (
           <div id="panel-data" role="tabpanel" aria-labelledby="tab-data">
             <DataTab companyId={company.id} companyName={company.name} />
+          </div>
+        ) : activeTab === "modelling" ? (
+          <div id="panel-modelling" role="tabpanel" aria-labelledby="tab-modelling">
+            <ModellingTab companyId={company.id} companyName={company.name} />
           </div>
         ) : null}
       </div>

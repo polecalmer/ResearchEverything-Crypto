@@ -1,7 +1,7 @@
-import type { Express } from "express";
+import type { Express, RequestHandler } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertCompanySchema, insertFounderSchema, insertNoteSchema, insertTokenProfileSchema, insertDuneQuerySchema, insertMasterDuneQuerySchema, PIPELINE_STAGES } from "@shared/schema";
+import { insertCompanySchema, insertFounderSchema, insertNoteSchema, insertTokenProfileSchema, insertDuneQuerySchema, insertMasterDuneQuerySchema, PIPELINE_STAGES, type Company } from "@shared/schema";
 import { z } from "zod";
 import {
   startEnrichmentSession, advanceEnrichmentSession,
@@ -12,7 +12,7 @@ import {
   MARKUP_MULTIPLIER,
 } from "./enrichment";
 import { requireAuth } from "./auth";
-import { enrichmentPaywall, nextStepsPaywall, deepResearchPaywall, tokenIntelPaywall, duneQueryPaywall, tokenSnapshotPaywall, dataChartPaywall, reportEditPaywall } from "./mpp";
+import { enrichmentPaywall, nextStepsPaywall, deepResearchPaywall, tokenIntelPaywall, duneQueryPaywall, tokenSnapshotPaywall, dataChartPaywall, reportEditPaywall, modellingPaywall } from "./mpp";
 import { runDataAgent, refreshChartData, DATA_CHART_CHARGE, analyzeFailurePatterns } from "./data-agent";
 import { fetchTokenSnapshot } from "./allium-client";
 import { executeDuneQuery, getLatestDuneResults, isDuneConfigured } from "./dune-client";
@@ -1633,6 +1633,290 @@ Rewrite the "Section to Rewrite" above, incorporating the user's insight. Return
       res.json(result);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
+    }
+  });
+
+  // ─── FINANCIAL MODELLING ──────────────────────────────────────────────
+  const modelPromptSchema = z.object({
+    prompt: z.string().min(5, "Describe what you want to model").max(3000),
+  });
+
+  app.get("/api/companies/:id/models", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const models = await storage.getFinancialModelsByCompany(req.params.id, userId);
+      res.json(models);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/companies/:id/models/validate", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const company = await storage.getCompany(req.params.id, userId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+
+      const parsed = modelPromptSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
+
+      if (!isServerMppReady()) return res.status(503).json({ message: "AI service not configured" });
+
+      res.json({ valid: true });
+    } catch (error: any) {
+      res.status(500).json({ message: "Validation failed", error: error.message });
+    }
+  });
+
+  const preValidateModel: RequestHandler = async (req, res, next) => {
+    try {
+      const userId = (req as any).user?.id;
+      if (!userId) return res.status(401).json({ message: "Not authenticated" });
+      const company = await storage.getCompany(req.params.id, userId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      const parsed = modelPromptSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
+      if (!isServerMppReady()) return res.status(503).json({ message: "AI service not configured" });
+      (req as any)._validatedCompany = company;
+      (req as any)._validatedPrompt = parsed.data.prompt;
+      next();
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  };
+
+  app.post("/api/companies/:id/models", requireAuth, preValidateModel as any, modellingPaywall, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const company = (req as any)._validatedCompany as Company;
+      const prompt = (req as any)._validatedPrompt as string;
+
+      const [reportsData, chartsData, tokenProfile] = await Promise.all([
+        storage.getReportsByCompany(company.id, userId),
+        storage.getDashboardChartsByCompany(company.id, userId),
+        storage.getTokenProfile(company.id),
+      ]);
+
+      const reportsSummary = reportsData
+        .filter(r => r.status === "complete")
+        .slice(0, 3)
+        .map(r => `### ${r.title}\n${r.content.substring(0, 2000)}`)
+        .join("\n\n");
+
+      const chartsSummary = chartsData
+        .filter(c => c.status === "complete" && c.data)
+        .slice(0, 5)
+        .map(c => {
+          try {
+            const data = JSON.parse(c.data!);
+            const sampleRows = Array.isArray(data) ? data.slice(0, 5) : [];
+            return `- ${c.title} (${c.chartType}): ${JSON.stringify(sampleRows)}`;
+          } catch {
+            return `- ${c.title} (${c.chartType}): [data unavailable]`;
+          }
+        })
+        .join("\n");
+
+      const companyContext = [
+        `Company: ${company.name}`,
+        company.oneLiner ? `One-liner: ${company.oneLiner}` : "",
+        company.sector ? `Sector: ${company.sector}` : "",
+        company.subSector ? `Sub-sector: ${company.subSector}` : "",
+        company.businessModel ? `Business model: ${company.businessModel}` : "",
+        company.stage ? `Stage: ${company.stage}` : "",
+        company.description ? `Description: ${company.description}` : "",
+        company.fundingHistory ? `Funding: ${company.fundingHistory}` : "",
+        company.competitiveLandscape ? `Competitive landscape: ${company.competitiveLandscape}` : "",
+        company.hasLiquidToken ? `Token: ${company.tokenTicker || "Yes"} on ${company.tokenChain || "unknown chain"}` : "",
+        company.liquidTokenAnalysis ? `Token analysis: ${company.liquidTokenAnalysis.substring(0, 1000)}` : "",
+        tokenProfile ? `Contract: ${tokenProfile.contractAddress} (${tokenProfile.chain})` : "",
+      ].filter(Boolean).join("\n");
+
+      const systemPrompt = `You are a quantitative analyst and financial modeller working for a VC firm called Research Everything. You build sophisticated financial models for crypto/DeFi protocols and companies.
+
+Your task: Given a user's modelling request and company context, produce a structured financial model.
+
+OUTPUT FORMAT — You must return a JSON object with this exact structure:
+{
+  "title": "Title Case Model Name",
+  "assumptions": [
+    { "label": "Revenue Growth Rate", "value": "30%", "basis": "Based on H2 2025 trend" },
+    { "label": "Take Rate", "value": "0.05%", "basis": "Current protocol fee structure" }
+  ],
+  "sections": [
+    {
+      "heading": "Section Name",
+      "type": "table",
+      "columns": ["Year", "Revenue", "Costs", "Net Income"],
+      "rows": [
+        ["2025", "$12M", "$8M", "$4M"],
+        ["2026", "$18M", "$10M", "$8M"]
+      ],
+      "note": "Optional analytical note about this section"
+    },
+    {
+      "heading": "Key Metrics",
+      "type": "metrics",
+      "items": [
+        { "label": "Implied Valuation", "value": "$450M", "detail": "At 25x forward revenue" },
+        { "label": "IRR (3Y)", "value": "42%", "detail": "Based on base case projections" }
+      ]
+    },
+    {
+      "heading": "Scenario Analysis",
+      "type": "scenarios",
+      "scenarios": [
+        { "name": "Bull", "probability": "25%", "outcome": "$800M valuation", "keyDrivers": "50% growth, margin expansion" },
+        { "name": "Base", "probability": "50%", "outcome": "$450M valuation", "keyDrivers": "30% growth, stable margins" },
+        { "name": "Bear", "probability": "25%", "outcome": "$200M valuation", "keyDrivers": "10% growth, compression" }
+      ]
+    },
+    {
+      "heading": "Analysis",
+      "type": "text",
+      "content": "Markdown text with analytical commentary..."
+    }
+  ],
+  "methodology": "Brief description of approach used"
+}
+
+MODELLING CAPABILITIES:
+- DCF (Discounted Cash Flow) with protocol-specific revenue drivers
+- Comparable analysis (protocol multiples — P/E, P/S, P/TVL, EV/Revenue)
+- Token valuation (fully diluted value, circulating supply dynamics, emission schedule impact)
+- Scenario analysis (bull/base/bear with probability weighting)
+- Unit economics (cost per user, LTV/CAC for protocols, fee-per-transaction)
+- Revenue projections (run-rate analysis, growth extrapolation)
+- Sensitivity analysis (key variable impact on valuation)
+- Market sizing (TAM/SAM/SOM for protocol verticals)
+
+RULES:
+1. Use REAL data from the company context wherever possible — never invent metrics you can see in the data.
+2. When you don't have specific data, state assumptions clearly and explain basis.
+3. All financial figures should use proper formatting ($1.2M, 30%, 25x).
+4. Include at least one table section with projections.
+5. Always include a scenario analysis section.
+6. Be quantitative and specific — avoid vague language.
+7. For crypto/DeFi: use protocol-native metrics (TVL, volume, fees, active addresses) as revenue drivers.
+8. Return ONLY the JSON object. No markdown wrapping, no \`\`\`json fences, just the raw JSON.`;
+
+      const userMessage = [
+        "## Company Context",
+        companyContext,
+        reportsSummary ? `\n## Research Reports (excerpts)\n${reportsSummary}` : "",
+        chartsSummary ? `\n## Available Data\n${chartsSummary}` : "",
+        `\n## Modelling Request\n${prompt}`,
+      ].filter(Boolean).join("\n");
+
+      const model = await storage.createFinancialModel({
+        companyId: company.id,
+        userId,
+        title: "Generating...",
+        prompt,
+        content: "{}",
+        status: "generating",
+      });
+
+      res.json({ id: model.id, status: "generating" });
+
+      (async () => {
+        try {
+          const result = await callAnthropicServerHeavy({
+            model: "claude-opus-4-6",
+            max_tokens: 8000,
+            system: systemPrompt,
+            messages: [{ role: "user", content: userMessage }],
+          });
+
+          let modelData: any;
+          try {
+            const cleaned = result.text.replace(/^```json\s*/, "").replace(/```\s*$/, "").trim();
+            modelData = JSON.parse(cleaned);
+          } catch (parseErr) {
+            await storage.updateFinancialModel(model.id, {
+              content: result.text,
+              status: "error",
+              title: "Parse Error",
+            });
+            return;
+          }
+
+          const hasValidStructure = modelData &&
+            typeof modelData.title === "string" &&
+            Array.isArray(modelData.sections) &&
+            modelData.sections.length > 0;
+
+          if (!hasValidStructure) {
+            await storage.updateFinancialModel(model.id, {
+              content: JSON.stringify(modelData),
+              status: "error",
+              title: "Invalid Model Structure",
+            });
+            return;
+          }
+
+          await storage.updateFinancialModel(model.id, {
+            content: JSON.stringify(modelData),
+            assumptions: JSON.stringify(modelData.assumptions || []),
+            status: "complete",
+            title: modelData.title,
+          });
+
+          try {
+            await storage.logTransaction({
+              userId,
+              type: "financial_model",
+              description: `AI model: ${modelData.title || prompt.substring(0, 50)}`,
+              amount: "0.5000",
+              apiCost: result.mppCost.toFixed(4),
+              companyName: company.name,
+              inputTokens: result.usage.input_tokens,
+              outputTokens: result.usage.output_tokens,
+            });
+          } catch (err) {
+            console.error("[Transaction] Failed to log financial_model:", err);
+          }
+
+          trackEvent(userId, "financial_model_generated", {
+            modelId: model.id,
+            companyId: company.id,
+            promptLength: prompt.length,
+          });
+        } catch (err: any) {
+          console.error("[Modelling] Generation failed:", err.message);
+          await storage.updateFinancialModel(model.id, {
+            status: "error",
+            title: "Generation Failed",
+            content: JSON.stringify({ error: err.message }),
+          });
+        }
+      })();
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/models/:id", requireAuth, async (req, res) => {
+    try {
+      const model = await storage.getFinancialModel(req.params.id);
+      if (!model) return res.status(404).json({ message: "Model not found" });
+      if (model.userId !== req.user!.id) {
+        const isAdmin = await storage.checkIsAdmin(req.user!.id);
+        if (!isAdmin) return res.status(403).json({ message: "Not authorized" });
+      }
+      res.json(model);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/models/:id", requireAuth, async (req, res) => {
+    try {
+      const deleted = await storage.deleteFinancialModel(req.params.id, req.user!.id);
+      if (!deleted) return res.status(404).json({ message: "Model not found" });
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
     }
   });
 

@@ -12,9 +12,10 @@ import {
   type DashboardChart, type InsertDashboardChart,
   type ProvenQuery, type InsertProvenQuery,
   type SystemLearning, type InsertSystemLearning,
+  type FinancialModel, type InsertFinancialModel,
   users, companies, founders, notes, reports, transactions,
   tokenProfiles, masterDuneQueries, duneQueries, tokenAnalyses, dashboardCharts,
-  provenQueries, systemLearnings,
+  provenQueries, systemLearnings, financialModels,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, ne, desc, and, isNull, isNotNull, sql } from "drizzle-orm";
@@ -101,6 +102,12 @@ export interface IStorage {
   incrementLearningApplied(id: string): Promise<void>;
   deactivateLearning(id: string): Promise<void>;
   getAllActiveLearnings(): Promise<SystemLearning[]>;
+
+  createFinancialModel(data: InsertFinancialModel): Promise<FinancialModel>;
+  updateFinancialModel(id: string, data: { content?: string; assumptions?: string; status?: string; title?: string }): Promise<FinancialModel | undefined>;
+  getFinancialModel(id: string): Promise<FinancialModel | undefined>;
+  getFinancialModelsByCompany(companyId: string, userId: string): Promise<FinancialModel[]>;
+  deleteFinancialModel(id: string, userId: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -225,6 +232,7 @@ export class DatabaseStorage implements IStorage {
     if (userId) conditions.push(eq(companies.userId, userId));
     const [company] = await db.select().from(companies).where(and(...conditions));
     if (!company) return;
+    await db.delete(financialModels).where(eq(financialModels.companyId, id));
     await db.delete(tokenAnalyses).where(eq(tokenAnalyses.companyId, id));
     await db.delete(duneQueries).where(eq(duneQueries.companyId, id));
     await db.delete(tokenProfiles).where(eq(tokenProfiles.companyId, id));
@@ -648,6 +656,35 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(systemLearnings)
       .where(eq(systemLearnings.isActive, true))
       .orderBy(desc(systemLearnings.confidence));
+  }
+
+  async createFinancialModel(data: InsertFinancialModel): Promise<FinancialModel> {
+    const [model] = await db.insert(financialModels).values(data).returning();
+    return model;
+  }
+
+  async updateFinancialModel(id: string, data: { content?: string; assumptions?: string; status?: string; title?: string }): Promise<FinancialModel | undefined> {
+    const [updated] = await db.update(financialModels).set(data).where(eq(financialModels.id, id)).returning();
+    return updated;
+  }
+
+  async getFinancialModel(id: string): Promise<FinancialModel | undefined> {
+    const [model] = await db.select().from(financialModels).where(eq(financialModels.id, id));
+    return model;
+  }
+
+  async getFinancialModelsByCompany(companyId: string, userId: string): Promise<FinancialModel[]> {
+    return db.select().from(financialModels)
+      .where(and(eq(financialModels.companyId, companyId), eq(financialModels.userId, userId)))
+      .orderBy(desc(financialModels.createdAt));
+  }
+
+  async deleteFinancialModel(id: string, userId: string): Promise<boolean> {
+    const [model] = await db.select().from(financialModels)
+      .where(and(eq(financialModels.id, id), eq(financialModels.userId, userId)));
+    if (!model) return false;
+    const result = await db.delete(financialModels).where(eq(financialModels.id, id)).returning();
+    return result.length > 0;
   }
 }
 

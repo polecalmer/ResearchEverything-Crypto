@@ -300,6 +300,25 @@ export const insertSystemLearningSchema = createInsertSchema(systemLearnings).om
 export type SystemLearning = typeof systemLearnings.$inferSelect;
 export type InsertSystemLearning = z.infer<typeof insertSystemLearningSchema>;
 
+export const financialModels = pgTable("financial_models", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  companyId: varchar("company_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  title: text("title").notNull(),
+  prompt: text("prompt").notNull(),
+  content: text("content").notNull(),
+  assumptions: text("assumptions"),
+  status: text("status").notNull().default("generating"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertFinancialModelSchema = createInsertSchema(financialModels).omit({
+  id: true,
+  createdAt: true,
+});
+export type FinancialModel = typeof financialModels.$inferSelect;
+export type InsertFinancialModel = z.infer<typeof insertFinancialModelSchema>;
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
