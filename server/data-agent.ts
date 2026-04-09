@@ -660,24 +660,56 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
       let data: any[];
 
       if (useVolumeComparison) {
-        const summaryData = await stonks.getSummary();
-        const hip3Volume = summaryData.volume.current24h;
+        let hip3Volume = 0;
+        let hip3Source = "StonksOnChain";
+
+        try {
+          const summaryData = await stonks.getSummary();
+          hip3Volume = summaryData.volume.current24h;
+        } catch (summaryErr: any) {
+          console.log(`[Data Agent] Stonks summary failed: ${summaryErr.message}, trying deployer-revenue`);
+          try {
+            const deployerData = await stonks.getDeployerRevenue();
+            if (deployerData.totals?.volume24h) {
+              hip3Volume = deployerData.totals.volume24h;
+              hip3Source = "StonksOnChain (deployer-revenue)";
+            } else if (deployerData.deployers && deployerData.deployers.length > 0) {
+              hip3Volume = deployerData.deployers.reduce((sum: number, d: any) => sum + (d.volume24h || 0), 0);
+              hip3Source = "StonksOnChain (deployer-revenue)";
+            }
+          } catch (deployerErr: any) {
+            console.log(`[Data Agent] Stonks deployer-revenue also failed: ${deployerErr.message}`);
+          }
+        }
 
         let totalHlVolume = 0;
+        let totalSource = "";
         try {
           const defiLlamaSlug = tokenProfile?.defiLlamaSlug || "hyperliquid";
           const derivData = await defillama.getProtocolDerivativesVolume(defiLlamaSlug);
           if (derivData.total24h && derivData.total24h > 0) {
             totalHlVolume = derivData.total24h;
+            totalSource = "DeFiLlama";
           } else if (derivData.dailyVolume && derivData.dailyVolume.length > 0) {
             totalHlVolume = derivData.dailyVolume[derivData.dailyVolume.length - 1]?.volume || 0;
+            totalSource = "DeFiLlama";
           }
         } catch {
-          console.log(`[Data Agent] DeFiLlama volume lookup failed, using Stonks volume only`);
+          console.log(`[Data Agent] DeFiLlama volume lookup failed`);
+        }
+
+        if (hip3Volume <= 0 && totalHlVolume > 0) {
+          hip3Volume = totalHlVolume * 0.25;
+          hip3Source = "estimated (25% of total)";
+        }
+
+        if (hip3Volume <= 0 && totalHlVolume <= 0) {
+          throw new Error("Both StonksOnChain and DeFiLlama APIs are currently unavailable. Please try again later.");
         }
 
         if (totalHlVolume <= 0) {
           totalHlVolume = hip3Volume * 4;
+          totalSource = "estimated";
         }
 
         const nativeVolume = Math.max(0, totalHlVolume - hip3Volume);
@@ -688,7 +720,8 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
           { category: "Native Markets", hip3_volume: 0, native_volume: nativeVolume, volume: nativeVolume },
         ];
 
-        hardPlan.description = `HIP-3 MARKETS: ${hip3Pct}% OF TOTAL 24H VOLUME ($${(hip3Volume / 1e9).toFixed(2)}B / $${(totalHlVolume / 1e9).toFixed(2)}B)|||HIP-3 volume share of Hyperliquid's total 24h trading volume. Source: StonksOnChain + DeFiLlama.`;
+        const sourceNote = totalSource ? `Source: ${hip3Source} + ${totalSource}` : `Source: ${hip3Source} (estimated total)`;
+        hardPlan.description = `HIP-3 MARKETS: ${hip3Pct}% OF TOTAL 24H VOLUME ($${(hip3Volume / 1e9).toFixed(2)}B / $${(totalHlVolume / 1e9).toFixed(2)}B)|||HIP-3 volume share of Hyperliquid's total 24h trading volume. ${sourceNote}.`;
         hardPlan.chartConfig.xAxisKey = "category";
         hardPlan.chartConfig.yAxes = [
           { dataKey: "volume", label: "24h Volume", format: "currency", color: "#38bdf8" },
