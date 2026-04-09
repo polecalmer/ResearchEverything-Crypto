@@ -1594,6 +1594,22 @@ export function ReportsTab({ companyId, companyName }: { companyId: string; comp
   );
 }
 
+function TokenSnapshotClipAction({ companyId }: { companyId: string }) {
+  const { data: tokenProfile } = useQuery<TokenProfile>({
+    queryKey: ["/api/companies", companyId, "token-profile"],
+  });
+  if (!tokenProfile) return null;
+  const ticker = tokenProfile.tokenTicker || "Token";
+  return (
+    <AddToMasterReport
+      blockType="text"
+      content={`## ${ticker} — Token Snapshot\n\nLive market data fetched from CoinGecko for ${ticker} (${tokenProfile.chain}).`}
+      label="+"
+      className="text-[10px] text-muted-foreground/40 hover:text-foreground/60 transition-colors"
+    />
+  );
+}
+
 export default function TokenIntelligenceTab({ companyId, companyName, hasLiquidToken }: { companyId: string; companyName: string; hasLiquidToken?: boolean }) {
   const { getAccessToken } = useAuth();
 
@@ -1622,7 +1638,9 @@ export default function TokenIntelligenceTab({ companyId, companyName, hasLiquid
         <TokenProfileManager companyId={companyId} />
       </Section>
 
-      <Section title="Token Snapshot">
+      <Section title="Token Snapshot" action={
+        <TokenSnapshotClipAction companyId={companyId} />
+      }>
         <div className="flex gap-3 items-start">
           <div className="w-[180px] shrink-0">
             <TokenSnapshotCard companyId={companyId} />

@@ -19,6 +19,7 @@ import { useState } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { format } from "date-fns";
 import type { Report } from "@shared/schema";
+import { AddToMasterReport } from "@/components/add-to-master-report";
 import TokenIntelligenceTab, { ReportsTab } from "./token-intelligence";
 import DataTab from "./data-tab";
 import ModellingTab from "./modelling-tab";
@@ -62,12 +63,13 @@ const PRIORITY_COLORS = {
   low: "text-muted-foreground",
 };
 
-function TermBlock({ label, children, className = "" }: { label: string; children: React.ReactNode; className?: string; icon?: string }) {
+function TermBlock({ label, children, className = "", action }: { label: string; children: React.ReactNode; className?: string; icon?: string; action?: React.ReactNode }) {
   return (
     <div className={`mb-0 ${className}`}>
       <div className="flex items-center gap-2 mb-3 select-none">
         <span className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground/60">{label}</span>
         <span className="flex-1 border-t border-border/30" />
+        {action}
       </div>
       <div className="pl-1">
         {children}
@@ -96,7 +98,7 @@ function TermLink({ href, children, className = "", ...props }: React.AnchorHTML
 }
 
 
-function NextStepsAdvisor({ companyId, pipelineStage }: { companyId: string; pipelineStage: string }) {
+function NextStepsAdvisor({ companyId, pipelineStage, companyName }: { companyId: string; pipelineStage: string; companyName?: string }) {
   const [showAll, setShowAll] = useState(false);
   const { getAccessToken } = useAuth();
 
@@ -163,6 +165,10 @@ function NextStepsAdvisor({ companyId, pipelineStage }: { companyId: string; pip
   const displaySteps = showAll ? steps : highPriority.length > 0 ? highPriority.slice(0, 4) : steps.slice(0, 3);
   const hiddenCount = steps.length - displaySteps.length;
 
+  const stepsClipContent = steps.map((s) =>
+    `- **[${s.priority.toUpperCase()}]** ${s.title}\n  ${s.detail}${s.verifierNote ? `\n  _${s.verifierNote}_` : ""}`
+  ).join("\n");
+
   return (
     <div data-testid="card-next-steps" className="space-y-2">
       {displaySteps.map((step, i) => (
@@ -196,6 +202,14 @@ function NextStepsAdvisor({ companyId, pipelineStage }: { companyId: string; pip
           Show less
         </button>
       )}
+      <div className="flex justify-end pt-1">
+        <AddToMasterReport
+          blockType="text"
+          content={`## ${companyName || "Company"} — Next Steps\n\n${stepsClipContent}`}
+          label="+"
+          className="text-[10px] text-muted-foreground/40 hover:text-foreground/60 transition-colors"
+        />
+      </div>
     </div>
   );
 }
@@ -619,19 +633,25 @@ export default function CompanyDetail() {
             <div className="flex-1 min-w-0 space-y-6">
 
               {company.description && (
-                <TermBlock label="Overview">
+                <TermBlock label="Overview" action={
+                  <AddToMasterReport blockType="text" content={`## ${company.name} — Overview\n\n${company.description}`} label="+" className="text-[10px] text-muted-foreground/40 hover:text-foreground/60 transition-colors" />
+                }>
                   <p className="text-[13px] leading-relaxed text-foreground/80" data-testid="text-company-description">{company.description}</p>
                 </TermBlock>
               )}
 
               {company.fundingHistory && (
-                <TermBlock label="Funding">
+                <TermBlock label="Funding" action={
+                  <AddToMasterReport blockType="text" content={`## ${company.name} — Funding\n\n${company.fundingHistory}`} label="+" className="text-[10px] text-muted-foreground/40 hover:text-foreground/60 transition-colors" />
+                }>
                   <p className="text-[13px] leading-relaxed text-foreground/80" data-testid="text-funding">{company.fundingHistory}</p>
                 </TermBlock>
               )}
 
               {company.competitiveLandscape && (
-                <TermBlock label="Competitive Landscape">
+                <TermBlock label="Competitive Landscape" action={
+                  <AddToMasterReport blockType="text" content={`## ${company.name} — Competitive Landscape\n\n${company.competitiveLandscape}`} label="+" className="text-[10px] text-muted-foreground/40 hover:text-foreground/60 transition-colors" />
+                }>
                   <p className="text-[13px] leading-relaxed text-foreground/80" data-testid="text-competitive">{company.competitiveLandscape}</p>
                 </TermBlock>
               )}
@@ -640,8 +660,11 @@ export default function CompanyDetail() {
                 try {
                   const reads = JSON.parse(company.adjacentReads);
                   if (Array.isArray(reads) && reads.length > 0) {
+                    const readsSummary = reads.map((r: any) => `- [${r.title}](${r.url})${r.source ? ` (${r.source})` : ""}`).join("\n");
                     return (
-                      <TermBlock label={`DD Reads (${reads.length})`}>
+                      <TermBlock label={`DD Reads (${reads.length})`} action={
+                        <AddToMasterReport blockType="text" content={`## ${company.name} — DD Reads\n\n${readsSummary}`} label="+" className="text-[10px] text-muted-foreground/40 hover:text-foreground/60 transition-colors" />
+                      }>
                         <div className="space-y-1">
                           {reads.map((read: any, idx: number) => (
                             <a
@@ -667,8 +690,18 @@ export default function CompanyDetail() {
                 return null;
               })()}
 
-              {founders.length > 0 && (
-                <TermBlock label={`Team (${founders.length})`}>
+              {founders.length > 0 && (() => {
+                const teamSummary = founders.map((f) => {
+                  let line = `**${f.name}**`;
+                  if (f.role) line += ` — ${f.role}`;
+                  if (f.bio) line += `\n${f.bio}`;
+                  if (f.priorCompanies) line += `\nPreviously: ${f.priorCompanies}`;
+                  return line;
+                }).join("\n\n");
+                return (
+                <TermBlock label={`Team (${founders.length})`} action={
+                  <AddToMasterReport blockType="text" content={`## ${company.name} — Team\n\n${teamSummary}`} label="+" className="text-[10px] text-muted-foreground/40 hover:text-foreground/60 transition-colors" />
+                }>
                   <div className="space-y-4">
                     {founders.map((founder, idx) => (
                       <div key={founder.id} data-testid={`card-founder-${founder.id}`}>
@@ -700,9 +733,14 @@ export default function CompanyDetail() {
                     ))}
                   </div>
                 </TermBlock>
-              )}
+                );
+              })()}
 
-              <TermBlock label={`Notes (${notes.length})`}>
+              <TermBlock label={`Notes (${notes.length})`} action={
+                notes.length > 0 ? (
+                  <AddToMasterReport blockType="text" content={`## ${company.name} — Notes\n\n${notes.map((n) => `- ${n.createdAt ? format(new Date(n.createdAt), "MM/dd") + ": " : ""}${n.content}`).join("\n")}`} label="+" className="text-[10px] text-muted-foreground/40 hover:text-foreground/60 transition-colors" />
+                ) : undefined
+              }>
                 <div className="mb-3">
                   <div className="flex items-start gap-2">
                     <textarea
@@ -775,15 +813,23 @@ export default function CompanyDetail() {
                 </div>
               </TermBlock>
 
-              <TermBlock label="Conviction">
+              <TermBlock label="Conviction" action={
+                (company.excitementScore || company.excitementReason) ? (
+                  <AddToMasterReport blockType="text" content={`## ${company.name} — Conviction\n\nScore: ${company.excitementScore ?? "unrated"}/10${company.excitementReason ? `\n\n${company.excitementReason}` : ""}`} label="+" className="text-[10px] text-muted-foreground/40 hover:text-foreground/60 transition-colors" />
+                ) : undefined
+              }>
                 <ExcitementBar companyId={company.id} score={company.excitementScore ?? null} reason={company.excitementReason ?? null} />
               </TermBlock>
 
               <TermBlock label="Next Steps">
-                <NextStepsAdvisor companyId={company.id} pipelineStage={company.pipelineStage} />
+                <NextStepsAdvisor companyId={company.id} pipelineStage={company.pipelineStage} companyName={company.name} />
               </TermBlock>
 
-              <TermBlock label="Tags">
+              <TermBlock label="Tags" action={
+                company.tags && company.tags.length > 0 ? (
+                  <AddToMasterReport blockType="text" content={`## ${company.name} — Tags\n\n${company.tags.join(", ")}`} label="+" className="text-[10px] text-muted-foreground/40 hover:text-foreground/60 transition-colors" />
+                ) : undefined
+              }>
                 <TagsInline tags={company.tags || []} companyId={company.id} />
               </TermBlock>
 
