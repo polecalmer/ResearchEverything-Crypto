@@ -131,7 +131,7 @@ process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
 process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 const MAX_RETRIES = 3;
-const RETRY_DELAY_MS = 4000;
+const RETRY_DELAY_MS = 8000;
 
 function isRetryable(status: number): boolean {
   return status >= 500 || status === 429;
@@ -167,6 +167,10 @@ async function callAnthropic(request: AnthropicRequest): Promise<AnthropicRespon
       if (!response.ok) {
         const errorText = await response.text().catch(() => "Unknown error");
         if (isRetryable(response.status) && attempt < MAX_RETRIES) {
+          if (response.status === 524 || response.status === 502) {
+            console.log(`[MPP-Channel] Gateway error ${response.status} — refreshing channel before retry`);
+            forceNewChannel();
+          }
           const delay = RETRY_DELAY_MS * (attempt + 1);
           console.log(`[MPP-Channel] Retryable error ${response.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
           await new Promise((r) => setTimeout(r, delay));
