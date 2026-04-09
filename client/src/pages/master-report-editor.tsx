@@ -240,6 +240,99 @@ function ReferencedReport({ reportId }: { reportId: string }) {
   );
 }
 
+function parseModelJSON(content: string): { title?: string; assumptions?: { label: string; value: string; basis?: string }[]; sections?: any[]; methodology?: string } | null {
+  try {
+    const data = JSON.parse(content);
+    if (data.title && Array.isArray(data.sections)) return data;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+function ModelSectionBlock({ section }: { section: any }) {
+  if (section.type === "table") {
+    return (
+      <div className="space-y-1">
+        <h4 className="text-xs font-medium text-foreground/90 uppercase tracking-wider">{section.heading}</h4>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-border/30">
+                {(section.columns || []).map((col: string, i: number) => (
+                  <th key={i} className="text-left py-2 px-3 text-muted-foreground font-medium whitespace-nowrap">{col}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {(section.rows || []).map((row: string[], ri: number) => (
+                <tr key={ri} className="border-b border-border/10 hover:bg-accent/5 transition-colors">
+                  {(Array.isArray(row) ? row : []).map((cell: string, ci: number) => (
+                    <td key={ci} className={`py-2 px-3 whitespace-nowrap ${ci === 0 ? "text-foreground/80 font-medium" : "text-foreground/70 tabular-nums"}`}>{cell}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {section.note && <p className="text-[11px] text-muted-foreground/70 italic mt-1">{section.note}</p>}
+      </div>
+    );
+  }
+  if (section.type === "metrics") {
+    return (
+      <div className="space-y-1">
+        <h4 className="text-xs font-medium text-foreground/90 uppercase tracking-wider">{section.heading}</h4>
+        <div className="grid grid-cols-2 gap-3">
+          {(section.items || []).map((item: any, i: number) => (
+            <div key={i} className="bg-accent/5 border border-border/20 rounded-md p-3">
+              <div className="text-[11px] text-muted-foreground mb-1">{item.label}</div>
+              <div className="text-sm font-semibold text-foreground tabular-nums">{item.value}</div>
+              {item.detail && <div className="text-[10px] text-muted-foreground/60 mt-1">{item.detail}</div>}
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+  if (section.type === "scenarios") {
+    const scenarioColors: Record<string, string> = {
+      bull: "border-emerald-500/30 bg-emerald-500/5",
+      base: "border-blue-500/30 bg-blue-500/5",
+      bear: "border-red-500/30 bg-red-500/5",
+    };
+    return (
+      <div className="space-y-1">
+        <h4 className="text-xs font-medium text-foreground/90 uppercase tracking-wider">{section.heading}</h4>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          {(section.scenarios || []).map((s: any, i: number) => {
+            const colorClass = scenarioColors[s.name.toLowerCase()] || "border-border/30 bg-accent/5";
+            return (
+              <div key={i} className={`border rounded-md p-3 ${colorClass}`}>
+                <div className="flex items-center gap-1.5 mb-2">
+                  <span className="text-xs font-medium text-foreground/90">{s.name}</span>
+                  <span className="text-[10px] text-muted-foreground ml-auto">{s.probability}</span>
+                </div>
+                <div className="text-sm font-semibold text-foreground mb-1">{s.outcome}</div>
+                {s.keyDrivers && <div className="text-[10px] text-muted-foreground">{s.keyDrivers}</div>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+  if (section.type === "text") {
+    return (
+      <div className="space-y-1">
+        <h4 className="text-xs font-medium text-foreground/90 uppercase tracking-wider">{section.heading}</h4>
+        <p className="text-xs text-foreground/80 leading-relaxed">{section.content}</p>
+      </div>
+    );
+  }
+  return null;
+}
+
 function ReferencedModel({ modelId }: { modelId: string }) {
   const { data: model, isLoading } = useQuery<FinancialModel>({
     queryKey: ["/api/models", modelId],
@@ -253,13 +346,45 @@ function ReferencedModel({ modelId }: { modelId: string }) {
   if (isLoading) return <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="w-3 h-3 animate-spin" /> Loading model...</div>;
   if (!model) return <p className="text-xs text-muted-foreground italic">Model not found</p>;
 
+  const parsed = model.content ? parseModelJSON(model.content) : null;
+
+  if (!parsed) {
+    return (
+      <div className="space-y-2">
+        <div className="text-sm font-medium">{model.title}</div>
+        <div
+          className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed max-h-[600px] overflow-y-auto"
+          dangerouslySetInnerHTML={{ __html: sanitizeMarkdown(model.content || "") }}
+        />
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-2">
-      <div className="text-sm font-medium">{model.title}</div>
-      <div
-        className="prose prose-sm dark:prose-invert max-w-none text-sm leading-relaxed max-h-[600px] overflow-y-auto"
-        dangerouslySetInnerHTML={{ __html: sanitizeMarkdown(model.content || "") }}
-      />
+    <div className="space-y-4">
+      <div className="text-sm font-medium">{parsed.title || model.title}</div>
+      {parsed.assumptions && parsed.assumptions.length > 0 && (
+        <div className="space-y-2">
+          <h4 className="text-xs font-medium text-foreground/90 uppercase tracking-wider">Key Assumptions</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {parsed.assumptions.map((a, i) => (
+              <div key={i} className="flex items-start gap-2 text-[11px] bg-accent/5 border border-border/15 rounded px-2.5 py-2">
+                <span className="text-muted-foreground whitespace-nowrap">{a.label}:</span>
+                <span className="text-foreground font-medium">{a.value}</span>
+                {a.basis && <span className="text-muted-foreground/50 italic ml-auto text-[10px]">({a.basis})</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {parsed.sections.map((section: any, i: number) => (
+        <ModelSectionBlock key={i} section={section} />
+      ))}
+      {parsed.methodology && (
+        <div className="pt-2 border-t border-border/15">
+          <p className="text-[10px] text-muted-foreground/50 italic">{parsed.methodology}</p>
+        </div>
+      )}
     </div>
   );
 }

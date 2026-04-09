@@ -187,7 +187,7 @@ function buildDateFormatter(data: Record<string, unknown>[], xKey: string) {
 }
 
 export function InlineChartRenderer({ chart }: { chart: DashboardChart }) {
-  if (chart.status !== "complete" || !chart.data) {
+  if ((chart.status !== "complete" && chart.status !== "completed") || !chart.data) {
     return <p className="text-xs text-muted-foreground italic">Chart data not available (status: {chart.status})</p>;
   }
 

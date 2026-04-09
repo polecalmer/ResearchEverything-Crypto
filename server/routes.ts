@@ -2258,9 +2258,27 @@ RULES:
 
   app.patch("/api/master-reports/:id/blocks/:blockId", requireAuth, async (req, res) => {
     try {
-      const report = await storage.getMasterReport(req.params.id, req.user!.id);
+      const userId = req.user!.id;
+      const report = await storage.getMasterReport(req.params.id, userId);
       if (!report) return res.status(404).json({ message: "Report not found" });
       const { content, displayOrder, blockType, referenceId } = req.body;
+      if (blockType) {
+        const validTypes = ["text", "chart", "report-section", "model", "table"];
+        if (!validTypes.includes(blockType)) return res.status(400).json({ message: "Invalid blockType" });
+      }
+      if (referenceId) {
+        const effectiveType = blockType || (await storage.getMasterReportBlocks(report.id)).find(b => b.id === req.params.blockId)?.blockType;
+        if (effectiveType === "report-section") {
+          const ref = await storage.getReport(referenceId);
+          if (!ref || ref.userId !== userId) return res.status(400).json({ message: "Referenced report not found or not owned" });
+        } else if (effectiveType === "model") {
+          const ref = await storage.getFinancialModel(referenceId);
+          if (!ref || ref.userId !== userId) return res.status(400).json({ message: "Referenced model not found or not owned" });
+        } else if (effectiveType === "chart") {
+          const ref = await storage.getDashboardChart(referenceId);
+          if (!ref || ref.userId !== userId) return res.status(400).json({ message: "Referenced chart not found or not owned" });
+        }
+      }
       const updated = await storage.updateMasterReportBlock(req.params.blockId, report.id, { content, displayOrder, blockType, referenceId });
       if (!updated) return res.status(404).json({ message: "Block not found" });
       res.json(updated);
