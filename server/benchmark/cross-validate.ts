@@ -9,6 +9,44 @@
  */
 
 import * as defillama from "../defillama-client";
+import { db } from "../db";
+import { sql } from "drizzle-orm";
+
+/** Resolve CoinGecko coin ID from project_knowledge or common mappings */
+async function resolveGeckoId(protocol: string, slug?: string): Promise<string | null> {
+  // Check project_knowledge first
+  try {
+    const result = await db.execute(sql`
+      SELECT coingecko_id, gecko_id FROM project_knowledge
+      WHERE LOWER(name) = ${protocol.toLowerCase()}
+      OR LOWER(slug) = ${(slug || protocol).toLowerCase()}
+      LIMIT 1
+    `);
+    const row = result.rows?.[0];
+    if (row?.coingecko_id) return row.coingecko_id as string;
+    if (row?.gecko_id) return row.gecko_id as string;
+  } catch {}
+
+  // Common manual mappings for well-known tokens
+  const KNOWN_IDS: Record<string, string> = {
+    "xrp": "ripple", "zcash": "zcash", "chiliz": "chiliz",
+    "injective": "injective-protocol", "beldex": "beldex",
+    "vechain": "vechain", "ethereum classic": "ethereum-classic",
+    "algorand": "algorand", "pi network": "pi-network",
+    "provenance blockchain": "provenance-blockchain",
+    "aave": "aave", "uniswap": "uniswap", "lido": "lido-dao",
+    "morpho": "morpho", "ethena": "ethena", "makerdao": "maker",
+    "compound": "compound-governance-token", "curve": "curve-dao-token",
+    "hyperliquid": "hyperliquid", "axie infinity": "axie-infinity",
+    "the sandbox": "the-sandbox", "decentraland": "decentraland",
+  };
+  const key = protocol.toLowerCase();
+  if (KNOWN_IDS[key]) return KNOWN_IDS[key];
+  if (slug && KNOWN_IDS[slug]) return KNOWN_IDS[slug];
+
+  // Try lowercase protocol name as fallback
+  return protocol.toLowerCase().replace(/\s+/g, "-");
+}
 
 export interface CrossValidationResult {
   status: "validated" | "warning" | "likely_wrong" | "no_reference";
@@ -335,10 +373,44 @@ export async function fetchReferenceTimeSeries(
         }
       }
       case "price": {
-        // For price reference, extract coinId from slug or use the slug directly
-        const coinId = resolvedSlug;
-        const priceData = await defillama.getCoinPriceHistory(coinId, 365);
-        return priceData.prices.map(p => ({ date: p.date, value: p.price }));
+        // Try DeFiLlama coins API first (uses coingecko: prefix internally)
+        const coinId = await resolveGeckoId(protocol, resolvedSlug);
+        if (coinId) {
+          try {
+            const priceData = await defillama.getCoinPriceHistory(coinId, 365);
+            if (priceData.prices.length > 0) {
+              return priceData.prices.map(p => ({ date: p.date, value: p.price }));
+            }
+          } catch {}
+        }
+        // Fallback: try slug directly
+        try {
+          const priceData = await defillama.getCoinPriceHistory(resolvedSlug, 365);
+          if (priceData.prices.length > 0) {
+            return priceData.prices.map(p => ({ date: p.date, value: p.price }));
+          }
+        } catch {}
+        return null;
+      }
+      case "market_cap": {
+        // Fetch market cap time series from CoinGecko market_chart endpoint
+        const mcapCoinId = await resolveGeckoId(protocol, resolvedSlug);
+        if (!mcapCoinId) return null;
+        try {
+          const cgRes = await fetch(
+            `https://api.coingecko.com/api/v3/coins/${mcapCoinId}/market_chart?vs_currency=usd&days=365`
+          );
+          if (!cgRes.ok) return null;
+          const cgData = await cgRes.json();
+          const mcaps = cgData.market_caps || [];
+          if (mcaps.length === 0) return null;
+          return mcaps.map((d: [number, number]) => ({
+            date: Math.floor(d[0] / 1000), // CoinGecko returns ms timestamps
+            value: d[1],
+          }));
+        } catch {
+          return null;
+        }
       }
       default:
         return null;

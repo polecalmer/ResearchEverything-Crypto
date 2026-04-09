@@ -136,7 +136,7 @@ export async function executeDuneSQL(sql: string, name?: string): Promise<DuneQu
     body: JSON.stringify({
       name: queryName,
       query_sql: sql,
-      is_private: true,
+      is_private: false,
     }),
   });
 
