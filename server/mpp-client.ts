@@ -143,14 +143,21 @@ function isChannelError(errMsg: string): boolean {
     errMsg.includes("expired");
 }
 
-async function callAnthropic(request: AnthropicRequest): Promise<AnthropicResponse> {
+interface CallOptions {
+  maxRetries?: number;
+  failFastOn524?: boolean;
+}
+
+async function callAnthropic(request: AnthropicRequest, options?: CallOptions): Promise<AnthropicResponse> {
   if (isShuttingDown) {
     throw new Error("Server is shutting down — please retry in a moment.");
   }
 
+  const maxRetries = options?.maxRetries ?? MAX_RETRIES;
+  const failFastOn524 = options?.failFastOn524 ?? false;
   let lastError: Error | null = null;
 
-  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const state = getOrCreateClient();
 
     try {
@@ -166,13 +173,18 @@ async function callAnthropic(request: AnthropicRequest): Promise<AnthropicRespon
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "Unknown error");
-        if (isRetryable(response.status) && attempt < MAX_RETRIES) {
+        if (failFastOn524 && (response.status === 524 || response.status === 502)) {
+          console.log(`[MPP-Channel] Gateway ${response.status} on heavy call — failing fast for caller to retry with smaller payload`);
+          forceNewChannel();
+          throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
+        }
+        if (isRetryable(response.status) && attempt < maxRetries) {
           if (response.status === 524 || response.status === 502) {
             console.log(`[MPP-Channel] Gateway error ${response.status} — refreshing channel before retry`);
             forceNewChannel();
           }
           const delay = RETRY_DELAY_MS * (attempt + 1);
-          console.log(`[MPP-Channel] Retryable error ${response.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
+          console.log(`[MPP-Channel] Retryable error ${response.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})...`);
           await new Promise((r) => setTimeout(r, delay));
           continue;
         }
@@ -225,7 +237,7 @@ async function callAnthropic(request: AnthropicRequest): Promise<AnthropicRespon
       if (isChannelError(errMsg)) {
         console.log(`[MPP-Channel] Channel error detected, opening new channel: "${errMsg.slice(0, 80)}"`);
         forceNewChannel();
-        if (attempt < MAX_RETRIES) {
+        if (attempt < maxRetries) {
           await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
           continue;
         }
@@ -235,9 +247,9 @@ async function callAnthropic(request: AnthropicRequest): Promise<AnthropicRespon
         errMsg.includes("524") || errMsg.includes("502") || errMsg.includes("503") ||
         errMsg.includes("timeout") || errMsg.includes("ECONNRESET") ||
         errMsg.includes("429") || errMsg.includes("paymentauth");
-      if (attempt < MAX_RETRIES && isRetryableError) {
+      if (attempt < maxRetries && isRetryableError) {
         const delay = RETRY_DELAY_MS * (attempt + 1);
-        console.log(`[MPP-Channel] Error: "${errMsg.slice(0, 80)}", retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
+        console.log(`[MPP-Channel] Error: "${errMsg.slice(0, 80)}", retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})...`);
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
@@ -253,5 +265,5 @@ export async function callAnthropicServer(request: AnthropicRequest): Promise<An
 }
 
 export async function callAnthropicServerHeavy(request: AnthropicRequest): Promise<AnthropicResponse> {
-  return callAnthropic(request);
+  return callAnthropic(request, { maxRetries: 1, failFastOn524: true });
 }
