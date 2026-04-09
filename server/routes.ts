@@ -2160,14 +2160,13 @@ RULES:
       switch (toolName) {
         case "get_token_snapshot": {
           const tokenProfile = await storage.getTokenProfile(company.id);
-          if (!tokenProfile?.contractAddress || !tokenProfile?.chain) {
-            return "No token profile configured for this company.";
+          const addr = tokenProfile?.contractAddress || company.tokenContractAddress || "";
+          const chain = tokenProfile?.chain || company.tokenChain || "";
+          const ticker = tokenProfile?.tokenTicker || company.tokenTicker || "TOKEN";
+          if (!chain) {
+            return "No token chain configured for this company — cannot fetch snapshot.";
           }
-          const { snapshot } = await fetchTokenSnapshot(
-            tokenProfile.contractAddress,
-            tokenProfile.chain,
-            tokenProfile.tokenTicker || company.tokenTicker || "TOKEN"
-          );
+          const { snapshot } = await fetchTokenSnapshot(addr, chain, ticker);
           return JSON.stringify(snapshot, null, 2);
         }
 
@@ -2178,7 +2177,10 @@ RULES:
             let rowCount = 0;
             try {
               const d = JSON.parse(c.data!);
-              rowCount = Array.isArray(d) ? d.length : 1;
+              if (Array.isArray(d)) rowCount = d.length;
+              else if (d?.rows && Array.isArray(d.rows)) rowCount = d.rows.length;
+              else if (d?.data && Array.isArray(d.data)) rowCount = d.data.length;
+              else rowCount = 1;
             } catch {}
             chartsCache.set(c.id, c);
             return {
@@ -2198,16 +2200,29 @@ RULES:
           let chart = chartsCache.get(chartId);
           if (!chart) {
             const charts = await storage.getDashboardChartsByCompany(company.id, userId);
-            chart = charts.find(c => c.id === chartId);
+            console.log(`[Modelling Agent] get_chart_data fallback: looking for ${chartId} among ${charts.length} charts, IDs: ${charts.map((c: any) => c.id).join(", ")}`);
+            chart = charts.find((c: any) => c.id === chartId);
+          } else {
+            console.log(`[Modelling Agent] get_chart_data: found ${chartId} in cache, has data: ${!!chart.data}`);
           }
           if (!chart || !chart.data) return `Chart ${chartId} not found or has no data.`;
           try {
-            const rawData = JSON.parse(chart.data);
+            let rawData = JSON.parse(chart.data);
+            if (rawData && typeof rawData === "object" && !Array.isArray(rawData)) {
+              if (rawData.rows && Array.isArray(rawData.rows)) {
+                rawData = rawData.rows;
+              } else if (rawData.data && Array.isArray(rawData.data)) {
+                rawData = rawData.data;
+              } else {
+                const firstKey = Object.keys(rawData).find(k => Array.isArray(rawData[k]));
+                if (firstKey) rawData = rawData[firstKey];
+              }
+            }
             const rows = Array.isArray(rawData) ? rawData : [rawData];
             const compacted = compactDataset(rows);
             return `## ${chart.title} [${chart.dataSource || "unknown"}]\n${compacted}`;
-          } catch {
-            return `Chart ${chartId} data could not be parsed.`;
+          } catch (parseErr: any) {
+            return `Chart ${chartId} data parse error: ${parseErr.message?.slice(0, 100)}`;
           }
         }
 
@@ -2238,7 +2253,7 @@ RULES:
     let totalInput = 0;
     let totalOutput = 0;
     const chartsCache = new Map<string, any>();
-    const MAX_TOOL_ROUNDS = 6;
+    const MAX_TOOL_ROUNDS = 12;
 
     const companyContext = [
       `Company: ${company.name}`,
@@ -2324,7 +2339,31 @@ RULES:
       messages.push({ role: "user", content: toolResults });
     }
 
-    throw new Error(`Modelling agent exceeded ${MAX_TOOL_ROUNDS} tool rounds without producing a model`);
+    console.log(`[Modelling Agent] Exhausted ${MAX_TOOL_ROUNDS} rounds — forcing final generation with collected data`);
+    messages.push({
+      role: "user",
+      content: [{ type: "text", text: "You have used all available tool rounds. You MUST now produce the final financial model JSON immediately using whatever data you have gathered so far. Do NOT call any more tools. Output ONLY the JSON object with {title, sections, assumptions}." }],
+    });
+    const finalResp = await callAnthropicRaw({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 16000,
+      system: systemPrompt,
+      messages,
+      tools: [],
+    });
+    totalMppCost += finalResp.mppCost || 0;
+    totalInput += finalResp.usage?.input_tokens || 0;
+    totalOutput += finalResp.usage?.output_tokens || 0;
+
+    const fallbackText = (finalResp.content || [])
+      .filter((b: any) => b.type === "text")
+      .map((b: any) => b.text)
+      .join("");
+    const fallbackModel = tryParseModelJSON(fallbackText);
+    if (fallbackModel && fallbackModel.title && Array.isArray(fallbackModel.sections) && (fallbackModel.sections as unknown[]).length > 0) {
+      return { modelData: fallbackModel, totalMppCost, totalInput, totalOutput };
+    }
+    throw new Error(`Modelling agent exceeded ${MAX_TOOL_ROUNDS} tool rounds and fallback generation failed`);
   }
 
   const preValidateModel: RequestHandler = async (req, res, next) => {
