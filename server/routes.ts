@@ -1,7 +1,14 @@
 import type { Express, RequestHandler } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertCompanySchema, insertFounderSchema, insertNoteSchema, insertTokenProfileSchema, insertDuneQuerySchema, insertMasterDuneQuerySchema, PIPELINE_STAGES, type Company } from "@shared/schema";
+import { insertCompanySchema, insertFounderSchema, insertNoteSchema, insertTokenProfileSchema, insertDuneQuerySchema, insertMasterDuneQuerySchema, PIPELINE_STAGES, type Company, type FinancialModel } from "@shared/schema";
+import type { Request } from "express";
+
+interface ValidatedModelRequest extends Request {
+  _validatedCompany: Company;
+  _validatedPrompt: string;
+  _validatedModel?: FinancialModel;
+}
 import { z } from "zod";
 import {
   startEnrichmentSession, advanceEnrichmentSession,
@@ -1842,19 +1849,20 @@ RULES:
       const parsed = modelPromptSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
       if (!isServerMppReady()) return res.status(503).json({ message: "AI service not configured" });
-      (req as any)._validatedCompany = company;
-      (req as any)._validatedPrompt = parsed.data.prompt;
+      (req as ValidatedModelRequest)._validatedCompany = company;
+      (req as ValidatedModelRequest)._validatedPrompt = parsed.data.prompt;
       next();
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Validation failed";
+      res.status(500).json({ message });
     }
   };
 
-  app.post("/api/companies/:id/models", requireAuth, preValidateModel as any, modellingPaywall, async (req, res) => {
+  app.post("/api/companies/:id/models", requireAuth, preValidateModel, modellingPaywall, async (req, res) => {
     try {
       const userId = req.user!.id;
-      const company = (req as any)._validatedCompany as Company;
-      const prompt = (req as any)._validatedPrompt as string;
+      const company = (req as ValidatedModelRequest)._validatedCompany;
+      const prompt = (req as ValidatedModelRequest)._validatedPrompt;
 
       const contextData = await buildModellingContext(company, userId);
       const userMessage = buildModelUserMessage(contextData, prompt);
@@ -1969,21 +1977,22 @@ RULES:
       if (!isServerMppReady()) return res.status(503).json({ message: "AI service not configured" });
       const company = await storage.getCompany(existingModel.companyId, existingModel.userId);
       if (!company) return res.status(404).json({ message: "Company not found" });
-      (req as any)._validatedModel = existingModel;
-      (req as any)._validatedCompany = company;
-      (req as any)._validatedPrompt = parsed.data.prompt;
+      (req as ValidatedModelRequest)._validatedModel = existingModel;
+      (req as ValidatedModelRequest)._validatedCompany = company;
+      (req as ValidatedModelRequest)._validatedPrompt = parsed.data.prompt;
       next();
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Validation failed";
+      res.status(500).json({ message });
     }
   };
 
   app.post("/api/models/:id/iterate", requireAuth, preValidateIterate, modellingPaywall, async (req, res) => {
     try {
       const userId = req.user!.id;
-      const existingModel = (req as any)._validatedModel as FinancialModel;
-      const company = (req as any)._validatedCompany as Company;
-      const iteratePrompt = (req as any)._validatedPrompt as string;
+      const existingModel = (req as ValidatedModelRequest)._validatedModel!;
+      const company = (req as ValidatedModelRequest)._validatedCompany;
+      const iteratePrompt = (req as ValidatedModelRequest)._validatedPrompt;
 
       await storage.updateFinancialModel(existingModel.id, { status: "generating" });
       res.json({ id: existingModel.id, status: "generating" });
@@ -1993,9 +2002,10 @@ RULES:
           const contextData = await buildModellingContext(company, userId);
           const userMessage = buildModelUserMessage(contextData, iteratePrompt, existingModel.content);
 
-          const priorHistory: Array<{ role: string; content: string }> = existingModel.conversationHistory
-            ? JSON.parse(existingModel.conversationHistory)
-            : [];
+          let priorHistory: Array<{ role: string; content: string }> = [];
+          if (existingModel.conversationHistory) {
+            try { priorHistory = JSON.parse(existingModel.conversationHistory); } catch { /* use empty */ }
+          }
 
           const messages = [
             ...priorHistory.map(h => ({ role: h.role, content: h.content })),
@@ -2009,7 +2019,7 @@ RULES:
             messages,
           });
 
-          let modelData: any;
+          let modelData: Record<string, unknown>;
           try {
             const cleaned = result.text.replace(/^```json\s*/, "").replace(/```\s*$/, "").trim();
             modelData = JSON.parse(cleaned);
@@ -2021,7 +2031,7 @@ RULES:
           const hasValidStructure = modelData &&
             typeof modelData.title === "string" &&
             Array.isArray(modelData.sections) &&
-            modelData.sections.length > 0;
+            (modelData.sections as unknown[]).length > 0;
 
           if (!hasValidStructure) {
             await storage.updateFinancialModel(existingModel.id, { status: "error" });
@@ -2031,7 +2041,7 @@ RULES:
           const updatedHistory = [
             ...priorHistory,
             { role: "user", content: iteratePrompt },
-            { role: "assistant", content: modelData.title },
+            { role: "assistant", content: modelData.title as string },
           ];
 
           await storage.updateFinancialModel(existingModel.id, {
@@ -2039,7 +2049,7 @@ RULES:
             assumptions: JSON.stringify(modelData.assumptions || []),
             conversationHistory: JSON.stringify(updatedHistory),
             status: "complete",
-            title: modelData.title,
+            title: modelData.title as string,
           });
 
           try {
@@ -2053,21 +2063,23 @@ RULES:
               inputTokens: result.usage.input_tokens,
               outputTokens: result.usage.output_tokens,
             });
-          } catch (err) {
-            console.error("[Transaction] Failed to log model iterate:", err);
+          } catch (logErr) {
+            console.error("[Transaction] Failed to log model iterate:", logErr);
           }
 
           trackEvent(userId, "financial_model_iterated", {
             modelId: existingModel.id,
             iterationCount: updatedHistory.filter(h => h.role === "user").length,
           });
-        } catch (err: any) {
-          console.error("[Modelling] Iteration failed:", err.message);
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : "Unknown error";
+          console.error("[Modelling] Iteration failed:", errMsg);
           await storage.updateFinancialModel(existingModel.id, { status: "error" });
         }
       })();
-    } catch (error: any) {
-      res.status(500).json({ message: error.message });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Server error";
+      res.status(500).json({ message });
     }
   });
 
@@ -2085,8 +2097,9 @@ RULES:
       if (!parsed.success) return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
       if (!isServerMppReady()) return res.status(503).json({ message: "AI service not configured" });
       res.json({ valid: true });
-    } catch (error: any) {
-      res.status(500).json({ message: "Validation failed", error: error.message });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Validation failed";
+      res.status(500).json({ message });
     }
   });
 

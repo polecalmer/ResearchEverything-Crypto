@@ -265,7 +265,7 @@ function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; comp
   const isError = model.status === "error";
 
   const conversationTurns = model.conversationHistory
-    ? (() => { try { return JSON.parse(model.conversationHistory).filter((h: any) => h.role === "user").length; } catch { return 0; } })()
+    ? (() => { try { return (JSON.parse(model.conversationHistory) as Array<{ role: string }>).filter(h => h.role === "user").length; } catch { return 0; } })()
     : 0;
 
   const iterateMutation = useMutation({
