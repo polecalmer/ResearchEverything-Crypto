@@ -1909,52 +1909,6 @@ RULES:
 11. Include at least one "chart" section with visualizable data derived from the real data.
 12. Return ONLY the JSON object. No markdown wrapping, no \`\`\`json fences, just the raw JSON.`;
 
-  function compactModelContent(modelJson: string, level: number = 0): string {
-    try {
-      const data = JSON.parse(modelJson);
-      if (level >= 2) {
-        const sectionSummaries = (data.sections || []).map((s: any) => {
-          if (s.type === "table") return `- ${s.heading} (table: ${s.columns?.join(", ")})`;
-          if (s.type === "metrics") return `- ${s.heading} (metrics: ${(s.items || []).map((i: any) => `${i.label}=${i.value}`).join(", ")})`;
-          if (s.type === "scenarios") return `- ${s.heading} (scenarios: ${(s.scenarios || []).map((sc: any) => sc.name).join(", ")})`;
-          return `- ${s.heading} (${s.type})`;
-        });
-        return JSON.stringify({
-          title: data.title,
-          assumptions: (data.assumptions || []).slice(0, 5),
-          sectionOutline: sectionSummaries,
-          methodology: data.methodology,
-        });
-      }
-      if (level >= 1) {
-        const compactSections = (data.sections || []).map((s: any) => {
-          if (s.type === "table") {
-            return { heading: s.heading, type: "table", columns: s.columns, rows: (s.rows || []).slice(0, 2), note: s.note ? s.note.substring(0, 150) : undefined };
-          }
-          if (s.type === "text") {
-            return { heading: s.heading, type: "text", content: (s.content || "").substring(0, 300) };
-          }
-          if (s.type === "metrics") {
-            return { heading: s.heading, type: "metrics", items: (s.items || []).map((i: any) => ({ label: i.label, value: i.value })) };
-          }
-          if (s.type === "scenarios") {
-            return { heading: s.heading, type: "scenarios", scenarios: (s.scenarios || []).map((sc: any) => ({ name: sc.name, probability: sc.probability, outcome: sc.outcome })) };
-          }
-          if (s.type === "chart") {
-            return { heading: s.heading, type: "chart", chartType: s.chartType, data: (s.data || []).slice(0, 3) };
-          }
-          return { heading: s.heading, type: s.type };
-        });
-        return JSON.stringify({ title: data.title, assumptions: data.assumptions, sections: compactSections, methodology: data.methodology?.substring(0, 200) });
-      }
-      return modelJson;
-    } catch {
-      if (level >= 2) return modelJson.substring(0, 3000);
-      if (level >= 1) return modelJson.substring(0, 8000);
-      return modelJson;
-    }
-  }
-
   function trimConversationHistory(historyJson: string | null, maxExchanges: number = 3): Array<{ role: string; content: string }> {
     if (!historyJson) return [];
     try {
@@ -2091,26 +2045,23 @@ RULES:
     return results.join("\n\n");
   }
 
-  function buildModelUserMessage(contextData: Awaited<ReturnType<typeof buildModellingContext>>, prompt: string, priorModel?: string, compactLevel: number = 0, fetchedDataSources?: string) {
+  function buildModelUserMessage(contextData: Awaited<ReturnType<typeof buildModellingContext>>, prompt: string, priorModel?: string, _compactLevel: number = 0, fetchedDataSources?: string) {
     const parts = [
       "## Company Context",
       contextData.companyContext,
     ];
     if (contextData.tokenSnapshotText) parts.push(`\n## Live Token Market Data\n${contextData.tokenSnapshotText}`);
-    if (compactLevel < 2 && contextData.liveDatasets) {
-      const datasetLimit = compactLevel >= 1 ? contextData.liveDatasets.substring(0, 15000) : contextData.liveDatasets;
-      parts.push(`\n## Live Database Data (Dune / DeFiLlama / On-Chain)\nIMPORTANT: Use this real data for all calculations. Do NOT invent numbers when data is available here.\n\n${datasetLimit}`);
+    if (contextData.liveDatasets) {
+      parts.push(`\n## Live Database Data (Dune / DeFiLlama / On-Chain)\nIMPORTANT: Use this real data for all calculations. Do NOT invent numbers when data is available here.\n\n${contextData.liveDatasets}`);
     }
-    if (compactLevel < 2 && contextData.tokenAnalysisSummary) {
-      const analysisLimit = compactLevel >= 1 ? contextData.tokenAnalysisSummary.substring(0, 2000) : contextData.tokenAnalysisSummary;
-      parts.push(`\n## Token Intelligence Analysis\n${analysisLimit}`);
+    if (contextData.tokenAnalysisSummary) {
+      parts.push(`\n## Token Intelligence Analysis\n${contextData.tokenAnalysisSummary}`);
     }
     if (fetchedDataSources) {
       parts.push(`\n## Fetched Data Sources (LIVE API DATA — use these real numbers)\n${fetchedDataSources}`);
     }
     if (priorModel) {
-      const compacted = compactModelContent(priorModel, compactLevel);
-      parts.push(`\n## Previous Model Output (iterate on this)\n${compacted}`);
+      parts.push(`\n## Previous Model Output (iterate on this)\n${priorModel}`);
     }
     parts.push(`\n## Modelling Request\n${prompt}`);
     return parts.filter(Boolean).join("\n");
@@ -2152,116 +2103,79 @@ RULES:
       res.json({ id: model.id, status: "generating" });
 
       (async () => {
-        const MAX_CREATE_ATTEMPTS = 3;
-        let lastError = "";
+        try {
+          const contextData = await buildModellingContext(company, userId);
+          const userMessage = buildModelUserMessage(contextData, prompt);
 
-        for (let attempt = 0; attempt < MAX_CREATE_ATTEMPTS; attempt++) {
-          const compactLevel = attempt;
-          try {
-            console.log(`[Modelling] Create attempt ${attempt + 1}/${MAX_CREATE_ATTEMPTS} (compact level ${compactLevel}) for model ${model.id}`);
+          const totalChars = userMessage.length + MODELLING_SYSTEM_PROMPT.length;
+          console.log(`[Modelling] Create streaming: ${totalChars} chars for model ${model.id}`);
 
-            const contextData = await buildModellingContext(company, userId);
-            const userMessage = buildModelUserMessage(contextData, prompt, undefined, compactLevel);
+          const result = await callAnthropicServerHeavy({
+            model: "claude-opus-4-6",
+            max_tokens: 16000,
+            system: MODELLING_SYSTEM_PROMPT,
+            messages: [{ role: "user", content: userMessage }],
+          });
 
-            const totalChars = userMessage.length + MODELLING_SYSTEM_PROMPT.length;
-            console.log(`[Modelling] Create payload: ${totalChars} chars (compact=${compactLevel})`);
-
-            const result = await callAnthropicServerHeavy({
-              model: "claude-opus-4-6",
-              max_tokens: 16000,
-              system: MODELLING_SYSTEM_PROMPT,
-              messages: [{ role: "user", content: userMessage }],
-            });
-
-            const modelData = tryParseModelJSON(result.text);
-            if (!modelData) {
-              lastError = `JSON parse failed (attempt ${attempt + 1}, response ${result.text.length} chars)`;
-              console.warn(`[Modelling] ${lastError}`);
-              if (attempt < MAX_CREATE_ATTEMPTS - 1) {
-                await new Promise(r => setTimeout(r, 2000));
-                continue;
-              }
-              break;
-            }
-
-            const hasValidStructure = modelData &&
-              typeof modelData.title === "string" &&
-              Array.isArray(modelData.sections) &&
-              (modelData.sections as unknown[]).length > 0;
-
-            if (!hasValidStructure) {
-              lastError = `Invalid structure (attempt ${attempt + 1}) — missing title or sections`;
-              console.warn(`[Modelling] ${lastError}`);
-              if (attempt < MAX_CREATE_ATTEMPTS - 1) {
-                await new Promise(r => setTimeout(r, 2000));
-                continue;
-              }
-              break;
-            }
-
-            const conversationHistory = JSON.stringify([
-              { role: "user", content: prompt },
-              { role: "assistant", content: modelData.title as string },
-            ]);
-
-            await storage.updateFinancialModel(model.id, {
-              content: JSON.stringify(modelData),
-              assumptions: JSON.stringify(modelData.assumptions || []),
-              conversationHistory,
-              status: "complete",
-              title: modelData.title as string,
-              errorMessage: null,
-            });
-
-            try {
-              await storage.logTransaction({
-                userId,
-                type: "financial_model",
-                description: `AI model: ${modelData.title || prompt.substring(0, 50)}`,
-                amount: "0.5000",
-                apiCost: result.mppCost.toFixed(4),
-                companyName: company.name,
-                inputTokens: result.usage.input_tokens,
-                outputTokens: result.usage.output_tokens,
-              });
-            } catch (err) {
-              console.error("[Transaction] Failed to log financial_model:", err);
-            }
-
-            trackEvent(userId, "financial_model_generated", {
-              modelId: model.id,
-              companyId: company.id,
-              promptLength: prompt.length,
-            });
-
-            if (attempt > 0) {
-              console.log(`[Modelling] Create succeeded on attempt ${attempt + 1} (compact level ${compactLevel})`);
-            }
-            return;
-          } catch (err: unknown) {
-            const errMsg = err instanceof Error ? err.message : "Unknown error";
-            lastError = errMsg;
-            const isRetryable = errMsg.includes("524") || errMsg.includes("502") || errMsg.includes("timeout") ||
-              errMsg.includes("Gateway") || errMsg.includes("503") || errMsg.includes("ECONNRESET");
-
-            console.warn(`[Modelling] Create attempt ${attempt + 1} failed: ${errMsg.slice(0, 150)}`);
-
-            if (isRetryable && attempt < MAX_CREATE_ATTEMPTS - 1) {
-              console.log(`[Modelling] Retryable error — will retry with compact level ${attempt + 1}...`);
-              await new Promise(r => setTimeout(r, 3000 * (attempt + 1)));
-              continue;
-            }
-
-            if (!isRetryable) break;
+          const modelData = tryParseModelJSON(result.text);
+          if (!modelData) {
+            throw new Error(`JSON parse failed (response ${result.text.length} chars)`);
           }
-        }
 
-        console.error(`[Modelling] All ${MAX_CREATE_ATTEMPTS} create attempts failed for model ${model.id}: ${lastError.slice(0, 200)}`);
-        await storage.updateFinancialModel(model.id, {
-          status: "error",
-          title: "Generation Failed",
-          errorMessage: `Model generation failed after ${MAX_CREATE_ATTEMPTS} attempts: ${lastError.slice(0, 150)}. Please try again.`,
-        });
+          const hasValidStructure = modelData &&
+            typeof modelData.title === "string" &&
+            Array.isArray(modelData.sections) &&
+            (modelData.sections as unknown[]).length > 0;
+
+          if (!hasValidStructure) {
+            throw new Error("Invalid structure — missing title or sections");
+          }
+
+          const conversationHistory = JSON.stringify([
+            { role: "user", content: prompt },
+            { role: "assistant", content: modelData.title as string },
+          ]);
+
+          await storage.updateFinancialModel(model.id, {
+            content: JSON.stringify(modelData),
+            assumptions: JSON.stringify(modelData.assumptions || []),
+            conversationHistory,
+            status: "complete",
+            title: modelData.title as string,
+            errorMessage: null,
+          });
+
+          try {
+            await storage.logTransaction({
+              userId,
+              type: "financial_model",
+              description: `AI model: ${modelData.title || prompt.substring(0, 50)}`,
+              amount: "0.5000",
+              apiCost: result.mppCost.toFixed(4),
+              companyName: company.name,
+              inputTokens: result.usage.input_tokens,
+              outputTokens: result.usage.output_tokens,
+            });
+          } catch (err) {
+            console.error("[Transaction] Failed to log financial_model:", err);
+          }
+
+          trackEvent(userId, "financial_model_generated", {
+            modelId: model.id,
+            companyId: company.id,
+            promptLength: prompt.length,
+          });
+
+          console.log(`[Modelling] Create complete for model ${model.id}: "${modelData.title}"`);
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : "Unknown error";
+          console.error(`[Modelling] Create failed for model ${model.id}: ${errMsg.slice(0, 200)}`);
+          await storage.updateFinancialModel(model.id, {
+            status: "error",
+            title: "Generation Failed",
+            errorMessage: `Model generation failed: ${errMsg.slice(0, 150)}. Please try again.`,
+          });
+        }
       })();
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -2306,149 +2220,104 @@ RULES:
       res.json({ id: existingModel.id, status: "generating" });
 
       (async () => {
-        const MAX_ITERATE_ATTEMPTS = 3;
-        let lastError = "";
-
-        let fetchedDataSourcesText = "";
-        if (dataSources.length > 0) {
-          console.log(`[Modelling] Fetching ${dataSources.length} data sources before iteration...`);
-          try {
-            fetchedDataSourcesText = await fetchDataSources(dataSources);
-            console.log(`[Modelling] Data sources fetched: ${fetchedDataSourcesText.length} chars`);
-          } catch (err: any) {
-            console.warn(`[Modelling] Data source fetch failed: ${err.message}`);
-          }
-        }
-
-        const startCompact = 1;
-
-        for (let attempt = 0; attempt < MAX_ITERATE_ATTEMPTS; attempt++) {
-          const compactLevel = Math.min(startCompact + attempt, 2);
-          try {
-            console.log(`[Modelling] Iterate attempt ${attempt + 1}/${MAX_ITERATE_ATTEMPTS} (compact level ${compactLevel}) for model ${existingModel.id}`);
-
-            const contextData = await buildModellingContext(company, userId);
-            const dsText = compactLevel >= 2 ? fetchedDataSourcesText.substring(0, 5000) : fetchedDataSourcesText;
-            const userMessage = buildModelUserMessage(contextData, iteratePrompt, existingModel.content, compactLevel, dsText || undefined);
-
-            const priorHistory = trimConversationHistory(
-              existingModel.conversationHistory,
-              compactLevel >= 2 ? 1 : 2
-            );
-
-            const messages = [
-              ...priorHistory.map(h => ({ role: h.role, content: h.content })),
-              { role: "user", content: userMessage },
-            ];
-
-            const totalChars = messages.reduce((sum, m) => sum + m.content.length, 0) + MODELLING_SYSTEM_PROMPT.length;
-            console.log(`[Modelling] Iterate payload: ${totalChars} chars, ${messages.length} messages (compact=${compactLevel})`);
-
-            const result = await callAnthropicServerHeavy({
-              model: "claude-opus-4-6",
-              max_tokens: 16000,
-              system: MODELLING_SYSTEM_PROMPT,
-              messages,
-            });
-
-            const modelData = tryParseModelJSON(result.text);
-            if (!modelData) {
-              lastError = `JSON parse failed (attempt ${attempt + 1}, response ${result.text.length} chars)`;
-              console.warn(`[Modelling] ${lastError}`);
-              if (attempt < MAX_ITERATE_ATTEMPTS - 1) {
-                console.log(`[Modelling] Retrying with more compact context...`);
-                await new Promise(r => setTimeout(r, 2000));
-                continue;
-              }
-              break;
-            }
-
-            const hasValidStructure = modelData &&
-              typeof modelData.title === "string" &&
-              Array.isArray(modelData.sections) &&
-              (modelData.sections as unknown[]).length > 0;
-
-            if (!hasValidStructure) {
-              lastError = `Invalid structure (attempt ${attempt + 1}) — missing title or sections`;
-              console.warn(`[Modelling] ${lastError}`);
-              if (attempt < MAX_ITERATE_ATTEMPTS - 1) {
-                console.log(`[Modelling] Retrying with more compact context...`);
-                await new Promise(r => setTimeout(r, 2000));
-                continue;
-              }
-              break;
-            }
-
-            let fullHistory: Array<{ role: string; content: string }> = [];
-            if (existingModel.conversationHistory) {
-              try { fullHistory = JSON.parse(existingModel.conversationHistory); } catch {}
-            }
-            const updatedHistory = [
-              ...fullHistory,
-              { role: "user", content: iteratePrompt },
-              { role: "assistant", content: modelData.title as string },
-            ];
-
-            await storage.updateFinancialModel(existingModel.id, {
-              content: JSON.stringify(modelData),
-              assumptions: JSON.stringify(modelData.assumptions || []),
-              conversationHistory: JSON.stringify(updatedHistory),
-              status: "complete",
-              title: modelData.title as string,
-              errorMessage: null,
-            });
-
+        try {
+          let fetchedDataSourcesText = "";
+          if (dataSources.length > 0) {
+            console.log(`[Modelling] Fetching ${dataSources.length} data sources before iteration...`);
             try {
-              await storage.logTransaction({
-                userId,
-                type: "financial_model_iterate",
-                description: `AI model iteration: ${modelData.title}`,
-                amount: "0.5000",
-                apiCost: result.mppCost.toFixed(4),
-                companyName: company.name,
-                inputTokens: result.usage.input_tokens,
-                outputTokens: result.usage.output_tokens,
-              });
-            } catch (logErr) {
-              console.error("[Transaction] Failed to log model iterate:", logErr);
+              fetchedDataSourcesText = await fetchDataSources(dataSources);
+              console.log(`[Modelling] Data sources fetched: ${fetchedDataSourcesText.length} chars`);
+            } catch (err: any) {
+              console.warn(`[Modelling] Data source fetch failed: ${err.message}`);
             }
-
-            trackEvent(userId, "financial_model_iterated", {
-              modelId: existingModel.id,
-              iterationCount: updatedHistory.filter(h => h.role === "user").length,
-            });
-
-            if (attempt > 0) {
-              console.log(`[Modelling] Iterate succeeded on attempt ${attempt + 1} (compact level ${compactLevel})`);
-            }
-            return;
-          } catch (err: unknown) {
-            const errMsg = err instanceof Error ? err.message : "Unknown error";
-            lastError = errMsg;
-            const isRetryable = errMsg.includes("524") || errMsg.includes("502") || errMsg.includes("timeout") ||
-              errMsg.includes("Gateway") || errMsg.includes("503") || errMsg.includes("ECONNRESET");
-
-            console.warn(`[Modelling] Iterate attempt ${attempt + 1} failed: ${errMsg.slice(0, 150)}`);
-
-            if (isRetryable && attempt < MAX_ITERATE_ATTEMPTS - 1) {
-              console.log(`[Modelling] Retryable error — will retry with compact level ${attempt + 1}...`);
-              await new Promise(r => setTimeout(r, 3000 * (attempt + 1)));
-              continue;
-            }
-
-            if (!isRetryable) break;
           }
-        }
 
-        console.error(`[Modelling] All ${MAX_ITERATE_ATTEMPTS} iterate attempts failed for model ${existingModel.id}: ${lastError.slice(0, 200)}`);
-        await storage.updateFinancialModel(existingModel.id, {
-          content: existingModel.content,
-          assumptions: existingModel.assumptions,
-          conversationHistory: existingModel.conversationHistory,
-          title: existingModel.title,
-          status: "error",
-          errorMessage: `Iteration failed after ${MAX_ITERATE_ATTEMPTS} attempts: ${lastError.slice(0, 150)}. Please try again.`,
-        });
+          const contextData = await buildModellingContext(company, userId);
+          const userMessage = buildModelUserMessage(contextData, iteratePrompt, existingModel.content, 0, fetchedDataSourcesText || undefined);
+
+          const priorHistory = trimConversationHistory(existingModel.conversationHistory, 3);
+
+          const messages = [
+            ...priorHistory.map(h => ({ role: h.role, content: h.content })),
+            { role: "user", content: userMessage },
+          ];
+
+          const totalChars = messages.reduce((sum, m) => sum + m.content.length, 0) + MODELLING_SYSTEM_PROMPT.length;
+          console.log(`[Modelling] Iterate streaming: ${totalChars} chars, ${messages.length} messages for model ${existingModel.id}`);
+
+          const result = await callAnthropicServerHeavy({
+            model: "claude-opus-4-6",
+            max_tokens: 16000,
+            system: MODELLING_SYSTEM_PROMPT,
+            messages,
+          });
+
+          const modelData = tryParseModelJSON(result.text);
+          if (!modelData) {
+            throw new Error(`JSON parse failed (response ${result.text.length} chars)`);
+          }
+
+          const hasValidStructure = modelData &&
+            typeof modelData.title === "string" &&
+            Array.isArray(modelData.sections) &&
+            (modelData.sections as unknown[]).length > 0;
+
+          if (!hasValidStructure) {
+            throw new Error("Invalid structure — missing title or sections");
+          }
+
+          let fullHistory: Array<{ role: string; content: string }> = [];
+          if (existingModel.conversationHistory) {
+            try { fullHistory = JSON.parse(existingModel.conversationHistory); } catch {}
+          }
+          const updatedHistory = [
+            ...fullHistory,
+            { role: "user", content: iteratePrompt },
+            { role: "assistant", content: modelData.title as string },
+          ];
+
+          await storage.updateFinancialModel(existingModel.id, {
+            content: JSON.stringify(modelData),
+            assumptions: JSON.stringify(modelData.assumptions || []),
+            conversationHistory: JSON.stringify(updatedHistory),
+            status: "complete",
+            title: modelData.title as string,
+            errorMessage: null,
+          });
+
+          try {
+            await storage.logTransaction({
+              userId,
+              type: "financial_model_iterate",
+              description: `AI model iteration: ${modelData.title}`,
+              amount: "0.5000",
+              apiCost: result.mppCost.toFixed(4),
+              companyName: company.name,
+              inputTokens: result.usage.input_tokens,
+              outputTokens: result.usage.output_tokens,
+            });
+          } catch (logErr) {
+            console.error("[Transaction] Failed to log model iterate:", logErr);
+          }
+
+          trackEvent(userId, "financial_model_iterated", {
+            modelId: existingModel.id,
+            iterationCount: updatedHistory.filter(h => h.role === "user").length,
+          });
+
+          console.log(`[Modelling] Iterate complete for model ${existingModel.id}: "${modelData.title}"`);
+        } catch (err: unknown) {
+          const errMsg = err instanceof Error ? err.message : "Unknown error";
+          console.error(`[Modelling] Iterate failed for model ${existingModel.id}: ${errMsg.slice(0, 200)}`);
+          await storage.updateFinancialModel(existingModel.id, {
+            content: existingModel.content,
+            assumptions: existingModel.assumptions,
+            conversationHistory: existingModel.conversationHistory,
+            title: existingModel.title,
+            status: "error",
+            errorMessage: `Iteration failed: ${errMsg.slice(0, 150)}. Please try again.`,
+          });
+        }
       })();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Server error";

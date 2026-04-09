@@ -268,6 +268,138 @@ export async function callAnthropicServer(request: AnthropicRequest): Promise<An
   return callAnthropic(request);
 }
 
+async function callAnthropicStreaming(request: AnthropicRequest): Promise<AnthropicResponse> {
+  if (isShuttingDown) {
+    throw new Error("Server is shutting down — please retry in a moment.");
+  }
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const state = getOrCreateClient();
+
+    try {
+      const streamRequest = { ...request, stream: true };
+
+      console.log(`[MPP-Channel] Starting streaming request (attempt ${attempt + 1}/${MAX_RETRIES + 1})...`);
+
+      const response = await state.session.fetch(ANTHROPIC_MPP_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "anthropic-version": "2023-06-01",
+          "x-api-key": "mpp",
+        },
+        body: JSON.stringify(streamRequest),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "Unknown error");
+        if (isRetryable(response.status) && attempt < MAX_RETRIES) {
+          if (response.status === 524 || response.status === 502) {
+            forceNewChannel();
+          }
+          const delay = RETRY_DELAY_MS * (attempt + 1);
+          console.log(`[MPP-Channel] Stream error ${response.status}, retrying in ${delay}ms...`);
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+        throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
+      }
+
+      let fullText = "";
+      let inputTokens = 0;
+      let outputTokens = 0;
+
+      const body = response.body;
+      if (!body) {
+        throw new Error("No response body for streaming request");
+      }
+
+      const reader = body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6).trim();
+          if (data === "[DONE]") continue;
+
+          try {
+            const event = JSON.parse(data);
+
+            if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
+              fullText += event.delta.text;
+            } else if (event.type === "message_delta" && event.usage) {
+              outputTokens = event.usage.output_tokens || outputTokens;
+            } else if (event.type === "message_start" && event.message?.usage) {
+              inputTokens = event.message.usage.input_tokens || 0;
+            }
+          } catch {
+          }
+        }
+      }
+
+      const mppCost = response.receipt
+        ? Number(response.cumulative) / 1e6
+        : 0;
+      state.totalSpent = Number(response.cumulative || 0n) / 1e6;
+      state.requestCount++;
+
+      console.log(`[MPP-Channel] Stream complete: ${fullText.length} chars, ${inputTokens}+${outputTokens} tokens (cost ~$${mppCost.toFixed(4)}, cumulative: $${state.totalSpent.toFixed(4)})`);
+
+      return {
+        text: fullText,
+        usage: { input_tokens: inputTokens, output_tokens: outputTokens },
+        mppCost,
+      };
+    } catch (err) {
+      lastError = err as Error;
+      const errMsg = (err as any)?.message || "";
+
+      if (errMsg.includes("InsufficientBalance") || errMsg.includes("insufficient funds")) {
+        forceNewChannel();
+        throw new Error("AI service temporarily unavailable — server wallet needs to be topped up.");
+      }
+
+      if (errMsg.includes("Execution reverted")) {
+        forceNewChannel();
+        throw new Error("AI service payment failed — please try again in a moment.");
+      }
+
+      if (isChannelError(errMsg)) {
+        forceNewChannel();
+        if (attempt < MAX_RETRIES) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+          continue;
+        }
+      }
+
+      const isRetryableError = errMsg.includes("fetch") ||
+        errMsg.includes("timeout") || errMsg.includes("ECONNRESET") ||
+        errMsg.includes("503") || errMsg.includes("429");
+      if (attempt < MAX_RETRIES && isRetryableError) {
+        const delay = RETRY_DELAY_MS * (attempt + 1);
+        console.log(`[MPP-Channel] Stream error: "${errMsg.slice(0, 80)}", retrying in ${delay}ms...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw lastError || new Error("MPP streaming call failed after retries");
+}
+
 export async function callAnthropicServerHeavy(request: AnthropicRequest): Promise<AnthropicResponse> {
-  return callAnthropic(request, { maxRetries: 1, failFastOn524: true });
+  return callAnthropicStreaming(request);
 }
