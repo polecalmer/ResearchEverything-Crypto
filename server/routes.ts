@@ -1727,7 +1727,6 @@ Rewrite the "Section to Rewrite" above, incorporating the user's insight. Return
           return c;
         }))
       );
-      const refreshedIds = new Set(refreshableCharts.map(c => c.id));
       for (const result of refreshResults) {
         if (result.status === "fulfilled" && result.value) {
           const updated = result.value as DashboardChart;
@@ -1910,15 +1909,121 @@ RULES:
 11. Include at least one "chart" section with visualizable data derived from the real data.
 12. Return ONLY the JSON object. No markdown wrapping, no \`\`\`json fences, just the raw JSON.`;
 
-  function buildModelUserMessage(contextData: Awaited<ReturnType<typeof buildModellingContext>>, prompt: string, priorModel?: string) {
+  function compactModelContent(modelJson: string, level: number = 0): string {
+    try {
+      const data = JSON.parse(modelJson);
+      if (level >= 2) {
+        const sectionSummaries = (data.sections || []).map((s: any) => {
+          if (s.type === "table") return `- ${s.heading} (table: ${s.columns?.join(", ")})`;
+          if (s.type === "metrics") return `- ${s.heading} (metrics: ${(s.items || []).map((i: any) => `${i.label}=${i.value}`).join(", ")})`;
+          if (s.type === "scenarios") return `- ${s.heading} (scenarios: ${(s.scenarios || []).map((sc: any) => sc.name).join(", ")})`;
+          return `- ${s.heading} (${s.type})`;
+        });
+        return JSON.stringify({
+          title: data.title,
+          assumptions: (data.assumptions || []).slice(0, 5),
+          sectionOutline: sectionSummaries,
+          methodology: data.methodology,
+        });
+      }
+      if (level >= 1) {
+        const compactSections = (data.sections || []).map((s: any) => {
+          if (s.type === "table") {
+            return { ...s, rows: (s.rows || []).slice(0, 3) };
+          }
+          if (s.type === "text") {
+            return { ...s, content: (s.content || "").substring(0, 500) };
+          }
+          return s;
+        });
+        return JSON.stringify({ ...data, sections: compactSections });
+      }
+      return modelJson;
+    } catch {
+      if (level >= 2) return modelJson.substring(0, 3000);
+      if (level >= 1) return modelJson.substring(0, 8000);
+      return modelJson;
+    }
+  }
+
+  function trimConversationHistory(historyJson: string | null, maxExchanges: number = 3): Array<{ role: string; content: string }> {
+    if (!historyJson) return [];
+    try {
+      const history = JSON.parse(historyJson);
+      if (!Array.isArray(history)) return [];
+      const userIndices: number[] = [];
+      history.forEach((h: any, i: number) => { if (h.role === "user") userIndices.push(i); });
+      if (userIndices.length <= maxExchanges) return history;
+      const startFrom = userIndices[userIndices.length - maxExchanges];
+      return history.slice(startFrom);
+    } catch {
+      return [];
+    }
+  }
+
+  function tryParseModelJSON(text: string): Record<string, unknown> | null {
+    const cleaned = text.replace(/^[\s\n]*```(?:json)?\s*/, "").replace(/```[\s\n]*$/, "").trim();
+    try {
+      return JSON.parse(cleaned);
+    } catch {}
+
+    const jsonStart = cleaned.indexOf("{");
+    if (jsonStart > 0) {
+      try { return JSON.parse(cleaned.substring(jsonStart)); } catch {}
+    }
+
+    let bracketCount = 0;
+    let inString = false;
+    let escape = false;
+    for (let i = 0; i < cleaned.length; i++) {
+      const ch = cleaned[i];
+      if (escape) { escape = false; continue; }
+      if (ch === "\\") { escape = true; continue; }
+      if (ch === '"') { inString = !inString; continue; }
+      if (inString) continue;
+      if (ch === "{") bracketCount++;
+      if (ch === "}") {
+        bracketCount--;
+        if (bracketCount === 0) {
+          try { return JSON.parse(cleaned.substring(0, i + 1)); } catch { break; }
+        }
+      }
+    }
+
+    if (bracketCount > 0) {
+      let repaired = cleaned;
+      for (let j = 0; j < bracketCount; j++) repaired += "}";
+      try {
+        const lastComma = repaired.lastIndexOf(",", repaired.lastIndexOf("}"));
+        if (lastComma > 0) {
+          const candidate = repaired.substring(0, lastComma) + repaired.substring(repaired.indexOf("}", lastComma));
+          try { return JSON.parse(candidate); } catch {}
+        }
+        return JSON.parse(repaired);
+      } catch {}
+    }
+
+    return null;
+  }
+
+  function buildModelUserMessage(contextData: Awaited<ReturnType<typeof buildModellingContext>>, prompt: string, priorModel?: string, compactLevel: number = 0) {
     const parts = [
       "## Company Context",
       contextData.companyContext,
     ];
     if (contextData.tokenSnapshotText) parts.push(`\n## Live Token Market Data\n${contextData.tokenSnapshotText}`);
-    if (contextData.liveDatasets) parts.push(`\n## Live Database Data (Dune / DeFiLlama / On-Chain)\nIMPORTANT: Use this real data for all calculations. Do NOT invent numbers when data is available here.\n\n${contextData.liveDatasets}`);
-    if (contextData.tokenAnalysisSummary) parts.push(`\n## Token Intelligence Analysis\n${contextData.tokenAnalysisSummary}`);
-    if (priorModel) parts.push(`\n## Previous Model Output (iterate on this)\n${priorModel}`);
+    if (compactLevel < 2 && contextData.liveDatasets) {
+      const datasetLimit = compactLevel >= 1 ? contextData.liveDatasets.substring(0, 15000) : contextData.liveDatasets;
+      parts.push(`\n## Live Database Data (Dune / DeFiLlama / On-Chain)\nIMPORTANT: Use this real data for all calculations. Do NOT invent numbers when data is available here.\n\n${datasetLimit}`);
+    }
+    if (compactLevel < 2 && contextData.tokenAnalysisSummary) {
+      const analysisLimit = compactLevel >= 1 ? contextData.tokenAnalysisSummary.substring(0, 2000) : contextData.tokenAnalysisSummary;
+      parts.push(`\n## Token Intelligence Analysis\n${analysisLimit}`);
+    }
+    if (priorModel) {
+      const compacted = compactModelContent(priorModel, compactLevel);
+      parts.push(`\n## Previous Model Output (iterate on this)\n${compacted}`);
+    }
     parts.push(`\n## Modelling Request\n${prompt}`);
     return parts.filter(Boolean).join("\n");
   }
@@ -1947,9 +2052,6 @@ RULES:
       const company = (req as ValidatedModelRequest)._validatedCompany;
       const prompt = (req as ValidatedModelRequest)._validatedPrompt;
 
-      const contextData = await buildModellingContext(company, userId);
-      const userMessage = buildModelUserMessage(contextData, prompt);
-
       const model = await storage.createFinancialModel({
         companyId: company.id,
         userId,
@@ -1962,83 +2064,116 @@ RULES:
       res.json({ id: model.id, status: "generating" });
 
       (async () => {
-        try {
-          const result = await callAnthropicServerHeavy({
-            model: "claude-opus-4-6",
-            max_tokens: 16000,
-            system: MODELLING_SYSTEM_PROMPT,
-            messages: [{ role: "user", content: userMessage }],
-          });
+        const MAX_CREATE_ATTEMPTS = 3;
+        let lastError = "";
 
-          let modelData: any;
+        for (let attempt = 0; attempt < MAX_CREATE_ATTEMPTS; attempt++) {
+          const compactLevel = attempt;
           try {
-            const cleaned = result.text.replace(/^[\s\n]*```(?:json)?\s*/, "").replace(/```[\s\n]*$/, "").trim();
-            modelData = JSON.parse(cleaned);
-          } catch (parseErr) {
-            console.error("[Modelling] JSON parse failed, response length:", result.text.length, "first 200 chars:", result.text.substring(0, 200));
-            await storage.updateFinancialModel(model.id, {
-              content: result.text,
-              status: "error",
-              title: "Parse Error",
+            console.log(`[Modelling] Create attempt ${attempt + 1}/${MAX_CREATE_ATTEMPTS} (compact level ${compactLevel}) for model ${model.id}`);
+
+            const contextData = await buildModellingContext(company, userId);
+            const userMessage = buildModelUserMessage(contextData, prompt, undefined, compactLevel);
+
+            const totalChars = userMessage.length + MODELLING_SYSTEM_PROMPT.length;
+            console.log(`[Modelling] Create payload: ${totalChars} chars (compact=${compactLevel})`);
+
+            const result = await callAnthropicServerHeavy({
+              model: "claude-opus-4-6",
+              max_tokens: 16000,
+              system: MODELLING_SYSTEM_PROMPT,
+              messages: [{ role: "user", content: userMessage }],
             });
-            return;
-          }
 
-          const hasValidStructure = modelData &&
-            typeof modelData.title === "string" &&
-            Array.isArray(modelData.sections) &&
-            modelData.sections.length > 0;
+            const modelData = tryParseModelJSON(result.text);
+            if (!modelData) {
+              lastError = `JSON parse failed (attempt ${attempt + 1}, response ${result.text.length} chars)`;
+              console.warn(`[Modelling] ${lastError}`);
+              if (attempt < MAX_CREATE_ATTEMPTS - 1) {
+                await new Promise(r => setTimeout(r, 2000));
+                continue;
+              }
+              break;
+            }
 
-          if (!hasValidStructure) {
+            const hasValidStructure = modelData &&
+              typeof modelData.title === "string" &&
+              Array.isArray(modelData.sections) &&
+              (modelData.sections as unknown[]).length > 0;
+
+            if (!hasValidStructure) {
+              lastError = `Invalid structure (attempt ${attempt + 1}) — missing title or sections`;
+              console.warn(`[Modelling] ${lastError}`);
+              if (attempt < MAX_CREATE_ATTEMPTS - 1) {
+                await new Promise(r => setTimeout(r, 2000));
+                continue;
+              }
+              break;
+            }
+
+            const conversationHistory = JSON.stringify([
+              { role: "user", content: prompt },
+              { role: "assistant", content: modelData.title as string },
+            ]);
+
             await storage.updateFinancialModel(model.id, {
               content: JSON.stringify(modelData),
-              status: "error",
-              title: "Invalid Model Structure",
+              assumptions: JSON.stringify(modelData.assumptions || []),
+              conversationHistory,
+              status: "complete",
+              title: modelData.title as string,
+              errorMessage: null,
             });
+
+            try {
+              await storage.logTransaction({
+                userId,
+                type: "financial_model",
+                description: `AI model: ${modelData.title || prompt.substring(0, 50)}`,
+                amount: "0.5000",
+                apiCost: result.mppCost.toFixed(4),
+                companyName: company.name,
+                inputTokens: result.usage.input_tokens,
+                outputTokens: result.usage.output_tokens,
+              });
+            } catch (err) {
+              console.error("[Transaction] Failed to log financial_model:", err);
+            }
+
+            trackEvent(userId, "financial_model_generated", {
+              modelId: model.id,
+              companyId: company.id,
+              promptLength: prompt.length,
+            });
+
+            if (attempt > 0) {
+              console.log(`[Modelling] Create succeeded on attempt ${attempt + 1} (compact level ${compactLevel})`);
+            }
             return;
+          } catch (err: unknown) {
+            const errMsg = err instanceof Error ? err.message : "Unknown error";
+            lastError = errMsg;
+            const isRetryable = errMsg.includes("524") || errMsg.includes("502") || errMsg.includes("timeout") ||
+              errMsg.includes("Gateway") || errMsg.includes("503") || errMsg.includes("ECONNRESET");
+
+            console.warn(`[Modelling] Create attempt ${attempt + 1} failed: ${errMsg.slice(0, 150)}`);
+
+            if (isRetryable && attempt < MAX_CREATE_ATTEMPTS - 1) {
+              console.log(`[Modelling] Retryable error — will retry with compact level ${attempt + 1}...`);
+              await new Promise(r => setTimeout(r, 3000 * (attempt + 1)));
+              continue;
+            }
+
+            if (!isRetryable) break;
           }
-
-          const conversationHistory = JSON.stringify([
-            { role: "user", content: prompt },
-            { role: "assistant", content: modelData.title },
-          ]);
-
-          await storage.updateFinancialModel(model.id, {
-            content: JSON.stringify(modelData),
-            assumptions: JSON.stringify(modelData.assumptions || []),
-            conversationHistory,
-            status: "complete",
-            title: modelData.title,
-          });
-
-          try {
-            await storage.logTransaction({
-              userId,
-              type: "financial_model",
-              description: `AI model: ${modelData.title || prompt.substring(0, 50)}`,
-              amount: "0.5000",
-              apiCost: result.mppCost.toFixed(4),
-              companyName: company.name,
-              inputTokens: result.usage.input_tokens,
-              outputTokens: result.usage.output_tokens,
-            });
-          } catch (err) {
-            console.error("[Transaction] Failed to log financial_model:", err);
-          }
-
-          trackEvent(userId, "financial_model_generated", {
-            modelId: model.id,
-            companyId: company.id,
-            promptLength: prompt.length,
-          });
-        } catch (err: any) {
-          console.error("[Modelling] Generation failed:", err.message);
-          await storage.updateFinancialModel(model.id, {
-            status: "error",
-            title: "Generation Failed",
-            content: JSON.stringify({ error: err.message }),
-          });
         }
+
+        console.error(`[Modelling] All ${MAX_CREATE_ATTEMPTS} create attempts failed for model ${model.id}: ${lastError.slice(0, 200)}`);
+        await storage.updateFinancialModel(model.id, {
+          status: "error",
+          title: "Generation Failed",
+          errorMessage: `Model generation failed after ${MAX_CREATE_ATTEMPTS} attempts: ${lastError.slice(0, 150)}. Please try again.`,
+        });
       })();
     } catch (error: any) {
       res.status(500).json({ message: error.message });
@@ -2078,114 +2213,139 @@ RULES:
       const company = (req as ValidatedModelRequest)._validatedCompany;
       const iteratePrompt = (req as ValidatedModelRequest)._validatedPrompt;
 
-      const savedState = {
-        content: existingModel.content,
-        assumptions: existingModel.assumptions,
-        conversationHistory: existingModel.conversationHistory,
-        title: existingModel.title,
-        status: existingModel.status,
-      };
-
       await storage.updateFinancialModel(existingModel.id, { status: "generating" });
       res.json({ id: existingModel.id, status: "generating" });
 
       (async () => {
-        try {
-          const contextData = await buildModellingContext(company, userId);
-          const userMessage = buildModelUserMessage(contextData, iteratePrompt, existingModel.content);
+        const MAX_ITERATE_ATTEMPTS = 3;
+        let lastError = "";
 
-          let priorHistory: Array<{ role: string; content: string }> = [];
-          if (existingModel.conversationHistory) {
-            try { priorHistory = JSON.parse(existingModel.conversationHistory); } catch { /* use empty */ }
-          }
-
-          const messages = [
-            ...priorHistory.map(h => ({ role: h.role, content: h.content })),
-            { role: "user", content: userMessage },
-          ];
-
-          const result = await callAnthropicServerHeavy({
-            model: "claude-opus-4-6",
-            max_tokens: 16000,
-            system: MODELLING_SYSTEM_PROMPT,
-            messages,
-          });
-
-          let modelData: Record<string, unknown>;
+        for (let attempt = 0; attempt < MAX_ITERATE_ATTEMPTS; attempt++) {
+          const compactLevel = attempt;
           try {
-            const cleaned = result.text.replace(/^[\s\n]*```(?:json)?\s*/, "").replace(/```[\s\n]*$/, "").trim();
-            modelData = JSON.parse(cleaned);
-          } catch (parseErr) {
-            console.error("[Modelling] Iterate JSON parse failed, response length:", result.text.length, "stop_reason:", (result as any).stop_reason || "unknown");
+            console.log(`[Modelling] Iterate attempt ${attempt + 1}/${MAX_ITERATE_ATTEMPTS} (compact level ${compactLevel}) for model ${existingModel.id}`);
+
+            const contextData = await buildModellingContext(company, userId);
+            const userMessage = buildModelUserMessage(contextData, iteratePrompt, existingModel.content, compactLevel);
+
+            const priorHistory = trimConversationHistory(
+              existingModel.conversationHistory,
+              compactLevel >= 2 ? 1 : compactLevel >= 1 ? 2 : 3
+            );
+
+            const messages = [
+              ...priorHistory.map(h => ({ role: h.role, content: h.content })),
+              { role: "user", content: userMessage },
+            ];
+
+            const totalChars = messages.reduce((sum, m) => sum + m.content.length, 0) + MODELLING_SYSTEM_PROMPT.length;
+            console.log(`[Modelling] Iterate payload: ${totalChars} chars, ${messages.length} messages (compact=${compactLevel})`);
+
+            const result = await callAnthropicServerHeavy({
+              model: "claude-opus-4-6",
+              max_tokens: 16000,
+              system: MODELLING_SYSTEM_PROMPT,
+              messages,
+            });
+
+            const modelData = tryParseModelJSON(result.text);
+            if (!modelData) {
+              lastError = `JSON parse failed (attempt ${attempt + 1}, response ${result.text.length} chars)`;
+              console.warn(`[Modelling] ${lastError}`);
+              if (attempt < MAX_ITERATE_ATTEMPTS - 1) {
+                console.log(`[Modelling] Retrying with more compact context...`);
+                await new Promise(r => setTimeout(r, 2000));
+                continue;
+              }
+              break;
+            }
+
+            const hasValidStructure = modelData &&
+              typeof modelData.title === "string" &&
+              Array.isArray(modelData.sections) &&
+              (modelData.sections as unknown[]).length > 0;
+
+            if (!hasValidStructure) {
+              lastError = `Invalid structure (attempt ${attempt + 1}) — missing title or sections`;
+              console.warn(`[Modelling] ${lastError}`);
+              if (attempt < MAX_ITERATE_ATTEMPTS - 1) {
+                console.log(`[Modelling] Retrying with more compact context...`);
+                await new Promise(r => setTimeout(r, 2000));
+                continue;
+              }
+              break;
+            }
+
+            let fullHistory: Array<{ role: string; content: string }> = [];
+            if (existingModel.conversationHistory) {
+              try { fullHistory = JSON.parse(existingModel.conversationHistory); } catch {}
+            }
+            const updatedHistory = [
+              ...fullHistory,
+              { role: "user", content: iteratePrompt },
+              { role: "assistant", content: modelData.title as string },
+            ];
+
             await storage.updateFinancialModel(existingModel.id, {
-              ...savedState,
-              status: "error",
-              errorMessage: "AI returned malformed output — the response was too large or got truncated. Try a simpler edit.",
+              content: JSON.stringify(modelData),
+              assumptions: JSON.stringify(modelData.assumptions || []),
+              conversationHistory: JSON.stringify(updatedHistory),
+              status: "complete",
+              title: modelData.title as string,
+              errorMessage: null,
             });
+
+            try {
+              await storage.logTransaction({
+                userId,
+                type: "financial_model_iterate",
+                description: `AI model iteration: ${modelData.title}`,
+                amount: "0.5000",
+                apiCost: result.mppCost.toFixed(4),
+                companyName: company.name,
+                inputTokens: result.usage.input_tokens,
+                outputTokens: result.usage.output_tokens,
+              });
+            } catch (logErr) {
+              console.error("[Transaction] Failed to log model iterate:", logErr);
+            }
+
+            trackEvent(userId, "financial_model_iterated", {
+              modelId: existingModel.id,
+              iterationCount: updatedHistory.filter(h => h.role === "user").length,
+            });
+
+            if (attempt > 0) {
+              console.log(`[Modelling] Iterate succeeded on attempt ${attempt + 1} (compact level ${compactLevel})`);
+            }
             return;
+          } catch (err: unknown) {
+            const errMsg = err instanceof Error ? err.message : "Unknown error";
+            lastError = errMsg;
+            const isRetryable = errMsg.includes("524") || errMsg.includes("502") || errMsg.includes("timeout") ||
+              errMsg.includes("Gateway") || errMsg.includes("503") || errMsg.includes("ECONNRESET");
+
+            console.warn(`[Modelling] Iterate attempt ${attempt + 1} failed: ${errMsg.slice(0, 150)}`);
+
+            if (isRetryable && attempt < MAX_ITERATE_ATTEMPTS - 1) {
+              console.log(`[Modelling] Retryable error — will retry with compact level ${attempt + 1}...`);
+              await new Promise(r => setTimeout(r, 3000 * (attempt + 1)));
+              continue;
+            }
+
+            if (!isRetryable) break;
           }
-
-          const hasValidStructure = modelData &&
-            typeof modelData.title === "string" &&
-            Array.isArray(modelData.sections) &&
-            (modelData.sections as unknown[]).length > 0;
-
-          if (!hasValidStructure) {
-            console.error("[Modelling] Iterate produced invalid structure — missing title or sections");
-            await storage.updateFinancialModel(existingModel.id, {
-              ...savedState,
-              status: "error",
-              errorMessage: "AI produced an incomplete model structure. Try rephrasing your edit.",
-            });
-            return;
-          }
-
-          const updatedHistory = [
-            ...priorHistory,
-            { role: "user", content: iteratePrompt },
-            { role: "assistant", content: modelData.title as string },
-          ];
-
-          await storage.updateFinancialModel(existingModel.id, {
-            content: JSON.stringify(modelData),
-            assumptions: JSON.stringify(modelData.assumptions || []),
-            conversationHistory: JSON.stringify(updatedHistory),
-            status: "complete",
-            title: modelData.title as string,
-            errorMessage: null,
-          });
-
-          try {
-            await storage.logTransaction({
-              userId,
-              type: "financial_model_iterate",
-              description: `AI model iteration: ${modelData.title}`,
-              amount: "0.5000",
-              apiCost: result.mppCost.toFixed(4),
-              companyName: company.name,
-              inputTokens: result.usage.input_tokens,
-              outputTokens: result.usage.output_tokens,
-            });
-          } catch (logErr) {
-            console.error("[Transaction] Failed to log model iterate:", logErr);
-          }
-
-          trackEvent(userId, "financial_model_iterated", {
-            modelId: existingModel.id,
-            iterationCount: updatedHistory.filter(h => h.role === "user").length,
-          });
-        } catch (err: unknown) {
-          const errMsg = err instanceof Error ? err.message : "Unknown error";
-          console.error("[Modelling] Iteration failed:", errMsg);
-          const is524 = errMsg.includes("524") || errMsg.includes("timeout") || errMsg.includes("Gateway");
-          await storage.updateFinancialModel(existingModel.id, {
-            ...savedState,
-            status: "error",
-            errorMessage: is524
-              ? "AI request timed out — the prompt may be too large. Try with fewer data sources or a shorter description."
-              : `Iteration failed: ${errMsg.slice(0, 200)}`,
-          });
         }
+
+        console.error(`[Modelling] All ${MAX_ITERATE_ATTEMPTS} iterate attempts failed for model ${existingModel.id}: ${lastError.slice(0, 200)}`);
+        await storage.updateFinancialModel(existingModel.id, {
+          content: existingModel.content,
+          assumptions: existingModel.assumptions,
+          conversationHistory: existingModel.conversationHistory,
+          title: existingModel.title,
+          status: "error",
+          errorMessage: `Iteration failed after ${MAX_ITERATE_ATTEMPTS} attempts: ${lastError.slice(0, 150)}. Please try again.`,
+        });
       })();
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "Server error";
