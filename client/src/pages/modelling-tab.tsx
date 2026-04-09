@@ -262,9 +262,9 @@ function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; comp
   const [iteratePrompt, setIteratePrompt] = useState("");
   const [showIterate, setShowIterate] = useState(false);
   const { toast } = useToast();
-  const parsed = model.status === "complete" ? parseModelContent(model.content) : null;
+  const parsed = (model.status === "complete" || (model.status === "error" && model.content)) ? parseModelContent(model.content) : null;
   const isGenerating = model.status === "generating";
-  const isError = model.status === "error";
+  const isError = model.status === "error" && !parsed;
 
   const conversationTurns = model.conversationHistory
     ? (() => { try { return (JSON.parse(model.conversationHistory) as Array<{ role: string }>).filter(h => h.role === "user").length; } catch { return 0; } })()

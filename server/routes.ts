@@ -1930,9 +1930,10 @@ RULES:
 
           let modelData: any;
           try {
-            const cleaned = result.text.replace(/^```json\s*/, "").replace(/```\s*$/, "").trim();
+            const cleaned = result.text.replace(/^[\s\n]*```(?:json)?\s*/, "").replace(/```[\s\n]*$/, "").trim();
             modelData = JSON.parse(cleaned);
           } catch (parseErr) {
+            console.error("[Modelling] JSON parse failed, response length:", result.text.length, "first 200 chars:", result.text.substring(0, 200));
             await storage.updateFinancialModel(model.id, {
               content: result.text,
               status: "error",
@@ -2012,7 +2013,7 @@ RULES:
         const isAdmin = await storage.checkIsAdmin(userId);
         if (!isAdmin) return res.status(403).json({ message: "Not authorized" });
       }
-      if (existingModel.status !== "complete") return res.status(400).json({ message: "Cannot iterate on a model that is not complete" });
+      if (existingModel.status !== "complete" && existingModel.status !== "error") return res.status(400).json({ message: "Cannot iterate on a model that is not complete" });
       const parsed = modelPromptSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
       if (!isServerMppReady()) return res.status(503).json({ message: "AI service not configured" });
@@ -2035,6 +2036,14 @@ RULES:
       const company = (req as ValidatedModelRequest)._validatedCompany;
       const iteratePrompt = (req as ValidatedModelRequest)._validatedPrompt;
 
+      const savedState = {
+        content: existingModel.content,
+        assumptions: existingModel.assumptions,
+        conversationHistory: existingModel.conversationHistory,
+        title: existingModel.title,
+        status: existingModel.status,
+      };
+
       await storage.updateFinancialModel(existingModel.id, { status: "generating" });
       res.json({ id: existingModel.id, status: "generating" });
 
@@ -2055,17 +2064,18 @@ RULES:
 
           const result = await callAnthropicServerHeavy({
             model: "claude-opus-4-6",
-            max_tokens: 8000,
+            max_tokens: 16000,
             system: MODELLING_SYSTEM_PROMPT,
             messages,
           });
 
           let modelData: Record<string, unknown>;
           try {
-            const cleaned = result.text.replace(/^```json\s*/, "").replace(/```\s*$/, "").trim();
+            const cleaned = result.text.replace(/^[\s\n]*```(?:json)?\s*/, "").replace(/```[\s\n]*$/, "").trim();
             modelData = JSON.parse(cleaned);
-          } catch {
-            await storage.updateFinancialModel(existingModel.id, { status: "error" });
+          } catch (parseErr) {
+            console.error("[Modelling] Iterate JSON parse failed, response length:", result.text.length, "stop_reason:", (result as any).stop_reason || "unknown");
+            await storage.updateFinancialModel(existingModel.id, savedState);
             return;
           }
 
@@ -2075,7 +2085,8 @@ RULES:
             (modelData.sections as unknown[]).length > 0;
 
           if (!hasValidStructure) {
-            await storage.updateFinancialModel(existingModel.id, { status: "error" });
+            console.error("[Modelling] Iterate produced invalid structure — missing title or sections");
+            await storage.updateFinancialModel(existingModel.id, savedState);
             return;
           }
 
@@ -2115,7 +2126,7 @@ RULES:
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : "Unknown error";
           console.error("[Modelling] Iteration failed:", errMsg);
-          await storage.updateFinancialModel(existingModel.id, { status: "error" });
+          await storage.updateFinancialModel(existingModel.id, savedState);
         }
       })();
     } catch (error: unknown) {
