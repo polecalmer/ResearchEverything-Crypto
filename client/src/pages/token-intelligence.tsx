@@ -1014,7 +1014,7 @@ function renderInline(text: string): JSX.Element {
   let lastIndex = 0;
   while ((match = regex.exec(text)) !== null) {
     if (match.index > lastIndex) parts.push(text.slice(lastIndex, match.index));
-    if (match[1]) parts.push(<strong key={idx++} className="font-semibold text-foreground">{match[1]}</strong>);
+    if (match[1]) parts.push(<strong key={idx++} className="font-semibold text-foreground/90">{match[1]}</strong>);
     else if (match[2]) parts.push(<em key={idx++} className="italic">{match[2]}</em>);
     else if (match[3]) parts.push(<code key={idx++} className="text-[0.85em] font-mono px-1 py-0.5 rounded bg-muted/40">{match[3]}</code>);
     lastIndex = regex.lastIndex;
@@ -1045,9 +1045,9 @@ function ResearchReport({ content, compact }: { content: string; compact?: boole
     const isOrdered = listItems[0].ordered;
     const Tag = isOrdered ? 'ol' : 'ul';
     currentSection.push(
-      <Tag key={`l-${sectionIdx}-${currentSection.length}`} className={`${isOrdered ? 'list-decimal' : 'list-disc'} pl-4 space-y-1.5 my-3`}>
+      <Tag key={`l-${sectionIdx}-${currentSection.length}`} className={`${isOrdered ? 'list-decimal' : 'list-disc'} pl-3 space-y-0.5 my-1.5`}>
         {listItems.map((item, j) => (
-          <li key={j} className="text-[13px] leading-[1.75] text-foreground/70 pl-1">
+          <li key={j} className="text-[10px] leading-relaxed text-foreground/65 pl-0.5">
             {renderInline(item.text)}
           </li>
         ))}
@@ -1094,12 +1094,12 @@ function ResearchReport({ content, compact }: { content: string; compact?: boole
         const headerCells = parseTableCells(dataRows[0]);
         const bodyRows = dataRows.slice(1);
         currentSection.push(
-          <div key={`t-${sectionIdx}-${currentSection.length}`} className="my-4 overflow-x-auto">
-            <table className="w-full border-collapse text-[12px]">
+          <div key={`t-${sectionIdx}-${currentSection.length}`} className="my-2 overflow-x-auto">
+            <table className="w-full border-collapse text-[10px]">
               <thead>
                 <tr>
                   {headerCells.map((cell, ci) => (
-                    <th key={ci} className="text-left py-2 px-3 text-[10px] uppercase tracking-wider text-muted-foreground/50 font-medium border-b-2 border-border/20 whitespace-nowrap">
+                    <th key={ci} className="text-left py-1.5 px-2 text-[9px] uppercase tracking-wider text-muted-foreground/50 font-medium border-b border-border/20 whitespace-nowrap">
                       {renderInline(cell)}
                     </th>
                   ))}
@@ -1111,7 +1111,7 @@ function ResearchReport({ content, compact }: { content: string; compact?: boole
                   return (
                     <tr key={ri} className="border-b border-border/8 hover:bg-muted/5 transition-colors">
                       {cells.map((cell, ci) => (
-                        <td key={ci} className={`py-2 px-3 text-[12px] whitespace-nowrap ${ci === 0 ? 'text-foreground/80 font-medium' : 'text-foreground/60'}`}>
+                        <td key={ci} className={`py-1.5 px-2 text-[10px] whitespace-nowrap tabular-nums ${ci === 0 ? 'text-foreground/80 font-medium' : 'text-foreground/60'}`}>
                           {renderInline(cell)}
                         </td>
                       ))}
@@ -1153,8 +1153,8 @@ function ResearchReport({ content, compact }: { content: string; compact?: boole
       flushSection();
       const text = line.replace(/^##\s+/, '').replace(/^\d+\.\s*/, '');
       currentSection.push(
-        <div key={`h2-${sectionIdx}-${currentSection.length}`} className="pt-5 pb-2 first:pt-0">
-          <h2 className="text-sm font-semibold tracking-tight text-foreground">{renderInline(text)}</h2>
+        <div key={`h2-${sectionIdx}-${currentSection.length}`} className="pt-3 pb-1 first:pt-0">
+          <h2 className="text-xs font-semibold text-foreground/90">{renderInline(text)}</h2>
         </div>
       );
       i++;
@@ -1165,7 +1165,7 @@ function ResearchReport({ content, compact }: { content: string; compact?: boole
       flushList();
       const text = line.replace(/^###\s+/, '');
       currentSection.push(
-        <h3 key={`h3-${sectionIdx}-${currentSection.length}`} className="text-[13px] font-semibold text-foreground/85 pt-3 pb-1">
+        <h3 key={`h3-${sectionIdx}-${currentSection.length}`} className="text-[11px] font-semibold text-foreground/90 pt-2 pb-0.5">
           {renderInline(text)}
         </h3>
       );
@@ -1177,7 +1177,7 @@ function ResearchReport({ content, compact }: { content: string; compact?: boole
       flushSection();
       const text = line.replace(/^#\s+/, '');
       currentSection.push(
-        <h1 key={`h1-${sectionIdx}-${currentSection.length}`} className="text-base font-bold tracking-tight text-foreground pt-4 pb-2">
+        <h1 key={`h1-${sectionIdx}-${currentSection.length}`} className="text-xs font-bold text-foreground/90 pt-3 pb-1">
           {renderInline(text)}
         </h1>
       );
@@ -1191,7 +1191,7 @@ function ResearchReport({ content, compact }: { content: string; compact?: boole
     }
 
     currentSection.push(
-      <p key={`p-${sectionIdx}-${currentSection.length}`} className="text-[13px] leading-[1.8] text-foreground/65 mb-2">
+      <p key={`p-${sectionIdx}-${currentSection.length}`} className="text-[10px] leading-relaxed text-foreground/65 mb-1.5">
         {renderInline(line)}
       </p>
     );
@@ -1203,10 +1203,10 @@ function ResearchReport({ content, compact }: { content: string; compact?: boole
   return (
     <article className={compact ? "" : "max-w-3xl"}>
       {title && (
-        <header className="mb-6">
-          <h1 className="text-lg font-bold tracking-tight text-foreground leading-tight">{renderInline(title)}</h1>
+        <header className="mb-3">
+          <h1 className="text-sm font-bold text-foreground leading-tight">{renderInline(title)}</h1>
           {subtitle && (
-            <p className="text-[13px] text-muted-foreground/50 mt-1.5 font-mono">{subtitle}</p>
+            <p className="text-[10px] text-muted-foreground/50 mt-1 font-mono">{subtitle}</p>
           )}
         </header>
       )}
@@ -1472,10 +1472,10 @@ export function ReportsTab({ companyId, companyName }: { companyId: string; comp
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-3">
         <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">
+        <p className="text-[10px] text-muted-foreground">
           {generatingAnalysis ? "Generating token analysis..." : "Generating deep research..."}
         </p>
-        <p className="text-[11px] text-muted-foreground/40">This typically takes 1-2 minutes</p>
+        <p className="text-[10px] text-muted-foreground/40">This typically takes 1-2 minutes</p>
       </div>
     );
   }
@@ -1530,8 +1530,8 @@ export function ReportsTab({ companyId, companyName }: { companyId: string; comp
             <Brain className="w-8 h-8" />
           </div>
           <div className="text-center">
-            <p className="text-sm text-muted-foreground/60 mb-1">No reports yet</p>
-            <p className="text-[11px] text-muted-foreground">Generate AI-powered analysis for {companyName}</p>
+            <p className="text-[10px] text-muted-foreground/60 mb-1">No reports yet</p>
+            <p className="text-[10px] text-muted-foreground">Generate AI-powered analysis for {companyName}</p>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -1579,10 +1579,10 @@ export function ReportsTab({ companyId, companyName }: { companyId: string; comp
                   </span>
                   <span className="text-[10px] text-muted-foreground/50">{format(new Date(report.createdAt), "MMM d, yyyy")}</span>
                 </div>
-                <h3 className="text-sm font-medium text-foreground/90 mb-2 line-clamp-2 group-hover:text-foreground transition-colors">
+                <h3 className="text-xs font-medium text-foreground/90 mb-1.5 line-clamp-2 group-hover:text-foreground transition-colors">
                   {extractTitle(report)}
                 </h3>
-                <p className="text-[11px] text-muted-foreground/60 line-clamp-3 leading-relaxed">
+                <p className="text-[10px] text-muted-foreground/60 line-clamp-3 leading-relaxed">
                   {extractSummary(report.content)}
                 </p>
               </div>

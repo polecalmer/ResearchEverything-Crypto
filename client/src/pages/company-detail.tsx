@@ -636,7 +636,7 @@ export default function CompanyDetail() {
                 <TermBlock label="Overview" action={
                   <AddToMasterReport blockType="text" content={`## ${company.name} — Overview\n\n${company.description}`} label="+" className="text-[10px] text-muted-foreground/40 hover:text-foreground/60 transition-colors" />
                 }>
-                  <p className="text-[13px] leading-relaxed text-foreground/80" data-testid="text-company-description">{company.description}</p>
+                  <p className="text-[10px] leading-relaxed text-foreground/65" data-testid="text-company-description">{company.description}</p>
                 </TermBlock>
               )}
 
@@ -644,7 +644,7 @@ export default function CompanyDetail() {
                 <TermBlock label="Funding" action={
                   <AddToMasterReport blockType="text" content={`## ${company.name} — Funding\n\n${company.fundingHistory}`} label="+" className="text-[10px] text-muted-foreground/40 hover:text-foreground/60 transition-colors" />
                 }>
-                  <p className="text-[13px] leading-relaxed text-foreground/80" data-testid="text-funding">{company.fundingHistory}</p>
+                  <p className="text-[10px] leading-relaxed text-foreground/65" data-testid="text-funding">{company.fundingHistory}</p>
                 </TermBlock>
               )}
 
@@ -652,7 +652,7 @@ export default function CompanyDetail() {
                 <TermBlock label="Competitive Landscape" action={
                   <AddToMasterReport blockType="text" content={`## ${company.name} — Competitive Landscape\n\n${company.competitiveLandscape}`} label="+" className="text-[10px] text-muted-foreground/40 hover:text-foreground/60 transition-colors" />
                 }>
-                  <p className="text-[13px] leading-relaxed text-foreground/80" data-testid="text-competitive">{company.competitiveLandscape}</p>
+                  <p className="text-[10px] leading-relaxed text-foreground/65" data-testid="text-competitive">{company.competitiveLandscape}</p>
                 </TermBlock>
               )}
 
@@ -672,7 +672,7 @@ export default function CompanyDetail() {
                               href={read.url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="flex items-center gap-2 py-1 group text-xs"
+                              className="flex items-center gap-2 py-1 group text-[10px]"
                               data-testid={`link-dd-read-${idx}`}
                             >
                               <span className="text-muted-foreground/50 group-hover:text-foreground/70 transition-colors">-</span>
@@ -706,7 +706,7 @@ export default function CompanyDetail() {
                     {founders.map((founder, idx) => (
                       <div key={founder.id} data-testid={`card-founder-${founder.id}`}>
                         <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-bold" data-testid={`text-founder-name-${founder.id}`}>{founder.name}</span>
+                          <span className="text-[10px] font-bold" data-testid={`text-founder-name-${founder.id}`}>{founder.name}</span>
                           {founder.role && <span className="text-[10px] text-muted-foreground">{founder.role}</span>}
                           <div className="flex items-center gap-2 ml-auto text-muted-foreground">
                             <TermLink href={founder.linkedinUrl} aria-label={`${founder.name} LinkedIn`} data-testid={`link-founder-linkedin-${founder.id}`}>
@@ -723,7 +723,7 @@ export default function CompanyDetail() {
                             </TermLink>
                           </div>
                         </div>
-                        {founder.bio && <p className="text-xs text-muted-foreground leading-relaxed">{founder.bio}</p>}
+                        {founder.bio && <p className="text-[10px] text-foreground/65 leading-relaxed">{founder.bio}</p>}
                         {founder.priorCompanies && (
                           <p className="text-[10px] text-muted-foreground/70 mt-1">
                             <span className="text-muted-foreground/60">Previously:</span> {founder.priorCompanies}
@@ -747,7 +747,7 @@ export default function CompanyDetail() {
                       value={noteContent}
                       onChange={(e) => setNoteContent(e.target.value)}
                       placeholder="Add a note..."
-                      className="flex-1 min-h-[36px] bg-transparent text-xs text-foreground/80 outline-none resize-none placeholder:text-muted-foreground/60 border border-border/40 rounded px-2 py-1.5 focus:border-border transition-colors"
+                      className="flex-1 min-h-[36px] bg-transparent text-[10px] text-foreground/65 outline-none resize-none placeholder:text-muted-foreground/60 border border-border/40 rounded px-2 py-1.5 focus:border-border transition-colors"
                       data-testid="textarea-note"
                     />
                     <button
@@ -767,7 +767,7 @@ export default function CompanyDetail() {
                         <span className="text-[10px] text-muted-foreground/60 flex-shrink-0 mt-0.5 w-16">
                           {note.createdAt ? format(new Date(note.createdAt), "MM/dd HH:mm") : ""}
                         </span>
-                        <p className="text-xs whitespace-pre-wrap text-foreground/70 flex-1">{note.content}</p>
+                        <p className="text-[10px] whitespace-pre-wrap text-foreground/65 flex-1">{note.content}</p>
                         <button
                           onClick={() => deleteNoteMutation.mutate(note.id)}
                           className="flex-shrink-0 opacity-0 group-hover:opacity-100 text-muted-foreground/50 hover:text-red-400 transition-all"
@@ -780,7 +780,7 @@ export default function CompanyDetail() {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-[11px] text-muted-foreground italic">No notes yet</p>
+                  <p className="text-[10px] text-muted-foreground italic">No notes yet</p>
                 )}
               </TermBlock>
 
