@@ -1929,14 +1929,23 @@ RULES:
       if (level >= 1) {
         const compactSections = (data.sections || []).map((s: any) => {
           if (s.type === "table") {
-            return { ...s, rows: (s.rows || []).slice(0, 3) };
+            return { heading: s.heading, type: "table", columns: s.columns, rows: (s.rows || []).slice(0, 2), note: s.note ? s.note.substring(0, 150) : undefined };
           }
           if (s.type === "text") {
-            return { ...s, content: (s.content || "").substring(0, 500) };
+            return { heading: s.heading, type: "text", content: (s.content || "").substring(0, 300) };
           }
-          return s;
+          if (s.type === "metrics") {
+            return { heading: s.heading, type: "metrics", items: (s.items || []).map((i: any) => ({ label: i.label, value: i.value })) };
+          }
+          if (s.type === "scenarios") {
+            return { heading: s.heading, type: "scenarios", scenarios: (s.scenarios || []).map((sc: any) => ({ name: sc.name, probability: sc.probability, outcome: sc.outcome })) };
+          }
+          if (s.type === "chart") {
+            return { heading: s.heading, type: "chart", chartType: s.chartType, data: (s.data || []).slice(0, 3) };
+          }
+          return { heading: s.heading, type: s.type };
         });
-        return JSON.stringify({ ...data, sections: compactSections });
+        return JSON.stringify({ title: data.title, assumptions: data.assumptions, sections: compactSections, methodology: data.methodology?.substring(0, 200) });
       }
       return modelJson;
     } catch {

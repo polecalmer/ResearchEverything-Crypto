@@ -243,6 +243,10 @@ async function callAnthropic(request: AnthropicRequest, options?: CallOptions): 
         }
       }
 
+      if (failFastOn524 && (errMsg.includes("524") || errMsg.includes("502"))) {
+        throw err;
+      }
+
       const isRetryableError = errMsg.includes("fetch") ||
         errMsg.includes("524") || errMsg.includes("502") || errMsg.includes("503") ||
         errMsg.includes("timeout") || errMsg.includes("ECONNRESET") ||
