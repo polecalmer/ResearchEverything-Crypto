@@ -53,6 +53,8 @@ Focus on user experience and intuitive design.
 
 **NLP-Driven Modelling Tab:** A financial modelling workspace powered by Opus 4.6 acting as a quantitative analyst. Users describe what they want to model in natural language (e.g., "Build a DCF with 3-year projections", "Comparable analysis vs sector"), and the AI generates structured financial models with assumptions, projection tables, key metrics, scenario analysis (bull/base/bear), and analytical commentary. Models leverage full company context — research reports, data charts, token intelligence, and company metadata. $0.50 per model via MPP paywall. Stored in the `financial_models` table with validate-first pattern.
 
+**Master Reports:** A block-based report composition workspace. Users create master reports and compose them from multiple block types: free-text/markdown, referenced deep research reports, referenced financial models, referenced dashboard charts, and tables. Blocks can be reordered via up/down controls. Reports can be exported as Markdown. Free to create (no paywall). Data model: `master_reports` (id, userId, title, timestamps) and `master_report_blocks` (id, masterReportId, blockType, content, referenceId, displayOrder). All block mutations enforce ownership — blocks must belong to the report, and referenced entities must belong to the user.
+
 **Admin Wallet Management:** An admin panel for managing the server wallet, discovering payment channels, and allowing channel closure/withdrawal.
 
 **Chrome Extension:** A Manifest V3 extension for quick capture of web links, utilizing context menus, content scripts, and a background service worker to interact with the backend API.

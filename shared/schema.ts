@@ -322,6 +322,40 @@ export const insertFinancialModelSchema = createInsertSchema(financialModels).om
 export type FinancialModel = typeof financialModels.$inferSelect;
 export type InsertFinancialModel = z.infer<typeof insertFinancialModelSchema>;
 
+export const masterReports = pgTable("master_reports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  title: text("title").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const masterReportBlocks = pgTable("master_report_blocks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  masterReportId: varchar("master_report_id").notNull(),
+  blockType: text("block_type").notNull(),
+  content: text("content"),
+  referenceId: varchar("reference_id"),
+  displayOrder: integer("display_order").notNull().default(0),
+});
+
+export const insertMasterReportSchema = createInsertSchema(masterReports).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type MasterReport = typeof masterReports.$inferSelect;
+export type InsertMasterReport = z.infer<typeof insertMasterReportSchema>;
+
+export const insertMasterReportBlockSchema = createInsertSchema(masterReportBlocks).omit({
+  id: true,
+});
+export type MasterReportBlock = typeof masterReportBlocks.$inferSelect;
+export type InsertMasterReportBlock = z.infer<typeof insertMasterReportBlockSchema>;
+
+export const BLOCK_TYPES = ["text", "chart", "report-section", "model", "table"] as const;
+export type BlockType = typeof BLOCK_TYPES[number];
+
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,

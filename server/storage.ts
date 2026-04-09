@@ -13,9 +13,12 @@ import {
   type ProvenQuery, type InsertProvenQuery,
   type SystemLearning, type InsertSystemLearning,
   type FinancialModel, type InsertFinancialModel,
+  type MasterReport, type InsertMasterReport,
+  type MasterReportBlock, type InsertMasterReportBlock,
   users, companies, founders, notes, reports, transactions,
   tokenProfiles, masterDuneQueries, duneQueries, tokenAnalyses, dashboardCharts,
   provenQueries, systemLearnings, financialModels,
+  masterReports, masterReportBlocks,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, ne, desc, and, isNull, isNotNull, sql } from "drizzle-orm";
@@ -108,6 +111,18 @@ export interface IStorage {
   getFinancialModel(id: string): Promise<FinancialModel | undefined>;
   getFinancialModelsByCompany(companyId: string, userId: string): Promise<FinancialModel[]>;
   deleteFinancialModel(id: string, userId: string): Promise<boolean>;
+
+  createMasterReport(data: InsertMasterReport): Promise<MasterReport>;
+  getMasterReports(userId: string): Promise<MasterReport[]>;
+  getMasterReport(id: string, userId: string): Promise<MasterReport | undefined>;
+  updateMasterReport(id: string, userId: string, data: { title?: string }): Promise<MasterReport | undefined>;
+  deleteMasterReport(id: string, userId: string): Promise<boolean>;
+
+  getMasterReportBlocks(masterReportId: string): Promise<MasterReportBlock[]>;
+  addMasterReportBlock(data: InsertMasterReportBlock): Promise<MasterReportBlock>;
+  updateMasterReportBlock(id: string, masterReportId: string, data: Partial<Pick<MasterReportBlock, 'content' | 'displayOrder' | 'blockType' | 'referenceId'>>): Promise<MasterReportBlock | undefined>;
+  deleteMasterReportBlock(id: string, masterReportId: string): Promise<boolean>;
+  reorderMasterReportBlocks(masterReportId: string, blockIds: string[]): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -685,6 +700,82 @@ export class DatabaseStorage implements IStorage {
     if (!model) return false;
     const result = await db.delete(financialModels).where(eq(financialModels.id, id)).returning();
     return result.length > 0;
+  }
+
+  async createMasterReport(data: InsertMasterReport): Promise<MasterReport> {
+    const [report] = await db.insert(masterReports).values(data).returning();
+    return report;
+  }
+
+  async getMasterReports(userId: string): Promise<MasterReport[]> {
+    return db.select().from(masterReports)
+      .where(eq(masterReports.userId, userId))
+      .orderBy(desc(masterReports.updatedAt));
+  }
+
+  async getMasterReport(id: string, userId: string): Promise<MasterReport | undefined> {
+    const [report] = await db.select().from(masterReports)
+      .where(and(eq(masterReports.id, id), eq(masterReports.userId, userId)));
+    return report;
+  }
+
+  async updateMasterReport(id: string, userId: string, data: { title?: string }): Promise<MasterReport | undefined> {
+    const [updated] = await db.update(masterReports)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(masterReports.id, id), eq(masterReports.userId, userId)))
+      .returning();
+    return updated;
+  }
+
+  async deleteMasterReport(id: string, userId: string): Promise<boolean> {
+    const [report] = await db.select().from(masterReports)
+      .where(and(eq(masterReports.id, id), eq(masterReports.userId, userId)));
+    if (!report) return false;
+    await db.delete(masterReportBlocks).where(eq(masterReportBlocks.masterReportId, id));
+    const result = await db.delete(masterReports).where(eq(masterReports.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getMasterReportBlocks(masterReportId: string): Promise<MasterReportBlock[]> {
+    return db.select().from(masterReportBlocks)
+      .where(eq(masterReportBlocks.masterReportId, masterReportId))
+      .orderBy(masterReportBlocks.displayOrder);
+  }
+
+  async addMasterReportBlock(data: InsertMasterReportBlock): Promise<MasterReportBlock> {
+    const [block] = await db.insert(masterReportBlocks).values(data).returning();
+    await db.update(masterReports).set({ updatedAt: new Date() }).where(eq(masterReports.id, data.masterReportId));
+    return block;
+  }
+
+  async updateMasterReportBlock(id: string, masterReportId: string, data: Partial<Pick<MasterReportBlock, 'content' | 'displayOrder' | 'blockType' | 'referenceId'>>): Promise<MasterReportBlock | undefined> {
+    const [updated] = await db.update(masterReportBlocks).set(data)
+      .where(and(eq(masterReportBlocks.id, id), eq(masterReportBlocks.masterReportId, masterReportId)))
+      .returning();
+    if (updated) {
+      await db.update(masterReports).set({ updatedAt: new Date() }).where(eq(masterReports.id, masterReportId));
+    }
+    return updated;
+  }
+
+  async deleteMasterReportBlock(id: string, masterReportId: string): Promise<boolean> {
+    const result = await db.delete(masterReportBlocks)
+      .where(and(eq(masterReportBlocks.id, id), eq(masterReportBlocks.masterReportId, masterReportId)))
+      .returning();
+    if (result.length > 0) {
+      await db.update(masterReports).set({ updatedAt: new Date() }).where(eq(masterReports.id, masterReportId));
+      return true;
+    }
+    return false;
+  }
+
+  async reorderMasterReportBlocks(masterReportId: string, blockIds: string[]): Promise<void> {
+    for (let i = 0; i < blockIds.length; i++) {
+      await db.update(masterReportBlocks)
+        .set({ displayOrder: i })
+        .where(and(eq(masterReportBlocks.id, blockIds[i]), eq(masterReportBlocks.masterReportId, masterReportId)));
+    }
+    await db.update(masterReports).set({ updatedAt: new Date() }).where(eq(masterReports.id, masterReportId));
   }
 }
 

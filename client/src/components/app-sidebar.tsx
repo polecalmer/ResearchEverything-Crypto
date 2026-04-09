@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { LayoutDashboard, Building2, Chrome, BarChart3, Search, LogOut, User, Wallet, Activity } from "lucide-react";
+import { LayoutDashboard, Building2, Chrome, BarChart3, Search, LogOut, User, Wallet, Activity, FileText } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -21,6 +21,7 @@ const navItems = [
   { title: "Wallet", url: "/wallet", icon: Wallet },
   { title: "Extension", url: "/extension", icon: Chrome },
   { title: "Data", url: "/data", icon: BarChart3 },
+  { title: "Reports", url: "/master-reports", icon: FileText },
 ];
 
 const ADMIN_EMAILS = ["allmysubscriptions10@proton.me"];
@@ -54,7 +55,7 @@ export function AppSidebar() {
                 <SidebarMenuItem key={item.title}>
                   <SidebarMenuButton
                     asChild
-                    data-active={location === item.url}
+                    data-active={item.url === "/" ? location === "/" : location.startsWith(item.url)}
                     className="data-[active=true]:bg-sidebar-accent data-[active=true]:text-foreground text-muted-foreground hover:text-foreground transition-colors"
                   >
                     <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase().replace(' ', '-')}`}>

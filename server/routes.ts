@@ -1363,6 +1363,20 @@ Rewrite the "Section to Rewrite" above, incorporating the user's insight. Return
     }
   });
 
+  app.get("/api/charts/:id", requireAuth, async (req, res) => {
+    try {
+      const chart = await storage.getDashboardChart(req.params.id);
+      if (!chart) return res.status(404).json({ message: "Chart not found" });
+      if (chart.userId !== req.user!.id) {
+        const isAdmin = await storage.checkIsAdmin(req.user!.id);
+        if (!isAdmin) return res.status(403).json({ message: "Not authorized" });
+      }
+      res.json(chart);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.post("/api/charts/:id/refresh", requireAuth, async (req, res) => {
     try {
       const chart = await storage.getDashboardChart(req.params.id);
@@ -2149,6 +2163,171 @@ RULES:
       const deleted = await storage.deleteFinancialModel(req.params.id, req.user!.id);
       if (!deleted) return res.status(404).json({ message: "Model not found" });
       res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  // ─── MASTER REPORTS ─────────────────────────────────────────────────────
+
+  app.get("/api/master-reports", requireAuth, async (req, res) => {
+    try {
+      const reports = await storage.getMasterReports(req.user!.id);
+      res.json(reports);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/master-reports", requireAuth, async (req, res) => {
+    try {
+      const { title } = req.body;
+      if (!title || typeof title !== "string") return res.status(400).json({ message: "title is required" });
+      const report = await storage.createMasterReport({ userId: req.user!.id, title: title.trim() });
+      res.json(report);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/master-reports/:id", requireAuth, async (req, res) => {
+    try {
+      const report = await storage.getMasterReport(req.params.id, req.user!.id);
+      if (!report) return res.status(404).json({ message: "Report not found" });
+      const blocks = await storage.getMasterReportBlocks(report.id);
+      res.json({ ...report, blocks });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/master-reports/:id", requireAuth, async (req, res) => {
+    try {
+      const { title } = req.body;
+      const updated = await storage.updateMasterReport(req.params.id, req.user!.id, { title });
+      if (!updated) return res.status(404).json({ message: "Report not found" });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/master-reports/:id", requireAuth, async (req, res) => {
+    try {
+      const deleted = await storage.deleteMasterReport(req.params.id, req.user!.id);
+      if (!deleted) return res.status(404).json({ message: "Report not found" });
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/master-reports/:id/blocks", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const report = await storage.getMasterReport(req.params.id, userId);
+      if (!report) return res.status(404).json({ message: "Report not found" });
+      const { blockType, content, referenceId, displayOrder } = req.body;
+      const validTypes = ["text", "chart", "report-section", "model", "table"];
+      if (!blockType || !validTypes.includes(blockType)) return res.status(400).json({ message: "Invalid blockType" });
+      if (referenceId) {
+        if (blockType === "report-section") {
+          const ref = await storage.getReport(referenceId);
+          if (!ref || ref.userId !== userId) return res.status(400).json({ message: "Referenced report not found or not owned" });
+        } else if (blockType === "model") {
+          const ref = await storage.getFinancialModel(referenceId);
+          if (!ref || ref.userId !== userId) return res.status(400).json({ message: "Referenced model not found or not owned" });
+        } else if (blockType === "chart") {
+          const ref = await storage.getDashboardChart(referenceId);
+          if (!ref || ref.userId !== userId) return res.status(400).json({ message: "Referenced chart not found or not owned" });
+        }
+      }
+      const existingBlocks = await storage.getMasterReportBlocks(report.id);
+      const block = await storage.addMasterReportBlock({
+        masterReportId: report.id,
+        blockType,
+        content: content || null,
+        referenceId: referenceId || null,
+        displayOrder: displayOrder ?? existingBlocks.length,
+      });
+      res.json(block);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.patch("/api/master-reports/:id/blocks/:blockId", requireAuth, async (req, res) => {
+    try {
+      const report = await storage.getMasterReport(req.params.id, req.user!.id);
+      if (!report) return res.status(404).json({ message: "Report not found" });
+      const { content, displayOrder, blockType, referenceId } = req.body;
+      const updated = await storage.updateMasterReportBlock(req.params.blockId, report.id, { content, displayOrder, blockType, referenceId });
+      if (!updated) return res.status(404).json({ message: "Block not found" });
+      res.json(updated);
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.delete("/api/master-reports/:id/blocks/:blockId", requireAuth, async (req, res) => {
+    try {
+      const report = await storage.getMasterReport(req.params.id, req.user!.id);
+      if (!report) return res.status(404).json({ message: "Report not found" });
+      const deleted = await storage.deleteMasterReportBlock(req.params.blockId, report.id);
+      if (!deleted) return res.status(404).json({ message: "Block not found" });
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/master-reports/:id/reorder", requireAuth, async (req, res) => {
+    try {
+      const report = await storage.getMasterReport(req.params.id, req.user!.id);
+      if (!report) return res.status(404).json({ message: "Report not found" });
+      const { blockIds } = req.body;
+      if (!Array.isArray(blockIds)) return res.status(400).json({ message: "blockIds array required" });
+      await storage.reorderMasterReportBlocks(report.id, blockIds);
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.get("/api/master-reports/:id/export", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const report = await storage.getMasterReport(req.params.id, userId);
+      if (!report) return res.status(404).json({ message: "Report not found" });
+      const blocks = await storage.getMasterReportBlocks(report.id);
+
+      let markdown = `# ${report.title}\n\n`;
+      for (const block of blocks) {
+        if (block.blockType === "text") {
+          markdown += `${block.content || ""}\n\n`;
+        } else if (block.blockType === "report-section" && block.referenceId) {
+          const ref = await storage.getReport(block.referenceId);
+          if (ref && ref.userId === userId) {
+            markdown += `## ${ref.title}\n\n${ref.content}\n\n`;
+          }
+        } else if (block.blockType === "model" && block.referenceId) {
+          const model = await storage.getFinancialModel(block.referenceId);
+          if (model && model.userId === userId) {
+            markdown += `## Model: ${model.title}\n\n${model.content}\n\n`;
+          }
+        } else if (block.blockType === "chart" && block.referenceId) {
+          const chart = await storage.getDashboardChart(block.referenceId);
+          if (chart && chart.userId === userId) {
+            markdown += `## Chart: ${chart.title}\n\n_[Chart data embedded from dashboard]_\n\n`;
+          }
+        } else if (block.blockType === "table") {
+          markdown += `${block.content || ""}\n\n`;
+        }
+      }
+
+      res.setHeader("Content-Type", "text/markdown");
+      res.setHeader("Content-Disposition", `attachment; filename="${report.title.replace(/[^a-zA-Z0-9 ]/g, '')}.md"`);
+      res.send(markdown);
     } catch (error: any) {
       res.status(500).json({ message: error.message });
     }
