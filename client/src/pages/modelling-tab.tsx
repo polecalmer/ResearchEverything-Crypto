@@ -829,7 +829,7 @@ function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; comp
     ? (() => { try { return (JSON.parse(model.conversationHistory) as Array<{ role: string }>).filter(h => h.role === "user").length; } catch { return 0; } })()
     : 0;
 
-  let nextEditId = useRef(1);
+  const nextEditId = useRef(1);
 
   const batchMutation = useMutation({
     mutationFn: async ({ prompt }: { prompt: string }) => {
@@ -1062,8 +1062,31 @@ function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; comp
       )}
 
       {expanded && isError && (
-        <div className="border-t border-border/15 px-3 py-2">
-          <p className="text-[10px] text-red-400/70">{model.errorMessage || "Model generation failed. Please try again."}</p>
+        <div className="border-t border-border/15 px-3 py-3 space-y-2">
+          <div className="flex items-start gap-2">
+            <div className="w-4 h-4 rounded-full bg-red-500/10 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <X className="w-2.5 h-2.5 text-red-400/70" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[10px] font-medium text-red-400/80 mb-0.5">Generation Failed</p>
+              <p className="text-[9px] text-muted-foreground/50">
+                {model.errorMessage || (model.title === "Generation Interrupted"
+                  ? "The server restarted while this model was being generated. This can happen during deployments."
+                  : "An error occurred while generating this model.")}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete(model.id);
+            }}
+            className="flex items-center gap-1 text-[10px] text-muted-foreground/50 hover:text-foreground/70 transition-colors ml-6"
+            data-testid={`button-dismiss-error-${model.id}`}
+          >
+            <Trash2 className="w-2.5 h-2.5" />
+            Dismiss
+          </button>
         </div>
       )}
 
