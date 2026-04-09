@@ -1326,11 +1326,116 @@ Return [] if no new patterns found. JSON only.`,
   }
 }
 
+async function refreshVolumeComparisonChart(chart: DashboardChart): Promise<{
+  data: any[];
+  description: string;
+  chartConfig: any;
+}> {
+  let hip3Volume = 0;
+  let hip3Source = "StonksOnChain";
+
+  try {
+    const summaryData = await stonks.getSummary();
+    hip3Volume = summaryData.volume.current24h;
+  } catch (summaryErr: any) {
+    console.log(`[Data Agent] Volume refresh: Stonks summary failed: ${summaryErr.message}, trying deployer-revenue`);
+    try {
+      const deployerData = await stonks.getDeployerRevenue();
+      if (deployerData.totals?.volume24h) {
+        hip3Volume = deployerData.totals.volume24h;
+        hip3Source = "StonksOnChain (deployer-revenue)";
+      } else if (deployerData.deployers && deployerData.deployers.length > 0) {
+        hip3Volume = deployerData.deployers.reduce((sum: number, d: any) => sum + (d.volume24h || 0), 0);
+        hip3Source = "StonksOnChain (deployer-revenue)";
+      }
+    } catch (deployerErr: any) {
+      console.log(`[Data Agent] Volume refresh: Stonks deployer-revenue also failed: ${deployerErr.message}`);
+    }
+  }
+
+  let totalHlVolume = 0;
+  let totalSource = "";
+  try {
+    let tokenProfile: TokenProfile | null = null;
+    try {
+      const company = await storage.getCompany(chart.companyId);
+      if (company) {
+        const profile = await storage.getTokenProfile(company.id);
+        tokenProfile = profile || null;
+      }
+    } catch {}
+    const defiLlamaSlug = tokenProfile?.defiLlamaSlug || "hyperliquid";
+    const derivData = await defillama.getProtocolDerivativesVolume(defiLlamaSlug);
+    if (derivData.total24h && derivData.total24h > 0) {
+      totalHlVolume = derivData.total24h;
+      totalSource = "DeFiLlama";
+    } else if (derivData.dailyVolume && derivData.dailyVolume.length > 0) {
+      totalHlVolume = derivData.dailyVolume[derivData.dailyVolume.length - 1]?.volume || 0;
+      totalSource = "DeFiLlama";
+    }
+  } catch {
+    console.log(`[Data Agent] Volume refresh: DeFiLlama volume lookup failed`);
+  }
+
+  if (hip3Volume <= 0 && totalHlVolume > 0) {
+    hip3Volume = totalHlVolume * 0.25;
+    hip3Source = "estimated (25% of total)";
+  }
+
+  if (hip3Volume <= 0 && totalHlVolume <= 0) {
+    throw new Error("Both StonksOnChain and DeFiLlama APIs are currently unavailable. Please try again later.");
+  }
+
+  if (totalHlVolume <= 0) {
+    totalHlVolume = hip3Volume * 4;
+    totalSource = "estimated";
+  }
+
+  const nativeVolume = Math.max(0, totalHlVolume - hip3Volume);
+  const hip3Pct = totalHlVolume > 0 ? ((hip3Volume / totalHlVolume) * 100).toFixed(1) : "N/A";
+
+  const sourceNote = totalSource ? `Source: ${hip3Source} + ${totalSource}` : `Source: ${hip3Source} (estimated total)`;
+  return {
+    data: [
+      { category: "HIP-3 Markets", hip3_volume: hip3Volume, native_volume: 0, volume: hip3Volume },
+      { category: "Native Markets", hip3_volume: 0, native_volume: nativeVolume, volume: nativeVolume },
+    ],
+    description: `HIP-3 MARKETS: ${hip3Pct}% OF TOTAL 24H VOLUME ($${(hip3Volume / 1e9).toFixed(2)}B / $${(totalHlVolume / 1e9).toFixed(2)}B)|||HIP-3 volume share of Hyperliquid's total 24h trading volume. ${sourceNote}.`,
+    chartConfig: {
+      xAxisKey: "category",
+      yAxes: [{ dataKey: "volume", label: "24h Volume", format: "currency", color: "#38bdf8" }],
+    },
+  };
+}
+
 export async function refreshChartData(chartId: string): Promise<DashboardChart> {
   const chart = await storage.getDashboardChart(chartId);
   if (!chart) throw new Error("Chart not found");
 
   await storage.updateDashboardChart(chartId, { status: "generating" });
+
+  const isVolumeComparisonChart = chart.dataSource === "stonks" && /volume.*share|volume.*comparison/i.test(chart.title);
+  if (isVolumeComparisonChart) {
+    try {
+      const result = await refreshVolumeComparisonChart(chart);
+      const updated = await storage.updateDashboardChart(chartId, {
+        data: JSON.stringify(result.data),
+        status: "completed",
+        errorMessage: null,
+        description: result.description,
+        chartConfig: JSON.stringify(result.chartConfig),
+        dataSource: "stonks",
+      });
+      return updated || chart;
+    } catch (err: any) {
+      console.error(`[Data Agent] Volume comparison refresh failed: ${err.message}`);
+      const updated = await storage.updateDashboardChart(chartId, {
+        status: "failed",
+        errorMessage: err.message,
+      });
+      return updated || chart;
+    }
+  }
 
   try {
     const config = JSON.parse(chart.dataSourceConfig);
@@ -1880,6 +1985,12 @@ async function attemptFallback(
   const contractAddress = tokenProfile?.contractAddress || "";
 
   console.log(`[Data Agent] Attempting fallback for "${plan.title}" (original: ${plan.dataSource}, error: ${error})`);
+
+  const isHip3VolumeComparison = /hip[\s-]?3.*volume.*share|volume.*share.*hip[\s-]?3/i.test(combined);
+  if (plan.dataSource === "stonks" && isHip3VolumeComparison) {
+    console.log(`[Data Agent] Skipping fallback for HIP-3 volume comparison chart — cannot convert to DeFiLlama time-series`);
+    return null;
+  }
 
   const isPrice = /\bprice\b|price.?history|price.?chart/i.test(combined);
   const isTvl = /\btvl\b|total.?value.?locked|liquidity/i.test(combined);
