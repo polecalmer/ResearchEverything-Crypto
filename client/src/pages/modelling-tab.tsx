@@ -14,7 +14,9 @@ import {
   Target,
   BarChart3,
   MessageSquare,
+  Plus,
 } from "lucide-react";
+import { AddToMasterReport } from "@/components/add-to-master-report";
 import {
   ResponsiveContainer,
   BarChart,
@@ -327,6 +329,11 @@ function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; comp
           <span className="text-[10px] text-muted-foreground/50">
             {new Date(model.updatedAt || model.createdAt).toLocaleDateString()}
           </span>
+          {model.status === "complete" && (
+            <div onClick={(e) => e.stopPropagation()}>
+              <AddToMasterReport blockType="model" referenceId={model.id} />
+            </div>
+          )}
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(model.id); }}
             className="p-1 text-muted-foreground/40 hover:text-red-400 transition-colors"

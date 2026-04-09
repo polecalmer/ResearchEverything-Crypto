@@ -1,6 +1,7 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useParams, Link, useLocation } from "wouter";
-import { ArrowLeft, Download, Loader2, FileText, AlertCircle, Trash2, Sparkles, X } from "lucide-react";
+import { ArrowLeft, Download, Loader2, FileText, AlertCircle, Trash2, Sparkles, X, Plus } from "lucide-react";
+import { AddToMasterReport } from "@/components/add-to-master-report";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -384,6 +385,12 @@ export default function ReportViewer() {
           </Link>
           {!isGenerating && report.content && (
             <div className="flex items-center gap-2">
+              <AddToMasterReport
+                blockType="report-section"
+                referenceId={report.id}
+                label="Add to Master Report"
+                className="h-8 gap-1.5 text-xs border border-border/50 bg-card hover:bg-accent/20 text-foreground/80 rounded-md px-3 flex items-center transition-colors"
+              />
               <Button variant="outline" size="sm" className="gap-1.5 text-xs" onClick={handleDownload} data-testid="button-download-report">
                 <Download className="w-3.5 h-3.5" />
                 Download .md
@@ -460,7 +467,7 @@ export default function ReportViewer() {
               {floatingBtnPos && (
                 <div
                   ref={floatingBtnRef}
-                  className="absolute z-50 animate-in fade-in slide-in-from-bottom-1 duration-150"
+                  className="absolute z-50 animate-in fade-in slide-in-from-bottom-1 duration-150 flex items-center gap-1.5"
                   style={{ top: floatingBtnPos.top, left: Math.max(0, floatingBtnPos.left) }}
                 >
                   <Button
@@ -472,6 +479,13 @@ export default function ReportViewer() {
                     <Sparkles className="w-3 h-3" />
                     Edit with AI
                   </Button>
+                  <AddToMasterReport
+                    blockType="text"
+                    content={selectedText}
+                    label="Master Report"
+                    className="h-8 gap-1.5 text-xs shadow-lg bg-card border border-border/50 hover:bg-accent/20 text-foreground/80 rounded-full px-3 flex items-center transition-colors"
+                    onAdded={() => setFloatingBtnPos(null)}
+                  />
                 </div>
               )}
             </div>
