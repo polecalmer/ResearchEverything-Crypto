@@ -1,7 +1,7 @@
 import type { Express, RequestHandler } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
-import { insertCompanySchema, insertFounderSchema, insertNoteSchema, insertTokenProfileSchema, insertDuneQuerySchema, insertMasterDuneQuerySchema, PIPELINE_STAGES, type Company, type FinancialModel } from "@shared/schema";
+import { insertCompanySchema, insertFounderSchema, insertNoteSchema, insertTokenProfileSchema, insertDuneQuerySchema, insertMasterDuneQuerySchema, PIPELINE_STAGES, type Company, type FinancialModel, type DashboardChart } from "@shared/schema";
 import type { Request } from "express";
 
 interface ValidatedModelRequest extends Request {
@@ -1714,13 +1714,37 @@ Rewrite the "Section to Rewrite" above, incorporating the user's insight. Return
       storage.getTokenAnalysesByCompany(company.id, userId),
     ]);
 
+    const refreshableCharts = chartsData.filter(c =>
+      (c.status === "complete" || c.status === "completed") && c.data &&
+      (c.dataSource === "dune" || c.dataSource === "dune-sql" || c.dataSource === "defillama" || c.dataSource === "stonks")
+    );
+
+    if (refreshableCharts.length > 0) {
+      console.log(`[Modelling] Refreshing ${refreshableCharts.length} data charts before building context...`);
+      const refreshResults = await Promise.allSettled(
+        refreshableCharts.map(c => refreshChartData(c.id).catch(err => {
+          console.warn(`[Modelling] Chart refresh failed for "${c.title}": ${err.message}`);
+          return c;
+        }))
+      );
+      const refreshedIds = new Set(refreshableCharts.map(c => c.id));
+      for (const result of refreshResults) {
+        if (result.status === "fulfilled" && result.value) {
+          const updated = result.value as DashboardChart;
+          const idx = chartsData.findIndex(c => c.id === updated.id);
+          if (idx >= 0) chartsData[idx] = updated;
+        }
+      }
+      console.log(`[Modelling] Chart refresh complete — ${refreshResults.filter(r => r.status === "fulfilled").length}/${refreshableCharts.length} succeeded`);
+    }
+
     const MAX_ROWS_PER_DATASET = 200;
     const MAX_TOTAL_DATA_CHARS = 50000;
 
     let totalDataChars = 0;
     const liveDatasets: string[] = [];
 
-    const completedCharts = chartsData.filter(c => c.status === "complete" && c.data);
+    const completedCharts = chartsData.filter(c => (c.status === "complete" || c.status === "completed") && c.data);
     for (const chart of completedCharts) {
       if (totalDataChars >= MAX_TOTAL_DATA_CHARS) break;
       try {
