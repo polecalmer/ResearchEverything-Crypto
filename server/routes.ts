@@ -635,7 +635,7 @@ Rewrite the "Section to Rewrite" above, incorporating the user's insight. Return
           userId,
           type: "report_edit",
           description: `AI report edit: ${report.title}`,
-          amount: result.mppCost.toFixed(4),
+          amount: "0.5000",
           apiCost: result.mppCost.toFixed(4),
           companyName: report.title,
           inputTokens: result.usage.input_tokens,
