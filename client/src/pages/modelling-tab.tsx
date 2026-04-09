@@ -17,6 +17,8 @@ import {
   X,
   Link2,
   Plus,
+  ListChecks,
+  Zap,
 } from "lucide-react";
 import { AddToMasterReport } from "@/components/add-to-master-report";
 import {
@@ -96,6 +98,13 @@ interface EditTarget {
   colName?: string;
 }
 
+interface QueuedEdit {
+  id: string;
+  target: EditTarget;
+  rationale: string;
+  referenceUrl?: string;
+}
+
 const EXAMPLE_PROMPTS = [
   "Build a DCF model with 3-year projections",
   "Comparable analysis vs top protocols in the sector",
@@ -130,42 +139,55 @@ function formatChartValue(value: number, fmt?: string): string {
   return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
-function buildEditPrompt(target: EditTarget, rationale: string, referenceUrl?: string): string {
-  let prompt = "";
-  switch (target.kind) {
+function describeEdit(edit: QueuedEdit): string {
+  const t = edit.target;
+  let desc = "";
+  switch (t.kind) {
     case "assumption":
-      prompt = `Update the assumption "${target.label}" (currently: ${target.currentValue}).`;
+      desc = `CHANGE #${edit.id}: Update assumption "${t.label}" (currently: ${t.currentValue}).\nRationale: ${edit.rationale}`;
       break;
     case "table-cell":
-      prompt = `In the table "${target.sectionHeading}", update the cell at row ${(target.rowIndex || 0) + 1}, column "${target.colName}" (currently: ${target.currentValue}).`;
+      desc = `CHANGE #${edit.id}: In table "${t.sectionHeading}", update cell at row "${t.currentValue}" in column "${t.colName}".\nRationale: ${edit.rationale}`;
       break;
     case "table-row":
-      prompt = `In the table "${target.sectionHeading}", update row ${(target.rowIndex || 0) + 1}: "${target.currentValue}".`;
+      desc = `CHANGE #${edit.id}: In table "${t.sectionHeading}", update row ${(t.rowIndex || 0) + 1}: "${t.currentValue}".\nRationale: ${edit.rationale}`;
       break;
     case "metric":
-      prompt = `Update the metric "${target.label}" (currently: ${target.currentValue}).`;
+      desc = `CHANGE #${edit.id}: Update metric "${t.label}" (currently: ${t.currentValue}).\nRationale: ${edit.rationale}`;
       break;
     case "scenario":
-      prompt = `Update the "${target.label}" scenario (currently: ${target.currentValue}).`;
+      desc = `CHANGE #${edit.id}: Update "${t.label}" scenario (currently: ${t.currentValue}).\nRationale: ${edit.rationale}`;
       break;
     case "section":
-      prompt = `Update the section "${target.label}".`;
+      desc = `CHANGE #${edit.id}: Update section "${t.label}".\nRationale: ${edit.rationale}`;
       break;
     case "methodology":
-      prompt = `Update the methodology section.`;
+      desc = `CHANGE #${edit.id}: Update methodology.\nRationale: ${edit.rationale}`;
       break;
   }
-  prompt += `\n\nRationale: ${rationale}`;
-  if (referenceUrl) prompt += `\n\nReference: ${referenceUrl}`;
-  prompt += `\n\nIMPORTANT: Update this specific component AND recalculate/adjust any downstream values, tables, charts, and commentary that depend on this change. Keep everything else unchanged unless it needs to reflect this update.`;
-  return prompt;
+  if (edit.referenceUrl) desc += `\nReference: ${edit.referenceUrl}`;
+  return desc;
 }
 
-function InlineEditForm({ target, onSubmit, onCancel, isPending }: {
+function buildBatchPrompt(edits: QueuedEdit[]): string {
+  const changeList = edits.map(describeEdit).join("\n\n");
+  return `BATCH MODEL CALIBRATION — ${edits.length} change${edits.length > 1 ? "s" : ""} to apply:
+
+${changeList}
+
+ORCHESTRATION INSTRUCTIONS:
+1. Apply each numbered change to its specific target component.
+2. CRITICAL: After applying all direct changes, analyze the ENTIRE model for cascading impacts. Identify every other value, calculation, table cell, chart data point, metric, scenario outcome, or commentary that depends on or references the changed values. Update ALL of them for internal consistency.
+3. For example: if a revenue growth rate changes, update revenue projections, DCF cash flows, terminal value, implied valuations, buyback yields, scenario outcomes, sensitivity tables, and any commentary that references those figures.
+4. The goal is a fully calibrated, internally consistent model after all changes are applied — not just the targeted cells.
+5. Keep everything that is NOT affected by these changes exactly as-is.
+6. Return the complete updated model JSON.`;
+}
+
+function InlineEditForm({ target, onQueue, onCancel }: {
   target: EditTarget;
-  onSubmit: (rationale: string, referenceUrl?: string) => void;
+  onQueue: (rationale: string, referenceUrl?: string) => void;
   onCancel: () => void;
-  isPending: boolean;
 }) {
   const [rationale, setRationale] = useState("");
   const [refUrl, setRefUrl] = useState("");
@@ -190,14 +212,13 @@ function InlineEditForm({ target, onSubmit, onCancel, isPending }: {
         onKeyDown={(e) => {
           if (e.key === "Enter" && !e.shiftKey) {
             e.preventDefault();
-            if (rationale.trim()) onSubmit(rationale.trim(), refUrl.trim() || undefined);
+            if (rationale.trim()) onQueue(rationale.trim(), refUrl.trim() || undefined);
           }
         }}
-        placeholder="What should change and why? e.g. 'Growth rate should be 35% based on Q1 actuals showing acceleration...'"
+        placeholder="What should change and why? e.g. 'Growth rate should be 35% based on Q1 actuals...'"
         className="w-full bg-background/50 border border-border/30 rounded px-2.5 py-2 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-blue-500/30 resize-none"
         rows={2}
         autoFocus
-        disabled={isPending}
         data-testid="input-edit-rationale"
       />
       {showRef ? (
@@ -207,7 +228,6 @@ function InlineEditForm({ target, onSubmit, onCancel, isPending }: {
           onChange={(e) => setRefUrl(e.target.value)}
           placeholder="https://... (supporting data, article, or report)"
           className="w-full bg-background/50 border border-border/30 rounded px-2.5 py-1.5 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-blue-500/30"
-          disabled={isPending}
           data-testid="input-edit-reference"
         />
       ) : (
@@ -222,13 +242,13 @@ function InlineEditForm({ target, onSubmit, onCancel, isPending }: {
       )}
       <div className="flex items-center gap-2">
         <button
-          onClick={() => { if (rationale.trim()) onSubmit(rationale.trim(), refUrl.trim() || undefined); }}
-          disabled={!rationale.trim() || isPending}
+          onClick={() => { if (rationale.trim()) onQueue(rationale.trim(), refUrl.trim() || undefined); }}
+          disabled={!rationale.trim()}
           className="flex items-center gap-1 px-2.5 py-1 text-[11px] bg-blue-500/15 text-blue-400 rounded hover:bg-blue-500/25 transition-colors disabled:opacity-40"
-          data-testid="button-submit-edit"
+          data-testid="button-queue-edit"
         >
-          {isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-          Update ($0.50)
+          <Plus className="w-3 h-3" />
+          Add to Batch
         </button>
         <button
           onClick={onCancel}
@@ -237,6 +257,78 @@ function InlineEditForm({ target, onSubmit, onCancel, isPending }: {
           cancel
         </button>
       </div>
+    </div>
+  );
+}
+
+function BatchTray({ edits, onRemove, onApply, onClear, isPending }: {
+  edits: QueuedEdit[];
+  onRemove: (id: string) => void;
+  onApply: () => void;
+  onClear: () => void;
+  isPending: boolean;
+}) {
+  if (edits.length === 0) return null;
+
+  return (
+    <div className="border border-amber-500/25 bg-amber-500/5 rounded-lg p-3 space-y-2" data-testid="batch-tray">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <ListChecks className="w-3.5 h-3.5 text-amber-400/80" />
+          <span className="text-[11px] font-medium text-amber-300/90">
+            {edits.length} Pending Change{edits.length !== 1 ? "s" : ""}
+          </span>
+        </div>
+        <button
+          onClick={onClear}
+          className="text-[10px] text-muted-foreground/40 hover:text-muted-foreground transition-colors"
+          data-testid="button-clear-batch"
+        >
+          clear all
+        </button>
+      </div>
+      <div className="space-y-1">
+        {edits.map((edit) => (
+          <div key={edit.id} className="flex items-start gap-2 text-[11px] bg-background/30 border border-border/15 rounded px-2.5 py-1.5" data-testid={`batch-item-${edit.id}`}>
+            <div className="flex-1 min-w-0">
+              <span className="text-amber-400/70 font-medium">{edit.target.label}</span>
+              <span className="text-muted-foreground/60 mx-1">—</span>
+              <span className="text-foreground/70 truncate">{edit.rationale.length > 80 ? edit.rationale.slice(0, 80) + "..." : edit.rationale}</span>
+              {edit.referenceUrl && (
+                <span className="text-blue-400/50 ml-1 text-[10px]">[ref]</span>
+              )}
+            </div>
+            <button
+              onClick={() => onRemove(edit.id)}
+              className="p-0.5 text-muted-foreground/30 hover:text-red-400 transition-colors flex-shrink-0"
+              data-testid={`button-remove-batch-${edit.id}`}
+            >
+              <X className="w-2.5 h-2.5" />
+            </button>
+          </div>
+        ))}
+      </div>
+      <button
+        onClick={onApply}
+        disabled={isPending}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium bg-amber-500/15 text-amber-300 rounded hover:bg-amber-500/25 transition-colors disabled:opacity-40 w-full justify-center"
+        data-testid="button-apply-batch"
+      >
+        {isPending ? (
+          <>
+            <Loader2 className="w-3 h-3 animate-spin" />
+            Calibrating model...
+          </>
+        ) : (
+          <>
+            <Zap className="w-3 h-3" />
+            Apply {edits.length} Change{edits.length !== 1 ? "s" : ""} ($0.50)
+          </>
+        )}
+      </button>
+      <p className="text-[9px] text-muted-foreground/40 text-center">
+        AI will apply all changes and recalculate cascading impacts in one pass
+      </p>
     </div>
   );
 }
@@ -250,6 +342,14 @@ function EditButton({ onClick, testId }: { onClick: () => void; testId?: string 
     >
       <Pencil className="w-2.5 h-2.5" />
     </button>
+  );
+}
+
+function EditButtonQueued({ testId }: { testId?: string }) {
+  return (
+    <span className="p-0.5 text-amber-400/60" data-testid={testId}>
+      <ListChecks className="w-2.5 h-2.5" />
+    </span>
   );
 }
 
@@ -290,17 +390,20 @@ function ChartSectionRenderer({ section }: { section: ChartSection }) {
   );
 }
 
-function ModelSectionRenderer({ section, onEdit }: { section: ModelSection; onEdit: (target: EditTarget) => void }) {
+function ModelSectionRenderer({ section, onEdit, isQueued }: { section: ModelSection; onEdit: (target: EditTarget) => void; isQueued: (label: string, sectionHeading?: string) => boolean }) {
   if (section.type === "chart" && Array.isArray((section as ChartSection).data)) {
+    const queued = isQueued(section.heading, section.heading);
     return (
       <div className="group/editable relative">
         <div className="absolute right-0 top-0">
-          <EditButton testId={`button-edit-chart-${section.heading}`} onClick={() => onEdit({
-            kind: "section",
-            label: section.heading,
-            currentValue: `Chart: ${(section as ChartSection).data.map(d => `${d.label}=${d.value}`).join(", ")}`,
-            sectionHeading: section.heading,
-          })} />
+          {queued ? <EditButtonQueued testId={`queued-chart-${section.heading}`} /> : (
+            <EditButton testId={`button-edit-chart-${section.heading}`} onClick={() => onEdit({
+              kind: "section",
+              label: section.heading,
+              currentValue: `Chart: ${(section as ChartSection).data.map(d => `${d.label}=${d.value}`).join(", ")}`,
+              sectionHeading: section.heading,
+            })} />
+          )}
         </div>
         <ChartSectionRenderer section={section as ChartSection} />
       </div>
@@ -312,12 +415,14 @@ function ModelSectionRenderer({ section, onEdit }: { section: ModelSection; onEd
       <div className="space-y-2">
         <div className="flex items-center gap-2 group/editable">
           <h4 className="text-xs font-medium text-foreground/90 uppercase tracking-wider" data-testid={`text-section-heading-${section.heading}`}>{section.heading}</h4>
-          <EditButton testId={`button-edit-table-${section.heading}`} onClick={() => onEdit({
-            kind: "section",
-            label: section.heading,
-            currentValue: `Table with ${section.rows.length} rows`,
-            sectionHeading: section.heading,
-          })} />
+          {isQueued(section.heading, section.heading) ? <EditButtonQueued /> : (
+            <EditButton testId={`button-edit-table-${section.heading}`} onClick={() => onEdit({
+              kind: "section",
+              label: section.heading,
+              currentValue: `Table with ${section.rows.length} rows`,
+              sectionHeading: section.heading,
+            })} />
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="w-full text-xs" data-testid={`table-${section.heading}`}>
@@ -331,24 +436,30 @@ function ModelSectionRenderer({ section, onEdit }: { section: ModelSection; onEd
             <tbody>
               {(section.rows || []).map((row, ri) => (
                 <tr key={ri} className="border-b border-border/10 group/editable hover:bg-accent/5 transition-colors">
-                  {(Array.isArray(row) ? row : []).map((cell, ci) => (
-                    <td key={ci} className={`py-2 px-3 whitespace-nowrap ${ci === 0 ? "text-foreground/80 font-medium" : "text-foreground/70 tabular-nums"}`}>
-                      <span className="inline-flex items-center gap-1">
-                        {cell}
-                        {ci > 0 && (
-                          <EditButton testId={`button-edit-cell-${ri}-${ci}`} onClick={() => onEdit({
-                            kind: "table-cell",
-                            label: `${row[0]} → ${section.columns[ci]}`,
-                            currentValue: cell,
-                            sectionHeading: section.heading,
-                            rowIndex: ri,
-                            colIndex: ci,
-                            colName: section.columns[ci],
-                          })} />
-                        )}
-                      </span>
-                    </td>
-                  ))}
+                  {(Array.isArray(row) ? row : []).map((cell, ci) => {
+                    const cellLabel = `${row[0]} → ${section.columns[ci]}`;
+                    const cellQueued = ci > 0 && isQueued(cellLabel, section.heading);
+                    return (
+                      <td key={ci} className={`py-2 px-3 whitespace-nowrap ${ci === 0 ? "text-foreground/80 font-medium" : "text-foreground/70 tabular-nums"}`}>
+                        <span className="inline-flex items-center gap-1">
+                          {cell}
+                          {ci > 0 && (
+                            cellQueued ? <EditButtonQueued testId={`queued-cell-${ri}-${ci}`} /> : (
+                              <EditButton testId={`button-edit-cell-${ri}-${ci}`} onClick={() => onEdit({
+                                kind: "table-cell",
+                                label: cellLabel,
+                                currentValue: cell,
+                                sectionHeading: section.heading,
+                                rowIndex: ri,
+                                colIndex: ci,
+                                colName: section.columns[ci],
+                              })} />
+                            )
+                          )}
+                        </span>
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -366,21 +477,26 @@ function ModelSectionRenderer({ section, onEdit }: { section: ModelSection; onEd
       <div className="space-y-2">
         <h4 className="text-xs font-medium text-foreground/90 uppercase tracking-wider">{section.heading}</h4>
         <div className="grid grid-cols-2 gap-3">
-          {(section.items || []).map((item, i) => (
-            <div key={i} className="bg-accent/5 border border-border/20 rounded-md p-3 group/editable relative" data-testid={`metric-${item.label}`}>
-              <div className="absolute right-2 top-2">
-                <EditButton testId={`button-edit-metric-${item.label}`} onClick={() => onEdit({
-                  kind: "metric",
-                  label: item.label,
-                  currentValue: `${item.value}${item.detail ? ` — ${item.detail}` : ""}`,
-                  sectionHeading: section.heading,
-                })} />
+          {(section.items || []).map((item, i) => {
+            const queued = isQueued(item.label, section.heading);
+            return (
+              <div key={i} className="bg-accent/5 border border-border/20 rounded-md p-3 group/editable relative" data-testid={`metric-${item.label}`}>
+                <div className="absolute right-2 top-2">
+                  {queued ? <EditButtonQueued testId={`queued-metric-${item.label}`} /> : (
+                    <EditButton testId={`button-edit-metric-${item.label}`} onClick={() => onEdit({
+                      kind: "metric",
+                      label: item.label,
+                      currentValue: `${item.value}${item.detail ? ` — ${item.detail}` : ""}`,
+                      sectionHeading: section.heading,
+                    })} />
+                  )}
+                </div>
+                <div className="text-[11px] text-muted-foreground mb-1">{item.label}</div>
+                <div className="text-sm font-semibold text-foreground tabular-nums">{item.value}</div>
+                {item.detail && <div className="text-[10px] text-muted-foreground/60 mt-1">{item.detail}</div>}
               </div>
-              <div className="text-[11px] text-muted-foreground mb-1">{item.label}</div>
-              <div className="text-sm font-semibold text-foreground tabular-nums">{item.value}</div>
-              {item.detail && <div className="text-[10px] text-muted-foreground/60 mt-1">{item.detail}</div>}
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     );
@@ -405,15 +521,18 @@ function ModelSectionRenderer({ section, onEdit }: { section: ModelSection; onEd
             const key = s.name.toLowerCase();
             const colorClass = scenarioColors[key] || "border-border/30 bg-accent/5";
             const IconComp = scenarioIcons[key] || Target;
+            const queued = isQueued(s.name, section.heading);
             return (
               <div key={i} className={`border rounded-md p-3 ${colorClass} group/editable relative`} data-testid={`scenario-${s.name}`}>
                 <div className="absolute right-2 top-2">
-                  <EditButton testId={`button-edit-scenario-${s.name}`} onClick={() => onEdit({
-                    kind: "scenario",
-                    label: s.name,
-                    currentValue: `${s.outcome} (${s.probability}) — ${s.keyDrivers.slice(0, 80)}`,
-                    sectionHeading: section.heading,
-                  })} />
+                  {queued ? <EditButtonQueued testId={`queued-scenario-${s.name}`} /> : (
+                    <EditButton testId={`button-edit-scenario-${s.name}`} onClick={() => onEdit({
+                      kind: "scenario",
+                      label: s.name,
+                      currentValue: `${s.outcome} (${s.probability}) — ${s.keyDrivers.slice(0, 80)}`,
+                      sectionHeading: section.heading,
+                    })} />
+                  )}
                 </div>
                 <div className="flex items-center gap-1.5 mb-2">
                   <IconComp className="w-3 h-3 text-foreground/60" />
@@ -431,16 +550,19 @@ function ModelSectionRenderer({ section, onEdit }: { section: ModelSection; onEd
   }
 
   if (section.type === "text") {
+    const queued = isQueued(section.heading, section.heading);
     return (
       <div className="space-y-2 group/editable relative">
         <div className="flex items-center gap-2">
           <h4 className="text-xs font-medium text-foreground/90 uppercase tracking-wider">{section.heading}</h4>
-          <EditButton testId={`button-edit-text-${section.heading}`} onClick={() => onEdit({
-            kind: "section",
-            label: section.heading,
-            currentValue: section.content.slice(0, 200),
-            sectionHeading: section.heading,
-          })} />
+          {queued ? <EditButtonQueued /> : (
+            <EditButton testId={`button-edit-text-${section.heading}`} onClick={() => onEdit({
+              kind: "section",
+              label: section.heading,
+              currentValue: section.content.slice(0, 200),
+              sectionHeading: section.heading,
+            })} />
+          )}
         </div>
         <div className="text-xs text-foreground/75 leading-relaxed whitespace-pre-wrap">{section.content}</div>
       </div>
@@ -453,6 +575,7 @@ function ModelSectionRenderer({ section, onEdit }: { section: ModelSection; onEd
 function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; companyId: string; onDelete: (id: string) => void }) {
   const [expanded, setExpanded] = useState(false);
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
+  const [batchEdits, setBatchEdits] = useState<QueuedEdit[]>([]);
   const { toast } = useToast();
   const parsed = (model.status === "complete" || (model.status === "error" && model.content)) ? parseModelContent(model.content) : null;
   const isGenerating = model.status === "generating";
@@ -462,7 +585,9 @@ function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; comp
     ? (() => { try { return (JSON.parse(model.conversationHistory) as Array<{ role: string }>).filter(h => h.role === "user").length; } catch { return 0; } })()
     : 0;
 
-  const editMutation = useMutation({
+  let nextEditId = useRef(1);
+
+  const batchMutation = useMutation({
     mutationFn: async ({ prompt }: { prompt: string }) => {
       const validateRes = await apiRequest("POST", `/api/models/${model.id}/iterate/validate`, { prompt });
       const validation = await validateRes.json();
@@ -472,23 +597,41 @@ function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; comp
       return res.json();
     },
     onSuccess: () => {
+      setBatchEdits([]);
       setEditTarget(null);
       queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "models"] });
-      toast({ title: "Model update started", description: "Applying your change and recalculating..." });
+      toast({ title: "Model calibration started", description: "Applying all changes and recalculating..." });
     },
     onError: (err: any) => {
-      toast({ title: "Update failed", description: err.message, variant: "destructive" });
+      toast({ title: "Calibration failed", description: err.message, variant: "destructive" });
     },
   });
 
+  const isQueued = (label: string, sectionHeading?: string): boolean => {
+    return batchEdits.some(e => e.target.label === label && e.target.sectionHeading === sectionHeading);
+  };
+
   const handleEdit = (target: EditTarget) => {
+    if (isQueued(target.label, target.sectionHeading)) return;
     setEditTarget(target);
   };
 
-  const handleEditSubmit = (rationale: string, referenceUrl?: string) => {
+  const handleQueue = (rationale: string, referenceUrl?: string) => {
     if (!editTarget) return;
-    const prompt = buildEditPrompt(editTarget, rationale, referenceUrl);
-    editMutation.mutate({ prompt });
+    const id = String(nextEditId.current++);
+    setBatchEdits(prev => [...prev, { id, target: editTarget, rationale, referenceUrl }]);
+    setEditTarget(null);
+    toast({ title: "Change queued", description: `"${editTarget.label}" added to batch` });
+  };
+
+  const handleRemoveFromBatch = (id: string) => {
+    setBatchEdits(prev => prev.filter(e => e.id !== id));
+  };
+
+  const handleApplyBatch = () => {
+    if (batchEdits.length === 0) return;
+    const prompt = buildBatchPrompt(batchEdits);
+    batchMutation.mutate({ prompt });
   };
 
   return (
@@ -523,6 +666,11 @@ function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; comp
                   {conversationTurns} turns
                 </span>
               )}
+              {batchEdits.length > 0 && (
+                <span className="text-[9px] text-amber-400/70 bg-amber-500/10 px-1 py-0.5 rounded whitespace-nowrap">
+                  {batchEdits.length} pending
+                </span>
+              )}
             </div>
           </div>
         </div>
@@ -554,27 +702,31 @@ function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; comp
             <div className="space-y-2">
               <h4 className="text-xs font-medium text-foreground/90 uppercase tracking-wider">Key Assumptions</h4>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {parsed.assumptions.map((a, i) => (
-                  <div key={i} className="group/editable flex items-start gap-2 text-[11px] bg-accent/5 border border-border/15 rounded px-2.5 py-2 relative" data-testid={`assumption-${a.label}`}>
-                    <span className="text-muted-foreground whitespace-nowrap">{a.label}:</span>
-                    <span className="text-foreground font-medium">{a.value}</span>
-                    {a.basis && <span className="text-muted-foreground/50 italic text-[10px]">({a.basis})</span>}
-                    <div className="ml-auto flex-shrink-0">
-                      <EditButton testId={`button-edit-assumption-${a.label}`} onClick={() => handleEdit({
-                        kind: "assumption",
-                        label: a.label,
-                        currentValue: `${a.value} (${a.basis})`,
-                      })} />
+                {parsed.assumptions.map((a, i) => {
+                  const queued = isQueued(a.label);
+                  return (
+                    <div key={i} className={`group/editable flex items-start gap-2 text-[11px] border rounded px-2.5 py-2 relative ${queued ? "bg-amber-500/5 border-amber-500/20" : "bg-accent/5 border-border/15"}`} data-testid={`assumption-${a.label}`}>
+                      <span className="text-muted-foreground whitespace-nowrap">{a.label}:</span>
+                      <span className="text-foreground font-medium">{a.value}</span>
+                      {a.basis && <span className="text-muted-foreground/50 italic text-[10px]">({a.basis})</span>}
+                      <div className="ml-auto flex-shrink-0">
+                        {queued ? <EditButtonQueued testId={`queued-assumption-${a.label}`} /> : (
+                          <EditButton testId={`button-edit-assumption-${a.label}`} onClick={() => handleEdit({
+                            kind: "assumption",
+                            label: a.label,
+                            currentValue: `${a.value} (${a.basis})`,
+                          })} />
+                        )}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
               {editTarget?.kind === "assumption" && (
                 <InlineEditForm
                   target={editTarget}
-                  onSubmit={handleEditSubmit}
+                  onQueue={handleQueue}
                   onCancel={() => setEditTarget(null)}
-                  isPending={editMutation.isPending}
                 />
               )}
             </div>
@@ -582,13 +734,12 @@ function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; comp
 
           {parsed.sections.map((section, i) => (
             <div key={i}>
-              <ModelSectionRenderer section={section} onEdit={handleEdit} />
+              <ModelSectionRenderer section={section} onEdit={handleEdit} isQueued={isQueued} />
               {editTarget && editTarget.sectionHeading === section.heading && editTarget.kind !== "assumption" && (
                 <InlineEditForm
                   target={editTarget}
-                  onSubmit={handleEditSubmit}
+                  onQueue={handleQueue}
                   onCancel={() => setEditTarget(null)}
-                  isPending={editMutation.isPending}
                 />
               )}
             </div>
@@ -598,22 +749,31 @@ function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; comp
             <div className="pt-2 border-t border-border/15 group/editable">
               <div className="flex items-center gap-2">
                 <p className="text-[10px] text-muted-foreground/50 italic flex-1">{parsed.methodology}</p>
-                <EditButton testId="button-edit-methodology" onClick={() => handleEdit({
-                  kind: "methodology",
-                  label: "Methodology",
-                  currentValue: parsed.methodology!.slice(0, 200),
-                })} />
+                {isQueued("Methodology") ? <EditButtonQueued testId="queued-methodology" /> : (
+                  <EditButton testId="button-edit-methodology" onClick={() => handleEdit({
+                    kind: "methodology",
+                    label: "Methodology",
+                    currentValue: parsed.methodology!.slice(0, 200),
+                  })} />
+                )}
               </div>
               {editTarget?.kind === "methodology" && (
                 <InlineEditForm
                   target={editTarget}
-                  onSubmit={handleEditSubmit}
+                  onQueue={handleQueue}
                   onCancel={() => setEditTarget(null)}
-                  isPending={editMutation.isPending}
                 />
               )}
             </div>
           )}
+
+          <BatchTray
+            edits={batchEdits}
+            onRemove={handleRemoveFromBatch}
+            onApply={handleApplyBatch}
+            onClear={() => setBatchEdits([])}
+            isPending={batchMutation.isPending}
+          />
         </div>
       )}
 
