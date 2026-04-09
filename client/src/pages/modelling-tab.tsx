@@ -8,13 +8,24 @@ import {
   Loader2,
   Send,
   Trash2,
-  RefreshCw,
   ChevronDown,
   ChevronUp,
   TrendingUp,
   Target,
   BarChart3,
+  MessageSquare,
 } from "lucide-react";
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from "recharts";
 
 interface ModellingTabProps {
   companyId: string;
@@ -53,7 +64,16 @@ interface TextSection {
   content: string;
 }
 
-type ModelSection = TableSection | MetricsSection | ScenariosSection | TextSection;
+interface ChartSection {
+  heading: string;
+  type: "chart";
+  chartType: "bar" | "line";
+  data: { label: string; value: number }[];
+  valueFormat?: "currency" | "percent" | "number";
+  color?: string;
+}
+
+type ModelSection = TableSection | MetricsSection | ScenariosSection | TextSection | ChartSection;
 
 interface ParsedModel {
   title: string;
@@ -74,14 +94,71 @@ const EXAMPLE_PROMPTS = [
 function parseModelContent(content: string): ParsedModel | null {
   try {
     const data = JSON.parse(content);
-    if (data.title && data.sections) return data as ParsedModel;
+    if (data.title && Array.isArray(data.sections)) return data as ParsedModel;
     return null;
   } catch {
     return null;
   }
 }
 
+function formatChartValue(value: number, fmt?: string): string {
+  if (fmt === "currency") {
+    const abs = Math.abs(value);
+    if (abs >= 1e9) return `$${(value / 1e9).toFixed(1)}B`;
+    if (abs >= 1e6) return `$${(value / 1e6).toFixed(1)}M`;
+    if (abs >= 1e3) return `$${(value / 1e3).toFixed(0)}K`;
+    return `$${value.toFixed(0)}`;
+  }
+  if (fmt === "percent") return `${(value * 100).toFixed(1)}%`;
+  const abs = Math.abs(value);
+  if (abs >= 1e6) return `${(value / 1e6).toFixed(1)}M`;
+  if (abs >= 1e3) return `${(value / 1e3).toFixed(0)}K`;
+  return value.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
+function ChartSectionRenderer({ section }: { section: ChartSection }) {
+  const color = section.color || "#3b6fd4";
+  const ChartComp = section.chartType === "line" ? LineChart : BarChart;
+
+  return (
+    <div className="space-y-2">
+      <h4 className="text-xs font-medium text-foreground/90 uppercase tracking-wider">{section.heading}</h4>
+      <div className="h-48 w-full" data-testid={`chart-${section.heading}`}>
+        <ResponsiveContainer width="100%" height="100%">
+          {section.chartType === "bar" ? (
+            <BarChart data={section.data}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border)/0.15)" />
+              <XAxis dataKey="label" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+              <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v: number) => formatChartValue(v, section.valueFormat)} width={60} />
+              <Tooltip
+                contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border)/0.3)", borderRadius: "6px", fontSize: "11px" }}
+                formatter={(v: number) => [formatChartValue(v, section.valueFormat), section.heading]}
+              />
+              <Bar dataKey="value" fill={color} radius={[3, 3, 0, 0]} />
+            </BarChart>
+          ) : (
+            <LineChart data={section.data}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border)/0.15)" />
+              <XAxis dataKey="label" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
+              <YAxis tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v: number) => formatChartValue(v, section.valueFormat)} width={60} />
+              <Tooltip
+                contentStyle={{ backgroundColor: "hsl(var(--card))", border: "1px solid hsl(var(--border)/0.3)", borderRadius: "6px", fontSize: "11px" }}
+                formatter={(v: number) => [formatChartValue(v, section.valueFormat), section.heading]}
+              />
+              <Line type="monotone" dataKey="value" stroke={color} strokeWidth={2} dot={{ r: 3, fill: color }} />
+            </LineChart>
+          )}
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
 function ModelSectionRenderer({ section }: { section: ModelSection }) {
+  if (section.type === "chart" && Array.isArray((section as ChartSection).data)) {
+    return <ChartSectionRenderer section={section as ChartSection} />;
+  }
+
   if (section.type === "table") {
     return (
       <div className="space-y-2">
@@ -90,15 +167,15 @@ function ModelSectionRenderer({ section }: { section: ModelSection }) {
           <table className="w-full text-xs" data-testid={`table-${section.heading}`}>
             <thead>
               <tr className="border-b border-border/30">
-                {section.columns.map((col, i) => (
+                {(section.columns || []).map((col, i) => (
                   <th key={i} className="text-left py-2 px-3 text-muted-foreground font-medium whitespace-nowrap">{col}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {section.rows.map((row, ri) => (
+              {(section.rows || []).map((row, ri) => (
                 <tr key={ri} className="border-b border-border/10 hover:bg-accent/5 transition-colors">
-                  {row.map((cell, ci) => (
+                  {(Array.isArray(row) ? row : []).map((cell, ci) => (
                     <td key={ci} className={`py-2 px-3 whitespace-nowrap ${ci === 0 ? "text-foreground/80 font-medium" : "text-foreground/70 tabular-nums"}`}>{cell}</td>
                   ))}
                 </tr>
@@ -118,7 +195,7 @@ function ModelSectionRenderer({ section }: { section: ModelSection }) {
       <div className="space-y-2">
         <h4 className="text-xs font-medium text-foreground/90 uppercase tracking-wider">{section.heading}</h4>
         <div className="grid grid-cols-2 gap-3">
-          {section.items.map((item, i) => (
+          {(section.items || []).map((item, i) => (
             <div key={i} className="bg-accent/5 border border-border/20 rounded-md p-3" data-testid={`metric-${item.label}`}>
               <div className="text-[11px] text-muted-foreground mb-1">{item.label}</div>
               <div className="text-sm font-semibold text-foreground tabular-nums">{item.value}</div>
@@ -145,7 +222,7 @@ function ModelSectionRenderer({ section }: { section: ModelSection }) {
       <div className="space-y-2">
         <h4 className="text-xs font-medium text-foreground/90 uppercase tracking-wider">{section.heading}</h4>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {section.scenarios.map((s, i) => {
+          {(section.scenarios || []).map((s, i) => {
             const key = s.name.toLowerCase();
             const colorClass = scenarioColors[key] || "border-border/30 bg-accent/5";
             const IconComp = scenarioIcons[key] || Target;
@@ -178,11 +255,38 @@ function ModelSectionRenderer({ section }: { section: ModelSection }) {
   return null;
 }
 
-function ModelCard({ model, onDelete }: { model: FinancialModel; onDelete: (id: string) => void }) {
+function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; companyId: string; onDelete: (id: string) => void }) {
   const [expanded, setExpanded] = useState(false);
+  const [iteratePrompt, setIteratePrompt] = useState("");
+  const [showIterate, setShowIterate] = useState(false);
+  const { toast } = useToast();
   const parsed = model.status === "complete" ? parseModelContent(model.content) : null;
   const isGenerating = model.status === "generating";
   const isError = model.status === "error";
+
+  const conversationTurns = model.conversationHistory
+    ? (() => { try { return JSON.parse(model.conversationHistory).filter((h: any) => h.role === "user").length; } catch { return 0; } })()
+    : 0;
+
+  const iterateMutation = useMutation({
+    mutationFn: async (prompt: string) => {
+      const validateRes = await apiRequest("POST", `/api/models/${model.id}/iterate/validate`, { prompt });
+      const validation = await validateRes.json();
+      if (!validation.valid) throw new Error(validation.message || "Validation failed");
+
+      const res = await apiRequest("POST", `/api/models/${model.id}/iterate`, { prompt });
+      return res.json();
+    },
+    onSuccess: () => {
+      setIteratePrompt("");
+      setShowIterate(false);
+      queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "models"] });
+      toast({ title: "Model iteration started", description: "Updating your model..." });
+    },
+    onError: (err: any) => {
+      toast({ title: "Iteration failed", description: err.message, variant: "destructive" });
+    },
+  });
 
   return (
     <div className="border border-border/30 rounded-lg bg-card/30 overflow-hidden" data-testid={`card-model-${model.id}`}>
@@ -209,12 +313,19 @@ function ModelCard({ model, onDelete }: { model: FinancialModel; onDelete: (id: 
             <h3 className="text-xs font-medium text-foreground truncate" data-testid={`text-model-title-${model.id}`}>
               {model.title}
             </h3>
-            <p className="text-[10px] text-muted-foreground truncate mt-0.5">{model.prompt}</p>
+            <div className="flex items-center gap-2 mt-0.5">
+              <p className="text-[10px] text-muted-foreground truncate">{model.prompt}</p>
+              {conversationTurns > 1 && (
+                <span className="text-[9px] text-blue-400/60 bg-blue-500/10 px-1 py-0.5 rounded whitespace-nowrap">
+                  {conversationTurns} turns
+                </span>
+              )}
+            </div>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
           <span className="text-[10px] text-muted-foreground/50">
-            {new Date(model.createdAt).toLocaleDateString()}
+            {new Date(model.updatedAt || model.createdAt).toLocaleDateString()}
           </span>
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(model.id); }}
@@ -255,6 +366,55 @@ function ModelCard({ model, onDelete }: { model: FinancialModel; onDelete: (id: 
               <p className="text-[10px] text-muted-foreground/50 italic">{parsed.methodology}</p>
             </div>
           )}
+
+          <div className="pt-3 border-t border-border/15">
+            {!showIterate ? (
+              <button
+                onClick={() => setShowIterate(true)}
+                className="flex items-center gap-1.5 text-[11px] text-blue-400/80 hover:text-blue-400 transition-colors"
+                data-testid={`button-iterate-${model.id}`}
+              >
+                <MessageSquare className="w-3 h-3" />
+                Iterate on this model ($0.50)
+              </button>
+            ) : (
+              <div className="space-y-2">
+                <textarea
+                  value={iteratePrompt}
+                  onChange={(e) => setIteratePrompt(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      if (iteratePrompt.trim()) iterateMutation.mutate(iteratePrompt.trim());
+                    }
+                  }}
+                  placeholder="e.g. Change growth rate to 50% and add sensitivity analysis..."
+                  className="w-full bg-accent/5 border border-border/30 rounded px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-blue-500/30 resize-none"
+                  rows={2}
+                  disabled={iterateMutation.isPending}
+                  data-testid={`input-iterate-${model.id}`}
+                />
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => { if (iteratePrompt.trim()) iterateMutation.mutate(iteratePrompt.trim()); }}
+                    disabled={!iteratePrompt.trim() || iterateMutation.isPending}
+                    className="flex items-center gap-1 px-2.5 py-1 text-[11px] bg-blue-500/15 text-blue-400 rounded hover:bg-blue-500/25 transition-colors disabled:opacity-40"
+                    data-testid={`button-submit-iterate-${model.id}`}
+                  >
+                    {iterateMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                    Update Model
+                  </button>
+                  <button
+                    onClick={() => { setShowIterate(false); setIteratePrompt(""); }}
+                    className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground"
+                    data-testid={`button-cancel-iterate-${model.id}`}
+                  >
+                    cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
@@ -417,6 +577,7 @@ export default function ModellingTab({ companyId, companyName }: ModellingTabPro
             <ModelCard
               key={model.id}
               model={model}
+              companyId={companyId}
               onDelete={(id) => deleteMutation.mutate(id)}
             />
           ))

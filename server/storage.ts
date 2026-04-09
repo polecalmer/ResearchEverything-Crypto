@@ -104,7 +104,7 @@ export interface IStorage {
   getAllActiveLearnings(): Promise<SystemLearning[]>;
 
   createFinancialModel(data: InsertFinancialModel): Promise<FinancialModel>;
-  updateFinancialModel(id: string, data: { content?: string; assumptions?: string; status?: string; title?: string }): Promise<FinancialModel | undefined>;
+  updateFinancialModel(id: string, data: { content?: string; assumptions?: string; status?: string; title?: string; conversationHistory?: string }): Promise<FinancialModel | undefined>;
   getFinancialModel(id: string): Promise<FinancialModel | undefined>;
   getFinancialModelsByCompany(companyId: string, userId: string): Promise<FinancialModel[]>;
   deleteFinancialModel(id: string, userId: string): Promise<boolean>;
@@ -663,8 +663,8 @@ export class DatabaseStorage implements IStorage {
     return model;
   }
 
-  async updateFinancialModel(id: string, data: { content?: string; assumptions?: string; status?: string; title?: string }): Promise<FinancialModel | undefined> {
-    const [updated] = await db.update(financialModels).set(data).where(eq(financialModels.id, id)).returning();
+  async updateFinancialModel(id: string, data: { content?: string; assumptions?: string; status?: string; title?: string; conversationHistory?: string }): Promise<FinancialModel | undefined> {
+    const [updated] = await db.update(financialModels).set({ ...data, updatedAt: new Date() }).where(eq(financialModels.id, id)).returning();
     return updated;
   }
 

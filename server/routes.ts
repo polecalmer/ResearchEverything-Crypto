@@ -1668,71 +1668,70 @@ Rewrite the "Section to Rewrite" above, incorporating the user's insight. Return
     }
   });
 
-  const preValidateModel: RequestHandler = async (req, res, next) => {
-    try {
-      const userId = (req as any).user?.id;
-      if (!userId) return res.status(401).json({ message: "Not authenticated" });
-      const company = await storage.getCompany(req.params.id, userId);
-      if (!company) return res.status(404).json({ message: "Company not found" });
-      const parsed = modelPromptSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
-      if (!isServerMppReady()) return res.status(503).json({ message: "AI service not configured" });
-      (req as any)._validatedCompany = company;
-      (req as any)._validatedPrompt = parsed.data.prompt;
-      next();
-    } catch (err: any) {
-      res.status(500).json({ message: err.message });
-    }
-  };
+  async function buildModellingContext(company: Company, userId: string) {
+    const [reportsData, chartsData, tokenProfile, duneQueriesData, tokenAnalysesData] = await Promise.all([
+      storage.getReportsByCompany(company.id, userId),
+      storage.getDashboardChartsByCompany(company.id, userId),
+      storage.getTokenProfile(company.id),
+      storage.getDuneQueries(company.id),
+      storage.getTokenAnalysesByCompany(company.id, userId),
+    ]);
 
-  app.post("/api/companies/:id/models", requireAuth, preValidateModel as any, modellingPaywall, async (req, res) => {
-    try {
-      const userId = req.user!.id;
-      const company = (req as any)._validatedCompany as Company;
-      const prompt = (req as any)._validatedPrompt as string;
+    const reportsSummary = reportsData
+      .filter(r => r.status === "complete")
+      .slice(0, 3)
+      .map(r => `### ${r.title}\n${r.content.substring(0, 2000)}`)
+      .join("\n\n");
 
-      const [reportsData, chartsData, tokenProfile] = await Promise.all([
-        storage.getReportsByCompany(company.id, userId),
-        storage.getDashboardChartsByCompany(company.id, userId),
-        storage.getTokenProfile(company.id),
-      ]);
+    const chartsSummary = chartsData
+      .filter(c => c.status === "complete" && c.data)
+      .slice(0, 5)
+      .map(c => {
+        try {
+          const data = JSON.parse(c.data!);
+          const sampleRows = Array.isArray(data) ? data.slice(0, 5) : [];
+          return `- ${c.title} (${c.chartType}): ${JSON.stringify(sampleRows)}`;
+        } catch {
+          return `- ${c.title} (${c.chartType}): [data unavailable]`;
+        }
+      })
+      .join("\n");
 
-      const reportsSummary = reportsData
-        .filter(r => r.status === "complete")
-        .slice(0, 3)
-        .map(r => `### ${r.title}\n${r.content.substring(0, 2000)}`)
-        .join("\n\n");
+    const duneQueriesSummary = duneQueriesData.length > 0
+      ? duneQueriesData.map(q => `- ${q.label} (query ID: ${q.queryId})`).join("\n")
+      : "";
 
-      const chartsSummary = chartsData
-        .filter(c => c.status === "complete" && c.data)
-        .slice(0, 5)
-        .map(c => {
-          try {
-            const data = JSON.parse(c.data!);
-            const sampleRows = Array.isArray(data) ? data.slice(0, 5) : [];
-            return `- ${c.title} (${c.chartType}): ${JSON.stringify(sampleRows)}`;
-          } catch {
-            return `- ${c.title} (${c.chartType}): [data unavailable]`;
-          }
-        })
-        .join("\n");
+    const tokenAnalysisSummary = tokenAnalysesData
+      .filter(t => t.status === "complete")
+      .slice(0, 1)
+      .map(t => t.content.substring(0, 2000))
+      .join("");
 
-      const companyContext = [
-        `Company: ${company.name}`,
-        company.oneLiner ? `One-liner: ${company.oneLiner}` : "",
-        company.sector ? `Sector: ${company.sector}` : "",
-        company.subSector ? `Sub-sector: ${company.subSector}` : "",
-        company.businessModel ? `Business model: ${company.businessModel}` : "",
-        company.stage ? `Stage: ${company.stage}` : "",
-        company.description ? `Description: ${company.description}` : "",
-        company.fundingHistory ? `Funding: ${company.fundingHistory}` : "",
-        company.competitiveLandscape ? `Competitive landscape: ${company.competitiveLandscape}` : "",
-        company.hasLiquidToken ? `Token: ${company.tokenTicker || "Yes"} on ${company.tokenChain || "unknown chain"}` : "",
-        company.liquidTokenAnalysis ? `Token analysis: ${company.liquidTokenAnalysis.substring(0, 1000)}` : "",
-        tokenProfile ? `Contract: ${tokenProfile.contractAddress} (${tokenProfile.chain})` : "",
-      ].filter(Boolean).join("\n");
+    const companyContext = [
+      `Company: ${company.name}`,
+      company.oneLiner ? `One-liner: ${company.oneLiner}` : "",
+      company.sector ? `Sector: ${company.sector}` : "",
+      company.subSector ? `Sub-sector: ${company.subSector}` : "",
+      company.businessModel ? `Business model: ${company.businessModel}` : "",
+      company.stage ? `Stage: ${company.stage}` : "",
+      company.description ? `Description: ${company.description}` : "",
+      company.fundingHistory ? `Funding: ${company.fundingHistory}` : "",
+      company.competitiveLandscape ? `Competitive landscape: ${company.competitiveLandscape}` : "",
+      company.hasLiquidToken ? `Token: ${company.tokenTicker || "Yes"} on ${company.tokenChain || "unknown chain"}` : "",
+      company.liquidTokenAnalysis ? `Token analysis: ${company.liquidTokenAnalysis.substring(0, 1000)}` : "",
+      tokenProfile ? `Token contract: ${tokenProfile.contractAddress} on ${tokenProfile.chain} (${tokenProfile.tokenTicker || "unknown"})` : "",
+    ].filter(Boolean).join("\n");
 
-      const systemPrompt = `You are a quantitative analyst and financial modeller working for a VC firm called Research Everything. You build sophisticated financial models for crypto/DeFi protocols and companies.
+    return {
+      companyContext,
+      reportsSummary,
+      chartsSummary,
+      duneQueriesSummary,
+      tokenAnalysisSummary,
+    };
+  }
+
+  const MODELLING_SYSTEM_PROMPT = `You are a quantitative analyst and financial modeller working for a VC firm called Research Everything. You build sophisticated financial models for crypto/DeFi protocols and companies.
 
 Your task: Given a user's modelling request and company context, produce a structured financial model.
 
@@ -1772,6 +1771,18 @@ OUTPUT FORMAT — You must return a JSON object with this exact structure:
       ]
     },
     {
+      "heading": "Revenue Projection",
+      "type": "chart",
+      "chartType": "bar",
+      "data": [
+        { "label": "2024", "value": 12000000 },
+        { "label": "2025E", "value": 18000000 },
+        { "label": "2026E", "value": 27000000 }
+      ],
+      "valueFormat": "currency",
+      "color": "#3b6fd4"
+    },
+    {
       "heading": "Analysis",
       "type": "text",
       "content": "Markdown text with analytical commentary..."
@@ -1779,6 +1790,13 @@ OUTPUT FORMAT — You must return a JSON object with this exact structure:
   ],
   "methodology": "Brief description of approach used"
 }
+
+SECTION TYPES:
+- "table": Rows and columns for projections, comparables, sensitivity matrices.
+- "metrics": Key output figures displayed as cards (valuation, IRR, multiples).
+- "scenarios": Bull/base/bear scenario analysis with probability weighting.
+- "chart": Simple bar/line visualization. Provide data array with { label, value } pairs, chartType ("bar" or "line"), valueFormat ("currency"/"percent"/"number"), and color hex.
+- "text": Analytical commentary and methodology notes.
 
 MODELLING CAPABILITIES:
 - DCF (Discounted Cash Flow) with protocol-specific revenue drivers
@@ -1798,15 +1816,48 @@ RULES:
 5. Always include a scenario analysis section.
 6. Be quantitative and specific — avoid vague language.
 7. For crypto/DeFi: use protocol-native metrics (TVL, volume, fees, active addresses) as revenue drivers.
-8. Return ONLY the JSON object. No markdown wrapping, no \`\`\`json fences, just the raw JSON.`;
+8. Include at least one "chart" section with visualizable data.
+9. Return ONLY the JSON object. No markdown wrapping, no \`\`\`json fences, just the raw JSON.`;
 
-      const userMessage = [
-        "## Company Context",
-        companyContext,
-        reportsSummary ? `\n## Research Reports (excerpts)\n${reportsSummary}` : "",
-        chartsSummary ? `\n## Available Data\n${chartsSummary}` : "",
-        `\n## Modelling Request\n${prompt}`,
-      ].filter(Boolean).join("\n");
+  function buildModelUserMessage(contextData: Awaited<ReturnType<typeof buildModellingContext>>, prompt: string, priorModel?: string) {
+    const parts = [
+      "## Company Context",
+      contextData.companyContext,
+    ];
+    if (contextData.reportsSummary) parts.push(`\n## Research Reports (excerpts)\n${contextData.reportsSummary}`);
+    if (contextData.chartsSummary) parts.push(`\n## Dashboard Data\n${contextData.chartsSummary}`);
+    if (contextData.duneQueriesSummary) parts.push(`\n## Linked Dune Queries\n${contextData.duneQueriesSummary}`);
+    if (contextData.tokenAnalysisSummary) parts.push(`\n## Token Analysis\n${contextData.tokenAnalysisSummary}`);
+    if (priorModel) parts.push(`\n## Previous Model Output (iterate on this)\n${priorModel}`);
+    parts.push(`\n## Modelling Request\n${prompt}`);
+    return parts.filter(Boolean).join("\n");
+  }
+
+  const preValidateModel: RequestHandler = async (req, res, next) => {
+    try {
+      const userId = (req as any).user?.id;
+      if (!userId) return res.status(401).json({ message: "Not authenticated" });
+      const company = await storage.getCompany(req.params.id, userId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      const parsed = modelPromptSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
+      if (!isServerMppReady()) return res.status(503).json({ message: "AI service not configured" });
+      (req as any)._validatedCompany = company;
+      (req as any)._validatedPrompt = parsed.data.prompt;
+      next();
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  };
+
+  app.post("/api/companies/:id/models", requireAuth, preValidateModel as any, modellingPaywall, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const company = (req as any)._validatedCompany as Company;
+      const prompt = (req as any)._validatedPrompt as string;
+
+      const contextData = await buildModellingContext(company, userId);
+      const userMessage = buildModelUserMessage(contextData, prompt);
 
       const model = await storage.createFinancialModel({
         companyId: company.id,
@@ -1824,7 +1875,7 @@ RULES:
           const result = await callAnthropicServerHeavy({
             model: "claude-opus-4-6",
             max_tokens: 8000,
-            system: systemPrompt,
+            system: MODELLING_SYSTEM_PROMPT,
             messages: [{ role: "user", content: userMessage }],
           });
 
@@ -1855,9 +1906,15 @@ RULES:
             return;
           }
 
+          const conversationHistory = JSON.stringify([
+            { role: "user", content: prompt },
+            { role: "assistant", content: modelData.title },
+          ]);
+
           await storage.updateFinancialModel(model.id, {
             content: JSON.stringify(modelData),
             assumptions: JSON.stringify(modelData.assumptions || []),
+            conversationHistory,
             status: "complete",
             title: modelData.title,
           });
@@ -1893,6 +1950,143 @@ RULES:
       })();
     } catch (error: any) {
       res.status(500).json({ message: error.message });
+    }
+  });
+
+  const preValidateIterate: RequestHandler = async (req, res, next) => {
+    try {
+      const userId = (req as any).user?.id;
+      if (!userId) return res.status(401).json({ message: "Not authenticated" });
+      const existingModel = await storage.getFinancialModel(req.params.id);
+      if (!existingModel) return res.status(404).json({ message: "Model not found" });
+      if (existingModel.userId !== userId) {
+        const isAdmin = await storage.checkIsAdmin(userId);
+        if (!isAdmin) return res.status(403).json({ message: "Not authorized" });
+      }
+      if (existingModel.status !== "complete") return res.status(400).json({ message: "Cannot iterate on a model that is not complete" });
+      const parsed = modelPromptSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
+      if (!isServerMppReady()) return res.status(503).json({ message: "AI service not configured" });
+      const company = await storage.getCompany(existingModel.companyId, existingModel.userId);
+      if (!company) return res.status(404).json({ message: "Company not found" });
+      (req as any)._validatedModel = existingModel;
+      (req as any)._validatedCompany = company;
+      (req as any)._validatedPrompt = parsed.data.prompt;
+      next();
+    } catch (err: any) {
+      res.status(500).json({ message: err.message });
+    }
+  };
+
+  app.post("/api/models/:id/iterate", requireAuth, preValidateIterate, modellingPaywall, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const existingModel = (req as any)._validatedModel as FinancialModel;
+      const company = (req as any)._validatedCompany as Company;
+      const iteratePrompt = (req as any)._validatedPrompt as string;
+
+      await storage.updateFinancialModel(existingModel.id, { status: "generating" });
+      res.json({ id: existingModel.id, status: "generating" });
+
+      (async () => {
+        try {
+          const contextData = await buildModellingContext(company, userId);
+          const userMessage = buildModelUserMessage(contextData, iteratePrompt, existingModel.content);
+
+          const priorHistory: Array<{ role: string; content: string }> = existingModel.conversationHistory
+            ? JSON.parse(existingModel.conversationHistory)
+            : [];
+
+          const messages = [
+            ...priorHistory.map(h => ({ role: h.role, content: h.content })),
+            { role: "user", content: userMessage },
+          ];
+
+          const result = await callAnthropicServerHeavy({
+            model: "claude-opus-4-6",
+            max_tokens: 8000,
+            system: MODELLING_SYSTEM_PROMPT,
+            messages,
+          });
+
+          let modelData: any;
+          try {
+            const cleaned = result.text.replace(/^```json\s*/, "").replace(/```\s*$/, "").trim();
+            modelData = JSON.parse(cleaned);
+          } catch {
+            await storage.updateFinancialModel(existingModel.id, { status: "error" });
+            return;
+          }
+
+          const hasValidStructure = modelData &&
+            typeof modelData.title === "string" &&
+            Array.isArray(modelData.sections) &&
+            modelData.sections.length > 0;
+
+          if (!hasValidStructure) {
+            await storage.updateFinancialModel(existingModel.id, { status: "error" });
+            return;
+          }
+
+          const updatedHistory = [
+            ...priorHistory,
+            { role: "user", content: iteratePrompt },
+            { role: "assistant", content: modelData.title },
+          ];
+
+          await storage.updateFinancialModel(existingModel.id, {
+            content: JSON.stringify(modelData),
+            assumptions: JSON.stringify(modelData.assumptions || []),
+            conversationHistory: JSON.stringify(updatedHistory),
+            status: "complete",
+            title: modelData.title,
+          });
+
+          try {
+            await storage.logTransaction({
+              userId,
+              type: "financial_model_iterate",
+              description: `AI model iteration: ${modelData.title}`,
+              amount: "0.5000",
+              apiCost: result.mppCost.toFixed(4),
+              companyName: company.name,
+              inputTokens: result.usage.input_tokens,
+              outputTokens: result.usage.output_tokens,
+            });
+          } catch (err) {
+            console.error("[Transaction] Failed to log model iterate:", err);
+          }
+
+          trackEvent(userId, "financial_model_iterated", {
+            modelId: existingModel.id,
+            iterationCount: updatedHistory.filter(h => h.role === "user").length,
+          });
+        } catch (err: any) {
+          console.error("[Modelling] Iteration failed:", err.message);
+          await storage.updateFinancialModel(existingModel.id, { status: "error" });
+        }
+      })();
+    } catch (error: any) {
+      res.status(500).json({ message: error.message });
+    }
+  });
+
+  app.post("/api/models/:id/iterate/validate", requireAuth, async (req, res) => {
+    try {
+      const userId = req.user!.id;
+      const model = await storage.getFinancialModel(req.params.id);
+      if (!model) return res.status(404).json({ message: "Model not found" });
+      if (model.userId !== userId) {
+        const isAdmin = await storage.checkIsAdmin(userId);
+        if (!isAdmin) return res.status(403).json({ message: "Not authorized" });
+      }
+      if (model.status !== "complete") return res.status(400).json({ message: "Model is not in a complete state" });
+      const parsed = modelPromptSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ message: "Invalid request", errors: parsed.error.errors });
+      if (!isServerMppReady()) return res.status(503).json({ message: "AI service not configured" });
+      res.json({ valid: true });
+    } catch (error: any) {
+      res.status(500).json({ message: "Validation failed", error: error.message });
     }
   });
 

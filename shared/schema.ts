@@ -308,13 +308,16 @@ export const financialModels = pgTable("financial_models", {
   prompt: text("prompt").notNull(),
   content: text("content").notNull(),
   assumptions: text("assumptions"),
+  conversationHistory: text("conversation_history"),
   status: text("status").notNull().default("generating"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 export const insertFinancialModelSchema = createInsertSchema(financialModels).omit({
   id: true,
   createdAt: true,
+  updatedAt: true,
 });
 export type FinancialModel = typeof financialModels.$inferSelect;
 export type InsertFinancialModel = z.infer<typeof insertFinancialModelSchema>;
