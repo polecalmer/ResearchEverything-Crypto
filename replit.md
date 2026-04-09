@@ -51,7 +51,18 @@ Focus on user experience and intuitive design.
 
 **Data Tab (AI Chart Dashboard):** A chat-driven interface for building custom charts. The Data Agent (Opus 4.6) determines data sources (Dune Analytics, DeFiLlama, CoinGecko, Allium, StonksOnChain), fetches data, and creates interactive visualizations. It incorporates a self-learning query system with retry loops, query memory, data sanity checks, and prompt evolution based on failures and successes to continuously improve accuracy and efficiency.
 
-**NLP-Driven Modelling Tab:** A financial modelling workspace powered by Opus 4.6 acting as a quantitative analyst. Users describe what they want to model in natural language (e.g., "Build a DCF with 3-year projections", "Comparable analysis vs sector"), and the AI generates structured financial models with assumptions, projection tables, key metrics, scenario analysis (bull/base/bear), and analytical commentary. Models leverage full company context — research reports, data charts, token intelligence, and company metadata. $0.50 per model via MPP paywall. Stored in the `financial_models` table with validate-first pattern.
+**NLP-Driven Modelling Tab (Multi-Agent Architecture):** A financial modelling workspace powered by a 5-agent team. Users describe what they want in natural language and a multi-agent pipeline produces institutional-grade financial models:
+- **Phase 0**: Pre-fetches all data (token snapshot, all dashboard charts, token analysis) in parallel
+- **Phase 1**: 4 specialized research agents run in parallel (~60s each):
+  - Revenue & Growth Agent: Historical analysis, growth decomposition, forward projections
+  - Valuation & Multiples Agent: Forward P/E, EV/Revenue, peer comps, fair value estimation
+  - Supply Dynamics Agent: Unlock schedule, buyback vs dilution, circulating supply projections
+  - Market & Competitive Agent: Market share analysis, TAM/SAM/SOM, moat assessment, catalysts/risks
+- **Phase 2**: Synthesis agent combines all 4 research briefs into a comprehensive model with 12-18 sections
+- Output includes: Forward P/E trajectory charts, supply dynamics tables, competitive positioning, buyback yield analysis, sensitivity matrices, scenario analysis
+- Total generation time: 3-5 minutes. $0.50 per model via MPP paywall.
+- Iterate route still uses single-agent tool-based approach for targeted refinements.
+- Stored in the `financial_models` table with validate-first pattern.
 
 **Master Reports:** A block-based report composition workspace. Users create master reports and compose them from multiple block types: free-text/markdown, referenced deep research reports, referenced financial models, referenced dashboard charts, and tables. Blocks can be reordered via drag-and-drop (@dnd-kit). Reports can be exported as Markdown. Free to create (no paywall). Data model: `master_reports` (id, userId, title, timestamps) and `master_report_blocks` (id, masterReportId, blockType, content, referenceId, displayOrder). All block mutations enforce ownership — blocks must belong to the report, and referenced entities must belong to the user. An "Add to Master Report" inline action is available across the app: in report viewer (floating button on text selection + header button for entire report), on chart cards in the Data tab, and on model cards in the Modelling tab. The shared `AddToMasterReport` component (`client/src/components/add-to-master-report.tsx`) provides a dropdown picker to select an existing master report or create a new one on the spot.
 

@@ -2347,7 +2347,7 @@ RULES:
     const finalResp = await callAnthropicRaw({
       model: "claude-sonnet-4-20250514",
       max_tokens: 16000,
-      system: systemPrompt,
+      system: MODELLING_SYSTEM_PROMPT,
       messages,
       tools: [],
     });
@@ -2364,6 +2364,327 @@ RULES:
       return { modelData: fallbackModel, totalMppCost, totalInput, totalOutput };
     }
     throw new Error(`Modelling agent exceeded ${MAX_TOOL_ROUNDS} tool rounds and fallback generation failed`);
+  }
+
+  async function fetchAllModellingData(company: Company, userId: string) {
+    const chartsCache = new Map<string, any>();
+    const [tokenProfile, chartsRaw, tokenAnalysesData] = await Promise.all([
+      storage.getTokenProfile(company.id),
+      storage.getDashboardChartsByCompany(company.id, userId),
+      storage.getTokenAnalysesByCompany(company.id, userId),
+    ]);
+
+    const addr = tokenProfile?.contractAddress || company.tokenContractAddress || "";
+    const chain = tokenProfile?.chain || company.tokenChain || "";
+    const ticker = tokenProfile?.tokenTicker || company.tokenTicker || "TOKEN";
+
+    let tokenSnapshot: any = null;
+    if (chain) {
+      try {
+        const { snapshot } = await fetchTokenSnapshot(addr, chain, ticker);
+        tokenSnapshot = snapshot;
+      } catch (err: any) {
+        console.warn(`[MultiAgent] Token snapshot failed: ${err.message}`);
+      }
+    }
+
+    const completedCharts = chartsRaw.filter(c => (c.status === "complete" || c.status === "completed") && c.data);
+    const chartDataMap: Record<string, { title: string; source: string; chartType: string; rows: any[] }> = {};
+    for (const chart of completedCharts) {
+      try {
+        let rawData = JSON.parse(chart.data!);
+        if (rawData && typeof rawData === "object" && !Array.isArray(rawData)) {
+          if (rawData.rows && Array.isArray(rawData.rows)) rawData = rawData.rows;
+          else if (rawData.data && Array.isArray(rawData.data)) rawData = rawData.data;
+        }
+        const rows = Array.isArray(rawData) ? rawData : [rawData];
+        chartDataMap[chart.id] = {
+          title: chart.title || "Untitled",
+          source: chart.dataSource || "unknown",
+          chartType: chart.chartType || "table",
+          rows,
+        };
+        chartsCache.set(chart.id, chart);
+      } catch {}
+    }
+
+    const tokenAnalysis = tokenAnalysesData
+      .filter(t => t.status === "complete")
+      .slice(0, 1)
+      .map(t => t.content.substring(0, 8000))
+      .join("");
+
+    const companyBrief = [
+      `Company: ${company.name}`,
+      company.oneLiner ? `One-liner: ${company.oneLiner}` : "",
+      company.sector ? `Sector: ${company.sector}` : "",
+      company.subSector ? `Sub-sector: ${company.subSector}` : "",
+      company.businessModel ? `Business model: ${company.businessModel}` : "",
+      company.stage ? `Stage: ${company.stage}` : "",
+      company.hasLiquidToken ? `Token: ${ticker} on ${chain}` : "",
+    ].filter(Boolean).join("\n");
+
+    const companyDetail = [
+      company.description || "",
+      company.fundingHistory ? `\nFunding: ${company.fundingHistory}` : "",
+      company.competitiveLandscape ? `\nCompetitive landscape: ${company.competitiveLandscape}` : "",
+    ].filter(Boolean).join("\n");
+
+    return { tokenSnapshot, chartDataMap, tokenAnalysis, companyBrief, companyDetail, chartsCache };
+  }
+
+  function formatChartForAgent(chartData: { title: string; source: string; rows: any[] }, maxRows = 200): string {
+    const { title, source, rows } = chartData;
+    const truncated = rows.slice(0, maxRows);
+    if (truncated.length <= 15) {
+      return `### ${title} [${source}]\n${JSON.stringify(truncated)}`;
+    }
+    const cols = Object.keys(truncated[0] || {});
+    const dateCol = cols.find(c => /date|time|week|month|day|period/i.test(c));
+    const numericCols = cols.filter(c => {
+      const vals = truncated.map(r => r[c]).filter(v => v !== null && v !== undefined);
+      return vals.length > 0 && vals.every(v => typeof v === "number" || (typeof v === "string" && !isNaN(Number(v)) && v.trim() !== ""));
+    });
+    const lines = [`### ${title} [${source}] — ${truncated.length} rows`];
+    if (dateCol) lines.push(`Date range: ${truncated[0][dateCol]} → ${truncated[truncated.length - 1][dateCol]}`);
+    for (const nc of numericCols.slice(0, 12)) {
+      const vals = truncated.map(r => Number(r[nc])).filter(v => !isNaN(v));
+      if (vals.length === 0) continue;
+      const latest = vals[0]; const oldest = vals[vals.length - 1];
+      const min = Math.min(...vals); const max = Math.max(...vals);
+      const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+      const change = oldest !== 0 ? ((latest - oldest) / Math.abs(oldest) * 100).toFixed(1) : "N/A";
+      lines.push(`${nc}: latest=${latest}, oldest=${oldest}, min=${min}, max=${max}, avg=${avg.toFixed(2)}, change=${change}%`);
+    }
+    const sampleIdx = [0, 1, 2, Math.floor(truncated.length / 4), Math.floor(truncated.length / 2), Math.floor(3 * truncated.length / 4), truncated.length - 2, truncated.length - 1]
+      .filter((v, i, a) => v >= 0 && v < truncated.length && a.indexOf(v) === i).sort((a, b) => a - b);
+    lines.push(`\nSample rows (${sampleIdx.length} of ${truncated.length}):`);
+    for (const i of sampleIdx) lines.push(JSON.stringify(truncated[i]));
+    return lines.join("\n");
+  }
+
+  async function runResearchAgent(
+    agentName: string,
+    systemPrompt: string,
+    userMessage: string,
+  ): Promise<{ brief: string; mppCost: number; inputTokens: number; outputTokens: number }> {
+    console.log(`[${agentName}] Starting analysis (${userMessage.length} chars input)`);
+    try {
+      const response = await callAnthropicRaw({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 6000,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userMessage }],
+        tools: [],
+      });
+      const text = (response.content || []).filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
+      console.log(`[${agentName}] Complete: ${text.length} chars output (cost: $${(response.mppCost || 0).toFixed(4)})`);
+      return {
+        brief: text,
+        mppCost: response.mppCost || 0,
+        inputTokens: response.usage?.input_tokens || 0,
+        outputTokens: response.usage?.output_tokens || 0,
+      };
+    } catch (err: any) {
+      console.error(`[${agentName}] Failed: ${err.message}`);
+      return { brief: `[${agentName} failed: ${err.message?.slice(0, 100)}]`, mppCost: 0, inputTokens: 0, outputTokens: 0 };
+    }
+  }
+
+  const REVENUE_AGENT_PROMPT = `You are a revenue analysis specialist at a crypto VC firm. Analyze the provided data and produce a detailed revenue analysis brief.
+
+Your output must be a structured analysis (NOT JSON) covering:
+1. HISTORICAL REVENUE ANALYSIS: Extract actual revenue figures, compute MoM/QoQ/YoY growth rates, identify trends and seasonality
+2. REVENUE DECOMPOSITION: Break down revenue by source if data permits (trading fees, liquidation fees, HIP-1 auctions, etc.)
+3. FORWARD REVENUE PROJECTIONS: Project revenue for the next 3 years under bull/base/bear scenarios with specific growth rate assumptions
+4. RUN-RATE ANALYSIS: Current daily/weekly/monthly run-rate vs historical averages and peaks
+5. REVENUE QUALITY ASSESSMENT: Recurring vs one-time, concentration risk, cyclicality score
+
+Be extremely quantitative. Show your calculations. Use the ACTUAL numbers from the data — never estimate when real data exists.`;
+
+  const VALUATION_AGENT_PROMPT = `You are a valuation specialist at a crypto VC firm. Analyze the provided data and produce a detailed valuation analysis brief.
+
+Your output must be a structured analysis (NOT JSON) covering:
+1. CURRENT VALUATION METRICS: Compute P/Revenue, P/E (using buyback as proxy for earnings), EV/Revenue using float MCAP, adjusted MCAP, and FDV
+2. FORWARD VALUATION TRAJECTORY: Project forward P/E and P/Revenue for each year of projections (2026E, 2027E, 2028E) at different growth scenarios
+3. PEER COMPARISON: Compare valuation multiples against DeFi peers (dYdX, GMX, Jupiter, Aevo, etc.) — use any peer data available
+4. HISTORICAL VALUATION RANGE: If P/E ratio history is available, analyze how current valuation compares to historical range
+5. FAIR VALUE ESTIMATION: Derive a fair value range using at least 2 methodologies (DCF implied, comparable multiples, buyback yield)
+6. BUYBACK YIELD ANALYSIS: Compute current and projected buyback yield at different price levels
+
+Be extremely quantitative. Derive specific numbers and multiples. Show your math.`;
+
+  const SUPPLY_AGENT_PROMPT = `You are a tokenomics and supply dynamics specialist at a crypto VC firm. Analyze the provided data and produce a detailed supply dynamics brief.
+
+Your output must be a structured analysis (NOT JSON) covering:
+1. CURRENT SUPPLY BREAKDOWN: Circulating, staked, locked, burned — with exact numbers
+2. UNLOCK SCHEDULE MODELING: Monthly unlock amounts, USD value at current price, % of circulating supply impact
+3. BUYBACK VS DILUTION: Monthly buyback volume vs unlock volume — net dilution/accretion per month and per year
+4. CIRCULATING SUPPLY PROJECTIONS: Project circulating supply for 3 years, factoring in unlocks and burns
+5. SUPPLY-ADJUSTED VALUATION: How the market cap changes as supply expands — project adjusted MCAP at current price
+6. NET EMISSION RATE: Annual token emission rate after accounting for buybacks and burns — is supply net inflationary or deflationary?
+
+Be extremely quantitative. Model specific monthly and annual figures. Show your calculations.`;
+
+  const MARKET_AGENT_PROMPT = `You are a market intelligence and competitive analysis specialist at a crypto VC firm. Analyze the provided data and produce a detailed market analysis brief.
+
+Your output must be a structured analysis (NOT JSON) covering:
+1. MARKET SHARE ANALYSIS: Current market share, historical trend, key competitors and their shares
+2. COMPETITIVE MOAT ASSESSMENT: Rate the moat strength (1-10) with specific evidence — network effects, switching costs, technology advantages
+3. TAM/SAM/SOM: Size the total addressable market for decentralized perpetual futures, serviceable market, and obtainable market
+4. GROWTH CATALYSTS: List and quantify the top 3-5 catalysts with potential revenue impact
+5. KEY RISKS: Quantify the top 3-5 risks with potential impact on valuation/revenue
+6. REGULATORY LANDSCAPE: Assess regulatory risk and potential impact scenarios
+
+Be specific and evidence-based. Cite data points from the provided information.`;
+
+  async function runMultiAgentModelling(
+    company: Company,
+    userId: string,
+    prompt: string,
+    priorModel?: string,
+  ): Promise<{ modelData: any; totalMppCost: number; totalInput: number; totalOutput: number }> {
+    let totalMppCost = 0;
+    let totalInput = 0;
+    let totalOutput = 0;
+
+    console.log(`[MultiAgent] Phase 0: Fetching all data for ${company.name}...`);
+    const data = await fetchAllModellingData(company, userId);
+
+    const tokenSnapshotStr = data.tokenSnapshot ? JSON.stringify(data.tokenSnapshot, null, 2) : "No token snapshot available";
+
+    const chartBriefs = Object.values(data.chartDataMap).map(c => formatChartForAgent(c));
+    const allChartsStr = chartBriefs.join("\n\n");
+    const revenueCharts = Object.values(data.chartDataMap)
+      .filter(c => /revenue|fee|earning|income/i.test(c.title))
+      .map(c => formatChartForAgent(c, 400));
+    const volumeCharts = Object.values(data.chartDataMap)
+      .filter(c => /volume|trading|tvl/i.test(c.title))
+      .map(c => formatChartForAgent(c, 400));
+    const peCharts = Object.values(data.chartDataMap)
+      .filter(c => /p\/e|pe ratio|valuation|market.cap/i.test(c.title))
+      .map(c => formatChartForAgent(c, 400));
+    const competitiveCharts = Object.values(data.chartDataMap)
+      .filter(c => /lighter|competitor|market.share|vs/i.test(c.title))
+      .map(c => formatChartForAgent(c, 400));
+
+    console.log(`[MultiAgent] Phase 1: Launching 4 parallel research agents...`);
+    console.log(`[MultiAgent] Data: ${Object.keys(data.chartDataMap).length} charts, token snapshot: ${!!data.tokenSnapshot}, token analysis: ${data.tokenAnalysis.length} chars`);
+
+    const [revenueResult, valuationResult, supplyResult, marketResult] = await Promise.all([
+      runResearchAgent(
+        "Revenue Agent",
+        REVENUE_AGENT_PROMPT,
+        `## Company\n${data.companyBrief}\n\n## Token Market Data\n${tokenSnapshotStr}\n\n## Revenue & Fee Data\n${revenueCharts.length > 0 ? revenueCharts.join("\n\n") : "No dedicated revenue charts"}\n\n## Volume Data\n${volumeCharts.length > 0 ? volumeCharts.join("\n\n") : "No volume charts"}\n\n## All Available Charts\n${allChartsStr}\n\n## Token Analysis Excerpt\n${data.tokenAnalysis.substring(0, 4000) || "None available"}\n\n## User Request\n${prompt}`,
+      ),
+      runResearchAgent(
+        "Valuation Agent",
+        VALUATION_AGENT_PROMPT,
+        `## Company\n${data.companyBrief}\n\n## Token Market Data\n${tokenSnapshotStr}\n\n## P/E & Valuation Data\n${peCharts.length > 0 ? peCharts.join("\n\n") : "No P/E charts"}\n\n## Revenue Data\n${revenueCharts.length > 0 ? revenueCharts.join("\n\n") : "No revenue charts"}\n\n## Token Analysis Excerpt\n${data.tokenAnalysis.substring(0, 4000) || "None available"}\n\n## User Request\n${prompt}`,
+      ),
+      runResearchAgent(
+        "Supply Agent",
+        SUPPLY_AGENT_PROMPT,
+        `## Company\n${data.companyBrief}\n\n## Token Market Data\n${tokenSnapshotStr}\n\n## Token Analysis (supply/unlock details)\n${data.tokenAnalysis || "None available"}\n\n## Revenue Data (for buyback calculations)\n${revenueCharts.length > 0 ? revenueCharts.join("\n\n") : "No revenue charts"}\n\n## User Request\n${prompt}`,
+      ),
+      runResearchAgent(
+        "Market Agent",
+        MARKET_AGENT_PROMPT,
+        `## Company\n${data.companyBrief}\n${data.companyDetail}\n\n## Competitive Data\n${competitiveCharts.length > 0 ? competitiveCharts.join("\n\n") : "No competitive charts"}\n\n## Volume & Market Data\n${volumeCharts.length > 0 ? volumeCharts.join("\n\n") : "No volume charts"}\n\n## Token Analysis Excerpt\n${data.tokenAnalysis.substring(0, 3000) || "None available"}\n\n## User Request\n${prompt}`,
+      ),
+    ]);
+
+    for (const r of [revenueResult, valuationResult, supplyResult, marketResult]) {
+      totalMppCost += r.mppCost;
+      totalInput += r.inputTokens;
+      totalOutput += r.outputTokens;
+    }
+
+    console.log(`[MultiAgent] Phase 1 complete. Research briefs: Revenue=${revenueResult.brief.length}, Valuation=${valuationResult.brief.length}, Supply=${supplyResult.brief.length}, Market=${marketResult.brief.length} chars`);
+
+    console.log(`[MultiAgent] Phase 2: Running synthesis agent...`);
+
+    const SYNTHESIS_PROMPT = `You are a senior quantitative analyst at Research Everything, a crypto VC firm. You are building a comprehensive, institutional-grade financial model.
+
+You have received detailed research briefs from four specialist analysts. Your job is to SYNTHESIZE their analyses into a single, deeply detailed financial model with 12-18 sections.
+
+OUTPUT FORMAT — Return a JSON object with this structure:
+{
+  "title": "Title Case Model Name",
+  "assumptions": [
+    { "label": "Key Assumption Name", "value": "Value", "basis": "Evidence-based reasoning" }
+  ],
+  "sections": [ ...array of section objects... ],
+  "methodology": "Description of approaches used"
+}
+
+SECTION TYPES:
+- "table": { "heading": "...", "type": "table", "columns": [...], "rows": [[...], ...], "note": "..." }
+- "metrics": { "heading": "...", "type": "metrics", "items": [{ "label": "...", "value": "...", "detail": "..." }] }
+- "scenarios": { "heading": "...", "type": "scenarios", "scenarios": [{ "name": "Bull/Base/Bear", "probability": "25%", "outcome": "...", "keyDrivers": "..." }] }
+- "chart": { "heading": "...", "type": "chart", "chartType": "bar|line", "data": [{ "label": "...", "value": 123 }], "valueFormat": "currency|percent|number", "color": "#hex" }
+- "text": { "heading": "...", "type": "text", "content": "Markdown analysis text..." }
+
+REQUIRED SECTIONS (minimum — include all of these):
+1. KEY ASSUMPTIONS — as the top-level "assumptions" array (8-12 assumptions with evidence)
+2. REVENUE & CASH FLOW PROJECTIONS — table with 4+ years (actual + projected)
+3. DCF VALUATION SUMMARY — metrics cards with key outputs
+4. FORWARD VALUATION MULTIPLES — table showing forward P/Revenue, P/E, buyback yield for each year
+5. FORWARD P/E TRAJECTORY — line chart showing how P/E declines as revenue grows
+6. REVENUE GROWTH TRAJECTORY — bar chart with historical + projected revenue
+7. SCENARIO ANALYSIS — Bull/Base/Bear with probability weighting
+8. SENSITIVITY ANALYSIS — table matrix (growth rate × discount rate → implied price)
+9. TOKEN SUPPLY DYNAMICS — table showing monthly/yearly unlock, buyback, net dilution
+10. CIRCULATING SUPPLY PROJECTION — line chart of circulating supply over time with buyback offset
+11. COMPETITIVE POSITIONING — table comparing key metrics vs peers
+12. BUYBACK YIELD ANALYSIS — table or chart showing buyback yield at different price levels
+13. KEY RISKS & CONSIDERATIONS — text section with categorized risks
+14. GROWTH CATALYSTS — text or metrics section with quantified catalysts
+
+QUALITY RULES:
+1. Use EXACT numbers from the research briefs — never round or estimate when precise data exists.
+2. Every projection must trace back to a stated assumption.
+3. Include at least 3 chart sections (bar and line mix).
+4. Sensitivity matrices should cover 4×4 minimum (4 growth rates × 4 discount rates or 4 price levels).
+5. All financial figures use proper formatting ($1.2B, 25.3%, 11.1x).
+6. Forward multiples must be computed for each projected year.
+7. Supply dynamics must show net monthly emission and cumulative impact.
+8. Return ONLY the JSON object. No markdown fences, no text before or after.`;
+
+    let synthesisInput = `## Company\n${data.companyBrief}\n${data.companyDetail}\n\n## Live Token Market Data\n${tokenSnapshotStr}\n\n---\n\n## RESEARCH BRIEF 1: Revenue & Growth Analysis\n${revenueResult.brief}\n\n---\n\n## RESEARCH BRIEF 2: Valuation & Multiples Analysis\n${valuationResult.brief}\n\n---\n\n## RESEARCH BRIEF 3: Token Supply Dynamics\n${supplyResult.brief}\n\n---\n\n## RESEARCH BRIEF 4: Market & Competitive Intelligence\n${marketResult.brief}`;
+
+    if (priorModel) {
+      synthesisInput += `\n\n---\n\n## PREVIOUS MODEL (iterate and improve on this)\n${priorModel}`;
+    }
+
+    synthesisInput += `\n\n---\n\n## MODELLING REQUEST\n${prompt}`;
+
+    const synthesisResponse = await callAnthropicRaw({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 24000,
+      system: SYNTHESIS_PROMPT,
+      messages: [{ role: "user", content: synthesisInput }],
+      tools: [],
+    });
+
+    totalMppCost += synthesisResponse.mppCost || 0;
+    totalInput += synthesisResponse.usage?.input_tokens || 0;
+    totalOutput += synthesisResponse.usage?.output_tokens || 0;
+
+    const synthesisText = (synthesisResponse.content || [])
+      .filter((b: any) => b.type === "text")
+      .map((b: any) => b.text)
+      .join("");
+
+    console.log(`[MultiAgent] Synthesis complete: ${synthesisText.length} chars output (cost: $${totalMppCost.toFixed(4)})`);
+
+    const modelData = tryParseModelJSON(synthesisText);
+    if (!modelData || !modelData.title || !Array.isArray(modelData.sections) || (modelData.sections as unknown[]).length === 0) {
+      throw new Error(`Multi-agent synthesis produced invalid model JSON (${synthesisText.length} chars)`);
+    }
+
+    console.log(`[MultiAgent] Model "${modelData.title}" generated with ${(modelData.sections as unknown[]).length} sections (total cost: $${totalMppCost.toFixed(4)})`);
+    return { modelData, totalMppCost, totalInput, totalOutput };
   }
 
   const preValidateModel: RequestHandler = async (req, res, next) => {
@@ -2403,7 +2724,7 @@ RULES:
 
       (async () => {
         try {
-          const result = await runModellingAgent(company, userId, prompt);
+          const result = await runMultiAgentModelling(company, userId, prompt);
 
           const modelData = result.modelData;
           const conversationHistory = JSON.stringify([

@@ -741,11 +741,14 @@ function ModelSectionRenderer({ section, onEdit, isQueued }: { section: ModelSec
 
 const GENERATION_STEPS = [
   { label: "Fetching live token & market data", minSec: 0 },
-  { label: "Querying dashboard datasets", minSec: 8 },
-  { label: "Analyzing on-chain metrics & revenue", minSec: 18 },
-  { label: "Building financial projections", minSec: 30 },
-  { label: "Running scenario analysis & charts", minSec: 45 },
-  { label: "Finalizing model output", minSec: 60 },
+  { label: "Querying dashboard datasets", minSec: 5 },
+  { label: "Revenue & growth analysis agent", minSec: 15 },
+  { label: "Valuation & multiples analysis agent", minSec: 25 },
+  { label: "Token supply dynamics agent", minSec: 40 },
+  { label: "Market & competitive intelligence agent", minSec: 55 },
+  { label: "Synthesizing research briefs into model", minSec: 90 },
+  { label: "Building projections, charts & scenarios", minSec: 150 },
+  { label: "Finalizing comprehensive model output", minSec: 240 },
 ];
 
 function GeneratingIndicator({ createdAt }: { createdAt: string | Date }) {
@@ -809,7 +812,7 @@ function GeneratingIndicator({ createdAt }: { createdAt: string | Date }) {
       </div>
 
       <p className="text-[9px] text-muted-foreground/35">
-        This typically takes 60–90 seconds. The model will appear automatically when ready.
+        Multi-agent analysis typically takes 3–5 minutes. The model will appear automatically when ready.
       </p>
     </div>
   );
