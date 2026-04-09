@@ -740,12 +740,12 @@ function ModelSectionRenderer({ section, onEdit, isQueued }: { section: ModelSec
 }
 
 const GENERATION_STEPS = [
-  { label: "Collecting company data & market context", minSec: 0 },
-  { label: "Phase 1: Extracting key metrics & assumptions", minSec: 8 },
-  { label: "Phase 1: Building analysis plan", minSec: 25 },
-  { label: "Phase 2: Constructing financial projections", minSec: 50 },
-  { label: "Phase 2: Running scenario analysis & charts", minSec: 80 },
-  { label: "Finalizing model & cross-checking outputs", minSec: 110 },
+  { label: "Fetching live token & market data", minSec: 0 },
+  { label: "Querying dashboard datasets", minSec: 8 },
+  { label: "Analyzing on-chain metrics & revenue", minSec: 18 },
+  { label: "Building financial projections", minSec: 30 },
+  { label: "Running scenario analysis & charts", minSec: 45 },
+  { label: "Finalizing model output", minSec: 60 },
 ];
 
 function GeneratingIndicator({ createdAt }: { createdAt: string | Date }) {

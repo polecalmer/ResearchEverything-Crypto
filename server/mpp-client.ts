@@ -7,12 +7,20 @@ export interface AnthropicRequest {
   model: string;
   max_tokens: number;
   system?: string;
-  messages: Array<{ role: string; content: string }>;
-  tools?: Array<{ type: string; name: string; max_uses?: number }>;
+  messages: Array<{ role: string; content: any }>;
+  tools?: Array<{ type: string; name: string; max_uses?: number; description?: string; input_schema?: any }>;
+  tool_choice?: any;
 }
 
 export interface AnthropicResponse {
   text: string;
+  usage: { input_tokens: number; output_tokens: number };
+  mppCost: number;
+}
+
+export interface AnthropicRawResponse {
+  content: Array<{ type: string; text?: string; id?: string; name?: string; input?: any }>;
+  stop_reason: string;
   usage: { input_tokens: number; output_tokens: number };
   mppCost: number;
 }
@@ -266,6 +274,89 @@ async function callAnthropic(request: AnthropicRequest, options?: CallOptions): 
 
 export async function callAnthropicServer(request: AnthropicRequest): Promise<AnthropicResponse> {
   return callAnthropic(request);
+}
+
+export async function callAnthropicRaw(request: AnthropicRequest): Promise<AnthropicRawResponse> {
+  if (isShuttingDown) {
+    throw new Error("Server is shutting down — please retry in a moment.");
+  }
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const state = getOrCreateClient();
+
+    try {
+      const response = await state.session.fetch(ANTHROPIC_MPP_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "anthropic-version": "2023-06-01",
+          "x-api-key": "mpp",
+        },
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "Unknown error");
+        if (isRetryable(response.status) && attempt < MAX_RETRIES) {
+          if (response.status === 524 || response.status === 502) {
+            forceNewChannel();
+          }
+          const delay = RETRY_DELAY_MS * (attempt + 1);
+          console.log(`[MPP-Channel] Raw retryable error ${response.status}, retrying in ${delay}ms...`);
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+        throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
+      }
+
+      const mppCost = response.receipt ? Number(response.cumulative) / 1e6 : 0;
+      state.totalSpent = Number(response.cumulative || 0n) / 1e6;
+      state.requestCount++;
+
+      const data = await response.json();
+
+      return {
+        content: data.content || [],
+        stop_reason: data.stop_reason || "end_turn",
+        usage: {
+          input_tokens: data.usage?.input_tokens || 0,
+          output_tokens: data.usage?.output_tokens || 0,
+        },
+        mppCost,
+      };
+    } catch (err) {
+      lastError = err as Error;
+      const errMsg = (err as any)?.message || "";
+
+      if (errMsg.includes("InsufficientBalance") || errMsg.includes("insufficient funds")) {
+        forceNewChannel();
+        throw new Error("AI service temporarily unavailable — server wallet needs to be topped up.");
+      }
+
+      if (isChannelError(errMsg)) {
+        forceNewChannel();
+        if (attempt < MAX_RETRIES) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+          continue;
+        }
+      }
+
+      const isRetryableError = errMsg.includes("fetch") || errMsg.includes("524") ||
+        errMsg.includes("502") || errMsg.includes("503") || errMsg.includes("timeout") ||
+        errMsg.includes("ECONNRESET") || errMsg.includes("429");
+      if (attempt < MAX_RETRIES && isRetryableError) {
+        const delay = RETRY_DELAY_MS * (attempt + 1);
+        console.log(`[MPP-Channel] Raw error: "${errMsg.slice(0, 80)}", retrying in ${delay}ms...`);
+        await new Promise((r) => setTimeout(r, delay));
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw lastError || new Error("MPP raw call failed after retries");
 }
 
 async function callAnthropicStreaming(request: AnthropicRequest): Promise<AnthropicResponse> {

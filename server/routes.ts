@@ -24,7 +24,8 @@ import { runDataAgent, refreshChartData, DATA_CHART_CHARGE, analyzeFailurePatter
 import { fetchTokenSnapshot } from "./allium-client";
 import { executeDuneQuery, getLatestDuneResults, isDuneConfigured } from "./dune-client";
 import { runTokenAnalysis } from "./token-agent";
-import { callAnthropicServer, callAnthropicServerHeavy, isServerMppReady, getChannelStats } from "./mpp-client";
+import { callAnthropicServer, callAnthropicServerHeavy, callAnthropicRaw, isServerMppReady, getChannelStats } from "./mpp-client";
+import type { AnthropicRawResponse } from "./mpp-client";
 import { generateTelegramLinkCode } from "./telegram";
 import { getWalletInfo, closeAllChannels, withdrawAllChannels, requestCloseChannel, withdrawChannel } from "./wallet-manager";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
@@ -1737,29 +1738,69 @@ Rewrite the "Section to Rewrite" above, incorporating the user's insight. Return
       console.log(`[Modelling] Chart refresh complete — ${refreshResults.filter(r => r.status === "fulfilled").length}/${refreshableCharts.length} succeeded`);
     }
 
-    const MAX_ROWS_PER_DATASET = 200;
-    const MAX_TOTAL_DATA_CHARS = 50000;
-
-    let totalDataChars = 0;
     const liveDatasets: string[] = [];
+
+    function compactDataset(rows: any[]): string {
+      if (!Array.isArray(rows) || rows.length === 0) return "[]";
+      const cols = Object.keys(rows[0]);
+      const numericCols = cols.filter(c => {
+        const vals = rows.map(r => r[c]).filter(v => v !== null && v !== undefined);
+        return vals.length > 0 && vals.every(v => typeof v === "number" || (typeof v === "string" && !isNaN(Number(v)) && v.trim() !== ""));
+      });
+      const dateCol = cols.find(c => /date|time|week|month|day|period/i.test(c));
+
+      if (rows.length <= 8) {
+        return JSON.stringify(rows);
+      }
+
+      const lines: string[] = [];
+      lines.push(`Columns: ${cols.join(", ")} (${rows.length} rows total)`);
+
+      if (dateCol) {
+        lines.push(`Date range: ${rows[0][dateCol]} → ${rows[rows.length - 1][dateCol]}`);
+      }
+
+      for (const nc of numericCols) {
+        const vals = rows.map(r => Number(r[nc])).filter(v => !isNaN(v));
+        if (vals.length === 0) continue;
+        const latest = vals[0];
+        const oldest = vals[vals.length - 1];
+        const min = Math.min(...vals);
+        const max = Math.max(...vals);
+        const avg = vals.reduce((a, b) => a + b, 0) / vals.length;
+        const change = oldest !== 0 ? ((latest - oldest) / Math.abs(oldest) * 100).toFixed(1) : "N/A";
+        lines.push(`${nc}: latest=${latest}, min=${min}, max=${max}, avg=${avg.toFixed(2)}, change=${change}%`);
+      }
+
+      const sampleIndices = [0, 1, 2];
+      const step = Math.max(1, Math.floor(rows.length / 6));
+      for (let i = step; i < rows.length - 2; i += step) {
+        if (!sampleIndices.includes(i)) sampleIndices.push(i);
+      }
+      sampleIndices.push(rows.length - 2, rows.length - 1);
+      const unique = [...new Set(sampleIndices)].filter(i => i >= 0 && i < rows.length).sort((a, b) => a - b);
+
+      lines.push(`\nSample rows (${unique.length} of ${rows.length}):`);
+      for (const i of unique) {
+        lines.push(JSON.stringify(rows[i]));
+      }
+
+      return lines.join("\n");
+    }
 
     const completedCharts = chartsData.filter(c => (c.status === "complete" || c.status === "completed") && c.data);
     for (const chart of completedCharts) {
-      if (totalDataChars >= MAX_TOTAL_DATA_CHARS) break;
       try {
         const rawData = JSON.parse(chart.data!);
-        const rows = Array.isArray(rawData) ? rawData.slice(0, MAX_ROWS_PER_DATASET) : rawData;
+        const rows = Array.isArray(rawData) ? rawData : [rawData];
         const source = chart.dataSource || "unknown";
-        const dataStr = JSON.stringify(rows);
-        const budgetLeft = MAX_TOTAL_DATA_CHARS - totalDataChars;
-        const truncatedData = dataStr.length > budgetLeft ? dataStr.substring(0, budgetLeft) + "...(truncated)" : dataStr;
-        totalDataChars += truncatedData.length;
 
         const configInfo = chart.dataSourceConfig
           ? (() => { try { const c = JSON.parse(chart.dataSourceConfig); return c.queryId ? ` (Dune #${c.queryId})` : c.sql ? " (Dune SQL)" : c.protocol ? ` (${c.protocol})` : ""; } catch { return ""; } })()
           : "";
 
-        liveDatasets.push(`### ${chart.title} [source: ${source}${configInfo}]\nType: ${chart.chartType || "table"}\nData (${Array.isArray(rawData) ? rawData.length : "N/A"} rows, showing up to ${MAX_ROWS_PER_DATASET}):\n${truncatedData}`);
+        const compacted = compactDataset(rows);
+        liveDatasets.push(`### ${chart.title} [source: ${source}${configInfo}]\nType: ${chart.chartType || "table"}\n${compacted}`);
       } catch {
         liveDatasets.push(`### ${chart.title} [source: ${chart.dataSource || "unknown"}]\n[parse error — data unavailable]`);
       }
@@ -2067,6 +2108,225 @@ RULES:
     return parts.filter(Boolean).join("\n");
   }
 
+  const MODELLING_TOOLS = [
+    {
+      name: "get_token_snapshot",
+      description: "Get current live token market data including price, market cap, FDV, 24h volume, circulating/total supply, and price change. Call this first for any token-related model.",
+      input_schema: {
+        type: "object" as const,
+        properties: {},
+        required: [] as string[],
+      },
+    },
+    {
+      name: "list_dashboard_charts",
+      description: "List all available dashboard data charts for this company. Returns chart IDs, titles, data sources (dune, defillama, stonks), and row counts. Use this to discover what data is available before fetching specific charts.",
+      input_schema: {
+        type: "object" as const,
+        properties: {},
+        required: [] as string[],
+      },
+    },
+    {
+      name: "get_chart_data",
+      description: "Fetch the actual data from a specific dashboard chart by ID. Returns the data with statistical summaries for numeric columns and sample rows. Use after list_dashboard_charts to get specific datasets.",
+      input_schema: {
+        type: "object" as const,
+        properties: {
+          chart_id: { type: "string" as const, description: "The chart ID from list_dashboard_charts" },
+        },
+        required: ["chart_id"],
+      },
+    },
+    {
+      name: "get_token_analysis",
+      description: "Get the latest token intelligence analysis report (if available). Contains deep analysis of token mechanics, value accrual, competitive positioning.",
+      input_schema: {
+        type: "object" as const,
+        properties: {},
+        required: [] as string[],
+      },
+    },
+  ];
+
+  async function executeModellingTool(
+    toolName: string,
+    toolInput: any,
+    company: Company,
+    userId: string,
+    chartsCache: Map<string, any>,
+  ): Promise<string> {
+    try {
+      switch (toolName) {
+        case "get_token_snapshot": {
+          const tokenProfile = await storage.getTokenProfile(company.id);
+          if (!tokenProfile?.contractAddress || !tokenProfile?.chain) {
+            return "No token profile configured for this company.";
+          }
+          const { snapshot } = await fetchTokenSnapshot(
+            tokenProfile.contractAddress,
+            tokenProfile.chain,
+            tokenProfile.tokenTicker || company.tokenTicker || "TOKEN"
+          );
+          return JSON.stringify(snapshot, null, 2);
+        }
+
+        case "list_dashboard_charts": {
+          const charts = await storage.getDashboardChartsByCompany(company.id, userId);
+          const completed = charts.filter(c => (c.status === "complete" || c.status === "completed") && c.data);
+          const listing = completed.map(c => {
+            let rowCount = 0;
+            try {
+              const d = JSON.parse(c.data!);
+              rowCount = Array.isArray(d) ? d.length : 1;
+            } catch {}
+            chartsCache.set(c.id, c);
+            return {
+              id: c.id,
+              title: c.title,
+              source: c.dataSource || "unknown",
+              chartType: c.chartType || "table",
+              rows: rowCount,
+            };
+          });
+          return JSON.stringify(listing, null, 2);
+        }
+
+        case "get_chart_data": {
+          const chartId = toolInput?.chart_id;
+          if (!chartId) return "Error: chart_id is required";
+          let chart = chartsCache.get(chartId);
+          if (!chart) {
+            const charts = await storage.getDashboardChartsByCompany(company.id, userId);
+            chart = charts.find(c => c.id === chartId);
+          }
+          if (!chart || !chart.data) return `Chart ${chartId} not found or has no data.`;
+          try {
+            const rawData = JSON.parse(chart.data);
+            const rows = Array.isArray(rawData) ? rawData : [rawData];
+            const compacted = compactDataset(rows);
+            return `## ${chart.title} [${chart.dataSource || "unknown"}]\n${compacted}`;
+          } catch {
+            return `Chart ${chartId} data could not be parsed.`;
+          }
+        }
+
+        case "get_token_analysis": {
+          const analyses = await storage.getTokenAnalysesByCompany(company.id, userId);
+          const completed = analyses.filter(t => t.status === "complete").slice(0, 1);
+          if (completed.length === 0) return "No token analysis available for this company.";
+          const a = completed[0];
+          return a.content.substring(0, 6000);
+        }
+
+        default:
+          return `Unknown tool: ${toolName}`;
+      }
+    } catch (err: any) {
+      return `Tool error (${toolName}): ${err.message?.slice(0, 200) || "Unknown error"}`;
+    }
+  }
+
+  async function runModellingAgent(
+    company: Company,
+    userId: string,
+    prompt: string,
+    priorModel?: string,
+    fetchedDataSources?: string,
+  ): Promise<{ modelData: any; totalMppCost: number; totalInput: number; totalOutput: number }> {
+    let totalMppCost = 0;
+    let totalInput = 0;
+    let totalOutput = 0;
+    const chartsCache = new Map<string, any>();
+    const MAX_TOOL_ROUNDS = 6;
+
+    const companyContext = [
+      `Company: ${company.name}`,
+      company.oneLiner ? `One-liner: ${company.oneLiner}` : "",
+      company.sector ? `Sector: ${company.sector}` : "",
+      company.subSector ? `Sub-sector: ${company.subSector}` : "",
+      company.businessModel ? `Business model: ${company.businessModel}` : "",
+      company.stage ? `Stage: ${company.stage}` : "",
+      company.description ? `Description: ${company.description}` : "",
+      company.fundingHistory ? `Funding: ${company.fundingHistory}` : "",
+      company.competitiveLandscape ? `Competitive landscape: ${company.competitiveLandscape}` : "",
+      company.hasLiquidToken ? `Token: ${company.tokenTicker || "Yes"} on ${company.tokenChain || "unknown chain"}` : "",
+    ].filter(Boolean).join("\n");
+
+    let userContent = `## Company\n${companyContext}\n\n## Modelling Request\n${prompt}`;
+    if (priorModel) {
+      userContent += `\n\n## Previous Model (iterate on this)\n${priorModel}`;
+    }
+    if (fetchedDataSources) {
+      userContent += `\n\n## Pre-Fetched Data\n${fetchedDataSources}`;
+    }
+
+    const messages: Array<{ role: string; content: any }> = [
+      { role: "user", content: userContent },
+    ];
+
+    const tools = MODELLING_TOOLS.map(t => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.input_schema,
+    }));
+
+    console.log(`[Modelling Agent] Starting with ${userContent.length} chars context, ${tools.length} tools available`);
+
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      const response = await callAnthropicRaw({
+        model: "claude-sonnet-4-20250514",
+        max_tokens: 16000,
+        system: MODELLING_SYSTEM_PROMPT,
+        messages,
+        tools,
+      });
+
+      totalMppCost += response.mppCost;
+      totalInput += response.usage.input_tokens;
+      totalOutput += response.usage.output_tokens;
+
+      const toolUseBlocks = response.content.filter(b => b.type === "tool_use");
+      const textBlocks = response.content.filter(b => b.type === "text");
+
+      if (toolUseBlocks.length === 0 || response.stop_reason === "end_turn") {
+        const finalText = textBlocks.map(b => b.text || "").join("");
+        console.log(`[Modelling Agent] Final response after ${round + 1} rounds: ${finalText.length} chars (cost: $${totalMppCost.toFixed(4)})`);
+
+        const modelData = tryParseModelJSON(finalText);
+        if (!modelData || !modelData.title || !Array.isArray(modelData.sections) || (modelData.sections as unknown[]).length === 0) {
+          throw new Error(`Invalid model JSON after ${round + 1} rounds (${finalText.length} chars). Stop reason: ${response.stop_reason}`);
+        }
+        return { modelData, totalMppCost, totalInput, totalOutput };
+      }
+
+      console.log(`[Modelling Agent] Round ${round + 1}: ${toolUseBlocks.length} tool call(s) — ${toolUseBlocks.map(b => b.name).join(", ")}`);
+
+      messages.push({ role: "assistant", content: response.content });
+
+      const toolResults: Array<{ type: string; tool_use_id: string; content: string }> = [];
+      for (const toolBlock of toolUseBlocks) {
+        const result = await executeModellingTool(
+          toolBlock.name!,
+          toolBlock.input,
+          company,
+          userId,
+          chartsCache,
+        );
+        console.log(`[Modelling Agent] Tool ${toolBlock.name}: ${result.length} chars`);
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: toolBlock.id!,
+          content: result,
+        });
+      }
+
+      messages.push({ role: "user", content: toolResults });
+    }
+
+    throw new Error(`Modelling agent exceeded ${MAX_TOOL_ROUNDS} tool rounds without producing a model`);
+  }
+
   const preValidateModel: RequestHandler = async (req, res, next) => {
     try {
       const userId = (req as any).user?.id;
@@ -2104,92 +2364,9 @@ RULES:
 
       (async () => {
         try {
-          const contextData = await buildModellingContext(company, userId);
-          const userMessage = buildModelUserMessage(contextData, prompt);
-          let totalMppCost = 0;
-          let totalInput = 0;
-          let totalOutput = 0;
+          const result = await runModellingAgent(company, userId, prompt);
 
-          console.log(`[Modelling] Phase 1/3: Analysis & assumptions for model ${model.id} (${userMessage.length} chars context)`);
-          const phase1System = `You are a quantitative analyst. Analyze the provided company data and modelling request. Produce a detailed analysis plan.
-
-OUTPUT FORMAT — Return a structured analysis with these sections:
-1. MODEL TITLE: A concise Title Case name for this model
-2. KEY METRICS EXTRACTED: List every real number from the data (revenue, TVL, volume, fees, growth rates, etc.)
-3. ASSUMPTIONS: For each assumption needed, provide: label, value, and basis
-4. SECTIONS PLAN: List each section you will build (tables, charts, scenarios, metrics) with column names and key figures
-5. METHODOLOGY: Brief description of the modelling approach
-
-Be extremely specific with numbers — use exact figures from the data, not approximations.`;
-
-          const phase1Result = await callAnthropicServerHeavy({
-            model: "claude-opus-4-6",
-            max_tokens: 4000,
-            system: phase1System,
-            messages: [{ role: "user", content: userMessage }],
-          });
-          totalMppCost += phase1Result.mppCost;
-          totalInput += phase1Result.usage.input_tokens;
-          totalOutput += phase1Result.usage.output_tokens;
-          console.log(`[Modelling] Phase 1 complete: ${phase1Result.text.length} chars. Cost: $${phase1Result.mppCost.toFixed(4)}`);
-
-          console.log(`[Modelling] Phase 2/3: Building model sections for ${model.id}`);
-          const phase2System = `You are a quantitative analyst. Using the analysis plan provided, build the financial model as a JSON object.
-
-${MODELLING_SYSTEM_PROMPT.substring(MODELLING_SYSTEM_PROMPT.indexOf("OUTPUT FORMAT"))}`;
-
-          const phase2UserMsg = `## Analysis Plan (from Phase 1)\n${phase1Result.text}\n\n## Original Request\n${prompt}\n\n## Key Data Context\n${userMessage.substring(0, 30000)}`;
-
-          const phase2Result = await callAnthropicServerHeavy({
-            model: "claude-opus-4-6",
-            max_tokens: 12000,
-            system: phase2System,
-            messages: [{ role: "user", content: phase2UserMsg }],
-          });
-          totalMppCost += phase2Result.mppCost;
-          totalInput += phase2Result.usage.input_tokens;
-          totalOutput += phase2Result.usage.output_tokens;
-          console.log(`[Modelling] Phase 2 complete: ${phase2Result.text.length} chars. Cost: $${phase2Result.mppCost.toFixed(4)}`);
-
-          let modelData = tryParseModelJSON(phase2Result.text);
-
-          if (!modelData || !modelData.title || !Array.isArray(modelData.sections) || (modelData.sections as unknown[]).length === 0) {
-            console.log(`[Modelling] Phase 3/3: Repair/finalize for ${model.id}`);
-            const phase3System = `You are a JSON repair specialist. The following text is a partially-generated financial model. Extract or reconstruct a valid JSON object from it.
-
-${MODELLING_SYSTEM_PROMPT.substring(MODELLING_SYSTEM_PROMPT.indexOf("OUTPUT FORMAT"), MODELLING_SYSTEM_PROMPT.indexOf("MODELLING CAPABILITIES"))}
-
-Return ONLY valid JSON. No markdown, no fences.`;
-
-            const phase3Result = await callAnthropicServerHeavy({
-              model: "claude-opus-4-6",
-              max_tokens: 8000,
-              system: phase3System,
-              messages: [{ role: "user", content: `Raw model output to repair:\n${phase2Result.text}\n\nAnalysis plan for reference:\n${phase1Result.text.substring(0, 3000)}` }],
-            });
-            totalMppCost += phase3Result.mppCost;
-            totalInput += phase3Result.usage.input_tokens;
-            totalOutput += phase3Result.usage.output_tokens;
-            console.log(`[Modelling] Phase 3 complete: ${phase3Result.text.length} chars. Cost: $${phase3Result.mppCost.toFixed(4)}`);
-
-            modelData = tryParseModelJSON(phase3Result.text);
-          } else {
-            console.log(`[Modelling] Phase 2 JSON valid — skipping Phase 3`);
-          }
-
-          if (!modelData) {
-            throw new Error(`JSON parse failed across all phases (phase2: ${phase2Result.text.length} chars)`);
-          }
-
-          const hasValidStructure = modelData &&
-            typeof modelData.title === "string" &&
-            Array.isArray(modelData.sections) &&
-            (modelData.sections as unknown[]).length > 0;
-
-          if (!hasValidStructure) {
-            throw new Error("Invalid structure — missing title or sections");
-          }
-
+          const modelData = result.modelData;
           const conversationHistory = JSON.stringify([
             { role: "user", content: prompt },
             { role: "assistant", content: modelData.title as string },
@@ -2210,10 +2387,10 @@ Return ONLY valid JSON. No markdown, no fences.`;
               type: "financial_model",
               description: `AI model: ${modelData.title || prompt.substring(0, 50)}`,
               amount: "0.5000",
-              apiCost: totalMppCost.toFixed(4),
+              apiCost: result.totalMppCost.toFixed(4),
               companyName: company.name,
-              inputTokens: totalInput,
-              outputTokens: totalOutput,
+              inputTokens: result.totalInput,
+              outputTokens: result.totalOutput,
             });
           } catch (err) {
             console.error("[Transaction] Failed to log financial_model:", err);
@@ -2225,7 +2402,7 @@ Return ONLY valid JSON. No markdown, no fences.`;
             promptLength: prompt.length,
           });
 
-          console.log(`[Modelling] Create complete for model ${model.id}: "${modelData.title}" (total cost: $${totalMppCost.toFixed(4)})`);
+          console.log(`[Modelling] Create complete for model ${model.id}: "${modelData.title}" (total cost: $${result.totalMppCost.toFixed(4)})`);
         } catch (err: unknown) {
           const errMsg = err instanceof Error ? err.message : "Unknown error";
           console.error(`[Modelling] Create failed for model ${model.id}: ${errMsg.slice(0, 200)}`);
@@ -2291,87 +2468,15 @@ Return ONLY valid JSON. No markdown, no fences.`;
             }
           }
 
-          const contextData = await buildModellingContext(company, userId);
-          const userMessage = buildModelUserMessage(contextData, iteratePrompt, existingModel.content, 0, fetchedDataSourcesText || undefined);
+          const result = await runModellingAgent(
+            company,
+            userId,
+            iteratePrompt,
+            existingModel.content,
+            fetchedDataSourcesText || undefined,
+          );
 
-          const priorHistory = trimConversationHistory(existingModel.conversationHistory, 3);
-
-          const messages = [
-            ...priorHistory.map(h => ({ role: h.role, content: h.content })),
-            { role: "user", content: userMessage },
-          ];
-
-          const totalChars = messages.reduce((sum, m) => sum + m.content.length, 0) + MODELLING_SYSTEM_PROMPT.length;
-          console.log(`[Modelling] Iterate Phase 1/2: Analysis for model ${existingModel.id} (${totalChars} chars)`);
-          let totalMppCost = 0;
-          let totalInput = 0;
-          let totalOutput = 0;
-
-          const iterPhase1System = `You are a quantitative analyst. Review the existing model and the iteration request. Produce a concise plan for what to change.
-
-OUTPUT FORMAT — Return:
-1. CHANGES NEEDED: What sections/assumptions/figures need updating
-2. KEY DATA POINTS: Relevant numbers from the data context
-3. UPDATED ASSUMPTIONS: Any assumptions that change, with new values and basis
-4. SECTION MODIFICATIONS: Which sections to add/modify/remove
-
-Be specific with numbers.`;
-
-          const iterPhase1Result = await callAnthropicServerHeavy({
-            model: "claude-opus-4-6",
-            max_tokens: 3000,
-            system: iterPhase1System,
-            messages,
-          });
-          totalMppCost += iterPhase1Result.mppCost;
-          totalInput += iterPhase1Result.usage.input_tokens;
-          totalOutput += iterPhase1Result.usage.output_tokens;
-          console.log(`[Modelling] Iterate Phase 1 complete: ${iterPhase1Result.text.length} chars`);
-
-          console.log(`[Modelling] Iterate Phase 2/2: Building updated model for ${existingModel.id}`);
-          const iterPhase2System = `You are a quantitative analyst. Using the change plan provided, produce the COMPLETE updated financial model as JSON.
-
-${MODELLING_SYSTEM_PROMPT.substring(MODELLING_SYSTEM_PROMPT.indexOf("OUTPUT FORMAT"))}`;
-
-          const iterPhase2UserMsg = `## Change Plan\n${iterPhase1Result.text}\n\n## Original Request\n${iteratePrompt}\n\n## Data Context\n${userMessage.substring(0, 30000)}`;
-
-          const iterPhase2Result = await callAnthropicServerHeavy({
-            model: "claude-opus-4-6",
-            max_tokens: 12000,
-            system: iterPhase2System,
-            messages: [{ role: "user", content: iterPhase2UserMsg }],
-          });
-          totalMppCost += iterPhase2Result.mppCost;
-          totalInput += iterPhase2Result.usage.input_tokens;
-          totalOutput += iterPhase2Result.usage.output_tokens;
-          console.log(`[Modelling] Iterate Phase 2 complete: ${iterPhase2Result.text.length} chars`);
-
-          let modelData = tryParseModelJSON(iterPhase2Result.text);
-          if (!modelData || !modelData.title || !Array.isArray(modelData.sections) || (modelData.sections as unknown[]).length === 0) {
-            const repairResult = await callAnthropicServerHeavy({
-              model: "claude-opus-4-6",
-              max_tokens: 8000,
-              system: `Extract or reconstruct valid JSON from the text below.\n\n${MODELLING_SYSTEM_PROMPT.substring(MODELLING_SYSTEM_PROMPT.indexOf("OUTPUT FORMAT"), MODELLING_SYSTEM_PROMPT.indexOf("MODELLING CAPABILITIES"))}\n\nReturn ONLY valid JSON.`,
-              messages: [{ role: "user", content: iterPhase2Result.text }],
-            });
-            totalMppCost += repairResult.mppCost;
-            totalInput += repairResult.usage.input_tokens;
-            totalOutput += repairResult.usage.output_tokens;
-            modelData = tryParseModelJSON(repairResult.text);
-          }
-
-          if (!modelData) {
-            throw new Error(`JSON parse failed (iterate phase2: ${iterPhase2Result.text.length} chars)`);
-          }
-
-          const hasValidStructure = modelData &&
-            typeof modelData.title === "string" &&
-            Array.isArray(modelData.sections) &&
-            (modelData.sections as unknown[]).length > 0;
-
-          if (!hasValidStructure) {
-            throw new Error("Invalid structure — missing title or sections");
-          }
+          const modelData = result.modelData;
 
           let fullHistory: Array<{ role: string; content: string }> = [];
           if (existingModel.conversationHistory) {
@@ -2398,10 +2503,10 @@ ${MODELLING_SYSTEM_PROMPT.substring(MODELLING_SYSTEM_PROMPT.indexOf("OUTPUT FORM
               type: "financial_model_iterate",
               description: `AI model iteration: ${modelData.title}`,
               amount: "0.5000",
-              apiCost: totalMppCost.toFixed(4),
+              apiCost: result.totalMppCost.toFixed(4),
               companyName: company.name,
-              inputTokens: totalInput,
-              outputTokens: totalOutput,
+              inputTokens: result.totalInput,
+              outputTokens: result.totalOutput,
             });
           } catch (logErr) {
             console.error("[Transaction] Failed to log model iterate:", logErr);
