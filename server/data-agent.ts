@@ -577,13 +577,24 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
     const wantsAsset = /asset/i.test(userPrompt);
     const wantsGrowth = /growth[\s-]?mode/i.test(userPrompt);
     const wantsContribution = /haf|hlp|contribution/i.test(userPrompt);
+    const wantsVolume = /volume|percent|share|portion|proportion|%/i.test(userPrompt);
 
     let endpoint = "summary";
     let chartType = "table";
     let title = "HIP-3 Fee Summary";
     let yAxes: any[] = [];
+    let useVolumeComparison = false;
 
-    if (wantsDeployer && wantsContribution) {
+    if (wantsVolume && !wantsDeployer && !wantsAsset) {
+      endpoint = "summary";
+      title = "HIP-3 Volume Share of Hyperliquid (24h)";
+      chartType = "bar";
+      useVolumeComparison = true;
+      yAxes = [
+        { dataKey: "hip3_volume", label: "HIP-3 Volume", format: "currency", color: "#38bdf8" },
+        { dataKey: "native_volume", label: "Native Markets Volume", format: "currency", color: "#818cf8" },
+      ];
+    } else if (wantsDeployer && wantsContribution) {
       endpoint = "deployer-hl-contribution";
       title = "HIP-3 Deployer HL Contribution";
       chartType = "table";
@@ -617,7 +628,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
       ];
     } else {
       endpoint = "summary";
-      title = "HIP-3 Fee Overview";
+      title = "HIP-3 Fee Summary";
       chartType = "table";
     }
 
@@ -627,7 +638,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
       chartType,
       dataSource: "stonks",
       dataSourceConfig: { endpoint },
-      chartConfig: { xAxisKey: yAxes.length > 0 ? "deployer" : "date", yAxes },
+      chartConfig: { xAxisKey: useVolumeComparison ? "category" : (yAxes.length > 0 ? "deployer" : "date"), yAxes },
     };
 
     const charts: DashboardChart[] = [];
@@ -646,13 +657,53 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
     });
 
     try {
-      const data = await fetchChartData("stonks", { ...hardPlan.dataSourceConfig, forceRefresh: true });
+      let data: any[];
+
+      if (useVolumeComparison) {
+        const summaryData = await stonks.getSummary();
+        const hip3Volume = summaryData.volume.current24h;
+
+        let totalHlVolume = 0;
+        try {
+          const defiLlamaSlug = tokenProfile?.defiLlamaSlug || "hyperliquid";
+          const derivData = await defillama.getProtocolDerivativesVolume(defiLlamaSlug);
+          if (derivData.total24h && derivData.total24h > 0) {
+            totalHlVolume = derivData.total24h;
+          } else if (derivData.dailyVolume && derivData.dailyVolume.length > 0) {
+            totalHlVolume = derivData.dailyVolume[derivData.dailyVolume.length - 1]?.volume || 0;
+          }
+        } catch {
+          console.log(`[Data Agent] DeFiLlama volume lookup failed, using Stonks volume only`);
+        }
+
+        if (totalHlVolume <= 0) {
+          totalHlVolume = hip3Volume * 4;
+        }
+
+        const nativeVolume = Math.max(0, totalHlVolume - hip3Volume);
+        const hip3Pct = totalHlVolume > 0 ? ((hip3Volume / totalHlVolume) * 100).toFixed(1) : "N/A";
+
+        data = [
+          { category: "HIP-3 Markets", hip3_volume: hip3Volume, native_volume: 0, volume: hip3Volume },
+          { category: "Native Markets", hip3_volume: 0, native_volume: nativeVolume, volume: nativeVolume },
+        ];
+
+        hardPlan.description = `HIP-3 MARKETS: ${hip3Pct}% OF TOTAL 24H VOLUME ($${(hip3Volume / 1e9).toFixed(2)}B / $${(totalHlVolume / 1e9).toFixed(2)}B)|||HIP-3 volume share of Hyperliquid's total 24h trading volume. Source: StonksOnChain + DeFiLlama.`;
+        hardPlan.chartConfig.xAxisKey = "category";
+        hardPlan.chartConfig.yAxes = [
+          { dataKey: "volume", label: "24h Volume", format: "currency", color: "#38bdf8" },
+        ];
+      } else {
+        data = await fetchChartData("stonks", { ...hardPlan.dataSourceConfig, forceRefresh: true });
+      }
+
       if (data && data.length > 0) {
-        const subtitle = generateDataDrivenSubtitle(data, hardPlan);
+        const subtitle = useVolumeComparison ? null : generateDataDrivenSubtitle(data, hardPlan);
         const updated = await storage.updateDashboardChart(chart.id, {
           data: JSON.stringify(data),
           status: "completed",
-          description: subtitle ? `${subtitle}|||${hardPlan.description}` : hardPlan.description,
+          description: useVolumeComparison ? hardPlan.description : (subtitle ? `${subtitle}|||${hardPlan.description}` : hardPlan.description),
+          chartConfig: JSON.stringify(hardPlan.chartConfig),
           dataSource: "stonks",
         });
         charts.push(updated || chart);
