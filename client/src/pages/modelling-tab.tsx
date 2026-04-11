@@ -21,6 +21,7 @@ import {
   Zap,
   AlertTriangle,
   Search,
+  FileDown,
 } from "lucide-react";
 import { AddToMasterReport } from "@/components/add-to-master-report";
 import {
@@ -877,7 +878,30 @@ function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; comp
     glaringMissMutation.mutate({ prompt, dataSources: dataSources.length > 0 ? dataSources : undefined });
   };
 
-  const anyMutating = batchMutation.isPending || glaringMissMutation.isPending;
+  const [memoGenerating, setMemoGenerating] = useState(false);
+
+  const handleDownloadMemo = async () => {
+    setMemoGenerating(true);
+    try {
+      const res = await apiRequest("POST", `/api/models/${model.id}/valuation-memo`);
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${model.title?.replace(/[^a-zA-Z0-9\s]/g, "").replace(/\s+/g, "_") || "Valuation"}_Memo.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast({ title: "Memo downloaded", description: "2-agent valuation memo generated successfully" });
+    } catch (err: any) {
+      toast({ title: "Memo generation failed", description: err.message || "Please try again", variant: "destructive" });
+    } finally {
+      setMemoGenerating(false);
+    }
+  };
+
+  const anyMutating = batchMutation.isPending || glaringMissMutation.isPending || memoGenerating;
 
   const isQueued = (label: string, sectionHeading?: string): boolean => {
     return batchEdits.some(e => e.target.label === label && e.target.sectionHeading === sectionHeading);
@@ -1049,15 +1073,30 @@ function ModelCard({ model, companyId, onDelete }: { model: FinancialModel; comp
               isPending={anyMutating}
             />
           ) : (
-            <button
-              onClick={() => setShowMissForm(true)}
-              disabled={anyMutating}
-              className="flex items-center gap-1 text-[9px] text-orange-400/50 hover:text-orange-400 transition-colors disabled:opacity-40"
-              data-testid="button-flag-missing"
-            >
-              <AlertTriangle className="w-2.5 h-2.5" />
-              Flag Missing Analysis
-            </button>
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setShowMissForm(true)}
+                disabled={anyMutating}
+                className="flex items-center gap-1 text-[9px] text-orange-400/50 hover:text-orange-400 transition-colors disabled:opacity-40"
+                data-testid="button-flag-missing"
+              >
+                <AlertTriangle className="w-2.5 h-2.5" />
+                Flag Missing Analysis
+              </button>
+              <button
+                onClick={handleDownloadMemo}
+                disabled={anyMutating}
+                className="flex items-center gap-1 text-[9px] text-blue-400/50 hover:text-blue-400 transition-colors disabled:opacity-40"
+                data-testid="button-download-memo"
+              >
+                {memoGenerating ? (
+                  <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                ) : (
+                  <FileDown className="w-2.5 h-2.5" />
+                )}
+                {memoGenerating ? "Generating Memo..." : "Summarize & Download PDF"}
+              </button>
+            </div>
           )}
         </div>
       )}

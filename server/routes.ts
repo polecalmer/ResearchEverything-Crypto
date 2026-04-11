@@ -2939,6 +2939,284 @@ QUALITY RULES:
     }
   });
 
+  // ─── VALUATION MEMO (PDF) ───────────────────────────────────────────────
+
+  app.post("/api/models/:id/valuation-memo", requireAuth, async (req, res) => {
+    try {
+      const model = await storage.getFinancialModel(req.params.id);
+      if (!model) return res.status(404).json({ message: "Model not found" });
+      if (model.userId !== req.user!.id) {
+        const isAdmin = await storage.checkIsAdmin(req.user!.id);
+        if (!isAdmin) return res.status(403).json({ message: "Not authorized" });
+      }
+      if (model.status !== "complete" || !model.content || model.content === "{}") {
+        return res.status(400).json({ message: "Model must be complete before generating a memo" });
+      }
+
+      const company = await storage.getCompany(model.companyId);
+      const companyName = company?.name || "Unknown Company";
+      const ticker = company?.tokenTicker || "";
+
+      let parsedContent: string;
+      try {
+        const parsed = JSON.parse(model.content);
+        parsedContent = JSON.stringify(parsed, null, 2);
+      } catch {
+        parsedContent = model.content;
+      }
+
+      const contentForAgents = parsedContent.length > 60000
+        ? parsedContent.substring(0, 60000) + "\n\n[TRUNCATED — model continues]"
+        : parsedContent;
+
+      console.log(`[ValuationMemo] Starting 2-agent pipeline for "${companyName}" model ${model.id}`);
+
+      const STEELMAN_PROMPT = `You are a senior sell-side equity research analyst producing the STEELMAN BRIEF for an internal valuation memo.
+
+You are given a complete financial model for ${companyName}${ticker ? ` ($${ticker})` : ""}. Your job:
+
+1. VALIDATE every quantitative claim — check internal consistency of projections, growth rates, multiples, and terminal values
+2. STRENGTHEN the bull case — identify the strongest arguments the model makes and articulate why they're compelling
+3. IDENTIFY analytical gaps — what should the model have included but didn't? What additional data points would make it more rigorous?
+4. ASSESS methodology quality — is the DCF/comps/scenario framework sound? Are the discount rates and terminal growth assumptions defensible?
+
+Output a structured steelman brief (2000-3000 words) with these sections:
+- THESIS VALIDATION: Is the core investment thesis well-supported by the data?
+- QUANTITATIVE INTEGRITY: Are the numbers internally consistent? Flag any contradictions.
+- STRONGEST ARGUMENTS: The 3-5 most compelling points this model makes
+- ANALYTICAL GAPS: What's missing that an IC committee would want to see?
+- METHODOLOGY ASSESSMENT: Quality of the analytical framework (1-10 score with justification)
+
+Write in direct, professional prose. No markdown headers — use UPPERCASE section labels. Be specific with numbers.`;
+
+      const CRITIC_PROMPT = `You are a senior risk analyst and portfolio manager performing CRITICAL ANALYSIS for an internal valuation memo.
+
+You are given:
+1. The original financial model for ${companyName}${ticker ? ` ($${ticker})` : ""}
+2. A steelman brief from the sell-side analyst
+
+Your job is adversarial — challenge everything:
+
+1. STRESS-TEST assumptions — what happens if growth is 50% lower? If market contracts 30%? If competition intensifies?
+2. IDENTIFY risks the model understates — regulatory, competitive, execution, macro, liquidity, smart contract, concentration
+3. CHALLENGE the bull case — what could go wrong with the steelman's strongest arguments?
+4. QUANTIFY downside — what's the realistic bear case valuation? What's the probability-weighted expected value?
+5. FLAG red flags — any assumptions that seem overly optimistic, any metrics that don't pass the sniff test
+
+Output a structured critical analysis (2000-3000 words) with these sections:
+- RISK ASSESSMENT: Key risks ranked by severity and probability
+- ASSUMPTION STRESS-TEST: What breaks if key inputs are wrong by 20-50%?
+- BEAR CASE: The realistic downside scenario with specific price/valuation targets
+- BULL CASE CHALLENGES: Pushback on the steelman's strongest arguments
+- RED FLAGS: Anything that should concern an IC committee
+- RECOMMENDATION MODIFIER: How should the steelman's thesis be adjusted given these risks?
+
+Write in direct, professional prose. No markdown headers — use UPPERCASE section labels. Be brutally honest.`;
+
+      const MEMO_PROMPT = `You are a Managing Director at a top-tier digital asset fund producing the FINAL VALUATION MEMO.
+
+You are given:
+1. The original financial model for ${companyName}${ticker ? ` ($${ticker})` : ""}
+2. The steelman brief (bull case validation)
+3. The critical analysis (risk assessment and bear case)
+
+Synthesize these into a concise, institutional-grade 2-3 page valuation memo. Structure:
+
+EXECUTIVE SUMMARY (3-4 sentences)
+- What this asset is, current valuation, and the verdict (buy/hold/avoid with conviction level)
+
+INVESTMENT THESIS
+- The core thesis in 2-3 paragraphs, incorporating both the bull and bear perspectives
+- Include specific price targets or valuation ranges with probability weights
+
+KEY METRICS & VALUATION
+- Present the 5-8 most important metrics in a clean format (label: value)
+- Include current vs. projected values where relevant
+- Show the valuation framework result (DCF fair value, comps-implied value, etc.)
+
+SCENARIO ANALYSIS
+- Bull / Base / Bear cases with specific outcomes, probabilities, and key drivers
+- Probability-weighted expected value
+
+RISK FACTORS
+- Top 5 risks with severity ratings and mitigation factors
+- What would change the thesis (both positively and negatively)
+
+CONCLUSION & RECOMMENDATION
+- Clear verdict with position sizing guidance
+- Key catalysts and timeline
+- What to monitor going forward
+
+IMPORTANT FORMATTING RULES:
+- Write in clean, professional prose — no markdown, no bullet points with *, no headers with #
+- Use UPPERCASE for section labels on their own line
+- Separate sections with a blank line
+- For metrics, use "Label: Value" format, one per line
+- Keep total length to 2500-3500 words
+- Every number should be precise — no vague language like "significant" or "substantial"
+- This is a PDF document — format for readability on printed pages`;
+
+      let steelmanBrief = "";
+      let criticAnalysis = "";
+      let totalMppCost = 0;
+
+      try {
+        console.log(`[ValuationMemo] Agent 1: Steelman analysis starting...`);
+        const steelmanResult = await callAnthropicServer({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 6000,
+          system: STEELMAN_PROMPT,
+          messages: [{ role: "user", content: `Here is the complete financial model:\n\n${contentForAgents}` }],
+        });
+        steelmanBrief = steelmanResult.text;
+        totalMppCost += steelmanResult.mppCost;
+        console.log(`[ValuationMemo] Steelman complete: ${steelmanBrief.length} chars, $${steelmanResult.mppCost.toFixed(4)}`);
+      } catch (err: any) {
+        console.error(`[ValuationMemo] Steelman agent failed: ${err.message}`);
+        return res.status(503).json({ message: "AI service temporarily unavailable. Please try again." });
+      }
+
+      try {
+        console.log(`[ValuationMemo] Agent 2: Critical analysis starting...`);
+        const criticResult = await callAnthropicServer({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 6000,
+          system: CRITIC_PROMPT,
+          messages: [{
+            role: "user",
+            content: `ORIGINAL MODEL:\n\n${contentForAgents}\n\n---\n\nSTEELMAN BRIEF:\n\n${steelmanBrief}`,
+          }],
+        });
+        criticAnalysis = criticResult.text;
+        totalMppCost += criticResult.mppCost;
+        console.log(`[ValuationMemo] Critic complete: ${criticAnalysis.length} chars, $${criticResult.mppCost.toFixed(4)}`);
+      } catch (err: any) {
+        console.error(`[ValuationMemo] Critic agent failed: ${err.message}`);
+        return res.status(503).json({ message: "AI service temporarily unavailable. Please try again." });
+      }
+
+      let memoText = "";
+      try {
+        console.log(`[ValuationMemo] Synthesis: Generating final memo...`);
+        const memoResult = await callAnthropicServer({
+          model: "claude-sonnet-4-20250514",
+          max_tokens: 8000,
+          system: MEMO_PROMPT,
+          messages: [{
+            role: "user",
+            content: `ORIGINAL MODEL:\n\n${contentForAgents}\n\n---\n\nSTEELMAN BRIEF:\n\n${steelmanBrief}\n\n---\n\nCRITICAL ANALYSIS:\n\n${criticAnalysis}`,
+          }],
+        });
+        memoText = memoResult.text;
+        totalMppCost += memoResult.mppCost;
+        console.log(`[ValuationMemo] Memo complete: ${memoText.length} chars, total cost: $${totalMppCost.toFixed(4)}`);
+      } catch (err: any) {
+        console.error(`[ValuationMemo] Memo synthesis failed: ${err.message}`);
+        return res.status(503).json({ message: "AI service temporarily unavailable. Please try again." });
+      }
+
+      const PDFDocument = (await import("pdfkit")).default;
+      const doc = new PDFDocument({
+        size: "A4",
+        margins: { top: 60, bottom: 60, left: 56, right: 56 },
+        info: {
+          Title: `${companyName} — Valuation Memo`,
+          Author: "Research Everything",
+          Subject: `Valuation memo for ${companyName}`,
+        },
+      });
+
+      const chunks: Buffer[] = [];
+      doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+
+      const pdfDone = new Promise<Buffer>((resolve) => {
+        doc.on("end", () => resolve(Buffer.concat(chunks)));
+      });
+
+      const pageWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+
+      doc.font("Helvetica-Bold").fontSize(9).fillColor("#888888");
+      doc.text("RESEARCH EVERYTHING", doc.page.margins.left, 30, { width: pageWidth });
+      doc.font("Helvetica").fontSize(7).fillColor("#aaaaaa");
+      doc.text(`Confidential — ${new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}`, doc.page.margins.left, 42, { width: pageWidth, align: "right" });
+
+      doc.moveTo(doc.page.margins.left, 54).lineTo(doc.page.margins.left + pageWidth, 54).strokeColor("#dddddd").lineWidth(0.5).stroke();
+
+      doc.font("Helvetica-Bold").fontSize(18).fillColor("#1a1a1a");
+      doc.text(`${companyName}${ticker ? ` ($${ticker})` : ""}`, doc.page.margins.left, doc.page.margins.top + 4, { width: pageWidth });
+      doc.font("Helvetica").fontSize(10).fillColor("#666666");
+      doc.text("Valuation Memo", { width: pageWidth });
+      doc.moveDown(1.2);
+
+      const lines = memoText.split("\n");
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) {
+          doc.moveDown(0.4);
+          continue;
+        }
+
+        if (trimmed === trimmed.toUpperCase() && trimmed.length > 3 && trimmed.length < 60 && /^[A-Z\s&,\-]+$/.test(trimmed)) {
+          if (doc.y > doc.page.height - doc.page.margins.bottom - 60) {
+            doc.addPage();
+          }
+          doc.moveDown(0.6);
+          doc.font("Helvetica-Bold").fontSize(10).fillColor("#1a1a1a");
+          doc.text(trimmed, { width: pageWidth });
+          doc.moveDown(0.3);
+          continue;
+        }
+
+        if (/^[A-Za-z\s\/()\-&]+:\s/.test(trimmed) && trimmed.length < 120) {
+          const colonIdx = trimmed.indexOf(":");
+          const label = trimmed.substring(0, colonIdx + 1);
+          const value = trimmed.substring(colonIdx + 1).trim();
+          if (doc.y > doc.page.height - doc.page.margins.bottom - 20) {
+            doc.addPage();
+          }
+          doc.font("Helvetica-Bold").fontSize(9).fillColor("#333333");
+          const labelWidth = doc.widthOfString(label) + 4;
+          doc.text(label, { continued: true, width: pageWidth });
+          doc.font("Helvetica").fontSize(9).fillColor("#444444");
+          doc.text(` ${value}`, { width: pageWidth - labelWidth });
+          continue;
+        }
+
+        if (doc.y > doc.page.height - doc.page.margins.bottom - 20) {
+          doc.addPage();
+        }
+        doc.font("Helvetica").fontSize(9).fillColor("#333333");
+        doc.text(trimmed, { width: pageWidth, lineGap: 3 });
+      }
+
+      const totalPages = doc.bufferedPageRange().count;
+      for (let i = 0; i < totalPages; i++) {
+        doc.switchToPage(i);
+        doc.font("Helvetica").fontSize(7).fillColor("#bbbbbb");
+        doc.text(
+          `Page ${i + 1} of ${totalPages}`,
+          doc.page.margins.left,
+          doc.page.height - 35,
+          { width: pageWidth, align: "center" }
+        );
+      }
+
+      doc.end();
+      const pdfBuffer = await pdfDone;
+
+      const safeFileName = companyName.replace(/[^a-zA-Z0-9\s]/g, "").replace(/\s+/g, "_");
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader("Content-Disposition", `attachment; filename="${safeFileName}_Valuation_Memo.pdf"`);
+      res.setHeader("Content-Length", pdfBuffer.length);
+      res.send(pdfBuffer);
+
+      console.log(`[ValuationMemo] PDF delivered: ${pdfBuffer.length} bytes, ${totalPages} pages, $${totalMppCost.toFixed(4)} total MPP cost`);
+    } catch (error: any) {
+      console.error(`[ValuationMemo] Failed: ${error.message}`);
+      res.status(500).json({ message: error.message });
+    }
+  });
+
   // ─── MASTER REPORTS ─────────────────────────────────────────────────────
 
   app.get("/api/master-reports", requireAuth, async (req, res) => {
