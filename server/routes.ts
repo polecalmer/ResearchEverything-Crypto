@@ -3118,6 +3118,7 @@ IMPORTANT FORMATTING RULES:
       const PDFDocument = (await import("pdfkit")).default;
       const doc = new PDFDocument({
         size: "A4",
+        bufferPages: true,
         margins: { top: 60, bottom: 60, left: 56, right: 56 },
         info: {
           Title: `${companyName} — Valuation Memo`,
