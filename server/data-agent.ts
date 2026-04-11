@@ -4,14 +4,15 @@ import { fetchTokenSnapshot, type TokenSnapshot } from "./allium-client";
 import { isServerMppReady } from "./mpp-client";
 import * as defillama from "./defillama-client";
 import * as alliumApi from "./allium-api";
-import * as stonks from "./stonksonchain-client";
 import { storage } from "./storage";
 import { MARKUP_MULTIPLIER } from "./enrichment";
+import { crossSourceValidate, type CrossValidationResult } from "./benchmark/cross-validate";
 import type { Company, TokenProfile, DashboardChart, DuneQuery, MasterDuneQuery, SystemLearning } from "@shared/schema";
+import crypto from "crypto";
 
 const DATA_CHART_CHARGE = 0.50;
 
-const DATA_AGENT_SYSTEM = `You are a Data Analyst Agent in a VC deal intelligence platform called Research Everything. You specialize in crypto/DeFi data visualization.
+export const DATA_AGENT_SYSTEM = `You are a Data Analyst Agent in a VC deal intelligence platform called Research Everything. You specialize in crypto/DeFi data visualization.
 
 Your job: Given a user's request and available data context, produce a JSON plan for the chart(s) requested.
 
@@ -42,8 +43,6 @@ AVAILABLE DATA SOURCES (in priority order)
 
 7. "allium" — Real-time token snapshot (single-point current price, mcap, volume).
 
-8. "stonks" — StonksOnChain API for Hyperliquid HIP-3 fee data. Provides deployer revenue, asset-level fees, HL contribution (HAF/HLP split), growth mode impact analysis. This is the ONLY source for HIP-3 fee data. Use when the user asks about Hyperliquid deployer fees, HIP-3 revenue, deployer earnings, growth mode impact, or asset-level fee breakdowns on Hyperliquid.
-
 DATA SOURCE ROUTING — WHEN TO USE WHAT:
 | Metric | Primary | Fallback |
 | Protocol revenue, fees, earnings | defillama | dune-sql |
@@ -61,31 +60,37 @@ DATA SOURCE ROUTING — WHEN TO USE WHAT:
 | Protocol-specific decoded events | dune-sql | — |
 | Token holder distribution | allium-sql | dune-sql |
 | Wallet balances & whale tracking | allium-sql | dune-sql |
-| P/E ratio, custom derived metrics | dune-sql | — |
+| P/E ratio, earnings multiples | defillama (revenue) + coingecko (mcap) | dune-sql |
+| Custom derived metrics | dune-sql | — |
 | Cross-protocol comparisons | dune-sql | — |
 | Outstanding loans / borrows over time | dune-sql | — |
 | Lending supply / deposits over time | dune-sql | — |
-| Hyperliquid HIP-3 fees, deployer revenue | stonks | — |
-| Hyperliquid deployer HL contribution (HAF/HLP) | stonks | — |
-| Hyperliquid asset-level fee breakdown | stonks | — |
-| Growth mode impact on Hyperliquid fees | stonks | — |
-
-MANDATORY ROUTING OVERRIDE — HIP-3 / DEPLOYER FEE QUERIES:
-If the user asks about ANY of these topics, you MUST use dataSource "stonks" — NEVER DeFiLlama, NEVER Dune:
-- "HIP-3" fees, revenue, or anything HIP-3 related
-- Deployer fees, deployer revenue, deployer earnings on Hyperliquid
-- Growth mode vs non-growth mode fees or impact
-- HAF (Hyperliquid Assistance Fund) or HLP fee contribution
-- Asset-level fee breakdown on Hyperliquid
-- Fee comparison between Hyperliquid deployers (XYZ, HyENA, Felix, dreamcash, Kinetiq, Ventuals, ABCDEx)
-The stonks API returns CURRENT SNAPSHOT data (not historical time series). For stonks data:
-- Use chartType "bar" for deployer/asset comparisons (multiple bars)
-- Use chartType "table" for detailed breakdowns with many columns
-- The data has "with growth mode" and "without growth mode" variants — show BOTH when the user asks about growth mode impact
-- Available endpoints: "summary" (overall HIP-3 stats), "deployer-revenue" (per-deployer revenue), "deployer-hl-contribution" (per-deployer HL share), "asset-revenue" (per-asset revenue), "asset-hl-contribution" (per-asset HL share)
-DeFiLlama and Dune track Hyperliquid's TOTAL protocol fees/revenue — they do NOT have HIP-3 deployer-level breakdown, growth mode data, or HAF/HLP splits. Only stonks has this data.
 
 KEY PRINCIPLE: Use DeFiLlama/CoinGecko for aggregate metrics they cover well (revenue, fees, TVL, price, volume). Use dune-sql ONLY when: (1) the metric isn't available on DeFiLlama/CoinGecko, (2) the user asks for on-chain granularity or custom analytics, or (3) the request involves lending activity, user counts, or protocol-specific events. Dune SQL is powerful but queries can fail — prefer reliable pre-aggregated sources when they cover the metric.
+
+TIME RANGE INTERPRETATION — CRITICAL:
+When the user specifies a time period, you MUST scope your query accordingly. Do NOT default to 365 days when a specific range is given.
+| User says | Lookback |
+| 'last week' / 'this week' | interval '7' day |
+| 'last month' / 'this month' | interval '30' day |
+| 'last quarter' / 'this quarter' | interval '90' day |
+| 'this year' / 'YTD' | date >= '2026-01-01' |
+| 'since the merge' | date >= '2022-09-15' |
+| 'recently' / 'lately' | interval '30' day |
+| 'last 2 years' | interval '730' day |
+| 'Q1 2025' | date BETWEEN '2025-01-01' AND '2025-03-31' |
+| 'yesterday' | interval '3' day (show last few days) |
+| No time context given | interval '365' day (default) |
+For DeFiLlama: use the daysBack parameter or filter the returned data to the requested period.
+For Dune SQL: use now() - interval 'N' day or block_time >= timestamp 'YYYY-MM-DD'.
+For 'since [event]': estimate the date of the event (e.g., 'since the merge' = Sep 15 2022, 'since FTX collapse' = Nov 2022).
+
+COMPARISON QUERIES — CRITICAL:
+When the user asks to compare protocols (keywords: 'vs', 'compare', 'which has more', 'versus', 'side by side', 'Top N'), you MUST produce data for ALL mentioned protocols. Options:
+- Multiple series on one chart (e.g., two yAxes entries with different dataKeys)
+- Separate charts, one per protocol
+- A Dune SQL query that includes all protocols (WHERE project IN ('aave', 'compound'))
+NEVER produce a comparison chart with only one protocol. If the user says "Aave vs Morpho", both must appear in the output.
 
 YOU MUST RESPOND WITH VALID JSON ONLY. No markdown, no explanation. Just the JSON array.
 
@@ -96,7 +101,7 @@ Response format — array of chart/table definitions:
     "subtitle": "ALL CAPS analytical insight — you MUST base this ONLY on what the data columns actually measure. Do NOT assume causation or drivers you cannot see in the data. GOOD: 'RATIO ROSE FROM 20x TO 30x SINCE JAN 2026' (describes what happened). BAD: 'BACK TO 30x ON RISING EARNINGS' (invents a cause). For P/E ratios: a rising ratio means EITHER price rose faster than earnings OR earnings fell — do NOT assume which without earnings data. For revenue: describe the trend shape, not why. Keep it factual and data-grounded. E.g. 'REVENUE 2X H2 VS H1 2025', '30-DAY MA TRENDING UP SINCE OCT', 'RATIO COMPRESSED FROM 40x PEAK TO 25x'. Should read like a Bloomberg terminal headline.",
     "description": "One sentence",
     "chartType": "line" | "bar" | "area" | "table",  // CHART TYPE RULES: Revenue/fees/earnings per period → "bar". Annualized run-rate or moving-average revenue → "line". Cumulative revenue/TVL/supply → "area". Prices/ratios/P&E → "line". Volume per period → "bar". Holder counts/distributions → "bar". Default to "bar" for periodic financial metrics.
-    "dataSource": "dune" | "dune-sql" | "defillama" | "coingecko" | "allium" | "allium-prices" | "allium-sql" | "stonks",
+    "dataSource": "dune" | "dune-sql" | "defillama" | "coingecko" | "allium" | "allium-prices" | "allium-sql",
     "dataSourceConfig": {
       // For dune: { "queryId": 12345, "params": {} }
       // For dune-sql: { "sql": "SELECT date_trunc('day', block_time) as day, SUM(amount_usd) as daily_revenue FROM dex_solana.trades WHERE project = 'pump.fun' GROUP BY 1 ORDER BY 1", "name": "pump_fun_daily_revenue" }
@@ -105,7 +110,6 @@ Response format — array of chart/table definitions:
       // For allium: { "ticker": "HYPE", "chain": "hyperliquid", "contractAddress": "" }
       // For allium-prices: { "chain": "hyperevm", "tokenAddress": "0x555...", "daysBack": 30, "granularity": "1d" }
       // For allium-sql: { "sql": "SELECT address, balance FROM hyperevm.assets.fungible_balances_latest WHERE token_address = '0x555...' AND balance > 0 ORDER BY balance DESC LIMIT 50", "limit": 5 }
-      // For stonks: { "endpoint": "summary" | "deployer-revenue" | "deployer-hl-contribution" | "asset-revenue" | "asset-hl-contribution", "deployer": "xyz" (optional filter), "asset": "GOLD" (optional filter), "top": 10 (optional, default 20 for asset endpoints) }
     },
     "chartConfig": {
       // For chartType "table": just provide "columns" array with column names to display
@@ -418,7 +422,8 @@ CRITICAL — DATA SOURCE PREFERENCE:
 - For DeFi protocol metrics (revenue, fees, TVL): ALWAYS try DeFiLlama FIRST (it's pre-aggregated and reliable)
 - Only use dune-sql for DeFi metrics when: (a) DeFiLlama doesn't cover the protocol, (b) the user asks for granularity DeFiLlama doesn't have, or (c) the user specifically asks for on-chain data
 - DeFiLlama is the PREFERRED source for: revenue, fees, TVL, DEX volume, derivatives volume — it's faster and more reliable than writing SQL
-- Use dune-sql as PRIMARY only for: lending activity (borrows/supplies), user counts, governance, custom analytics, cross-chain breakdowns`;
+- Use dune-sql as PRIMARY only for: lending activity (borrows/supplies), user counts, governance, custom analytics, cross-chain breakdowns
+- For P/E ratios and earnings multiples: ALWAYS derive from DeFiLlama revenue + CoinGecko market cap. NEVER attempt to compute revenue from raw Dune SQL — protocol revenue is a business concept that differs per protocol and cannot be reliably derived from on-chain tables like lending.borrow or dex.trades. Fetch revenue from defillama, mcap from coingecko, compute P/E = mcap / annualized_revenue.`;
 
 
 
@@ -532,16 +537,33 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
 
   if (isDuneConfigured()) {
     contextParts.push(`\nDune Analytics: AVAILABLE (API key configured)`);
+
+    // Dune MCP table discovery — find available tables BEFORE SQL generation
+    try {
+      const { discoverTablesForProtocol, discoverTablesForToken } = await import("./dune-mcp-client");
+
+      // Discover protocol tables
+      const tableContext = await discoverTablesForProtocol(companyName);
+      contextParts.push(tableContext);
+
+      // If we have a contract address, also discover decoded tables for it
+      if (tokenProfile?.contractAddress) {
+        const tokenTableContext = await discoverTablesForToken(
+          tokenProfile.contractAddress,
+          tokenProfile.chain || "ethereum",
+        );
+        contextParts.push(tokenTableContext);
+      }
+    } catch (err: any) {
+      // MCP discovery is optional — continue without it
+      console.warn(`[Dune MCP] Table discovery failed: ${err.message}`);
+    }
   }
 
   contextParts.push(`DeFiLlama: AVAILABLE (TVL, fees, revenue for most DeFi protocols)`);
   contextParts.push(`CoinGecko: AVAILABLE (price history)`);
   contextParts.push(`Allium Prices: AVAILABLE (on-chain OHLCV price history via DEX data)`);
   contextParts.push(`Allium SQL: AVAILABLE (custom SQL analytics — holder distribution, balance queries, on-chain data across 150+ chains)`);
-
-  if (stonks.isStonksConfigured()) {
-    contextParts.push(`StonksOnChain: AVAILABLE (Hyperliquid HIP-3 fee data — deployer revenue, asset fees, HL contribution, growth mode impact). MANDATORY for any HIP-3/deployer fee/growth mode query. Use dataSource "stonks".`);
-  }
 
   const learnedRules = await loadLearningsForPrompt(companyName);
   const systemPrompt = learnedRules ? DATA_AGENT_SYSTEM + learnedRules : DATA_AGENT_SYSTEM;
@@ -567,198 +589,6 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
     }
   }
 
-  const stonksKeywordsPreRoute = /hip[\s-]?3|deployer.*(?:fee|revenue|earn)|growth[\s-]?mode|haf[\s\/]hlp|hl[\s-]?contribution/i;
-  const isHyperliquidCompany = /hyperliquid/i.test(companyName);
-
-  if (isHyperliquidCompany && stonks.isStonksConfigured() && stonksKeywordsPreRoute.test(userPrompt)) {
-    console.log(`[Data Agent] HARD ROUTE: Query "${userPrompt}" matched HIP-3/stonks keywords — bypassing AI, generating stonks chart plan directly`);
-
-    const wantsDeployer = /deployer/i.test(userPrompt);
-    const wantsAsset = /asset/i.test(userPrompt);
-    const wantsGrowth = /growth[\s-]?mode/i.test(userPrompt);
-    const wantsContribution = /haf|hlp|contribution/i.test(userPrompt);
-    const wantsVolume = /volume|percent|share|portion|proportion|%/i.test(userPrompt);
-
-    let endpoint = "summary";
-    let chartType = "table";
-    let title = "HIP-3 Fee Summary";
-    let yAxes: any[] = [];
-    let useVolumeComparison = false;
-
-    if (wantsVolume && !wantsDeployer && !wantsAsset) {
-      endpoint = "summary";
-      title = "HIP-3 Volume Share of Hyperliquid (24h)";
-      chartType = "bar";
-      useVolumeComparison = true;
-      yAxes = [
-        { dataKey: "hip3_volume", label: "HIP-3 Volume", format: "currency", color: "#38bdf8" },
-        { dataKey: "native_volume", label: "Native Markets Volume", format: "currency", color: "#818cf8" },
-      ];
-    } else if (wantsDeployer && wantsContribution) {
-      endpoint = "deployer-hl-contribution";
-      title = "HIP-3 Deployer HL Contribution";
-      chartType = "table";
-    } else if (wantsDeployer) {
-      endpoint = "deployer-revenue";
-      title = "HIP-3 Deployer Revenue Breakdown";
-      chartType = "bar";
-      yAxes = [
-        { dataKey: "revenue_with_growth", label: "Revenue (Growth Mode)", format: "currency" },
-        { dataKey: "revenue_without_growth", label: "Revenue (No Growth)", format: "currency" },
-      ];
-    } else if (wantsAsset && wantsContribution) {
-      endpoint = "asset-hl-contribution";
-      title = "HIP-3 Asset HL Contribution";
-      chartType = "table";
-    } else if (wantsAsset) {
-      endpoint = "asset-revenue";
-      title = "HIP-3 Asset Revenue Breakdown";
-      chartType = "bar";
-      yAxes = [
-        { dataKey: "revenue_with_growth", label: "Revenue (Growth Mode)", format: "currency" },
-        { dataKey: "revenue_without_growth", label: "Revenue (No Growth)", format: "currency" },
-      ];
-    } else if (wantsGrowth) {
-      endpoint = "summary";
-      title = "HIP-3 Growth Mode Fee Impact";
-      chartType = "bar";
-      yAxes = [
-        { dataKey: "total_fees_24h", label: "Fees (With Growth Mode)", format: "currency" },
-        { dataKey: "total_fees_24h_no_growth", label: "Fees (Without Growth Mode)", format: "currency" },
-      ];
-    } else {
-      endpoint = "summary";
-      title = "HIP-3 Fee Summary";
-      chartType = "table";
-    }
-
-    const hardPlan: ChartPlan = {
-      title,
-      description: `StonksOnChain HIP-3 data for Hyperliquid`,
-      chartType,
-      dataSource: "stonks",
-      dataSourceConfig: { endpoint },
-      chartConfig: { xAxisKey: useVolumeComparison ? "category" : (yAxes.length > 0 ? "deployer" : "date"), yAxes },
-    };
-
-    const charts: DashboardChart[] = [];
-    const chart = await storage.createDashboardChart({
-      companyId,
-      userId,
-      title: hardPlan.title,
-      description: hardPlan.description,
-      chartType: hardPlan.chartType,
-      dataSource: hardPlan.dataSource,
-      dataSourceConfig: JSON.stringify(hardPlan.dataSourceConfig),
-      chartConfig: JSON.stringify(hardPlan.chartConfig),
-      data: null,
-      status: "generating",
-      errorMessage: null,
-    });
-
-    try {
-      let data: any[];
-
-      if (useVolumeComparison) {
-        let hip3Volume = 0;
-        let hip3Source = "StonksOnChain";
-
-        try {
-          const summaryData = await stonks.getSummary();
-          hip3Volume = summaryData.volume.current24h;
-        } catch (summaryErr: any) {
-          console.log(`[Data Agent] Stonks summary failed: ${summaryErr.message}, trying deployer-revenue`);
-          try {
-            const deployerData = await stonks.getDeployerRevenue();
-            if (deployerData.totals?.volume24h) {
-              hip3Volume = deployerData.totals.volume24h;
-              hip3Source = "StonksOnChain (deployer-revenue)";
-            } else if (deployerData.deployers && deployerData.deployers.length > 0) {
-              hip3Volume = deployerData.deployers.reduce((sum: number, d: any) => sum + (d.volume24h || 0), 0);
-              hip3Source = "StonksOnChain (deployer-revenue)";
-            }
-          } catch (deployerErr: any) {
-            console.log(`[Data Agent] Stonks deployer-revenue also failed: ${deployerErr.message}`);
-          }
-        }
-
-        let totalHlVolume = 0;
-        let totalSource = "";
-        try {
-          const defiLlamaSlug = tokenProfile?.defiLlamaSlug || "hyperliquid";
-          const derivData = await defillama.getProtocolDerivativesVolume(defiLlamaSlug);
-          if (derivData.total24h && derivData.total24h > 0) {
-            totalHlVolume = derivData.total24h;
-            totalSource = "DeFiLlama";
-          } else if (derivData.dailyVolume && derivData.dailyVolume.length > 0) {
-            totalHlVolume = derivData.dailyVolume[derivData.dailyVolume.length - 1]?.volume || 0;
-            totalSource = "DeFiLlama";
-          }
-        } catch {
-          console.log(`[Data Agent] DeFiLlama volume lookup failed`);
-        }
-
-        if (hip3Volume <= 0 && totalHlVolume > 0) {
-          hip3Volume = totalHlVolume * 0.25;
-          hip3Source = "estimated (25% of total)";
-        }
-
-        if (hip3Volume <= 0 && totalHlVolume <= 0) {
-          throw new Error("Both StonksOnChain and DeFiLlama APIs are currently unavailable. Please try again later.");
-        }
-
-        if (totalHlVolume <= 0) {
-          totalHlVolume = hip3Volume * 4;
-          totalSource = "estimated";
-        }
-
-        const nativeVolume = Math.max(0, totalHlVolume - hip3Volume);
-        const hip3Pct = totalHlVolume > 0 ? ((hip3Volume / totalHlVolume) * 100).toFixed(1) : "N/A";
-
-        data = [
-          { category: "HIP-3 Markets", hip3_volume: hip3Volume, native_volume: 0, volume: hip3Volume },
-          { category: "Native Markets", hip3_volume: 0, native_volume: nativeVolume, volume: nativeVolume },
-        ];
-
-        const sourceNote = totalSource ? `Source: ${hip3Source} + ${totalSource}` : `Source: ${hip3Source} (estimated total)`;
-        hardPlan.description = `HIP-3 MARKETS: ${hip3Pct}% OF TOTAL 24H VOLUME ($${(hip3Volume / 1e9).toFixed(2)}B / $${(totalHlVolume / 1e9).toFixed(2)}B)|||HIP-3 volume share of Hyperliquid's total 24h trading volume. ${sourceNote}.`;
-        hardPlan.chartConfig.xAxisKey = "category";
-        hardPlan.chartConfig.yAxes = [
-          { dataKey: "volume", label: "24h Volume", format: "currency", color: "#38bdf8" },
-        ];
-      } else {
-        data = await fetchChartData("stonks", { ...hardPlan.dataSourceConfig, forceRefresh: true });
-      }
-
-      if (data && data.length > 0) {
-        const subtitle = useVolumeComparison ? null : generateDataDrivenSubtitle(data, hardPlan);
-        const updated = await storage.updateDashboardChart(chart.id, {
-          data: JSON.stringify(data),
-          status: "completed",
-          description: useVolumeComparison ? hardPlan.description : (subtitle ? `${subtitle}|||${hardPlan.description}` : hardPlan.description),
-          chartConfig: JSON.stringify(hardPlan.chartConfig),
-          dataSource: "stonks",
-        });
-        charts.push(updated || chart);
-      } else {
-        const updated = await storage.updateDashboardChart(chart.id, {
-          status: "failed",
-          errorMessage: "No data returned from StonksOnChain",
-        });
-        charts.push(updated || chart);
-      }
-    } catch (err: any) {
-      console.error(`[Data Agent] Stonks hard route fetch failed: ${err.message}`);
-      const updated = await storage.updateDashboardChart(chart.id, {
-        status: "failed",
-        errorMessage: err.message,
-      });
-      charts.push(updated || chart);
-    }
-
-    return { charts, totalCost: 0 };
-  }
-
   const dataContext = contextParts.join('\n');
 
   const response = await callAnthropicServerHeavy({
@@ -777,14 +607,12 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
 
   let chartPlans: ChartPlan[];
   try {
-    const cleaned = response.text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-    chartPlans = JSON.parse(cleaned);
-    if (!Array.isArray(chartPlans)) chartPlans = [chartPlans];
+    chartPlans = repairAndParseJSON(response.text);
   } catch (e) {
     throw new Error(`AI returned invalid chart plan: ${response.text.substring(0, 200)}`);
   }
 
-  const validSources = ["dune", "dune-sql", "defillama", "coingecko", "allium", "allium-prices", "allium-sql", "stonks"];
+  const validSources = ["dune", "dune-sql", "defillama", "coingecko", "allium", "allium-prices", "allium-sql", "derived"];
   const validChartTypes = ["line", "bar", "area", "composed", "table"];
 
   chartPlans = chartPlans.filter(plan => {
@@ -833,6 +661,8 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
       let fallbackUsed = false;
       const chartStartTime = Date.now();
       const metricType = await extractMetricType(plan.title, plan.description);
+      const requestId = crypto.randomUUID();
+      let attemptNumber = 0;
 
       const provenQuery = (plan.dataSource === "dune-sql" || plan.dataSource === "dune")
         ? await storage.findProvenQuery(companyName, metricType)
@@ -856,6 +686,28 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
         }
       }
 
+      // Check if this is a derived metric (P/E ratio) that needs multi-source execution
+      if (!data || data.length === 0) {
+        const isDerivedPE = detectDerivedPE(plan, metricType);
+        if (isDerivedPE) {
+          try {
+            console.log(`[Data Agent] Detected P/E ratio query — using derived execution path`);
+            const slug = await defillama.resolveSlug(companyName).catch(() => companyName.toLowerCase().replace(/\s+/g, "-"));
+            data = await executePeRatioProduction(companyName, slug);
+            if (data && data.length > 0) {
+              // Update plan metadata to reflect derived source
+              plan.dataSource = "derived";
+              plan.chartConfig = plan.chartConfig || {};
+              plan.chartConfig.xAxis = { dataKey: "date", label: "Date", type: "date" };
+              plan.chartConfig.yAxes = [{ dataKey: "pe_ratio", label: "P/E Ratio", color: "#38bdf8", format: "number", yAxisId: "left" }];
+            }
+          } catch (peErr: any) {
+            console.warn(`[Data Agent] Derived P/E failed: ${peErr.message}`);
+            // Fall through to normal execution
+          }
+        }
+      }
+
       if (!data || data.length === 0) {
         if (!provenQuery) {
           try {
@@ -869,6 +721,16 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
             if (plan.dataSource === "dune-sql" && plan.dataSourceConfig?.sql) {
               finalSql = plan.dataSourceConfig.sql;
             }
+            // Log initial attempt failure
+            storage.logQueryAttempt({
+              requestId, protocol: companyName, metricType,
+              attemptNumber: ++attemptNumber, dataSource: plan.dataSource,
+              sqlQuery: finalSql, errorType: "execution_error",
+              errorMessage: (fetchError || "Unknown error").substring(0, 500),
+              sampleRows: null, finalOutcome: "retry",
+              llmModel: "claude-opus-4-6", latencyMs: Date.now() - chartStartTime,
+              wasCacheHit: false, crossValidationStatus: null, crossValidationRatio: null,
+            }).catch(() => {});
           }
         }
       }
@@ -877,6 +739,20 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
         const sanity = checkDataSanity(data, plan);
         if (sanity) {
           console.warn(`[Data Agent] Data sanity check failed for "${plan.title}": ${sanity}`);
+          // Log the sanity failure as an attempt
+          storage.logQueryAttempt({
+            requestId, protocol: companyName, metricType,
+            attemptNumber: ++attemptNumber, dataSource: plan.dataSource,
+            sqlQuery: finalSql,
+            errorType: /all values are zero/i.test(sanity) ? "sanity_zero"
+              : /raw token amounts/i.test(sanity) ? "sanity_wei"
+              : /majority.*negative/i.test(sanity) ? "sanity_negative"
+              : "sanity_check",
+            errorMessage: sanity.substring(0, 500),
+            sampleRows: data.slice(0, 3), finalOutcome: "retry",
+            llmModel: "claude-opus-4-6", latencyMs: Date.now() - chartStartTime,
+            wasCacheHit: !!usedProvenQueryId, crossValidationStatus: null, crossValidationRatio: null,
+          }).catch(() => {});
           if (usedProvenQueryId) {
             await storage.recordProvenQueryFailure(usedProvenQueryId);
             usedProvenQueryId = null;
@@ -911,9 +787,28 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
                     };
                   }
                   console.log(`[Data Agent] Retry #${attempt} passed sanity check — using retried data`);
+                  // Log successful retry for eval system (captures the failed→fixed diff)
+                  storage.logQueryAttempt({
+                    requestId, protocol: companyName, metricType,
+                    attemptNumber: ++attemptNumber, dataSource: "dune-sql",
+                    sqlQuery: retryResult.sql, errorType: null, errorMessage: null,
+                    sampleRows: retryResult.data.slice(0, 3), finalOutcome: "success",
+                    llmModel: "claude-sonnet-4-20250514", latencyMs: Date.now() - chartStartTime,
+                    wasCacheHit: false, crossValidationStatus: null, crossValidationRatio: null,
+                  }).catch(() => {});
                   break;
                 } else {
                   console.warn(`[Data Agent] Retry #${attempt} failed sanity: ${retrySanity}`);
+                  // Log failed retry attempt
+                  storage.logQueryAttempt({
+                    requestId, protocol: companyName, metricType,
+                    attemptNumber: ++attemptNumber, dataSource: "dune-sql",
+                    sqlQuery: retryResult.sql, errorType: "sanity_check",
+                    errorMessage: retrySanity.substring(0, 500),
+                    sampleRows: retryResult.data.slice(0, 3), finalOutcome: "retry",
+                    llmModel: "claude-sonnet-4-20250514", latencyMs: Date.now() - chartStartTime,
+                    wasCacheHit: false, crossValidationStatus: null, crossValidationRatio: null,
+                  }).catch(() => {});
                   finalSql = retryResult.sql;
                   fetchError = retrySanity;
                 }
@@ -955,9 +850,26 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
                 };
               }
               console.log(`[Data Agent] Retry #${attempt} succeeded after primary failure`);
+              storage.logQueryAttempt({
+                requestId, protocol: companyName, metricType,
+                attemptNumber: ++attemptNumber, dataSource: "dune-sql",
+                sqlQuery: retryResult.sql, errorType: null, errorMessage: null,
+                sampleRows: retryResult.data.slice(0, 3), finalOutcome: "success",
+                llmModel: "claude-sonnet-4-20250514", latencyMs: Date.now() - chartStartTime,
+                wasCacheHit: false, crossValidationStatus: null, crossValidationRatio: null,
+              }).catch(() => {});
               break;
             } else {
               console.warn(`[Data Agent] Retry #${attempt} also failed sanity: ${retrySanity}`);
+              storage.logQueryAttempt({
+                requestId, protocol: companyName, metricType,
+                attemptNumber: ++attemptNumber, dataSource: "dune-sql",
+                sqlQuery: retryResult.sql, errorType: "sanity_check",
+                errorMessage: retrySanity.substring(0, 500),
+                sampleRows: retryResult.data.slice(0, 3), finalOutcome: "retry",
+                llmModel: "claude-sonnet-4-20250514", latencyMs: Date.now() - chartStartTime,
+                wasCacheHit: false, crossValidationStatus: null, crossValidationRatio: null,
+              }).catch(() => {});
               finalSql = retryResult.sql;
               fetchError = retrySanity;
             }
@@ -1046,9 +958,29 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
       }
 
       if (data && data.length > 0 && finalSql && (plan.dataSource === "dune-sql")) {
+        // Cross-source validation — gate what enters the proven_queries bank
+        let crossValResult: CrossValidationResult | null = null;
+        try {
+          crossValResult = await crossSourceValidate(companyName, metricType, data, plan.chartConfig);
+        } catch (cvErr: any) {
+          console.warn(`[CrossValidate] Error during validation: ${cvErr.message}`);
+        }
+
+        const shouldSaveProven = !crossValResult || crossValResult.status !== "likely_wrong";
+
+        if (crossValResult?.status === "likely_wrong") {
+          console.warn(`[CrossValidate] Blocking proven query save for "${companyName}/${metricType}": ${crossValResult.detail}`);
+        }
+
         if (usedProvenQueryId) {
-          await storage.recordProvenQuerySuccess(usedProvenQueryId);
-        } else {
+          if (shouldSaveProven) {
+            await storage.recordProvenQuerySuccess(usedProvenQueryId);
+          } else {
+            // Cross-validation says this proven query is producing bad data
+            await storage.recordProvenQueryFailure(usedProvenQueryId);
+            console.warn(`[CrossValidate] Marked proven query ${usedProvenQueryId} as failed due to cross-validation`);
+          }
+        } else if (shouldSaveProven) {
           try {
             const yAxes = plan.chartConfig?.yAxes || [];
             const firstY = yAxes[0] || {};
@@ -1064,11 +996,30 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
               yAxisLabel: firstY.label || null,
               yAxisFormat: firstY.format || null,
             });
-            console.log(`[Data Agent] Saved proven query for "${companyName}/${metricType}"`);
+            console.log(`[Data Agent] Saved proven query for "${companyName}/${metricType}" (cross-validation: ${crossValResult?.status || "skipped"})`);
           } catch (saveErr: any) {
             console.warn(`[Data Agent] Failed to save proven query: ${saveErr.message}`);
           }
         }
+
+        // Log the cross-validation result to query_attempts for the eval system
+        storage.logQueryAttempt({
+          requestId,
+          protocol: companyName,
+          metricType,
+          attemptNumber: ++attemptNumber,
+          dataSource: plan.dataSource,
+          sqlQuery: finalSql,
+          errorType: null,
+          errorMessage: null,
+          sampleRows: data.slice(0, 3),
+          finalOutcome: "success",
+          llmModel: "claude-opus-4-6",
+          latencyMs: Date.now() - chartStartTime,
+          wasCacheHit: !!usedProvenQueryId && !fetchError,
+          crossValidationStatus: crossValResult?.status || null,
+          crossValidationRatio: crossValResult?.ratio || null,
+        }).catch(err => console.warn(`[QueryAttempt] Log failed: ${err.message}`));
       }
 
       if (!data || data.length === 0) {
@@ -1108,6 +1059,30 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
         });
 
         autoLearnFromFailure(companyName, plan.title, metricType, plan.dataSource, errorMsg, finalSql).catch(() => {});
+
+        // Log failed attempt for eval system
+        storage.logQueryAttempt({
+          requestId,
+          protocol: companyName,
+          metricType,
+          attemptNumber: ++attemptNumber,
+          dataSource: plan.dataSource,
+          sqlQuery: finalSql,
+          errorType: /all values are zero/i.test(errorMsg) ? "sanity_zero"
+            : /raw token amounts/i.test(errorMsg) ? "sanity_wei"
+            : /query_state_failed/i.test(errorMsg) ? "execution_error"
+            : /not found|404/i.test(errorMsg) ? "not_found"
+            : "unknown",
+          errorMessage: errorMsg.substring(0, 500),
+          sampleRows: null,
+          finalOutcome: "failure",
+          llmModel: "claude-opus-4-6",
+          latencyMs: Date.now() - chartStartTime,
+          wasCacheHit: false,
+          crossValidationStatus: null,
+          crossValidationRatio: null,
+        }).catch(err => console.warn(`[QueryAttempt] Log failed: ${err.message}`));
+
         continue;
       }
 
@@ -1194,22 +1169,9 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
         data = data.slice(0, 5);
       }
 
-      let updatedDescription: string | undefined;
-      try {
-        const subtitleData = generateDataDrivenSubtitle(data, plan);
-        if (subtitleData) {
-          updatedDescription = `${subtitleData}|||${plan.description || ""}`;
-        }
-      } catch (e: any) {
-        console.warn(`[Data Agent] Subtitle generation failed: ${e.message}`);
-      }
-
       const updatedChart = await storage.updateDashboardChart(chart.id, {
         data: JSON.stringify(data),
         status: "completed",
-        dataSource: plan.dataSource,
-        dataSourceConfig: JSON.stringify(plan.dataSourceConfig),
-        ...(updatedDescription ? { description: updatedDescription } : {}),
       });
       charts.push(updatedChart || chart);
 
@@ -1326,116 +1288,11 @@ Return [] if no new patterns found. JSON only.`,
   }
 }
 
-async function refreshVolumeComparisonChart(chart: DashboardChart): Promise<{
-  data: any[];
-  description: string;
-  chartConfig: any;
-}> {
-  let hip3Volume = 0;
-  let hip3Source = "StonksOnChain";
-
-  try {
-    const summaryData = await stonks.getSummary();
-    hip3Volume = summaryData.volume.current24h;
-  } catch (summaryErr: any) {
-    console.log(`[Data Agent] Volume refresh: Stonks summary failed: ${summaryErr.message}, trying deployer-revenue`);
-    try {
-      const deployerData = await stonks.getDeployerRevenue();
-      if (deployerData.totals?.volume24h) {
-        hip3Volume = deployerData.totals.volume24h;
-        hip3Source = "StonksOnChain (deployer-revenue)";
-      } else if (deployerData.deployers && deployerData.deployers.length > 0) {
-        hip3Volume = deployerData.deployers.reduce((sum: number, d: any) => sum + (d.volume24h || 0), 0);
-        hip3Source = "StonksOnChain (deployer-revenue)";
-      }
-    } catch (deployerErr: any) {
-      console.log(`[Data Agent] Volume refresh: Stonks deployer-revenue also failed: ${deployerErr.message}`);
-    }
-  }
-
-  let totalHlVolume = 0;
-  let totalSource = "";
-  try {
-    let tokenProfile: TokenProfile | null = null;
-    try {
-      const company = await storage.getCompany(chart.companyId);
-      if (company) {
-        const profile = await storage.getTokenProfile(company.id);
-        tokenProfile = profile || null;
-      }
-    } catch {}
-    const defiLlamaSlug = tokenProfile?.defiLlamaSlug || "hyperliquid";
-    const derivData = await defillama.getProtocolDerivativesVolume(defiLlamaSlug);
-    if (derivData.total24h && derivData.total24h > 0) {
-      totalHlVolume = derivData.total24h;
-      totalSource = "DeFiLlama";
-    } else if (derivData.dailyVolume && derivData.dailyVolume.length > 0) {
-      totalHlVolume = derivData.dailyVolume[derivData.dailyVolume.length - 1]?.volume || 0;
-      totalSource = "DeFiLlama";
-    }
-  } catch {
-    console.log(`[Data Agent] Volume refresh: DeFiLlama volume lookup failed`);
-  }
-
-  if (hip3Volume <= 0 && totalHlVolume > 0) {
-    hip3Volume = totalHlVolume * 0.25;
-    hip3Source = "estimated (25% of total)";
-  }
-
-  if (hip3Volume <= 0 && totalHlVolume <= 0) {
-    throw new Error("Both StonksOnChain and DeFiLlama APIs are currently unavailable. Please try again later.");
-  }
-
-  if (totalHlVolume <= 0) {
-    totalHlVolume = hip3Volume * 4;
-    totalSource = "estimated";
-  }
-
-  const nativeVolume = Math.max(0, totalHlVolume - hip3Volume);
-  const hip3Pct = totalHlVolume > 0 ? ((hip3Volume / totalHlVolume) * 100).toFixed(1) : "N/A";
-
-  const sourceNote = totalSource ? `Source: ${hip3Source} + ${totalSource}` : `Source: ${hip3Source} (estimated total)`;
-  return {
-    data: [
-      { category: "HIP-3 Markets", hip3_volume: hip3Volume, native_volume: 0, volume: hip3Volume },
-      { category: "Native Markets", hip3_volume: 0, native_volume: nativeVolume, volume: nativeVolume },
-    ],
-    description: `HIP-3 MARKETS: ${hip3Pct}% OF TOTAL 24H VOLUME ($${(hip3Volume / 1e9).toFixed(2)}B / $${(totalHlVolume / 1e9).toFixed(2)}B)|||HIP-3 volume share of Hyperliquid's total 24h trading volume. ${sourceNote}.`,
-    chartConfig: {
-      xAxisKey: "category",
-      yAxes: [{ dataKey: "volume", label: "24h Volume", format: "currency", color: "#38bdf8" }],
-    },
-  };
-}
-
 export async function refreshChartData(chartId: string): Promise<DashboardChart> {
   const chart = await storage.getDashboardChart(chartId);
   if (!chart) throw new Error("Chart not found");
 
   await storage.updateDashboardChart(chartId, { status: "generating" });
-
-  const isVolumeComparisonChart = chart.dataSource === "stonks" && /volume.*share|volume.*comparison/i.test(chart.title);
-  if (isVolumeComparisonChart) {
-    try {
-      const result = await refreshVolumeComparisonChart(chart);
-      const updated = await storage.updateDashboardChart(chartId, {
-        data: JSON.stringify(result.data),
-        status: "completed",
-        errorMessage: null,
-        description: result.description,
-        chartConfig: JSON.stringify(result.chartConfig),
-        dataSource: "stonks",
-      });
-      return updated || chart;
-    } catch (err: any) {
-      console.error(`[Data Agent] Volume comparison refresh failed: ${err.message}`);
-      const updated = await storage.updateDashboardChart(chartId, {
-        status: "failed",
-        errorMessage: err.message,
-      });
-      return updated || chart;
-    }
-  }
 
   try {
     const config = JSON.parse(chart.dataSourceConfig);
@@ -1694,7 +1551,6 @@ function extractMetricTypeFast(title: string, description: string = ""): string 
     [/\bstak/, "staking"],
     [/\btreasury\b/, "treasury"],
     [/\bbuyback\b/, "buyback"],
-    [/\bhip[\s-]?3\b|\bdeployer\b.*\b(?:fee|revenue)\b|\bgrowth\s*mode\b/, "hip3_fees"],
   ];
   for (const [pattern, metric] of patterns) {
     if (pattern.test(combined)) return metric;
@@ -1985,12 +1841,6 @@ async function attemptFallback(
   const contractAddress = tokenProfile?.contractAddress || "";
 
   console.log(`[Data Agent] Attempting fallback for "${plan.title}" (original: ${plan.dataSource}, error: ${error})`);
-
-  const isHip3VolumeComparison = /hip[\s-]?3.*volume.*share|volume.*share.*hip[\s-]?3/i.test(combined);
-  if (plan.dataSource === "stonks" && isHip3VolumeComparison) {
-    console.log(`[Data Agent] Skipping fallback for HIP-3 volume comparison chart — cannot convert to DeFiLlama time-series`);
-    return null;
-  }
 
   const isPrice = /\bprice\b|price.?history|price.?chart/i.test(combined);
   const isTvl = /\btvl\b|total.?value.?locked|liquidity/i.test(combined);
@@ -2354,6 +2204,179 @@ NO markdown. Return ONLY the JSON object.`,
   };
 }
 
+// ═══════════════════════════════════════════════════════════════
+// JSON REPAIR — fix common LLM output issues
+// ═══════════════════════════════════════════════════════════════
+
+/**
+ * Attempt to repair and parse LLM JSON output.
+ * Handles: markdown fences, trailing commas, mixed text+JSON,
+ * single objects vs arrays.
+ */
+function repairAndParseJSON(raw: string): any[] {
+  // Step 1: Strip markdown code fences
+  let text = raw
+    .replace(/```json\s*/gi, "")
+    .replace(/```sql\s*/gi, "")
+    .replace(/```\s*/g, "")
+    .trim();
+
+  // Step 2: Extract JSON from mixed text
+  const firstBracket = text.indexOf("[");
+  const firstBrace = text.indexOf("{");
+  if (firstBracket === -1 && firstBrace === -1) {
+    throw new Error("No JSON found in response");
+  }
+
+  const jsonStart = (firstBracket !== -1 && (firstBrace === -1 || firstBracket < firstBrace))
+    ? firstBracket : firstBrace;
+  const isArray = text[jsonStart] === "[";
+
+  // Find matching end bracket/brace
+  let depth = 0;
+  let jsonEnd = jsonStart;
+  const openChar = isArray ? "[" : "{";
+  const closeChar = isArray ? "]" : "}";
+  let inString = false;
+  let escaped = false;
+
+  for (let i = jsonStart; i < text.length; i++) {
+    const ch = text[i];
+    if (escaped) { escaped = false; continue; }
+    if (ch === "\\") { escaped = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === openChar) depth++;
+    if (ch === closeChar) { depth--; if (depth === 0) { jsonEnd = i; break; } }
+  }
+
+  let jsonStr = text.substring(jsonStart, jsonEnd + 1);
+
+  // Step 3: Fix trailing commas before ] or }
+  jsonStr = jsonStr.replace(/,\s*([}\]])/g, "$1");
+
+  // Step 4: Parse
+  try {
+    const parsed = JSON.parse(jsonStr);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  } catch {
+    // Last resort: try the whole text
+    const parsed = JSON.parse(text);
+    return Array.isArray(parsed) ? parsed : [parsed];
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// DERIVED METRICS — P/E Ratio
+// ═══════════════════════════════════════════════════════════════
+
+import { resolveCoinGeckoId, getRevenueSlugs } from "./coingecko-ids";
+
+/**
+ * Detect if a chart plan is a P/E ratio query that needs derived execution.
+ */
+function detectDerivedPE(plan: any, metricType: string): boolean {
+  if (metricType === "pe_ratio") return true;
+  const title = (plan.title || "").toLowerCase();
+  if (title.includes("p/e") || title.includes("price-to-earnings") || title.includes("pe ratio")) return true;
+  const endpoint = plan.dataSourceConfig?.endpoint;
+  if (endpoint === "pe_ratio" || endpoint === "p_e_ratio") return true;
+  return false;
+}
+
+/**
+ * Execute P/E ratio computation for production.
+ * Fetches revenue from DeFiLlama + mcap from CoinGecko, computes P/E time series.
+ */
+async function executePeRatioProduction(protocol: string, slug: string): Promise<any[]> {
+  const coinId = resolveCoinGeckoId(slug) || resolveCoinGeckoId(protocol);
+  const revSlugs = getRevenueSlugs(slug);
+
+  console.log(`[P/E] Computing for ${protocol}: slug=${slug}, coinId=${coinId}`);
+
+  // 1. Fetch daily revenue (try slug fallbacks)
+  let dailyRevenue: { date: number; revenue: number }[] = [];
+  for (const rs of revSlugs) {
+    try {
+      const revData = await defillama.getProtocolRevenue(rs);
+      const parsed = (revData.dailyRevenue || [])
+        .map((d: any) => ({ date: d.date, revenue: d.revenue || d.value || 0 }))
+        .filter((d: any) => d.revenue > 0);
+      if (parsed.length > dailyRevenue.length) {
+        dailyRevenue = parsed;
+        console.log(`[P/E] Revenue from '${rs}': ${parsed.length} daily points`);
+        break;
+      }
+    } catch {}
+  }
+  if (dailyRevenue.length < 30) {
+    throw new Error(`Insufficient revenue data for ${protocol} (${dailyRevenue.length} points)`);
+  }
+  dailyRevenue.sort((a, b) => a.date - b.date);
+
+  // 2. Fetch price history (same token as mcap)
+  const priceData = await defillama.getCoinPriceHistory(coinId, 365);
+  if (priceData.prices.length < 7) {
+    throw new Error(`Insufficient price data for ${coinId}`);
+  }
+
+  // 3. Get current mcap from CoinGecko
+  const cgData: any = await fetch(
+    `https://api.coingecko.com/api/v3/simple/price?ids=${coinId}&vs_currencies=usd&include_market_cap=true`
+  ).then(r => r.json()).catch(() => ({}));
+  const cgEntry = cgData[coinId];
+  if (!cgEntry?.usd_market_cap || cgEntry.usd_market_cap <= 0 || !cgEntry.usd || cgEntry.usd <= 0) {
+    throw new Error(`Could not get market cap for ${coinId}`);
+  }
+  const mcapScale = cgEntry.usd_market_cap / cgEntry.usd;
+  console.log(`[P/E] MCap: $${cgEntry.usd_market_cap.toFixed(0)}, scale=${mcapScale.toFixed(0)}`);
+
+  // 4. Group revenue by month, compute P/E
+  const monthlyRevSum = new Map<string, number>();
+  const monthlyRevDays = new Map<string, number>();
+  for (const d of dailyRevenue) {
+    const mk = new Date(d.date * 1000).toISOString().substring(0, 7);
+    monthlyRevSum.set(mk, (monthlyRevSum.get(mk) || 0) + d.revenue);
+    monthlyRevDays.set(mk, (monthlyRevDays.get(mk) || 0) + 1);
+  }
+
+  const monthlyPrice = new Map<string, { sum: number; count: number }>();
+  for (const p of priceData.prices) {
+    const mk = new Date(p.date * 1000).toISOString().substring(0, 7);
+    const entry = monthlyPrice.get(mk) || { sum: 0, count: 0 };
+    entry.sum += p.price;
+    entry.count++;
+    monthlyPrice.set(mk, entry);
+  }
+
+  const result: any[] = [];
+  for (const month of [...monthlyRevSum.keys()].sort()) {
+    const revSum = monthlyRevSum.get(month) || 0;
+    const revDays = monthlyRevDays.get(month) || 1;
+    const priceEntry = monthlyPrice.get(month);
+    if (!priceEntry || revSum <= 0) continue;
+
+    const avgPrice = priceEntry.sum / priceEntry.count;
+    const annualizedRev = (revSum / revDays) * 365;
+    const mcap = avgPrice * mcapScale;
+    const peRatio = mcap / annualizedRev;
+
+    if (peRatio > 0 && peRatio < 100000) {
+      result.push({
+        date: new Date(month + "-15T00:00:00Z").getTime() / 1000,
+        pe_ratio: peRatio,
+        price: avgPrice,
+        mcap: mcap,
+        revenue: revSum,
+        arr: annualizedRev,
+      });
+    }
+  }
+
+  console.log(`[P/E] Computed ${result.length} monthly data points`);
+  return result;
+}
+
 async function fetchChartData(
   dataSource: string,
   config: Record<string, any>
@@ -2373,8 +2396,6 @@ async function fetchChartData(
       return fetchAlliumPricesData(config);
     case "allium-sql":
       return fetchAlliumSqlData(config);
-    case "stonks":
-      return fetchStonksData(config);
     default:
       throw new Error(`Unknown data source: ${dataSource}`);
   }
@@ -2607,183 +2628,6 @@ async function fetchAlliumSqlData(config: Record<string, any>): Promise<any[]> {
     }
     return processed;
   });
-}
-
-function generateDataDrivenSubtitle(data: any[], plan: ChartPlan): string | null {
-  if (!data || data.length === 0) return null;
-
-  const yAxes = plan.chartConfig?.yAxes || [];
-  if (yAxes.length === 0) return null;
-
-  const primaryKey = yAxes[0]?.dataKey;
-  const format = yAxes[0]?.format || "number";
-  if (!primaryKey) return null;
-
-  const values = data.map(d => d[primaryKey]).filter(v => typeof v === "number" && !isNaN(v));
-  if (values.length === 0) return null;
-
-  const latest = values[values.length - 1];
-  const first = values[0];
-
-  function fmtVal(v: number): string {
-    const abs = Math.abs(v);
-    if (format === "currency") {
-      if (abs >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
-      if (abs >= 1e6) return `$${(v / 1e6).toFixed(1)}M`;
-      if (abs >= 1e3) return `$${(v / 1e3).toFixed(1)}K`;
-      return `$${v.toFixed(0)}`;
-    }
-    if (format === "percent") return `${(v * 100).toFixed(1)}%`;
-    if (abs >= 1e9) return `${(v / 1e9).toFixed(1)}B`;
-    if (abs >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
-    if (abs >= 1e3) return `${(v / 1e3).toFixed(1)}K`;
-    return v.toFixed(0);
-  }
-
-  if (values.length >= 3 && first !== 0) {
-    const changePct = ((latest - first) / Math.abs(first)) * 100;
-    const direction = changePct > 0 ? "UP" : changePct < 0 ? "DOWN" : "FLAT";
-    const absChange = Math.abs(changePct).toFixed(0);
-    return `LATEST ${fmtVal(latest)} — ${direction} ${absChange}% OVER PERIOD (${values.length} DATA POINTS)`;
-  }
-
-  return `LATEST ${fmtVal(latest)} — ${values.length} DATA POINTS`;
-}
-
-async function fetchStonksData(config: Record<string, any>): Promise<any[]> {
-  if (!stonks.isStonksConfigured()) throw new Error("STONKS_API_KEY not configured");
-
-  const endpoint = config.endpoint;
-  if (!endpoint) throw new Error("No stonks endpoint specified");
-
-  console.log(`[Stonks] Fetching ${endpoint}${config.deployer ? ` (deployer: ${config.deployer})` : ""}${config.asset ? ` (asset: ${config.asset})` : ""}`);
-
-  const now = Math.floor(Date.now() / 1000);
-
-  switch (endpoint) {
-    case "summary": {
-      const data = await stonks.getSummary();
-      return [{
-        date: now,
-        volume_24h: data.volume.current24h,
-        volume_7d_avg: data.volume.avg7d,
-        total_fees_24h: data.totalFees.withGrowthMode.estimated24h,
-        total_fees_24h_no_growth: data.totalFees.withoutGrowthMode.estimated24h,
-        deployer_revenue_24h: data.deployerRevenue.withGrowthMode.estimated24h,
-        hl_contribution_24h: data.hlContribution.withGrowthMode.total24h,
-        haf_24h: data.hlContribution.withGrowthMode.haf24h,
-        hlp_24h: data.hlContribution.withGrowthMode.hlp24h,
-        growth_mode_fee_reduction_pct: data.growthModeImpact.feeReductionPct,
-        growth_mode_daily_savings: data.growthModeImpact.dailySavings,
-        total_assets: data.assets.total,
-        growth_mode_assets: data.assets.growthMode,
-        non_growth_mode_assets: data.assets.nonGrowthMode,
-        avg_fee_bps: data.totalFees.withGrowthMode.avgFeeBps,
-      }];
-    }
-
-    case "deployer-revenue": {
-      const data = await stonks.getDeployerRevenue();
-      let deployers = data.deployers;
-      if (config.deployer) {
-        deployers = deployers.filter(d => d.name.toLowerCase() === config.deployer.toLowerCase() || d.fullName.toLowerCase() === config.deployer.toLowerCase());
-      }
-      return deployers.map(d => ({
-        date: now,
-        deployer: d.fullName || d.name,
-        deployer_code: d.name,
-        asset_count: d.assetCount,
-        growth_mode_assets: d.growthModeAssets,
-        volume_24h: d.volume24h,
-        revenue_with_growth: d.revenue.withGrowthMode,
-        revenue_without_growth: d.revenue.withoutGrowthMode,
-        fee_bps_with_growth: d.revenue.effectiveFeeBps.withGrowthMode,
-        fee_bps_without_growth: d.revenue.effectiveFeeBps.withoutGrowthMode,
-        deployer_share_pct: d.deployerSharePct,
-      }));
-    }
-
-    case "deployer-hl-contribution": {
-      const data = await stonks.getDeployerHlContribution();
-      let deployers = data.deployers;
-      if (config.deployer) {
-        deployers = deployers.filter(d => d.name.toLowerCase() === config.deployer.toLowerCase() || d.fullName.toLowerCase() === config.deployer.toLowerCase());
-      }
-      return deployers.map(d => ({
-        date: now,
-        deployer: d.fullName || d.name,
-        deployer_code: d.name,
-        asset_count: d.assetCount,
-        volume_24h: d.volume24h,
-        hl_total_with_growth: d.hlContribution.withGrowthMode.total,
-        hl_haf_with_growth: d.hlContribution.withGrowthMode.haf,
-        hl_hlp_with_growth: d.hlContribution.withGrowthMode.hlp,
-        hl_total_without_growth: d.hlContribution.withoutGrowthMode.total,
-        fee_bps_with_growth: d.hlContribution.effectiveFeeBps.withGrowthMode,
-        fee_bps_without_growth: d.hlContribution.effectiveFeeBps.withoutGrowthMode,
-      }));
-    }
-
-    case "asset-revenue": {
-      const data = await stonks.getAssetRevenue();
-      let assets = data.assets;
-      if (config.deployer) {
-        assets = assets.filter(a => a.deployer.toLowerCase() === config.deployer.toLowerCase() || a.deployerFullName.toLowerCase() === config.deployer.toLowerCase());
-      }
-      if (config.asset) {
-        assets = assets.filter(a => a.displayName.toLowerCase() === config.asset.toLowerCase() || a.symbol.toLowerCase().includes(config.asset.toLowerCase()));
-      }
-      if (config.top) {
-        assets = assets.slice(0, config.top);
-      } else {
-        assets = assets.slice(0, 20);
-      }
-      return assets.map(a => ({
-        date: now,
-        symbol: a.symbol,
-        asset: a.displayName,
-        deployer: a.deployerFullName,
-        growth_mode: a.growthMode,
-        volume_24h: a.volume24h,
-        revenue_with_growth: a.revenue.withGrowthMode,
-        revenue_without_growth: a.revenue.withoutGrowthMode,
-        fee_bps_with_growth: a.effectiveFeeBps.withGrowthMode,
-        fee_bps_without_growth: a.effectiveFeeBps.withoutGrowthMode,
-      }));
-    }
-
-    case "asset-hl-contribution": {
-      const data = await stonks.getAssetHlContribution();
-      let assets = data.assets;
-      if (config.deployer) {
-        assets = assets.filter(a => a.deployer.toLowerCase() === config.deployer.toLowerCase() || a.deployerFullName.toLowerCase() === config.deployer.toLowerCase());
-      }
-      if (config.asset) {
-        assets = assets.filter(a => a.displayName.toLowerCase() === config.asset.toLowerCase() || a.symbol.toLowerCase().includes(config.asset.toLowerCase()));
-      }
-      if (config.top) {
-        assets = assets.slice(0, config.top);
-      } else {
-        assets = assets.slice(0, 20);
-      }
-      return assets.map(a => ({
-        date: now,
-        symbol: a.symbol,
-        asset: a.displayName,
-        deployer: a.deployerFullName,
-        growth_mode: a.growthMode,
-        volume_24h: a.volume24h,
-        hl_total_with_growth: a.hlContribution.withGrowthMode.total,
-        hl_haf_with_growth: a.hlContribution.withGrowthMode.haf,
-        hl_total_without_growth: a.hlContribution.withoutGrowthMode.total,
-        fee_bps_with_growth: a.effectiveFeeBps.withGrowthMode,
-        fee_bps_without_growth: a.effectiveFeeBps.withoutGrowthMode,
-      }));
-    }
-
-    default:
-      throw new Error(`Unknown stonks endpoint: ${endpoint}. Valid: summary, deployer-revenue, deployer-hl-contribution, asset-revenue, asset-hl-contribution`);
-  }
 }
 
 export { DATA_CHART_CHARGE };

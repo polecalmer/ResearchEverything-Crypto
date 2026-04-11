@@ -14,9 +14,7 @@ import {
   LineChart as LineChartIcon,
   ChevronDown,
   Check,
-  Plus,
 } from "lucide-react";
-import { AddToMasterReport } from "@/components/add-to-master-report";
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -866,11 +864,8 @@ function DataCard({ chart }: { chart: DashboardChart }) {
       )}
 
       <div className="flex items-center justify-between px-3 py-1.5 text-[9px] text-muted-foreground/60 italic">
-        <span>Source: {chart.dataSource === "dune" ? "Dune Analytics" : chart.dataSource === "defillama" ? "DeFiLlama" : chart.dataSource === "coingecko" ? "CoinGecko" : chart.dataSource === "allium-sql" ? "Allium SQL" : chart.dataSource === "allium-prices" ? "Allium" : chart.dataSource === "allium" ? "Allium" : chart.dataSource === "stonks" ? "StonksOnChain" : chart.dataSource}</span>
-        <div className="flex items-center gap-2 not-italic">
-          <AddToMasterReport blockType="chart" referenceId={chart.id} />
-          <span className="text-muted-foreground/40">{format(new Date(chart.updatedAt), "MMM d, h:mm a")}</span>
-        </div>
+        <span>Source: {chart.dataSource === "dune" ? "Dune Analytics" : chart.dataSource === "defillama" ? "DeFiLlama" : chart.dataSource === "coingecko" ? "CoinGecko" : chart.dataSource === "allium-sql" ? "Allium SQL" : chart.dataSource === "allium-prices" ? "Allium" : chart.dataSource === "allium" ? "Allium" : chart.dataSource}</span>
+        <span className="not-italic text-muted-foreground/40">{format(new Date(chart.updatedAt), "MMM d, h:mm a")}</span>
       </div>
     </div>
   );
@@ -948,24 +943,6 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
     },
     onError: () => {
       toast({ title: "Retry failed", variant: "destructive" });
-    },
-  });
-
-  const refreshAllMutation = useMutation({
-    mutationFn: async () => {
-      const token = await getAccessToken();
-      const headers: Record<string, string> = { "Content-Type": "application/json" };
-      if (token) { headers["Authorization"] = `Bearer ${token}`; headers["X-Privy-Token"] = token; }
-      const res = await fetch(`/api/companies/${companyId}/charts/refresh-all`, { method: "POST", headers });
-      if (!res.ok) throw new Error("Failed to refresh");
-      return res.json();
-    },
-    onSuccess: (data: any) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/companies", companyId, "charts"] });
-      toast({ title: `${data.refreshed} of ${data.total} chart(s) refreshed` });
-    },
-    onError: () => {
-      toast({ title: "Refresh all failed", variant: "destructive" });
     },
   });
 
@@ -1077,24 +1054,11 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
         </div>
       ) : (
         <>
-          <div className="flex justify-end gap-2 mb-2">
-            <button
-              onClick={() => refreshAllMutation.mutate()}
-              disabled={refreshAllMutation.isPending || retryFailedMutation.isPending}
-              className="flex items-center gap-1.5 text-[10px] px-2.5 py-1 rounded-md border border-border/30 text-muted-foreground hover:text-sky-400 hover:border-sky-500/20 transition-colors disabled:opacity-50"
-              data-testid="button-refresh-all-charts"
-            >
-              {refreshAllMutation.isPending ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
-              ) : (
-                <RefreshCw className="w-3 h-3" />
-              )}
-              Refresh All
-            </button>
-            {charts.some(c => c.status === "failed") && (
+          {charts.some(c => c.status === "failed") && (
+            <div className="flex justify-end mb-2">
               <button
                 onClick={() => retryFailedMutation.mutate()}
-                disabled={retryFailedMutation.isPending || refreshAllMutation.isPending}
+                disabled={retryFailedMutation.isPending}
                 className="flex items-center gap-1.5 text-[10px] px-2.5 py-1 rounded-md border border-border/30 text-muted-foreground hover:text-sky-400 hover:border-sky-500/20 transition-colors disabled:opacity-50"
                 data-testid="button-retry-all-failed"
               >
@@ -1105,8 +1069,8 @@ export default function DataTab({ companyId, companyName }: DataTabProps) {
                 )}
                 Retry All Failed
               </button>
-            )}
-          </div>
+            </div>
+          )}
           <div className="grid grid-cols-2 gap-2">
           {charts.map((chart) => (
             <div

@@ -136,7 +136,7 @@ export async function executeDuneSQL(sql: string, name?: string): Promise<DuneQu
     body: JSON.stringify({
       name: queryName,
       query_sql: sql,
-      is_private: true,
+      is_private: false,
     }),
   });
 
@@ -149,10 +149,25 @@ export async function executeDuneSQL(sql: string, name?: string): Promise<DuneQu
   console.log(`[Dune] Created query ${query_id}, executing...`);
 
   try {
-    return await executeDuneQueryOnce(query_id, {});
+    const result = await executeDuneQueryOnce(query_id, {});
+    // Archive the query after execution to avoid hitting private query limits
+    archiveDuneQuery(query_id, apiKey).catch(() => {});
+    return result;
   } catch (err: any) {
+    // Archive even on failure
+    archiveDuneQuery(query_id, apiKey).catch(() => {});
     throw new Error(`Dune SQL execution failed for query ${query_id}: ${err.message}`);
   }
+}
+
+/** Archive (soft-delete) a private query to free up the private query slot */
+async function archiveDuneQuery(queryId: number, apiKey: string): Promise<void> {
+  try {
+    await fetch(`${DUNE_API_BASE}/query/${queryId}/archive`, {
+      method: "POST",
+      headers: { "X-Dune-API-Key": apiKey },
+    });
+  } catch {}
 }
 
 export async function getLatestDuneResults(queryId: number): Promise<DuneQueryResult> {

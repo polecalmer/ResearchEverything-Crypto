@@ -12,16 +12,20 @@ import {
   type DashboardChart, type InsertDashboardChart,
   type ProvenQuery, type InsertProvenQuery,
   type SystemLearning, type InsertSystemLearning,
-  type FinancialModel, type InsertFinancialModel,
-  type MasterReport, type InsertMasterReport,
-  type MasterReportBlock, type InsertMasterReportBlock,
+  type QueryAttempt, type InsertQueryAttempt,
+  type BenchmarkCase, type InsertBenchmarkCase,
+  type BenchmarkRun, type BenchmarkCaseResult,
+  type QueryTemplate, type InsertQueryTemplate,
+  type ProtocolRevenueModel, type InsertProtocolRevenueModel,
   users, companies, founders, notes, reports, transactions,
   tokenProfiles, masterDuneQueries, duneQueries, tokenAnalyses, dashboardCharts,
-  provenQueries, systemLearnings, financialModels,
-  masterReports, masterReportBlocks,
+  provenQueries, systemLearnings,
+  queryAttempts, benchmarkCases, benchmarkRuns, benchmarkCaseResults,
+  queryTemplates,
+  protocolRevenueModels,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, ne, desc, and, isNull, isNotNull, sql } from "drizzle-orm";
+import { eq, ne, desc, asc, and, isNull, isNotNull, sql } from "drizzle-orm";
 import { pool } from "./db";
 
 export interface IStorage {
@@ -106,23 +110,36 @@ export interface IStorage {
   deactivateLearning(id: string): Promise<void>;
   getAllActiveLearnings(): Promise<SystemLearning[]>;
 
-  createFinancialModel(data: InsertFinancialModel): Promise<FinancialModel>;
-  updateFinancialModel(id: string, data: { content?: string; assumptions?: string; status?: string; title?: string; conversationHistory?: string; errorMessage?: string | null }): Promise<FinancialModel | undefined>;
-  getFinancialModel(id: string): Promise<FinancialModel | undefined>;
-  getFinancialModelsByCompany(companyId: string, userId: string): Promise<FinancialModel[]>;
-  deleteFinancialModel(id: string, userId: string): Promise<boolean>;
+  // ═══ Eval system ═══
+  logQueryAttempt(data: InsertQueryAttempt): Promise<QueryAttempt>;
+  getQueryAttemptsByRequest(requestId: string): Promise<QueryAttempt[]>;
+  getRetryDiffs(daysSince?: number): Promise<{ failed: QueryAttempt; fixed: QueryAttempt }[]>;
+  getFailurePatterns(daysSince?: number): Promise<{ protocol: string; metricType: string; errorType: string; count: number }[]>;
 
-  createMasterReport(data: InsertMasterReport): Promise<MasterReport>;
-  getMasterReports(userId: string): Promise<MasterReport[]>;
-  getMasterReport(id: string, userId: string): Promise<MasterReport | undefined>;
-  updateMasterReport(id: string, userId: string, data: { title?: string }): Promise<MasterReport | undefined>;
-  deleteMasterReport(id: string, userId: string): Promise<boolean>;
+  insertBenchmarkCases(cases: InsertBenchmarkCase[]): Promise<BenchmarkCase[]>;
+  getActiveBenchmarkCases(difficulty?: string): Promise<BenchmarkCase[]>;
+  getBenchmarkCaseCount(): Promise<number>;
+  deactivateBenchmarkCase(id: string): Promise<void>;
 
-  getMasterReportBlocks(masterReportId: string): Promise<MasterReportBlock[]>;
-  addMasterReportBlock(data: InsertMasterReportBlock): Promise<MasterReportBlock>;
-  updateMasterReportBlock(id: string, masterReportId: string, data: Partial<Pick<MasterReportBlock, 'content' | 'displayOrder' | 'blockType' | 'referenceId'>>): Promise<MasterReportBlock | undefined>;
-  deleteMasterReportBlock(id: string, masterReportId: string): Promise<boolean>;
-  reorderMasterReportBlocks(masterReportId: string, blockIds: string[]): Promise<void>;
+  createBenchmarkRun(data: Partial<BenchmarkRun>): Promise<BenchmarkRun>;
+  updateBenchmarkRun(id: string, data: Partial<BenchmarkRun>): Promise<BenchmarkRun | undefined>;
+  getLatestBenchmarkRun(): Promise<BenchmarkRun | undefined>;
+  getBenchmarkRunHistory(limit?: number): Promise<BenchmarkRun[]>;
+
+  insertBenchmarkCaseResult(data: Partial<BenchmarkCaseResult>): Promise<BenchmarkCaseResult>;
+  getBenchmarkCaseResultsByRun(runId: string): Promise<BenchmarkCaseResult[]>;
+  getFailedCaseResultsByRun(runId: string): Promise<(BenchmarkCaseResult & { benchmarkCase?: BenchmarkCase })[]>;
+
+  // Query templates
+  insertQueryTemplate(template: InsertQueryTemplate): Promise<QueryTemplate>;
+  getQueryTemplateByName(name: string, businessModel: string): Promise<QueryTemplate | undefined>;
+  getActiveQueryTemplates(): Promise<QueryTemplate[]>;
+
+  // Protocol revenue models
+  insertProtocolRevenueModel(model: InsertProtocolRevenueModel): Promise<ProtocolRevenueModel>;
+  getProtocolRevenueModel(protocol: string): Promise<ProtocolRevenueModel | undefined>;
+  updateProtocolRevenueModel(id: string, data: Partial<InsertProtocolRevenueModel & { validationStatus: string; validationScore: number; validationError: string }>): Promise<ProtocolRevenueModel>;
+  getActiveProtocolRevenueModels(): Promise<ProtocolRevenueModel[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -247,7 +264,6 @@ export class DatabaseStorage implements IStorage {
     if (userId) conditions.push(eq(companies.userId, userId));
     const [company] = await db.select().from(companies).where(and(...conditions));
     if (!company) return;
-    await db.delete(financialModels).where(eq(financialModels.companyId, id));
     await db.delete(tokenAnalyses).where(eq(tokenAnalyses.companyId, id));
     await db.delete(duneQueries).where(eq(duneQueries.companyId, id));
     await db.delete(tokenProfiles).where(eq(tokenProfiles.companyId, id));
@@ -673,109 +689,192 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(systemLearnings.confidence));
   }
 
-  async createFinancialModel(data: InsertFinancialModel): Promise<FinancialModel> {
-    const [model] = await db.insert(financialModels).values(data).returning();
-    return model;
+  // ═══════════════════════════════════════════════════════════════
+  // EVAL SYSTEM — query attempts, benchmarks, runs
+  // ═══════════════════════════════════════════════════════════════
+
+  async logQueryAttempt(data: InsertQueryAttempt): Promise<QueryAttempt> {
+    const [attempt] = await db.insert(queryAttempts).values(data).returning();
+    return attempt;
   }
 
-  async updateFinancialModel(id: string, data: { content?: string; assumptions?: string; status?: string; title?: string; conversationHistory?: string; errorMessage?: string | null }): Promise<FinancialModel | undefined> {
-    const [updated] = await db.update(financialModels).set({ ...data, updatedAt: new Date() }).where(eq(financialModels.id, id)).returning();
+  async getQueryAttemptsByRequest(requestId: string): Promise<QueryAttempt[]> {
+    return db.select().from(queryAttempts)
+      .where(eq(queryAttempts.requestId, requestId))
+      .orderBy(asc(queryAttempts.attemptNumber));
+  }
+
+  /** Find retry chains where attempt N failed and attempt N+1 succeeded — the diff is learning signal */
+  async getRetryDiffs(daysSince: number = 30): Promise<{ failed: QueryAttempt; fixed: QueryAttempt }[]> {
+    const rows = await db.execute(sql`
+      SELECT
+        a1.id as failed_id, a1.request_id, a1.protocol, a1.metric_type,
+        a1.sql_query as failed_sql, a1.error_type, a1.error_message,
+        a2.id as fixed_id, a2.sql_query as fixed_sql
+      FROM query_attempts a1
+      JOIN query_attempts a2
+        ON a1.request_id = a2.request_id
+        AND a2.attempt_number = a1.attempt_number + 1
+        AND a2.final_outcome = 'success'
+      WHERE a1.final_outcome = 'retry'
+        AND a1.sql_query IS NOT NULL
+        AND a2.sql_query IS NOT NULL
+        AND a1.created_at > NOW() - INTERVAL '${sql.raw(String(daysSince))} days'
+      ORDER BY a1.created_at DESC
+    `);
+    // Map raw rows to typed pairs
+    return (rows.rows || []).map((r: any) => ({
+      failed: { id: r.failed_id, requestId: r.request_id, protocol: r.protocol, metricType: r.metric_type, sqlQuery: r.failed_sql, errorType: r.error_type, errorMessage: r.error_message } as QueryAttempt,
+      fixed: { id: r.fixed_id, requestId: r.request_id, protocol: r.protocol, metricType: r.metric_type, sqlQuery: r.fixed_sql } as QueryAttempt,
+    }));
+  }
+
+  /** Aggregate failure patterns — which protocols/metrics fail most and why */
+  async getFailurePatterns(daysSince: number = 30): Promise<{ protocol: string; metricType: string; errorType: string; count: number }[]> {
+    const rows = await db.execute(sql`
+      SELECT protocol, metric_type, error_type, COUNT(*) as count
+      FROM query_attempts
+      WHERE final_outcome IN ('failure', 'retry')
+        AND error_type IS NOT NULL
+        AND created_at > NOW() - INTERVAL '${sql.raw(String(daysSince))} days'
+      GROUP BY protocol, metric_type, error_type
+      HAVING COUNT(*) >= 2
+      ORDER BY count DESC
+      LIMIT 50
+    `);
+    return (rows.rows || []).map((r: any) => ({
+      protocol: r.protocol,
+      metricType: r.metric_type,
+      errorType: r.error_type,
+      count: Number(r.count),
+    }));
+  }
+
+  // ═══ Benchmark cases ═══
+
+  async insertBenchmarkCases(cases: InsertBenchmarkCase[]): Promise<BenchmarkCase[]> {
+    if (cases.length === 0) return [];
+    const results = await db.insert(benchmarkCases).values(cases).returning();
+    return results;
+  }
+
+  async getActiveBenchmarkCases(difficulty?: string): Promise<BenchmarkCase[]> {
+    if (difficulty) {
+      return db.select().from(benchmarkCases)
+        .where(and(eq(benchmarkCases.isActive, true), eq(benchmarkCases.difficulty, difficulty)));
+    }
+    return db.select().from(benchmarkCases).where(eq(benchmarkCases.isActive, true));
+  }
+
+  async getBenchmarkCaseCount(): Promise<number> {
+    const rows = await db.execute(sql`SELECT COUNT(*) as count FROM benchmark_cases WHERE is_active = true`);
+    return Number((rows.rows || [])[0]?.count || 0);
+  }
+
+  async deactivateBenchmarkCase(id: string): Promise<void> {
+    await db.update(benchmarkCases).set({ isActive: false }).where(eq(benchmarkCases.id, id));
+  }
+
+  // ═══ Benchmark runs ═══
+
+  async createBenchmarkRun(data: Partial<BenchmarkRun>): Promise<BenchmarkRun> {
+    const [run] = await db.insert(benchmarkRuns).values(data as any).returning();
+    return run;
+  }
+
+  async updateBenchmarkRun(id: string, data: Partial<BenchmarkRun>): Promise<BenchmarkRun | undefined> {
+    const [updated] = await db.update(benchmarkRuns).set(data as any).where(eq(benchmarkRuns.id, id)).returning();
     return updated;
   }
 
-  async getFinancialModel(id: string): Promise<FinancialModel | undefined> {
-    const [model] = await db.select().from(financialModels).where(eq(financialModels.id, id));
-    return model;
+  async getLatestBenchmarkRun(): Promise<BenchmarkRun | undefined> {
+    const [run] = await db.select().from(benchmarkRuns)
+      .where(eq(benchmarkRuns.status, "completed"))
+      .orderBy(desc(benchmarkRuns.createdAt))
+      .limit(1);
+    return run;
   }
 
-  async getFinancialModelsByCompany(companyId: string, userId: string): Promise<FinancialModel[]> {
-    return db.select().from(financialModels)
-      .where(and(eq(financialModels.companyId, companyId), eq(financialModels.userId, userId)))
-      .orderBy(desc(financialModels.createdAt));
+  async getBenchmarkRunHistory(limit: number = 20): Promise<BenchmarkRun[]> {
+    return db.select().from(benchmarkRuns)
+      .orderBy(desc(benchmarkRuns.createdAt))
+      .limit(limit);
   }
 
-  async deleteFinancialModel(id: string, userId: string): Promise<boolean> {
-    const [model] = await db.select().from(financialModels)
-      .where(and(eq(financialModels.id, id), eq(financialModels.userId, userId)));
-    if (!model) return false;
-    const result = await db.delete(financialModels).where(eq(financialModels.id, id)).returning();
-    return result.length > 0;
+  // ═══ Benchmark case results ═══
+
+  async insertBenchmarkCaseResult(data: Partial<BenchmarkCaseResult>): Promise<BenchmarkCaseResult> {
+    const [result] = await db.insert(benchmarkCaseResults).values(data as any).returning();
+    return result;
   }
 
-  async createMasterReport(data: InsertMasterReport): Promise<MasterReport> {
-    const [report] = await db.insert(masterReports).values(data).returning();
-    return report;
+  async getBenchmarkCaseResultsByRun(runId: string): Promise<BenchmarkCaseResult[]> {
+    return db.select().from(benchmarkCaseResults)
+      .where(eq(benchmarkCaseResults.runId, runId))
+      .orderBy(desc(benchmarkCaseResults.score));
   }
 
-  async getMasterReports(userId: string): Promise<MasterReport[]> {
-    return db.select().from(masterReports)
-      .where(eq(masterReports.userId, userId))
-      .orderBy(desc(masterReports.updatedAt));
+  async getFailedCaseResultsByRun(runId: string): Promise<(BenchmarkCaseResult & { benchmarkCase?: BenchmarkCase })[]> {
+    const results = await db.select().from(benchmarkCaseResults)
+      .where(and(eq(benchmarkCaseResults.runId, runId), sql`${benchmarkCaseResults.score} < 0.5`))
+      .orderBy(asc(benchmarkCaseResults.score));
+
+    // Hydrate with benchmark case details
+    const caseIds = results.map(r => r.caseId);
+    if (caseIds.length === 0) return [];
+    const cases = await db.select().from(benchmarkCases)
+      .where(sql`${benchmarkCases.id} IN (${sql.join(caseIds.map(id => sql`${id}`), sql`, `)})`);
+    const caseMap = new Map(cases.map(c => [c.id, c]));
+
+    return results.map(r => ({ ...r, benchmarkCase: caseMap.get(r.caseId) }));
   }
 
-  async getMasterReport(id: string, userId: string): Promise<MasterReport | undefined> {
-    const [report] = await db.select().from(masterReports)
-      .where(and(eq(masterReports.id, id), eq(masterReports.userId, userId)));
-    return report;
+  async insertQueryTemplate(template: InsertQueryTemplate): Promise<QueryTemplate> {
+    const [result] = await db.insert(queryTemplates).values(template).returning();
+    return result;
   }
 
-  async updateMasterReport(id: string, userId: string, data: { title?: string }): Promise<MasterReport | undefined> {
-    const [updated] = await db.update(masterReports)
+  async getQueryTemplateByName(name: string, businessModel: string): Promise<QueryTemplate | undefined> {
+    const [result] = await db.select().from(queryTemplates)
+      .where(and(eq(queryTemplates.name, name), eq(queryTemplates.businessModel, businessModel), eq(queryTemplates.isActive, true)));
+    return result;
+  }
+
+  async getActiveQueryTemplates(): Promise<QueryTemplate[]> {
+    return db.select().from(queryTemplates).where(eq(queryTemplates.isActive, true));
+  }
+
+  // ═══════════════════════════════════════════════════════════════
+  // PROTOCOL REVENUE MODELS
+  // ═══════════════════════════════════════════════════════════════
+
+  async insertProtocolRevenueModel(model: InsertProtocolRevenueModel): Promise<ProtocolRevenueModel> {
+    const [result] = await db.insert(protocolRevenueModels).values(model).returning();
+    return result;
+  }
+
+  async getProtocolRevenueModel(protocol: string): Promise<ProtocolRevenueModel | undefined> {
+    const [result] = await db.select().from(protocolRevenueModels)
+      .where(and(
+        eq(protocolRevenueModels.isActive, true),
+        sql`LOWER(${protocolRevenueModels.protocol}) = LOWER(${protocol})`
+      ));
+    return result;
+  }
+
+  async updateProtocolRevenueModel(
+    id: string,
+    data: Partial<InsertProtocolRevenueModel & { validationStatus: string; validationScore: number; validationError: string }>
+  ): Promise<ProtocolRevenueModel> {
+    const [result] = await db.update(protocolRevenueModels)
       .set({ ...data, updatedAt: new Date() })
-      .where(and(eq(masterReports.id, id), eq(masterReports.userId, userId)))
+      .where(eq(protocolRevenueModels.id, id))
       .returning();
-    return updated;
+    return result;
   }
 
-  async deleteMasterReport(id: string, userId: string): Promise<boolean> {
-    const [report] = await db.select().from(masterReports)
-      .where(and(eq(masterReports.id, id), eq(masterReports.userId, userId)));
-    if (!report) return false;
-    await db.delete(masterReportBlocks).where(eq(masterReportBlocks.masterReportId, id));
-    const result = await db.delete(masterReports).where(eq(masterReports.id, id)).returning();
-    return result.length > 0;
-  }
-
-  async getMasterReportBlocks(masterReportId: string): Promise<MasterReportBlock[]> {
-    return db.select().from(masterReportBlocks)
-      .where(eq(masterReportBlocks.masterReportId, masterReportId))
-      .orderBy(masterReportBlocks.displayOrder);
-  }
-
-  async addMasterReportBlock(data: InsertMasterReportBlock): Promise<MasterReportBlock> {
-    const [block] = await db.insert(masterReportBlocks).values(data).returning();
-    await db.update(masterReports).set({ updatedAt: new Date() }).where(eq(masterReports.id, data.masterReportId));
-    return block;
-  }
-
-  async updateMasterReportBlock(id: string, masterReportId: string, data: Partial<Pick<MasterReportBlock, 'content' | 'displayOrder' | 'blockType' | 'referenceId'>>): Promise<MasterReportBlock | undefined> {
-    const [updated] = await db.update(masterReportBlocks).set(data)
-      .where(and(eq(masterReportBlocks.id, id), eq(masterReportBlocks.masterReportId, masterReportId)))
-      .returning();
-    if (updated) {
-      await db.update(masterReports).set({ updatedAt: new Date() }).where(eq(masterReports.id, masterReportId));
-    }
-    return updated;
-  }
-
-  async deleteMasterReportBlock(id: string, masterReportId: string): Promise<boolean> {
-    const result = await db.delete(masterReportBlocks)
-      .where(and(eq(masterReportBlocks.id, id), eq(masterReportBlocks.masterReportId, masterReportId)))
-      .returning();
-    if (result.length > 0) {
-      await db.update(masterReports).set({ updatedAt: new Date() }).where(eq(masterReports.id, masterReportId));
-      return true;
-    }
-    return false;
-  }
-
-  async reorderMasterReportBlocks(masterReportId: string, blockIds: string[]): Promise<void> {
-    for (let i = 0; i < blockIds.length; i++) {
-      await db.update(masterReportBlocks)
-        .set({ displayOrder: i })
-        .where(and(eq(masterReportBlocks.id, blockIds[i]), eq(masterReportBlocks.masterReportId, masterReportId)));
-    }
-    await db.update(masterReports).set({ updatedAt: new Date() }).where(eq(masterReports.id, masterReportId));
+  async getActiveProtocolRevenueModels(): Promise<ProtocolRevenueModel[]> {
+    return db.select().from(protocolRevenueModels).where(eq(protocolRevenueModels.isActive, true));
   }
 }
 

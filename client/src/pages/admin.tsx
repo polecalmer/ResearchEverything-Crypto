@@ -83,16 +83,6 @@ function WalletPanel() {
     onError: (e: any) => setActionResult(`Error: ${e.message}`),
   });
 
-  const withdrawAllMutation = useMutation({
-    mutationFn: () => apiRequest("POST", "/api/admin/wallet/withdraw-all"),
-    onSuccess: async (res) => {
-      const data = await res.json();
-      setActionResult(`Withdrawn: ${data.withdrawn}${data.errors?.length ? `, Errors: ${data.errors.length}` : ""}`);
-      queryClient.invalidateQueries({ queryKey: ["/api/admin/wallet"] });
-    },
-    onError: (e: any) => setActionResult(`Error: ${e.message}`),
-  });
-
   if (isLoading) {
     return (
       <div className="rounded border border-border/40 bg-card/30 p-6 flex items-center justify-center">
@@ -104,7 +94,7 @@ function WalletPanel() {
 
   if (!wallet) return null;
 
-  const isActing = closeAllMutation.isPending || closeChannelMutation.isPending || withdrawMutation.isPending || withdrawAllMutation.isPending;
+  const isActing = closeAllMutation.isPending || closeChannelMutation.isPending || withdrawMutation.isPending;
 
   return (
     <div className="rounded border border-border/40 bg-card/30 overflow-hidden" data-testid="wallet-panel">
@@ -159,30 +149,17 @@ function WalletPanel() {
         <div className="border-t border-border/30">
           <div className="px-4 py-2 flex items-center justify-between">
             <span className="text-[10px] text-muted-foreground/50">{wallet.channels.length} active channel{wallet.channels.length !== 1 ? "s" : ""}</span>
-            <div className="flex items-center gap-1.5">
-              {wallet.channels.some((ch: any) => ch.status === "ready_to_finalize") && (
-                <button
-                  onClick={() => { setActionResult(null); withdrawAllMutation.mutate(); }}
-                  disabled={isActing}
-                  className="text-[10px] px-2 py-1 rounded bg-blue-500/10 text-blue-400 hover:bg-blue-500/20 transition-colors disabled:opacity-50 flex items-center gap-1"
-                  data-testid="button-withdraw-all-channels"
-                >
-                  {withdrawAllMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <ArrowDownCircle className="w-3 h-3" />}
-                  Withdraw All
-                </button>
-              )}
-              {wallet.openCount > 0 && (
-                <button
-                  onClick={() => { setActionResult(null); closeAllMutation.mutate(); }}
-                  disabled={isActing}
-                  className="text-[10px] px-2 py-1 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50 flex items-center gap-1"
-                  data-testid="button-close-all-channels"
-                >
-                  {closeAllMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}
-                  Close All
-                </button>
-              )}
-            </div>
+            {wallet.openCount > 0 && (
+              <button
+                onClick={() => { setActionResult(null); closeAllMutation.mutate(); }}
+                disabled={isActing}
+                className="text-[10px] px-2 py-1 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors disabled:opacity-50 flex items-center gap-1"
+                data-testid="button-close-all-channels"
+              >
+                {closeAllMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <XCircle className="w-3 h-3" />}
+                Close All
+              </button>
+            )}
           </div>
           <div className="divide-y divide-border/20">
             {wallet.channels.map((ch: any) => (

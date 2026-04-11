@@ -21,8 +21,6 @@ import CreditsPage from "@/pages/credits";
 import WalletPage from "@/pages/wallet";
 import ReportViewer from "@/pages/report-viewer";
 import AdminPage from "@/pages/admin";
-import MasterReportsPage from "@/pages/master-reports";
-import MasterReportEditor from "@/pages/master-report-editor";
 import LandingPage from "@/pages/landing-page";
 import AuthPage from "@/pages/auth-page";
 import { QuickCapture } from "@/components/quick-capture";
@@ -111,8 +109,6 @@ function AuthenticatedApp() {
               <Route path="/credits" component={CreditsPage} />
               <Route path="/wallet" component={WalletPage} />
               <Route path="/data" component={DataPage} />
-              <Route path="/master-reports" component={MasterReportsPage} />
-              <Route path="/master-reports/:id" component={MasterReportEditor} />
               <Route path="/admin" component={AdminPage} />
               <Route component={NotFound} />
             </Switch>

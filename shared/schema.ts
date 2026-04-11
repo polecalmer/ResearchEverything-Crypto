@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, integer, jsonb, boolean } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, integer, jsonb, boolean, doublePrecision } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -300,66 +300,186 @@ export const insertSystemLearningSchema = createInsertSchema(systemLearnings).om
 export type SystemLearning = typeof systemLearnings.$inferSelect;
 export type InsertSystemLearning = z.infer<typeof insertSystemLearningSchema>;
 
-export const financialModels = pgTable("financial_models", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull(),
-  userId: varchar("user_id").notNull(),
-  title: text("title").notNull(),
-  prompt: text("prompt").notNull(),
-  content: text("content").notNull(),
-  assumptions: text("assumptions"),
-  conversationHistory: text("conversation_history"),
-  status: text("status").notNull().default("generating"),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
-
-export const insertFinancialModelSchema = createInsertSchema(financialModels).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-export type FinancialModel = typeof financialModels.$inferSelect;
-export type InsertFinancialModel = z.infer<typeof insertFinancialModelSchema>;
-
-export const masterReports = pgTable("master_reports", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  userId: varchar("user_id").notNull(),
-  title: text("title").notNull(),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-  updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
-
-export const masterReportBlocks = pgTable("master_report_blocks", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  masterReportId: varchar("master_report_id").notNull(),
-  blockType: text("block_type").notNull(),
-  content: text("content"),
-  referenceId: varchar("reference_id"),
-  displayOrder: integer("display_order").notNull().default(0),
-});
-
-export const insertMasterReportSchema = createInsertSchema(masterReports).omit({
-  id: true,
-  createdAt: true,
-  updatedAt: true,
-});
-export type MasterReport = typeof masterReports.$inferSelect;
-export type InsertMasterReport = z.infer<typeof insertMasterReportSchema>;
-
-export const insertMasterReportBlockSchema = createInsertSchema(masterReportBlocks).omit({
-  id: true,
-});
-export type MasterReportBlock = typeof masterReportBlocks.$inferSelect;
-export type InsertMasterReportBlock = z.infer<typeof insertMasterReportBlockSchema>;
-
-export const BLOCK_TYPES = ["text", "chart", "report-section", "model", "table"] as const;
-export type BlockType = typeof BLOCK_TYPES[number];
-
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
   password: true,
 });
+
+// ═══════════════════════════════════════════════════════════════
+// AUTORESEARCH EVAL SYSTEM — query logging + benchmark tables
+// ═══════════════════════════════════════════════════════════════
+
+/** Logs every attempt in a chart request lifecycle (first try, retries, fallbacks) */
+export const queryAttempts = pgTable("query_attempts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  requestId: text("request_id").notNull(),        // groups attempts for same user request
+  protocol: text("protocol").notNull(),
+  metricType: text("metric_type").notNull(),
+  attemptNumber: integer("attempt_number").notNull(),
+  dataSource: text("data_source").notNull(),
+  sqlQuery: text("sql_query"),
+  errorType: text("error_type"),                   // null if success
+  errorMessage: text("error_message"),
+  sampleRows: jsonb("sample_rows"),
+  finalOutcome: text("final_outcome").notNull(),   // 'success' | 'retry' | 'fallback' | 'failure'
+  llmModel: text("llm_model"),
+  latencyMs: integer("latency_ms"),
+  wasCacheHit: boolean("was_cache_hit").default(false),
+  crossValidationStatus: text("cross_validation_status"), // 'validated' | 'warning' | 'likely_wrong' | null
+  crossValidationRatio: doublePrecision("cross_validation_ratio"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertQueryAttemptSchema = createInsertSchema(queryAttempts).omit({
+  id: true,
+  createdAt: true,
+});
+export type QueryAttempt = typeof queryAttempts.$inferSelect;
+export type InsertQueryAttempt = z.infer<typeof insertQueryAttemptSchema>;
+
+/** Ground truth benchmark cases — auto-seeded from DeFiLlama */
+export const benchmarkCases = pgTable("benchmark_cases", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  protocol: text("protocol").notNull(),
+  metricType: text("metric_type").notNull(),
+  referenceSource: text("reference_source").notNull(),   // 'defillama_tvl', 'defillama_fees', etc.
+  naturalLanguageQuery: text("natural_language_query").notNull(),
+  referenceFetcher: text("reference_fetcher").notNull(),  // function name to fetch canonical answer
+  tolerance: doublePrecision("tolerance").notNull().default(0.20),
+  difficulty: text("difficulty").notNull().default("standard"),
+  isActive: boolean("is_active").notNull().default(true),
+  protocolSlug: text("protocol_slug"),                    // DeFiLlama slug
+  protocolCategory: text("protocol_category"),            // 'Lending', 'Dexes', etc.
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertBenchmarkCaseSchema = createInsertSchema(benchmarkCases).omit({
+  id: true,
+  createdAt: true,
+});
+export type BenchmarkCase = typeof benchmarkCases.$inferSelect;
+export type InsertBenchmarkCase = z.infer<typeof insertBenchmarkCaseSchema>;
+
+/** A single eval run (one full benchmark pass) */
+export const benchmarkRuns = pgTable("benchmark_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  configVersion: integer("config_version").notNull(),
+  totalCases: integer("total_cases").notNull(),
+  passedCases: integer("passed_cases").notNull(),
+  failedCases: integer("failed_cases").notNull(),
+  overallAccuracy: doublePrecision("overall_accuracy").notNull(),
+  totalCostUsd: doublePrecision("total_cost_usd"),
+  totalLatencyMs: integer("total_latency_ms"),
+  configSnapshot: jsonb("config_snapshot"),              // snapshot of rules + routing at time of run
+  improvementsApplied: jsonb("improvements_applied"),    // what changed vs previous run
+  status: text("status").notNull().default("running"),   // 'running' | 'completed' | 'failed'
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type BenchmarkRun = typeof benchmarkRuns.$inferSelect;
+
+/** Per-case result within a benchmark run */
+export const benchmarkCaseResults = pgTable("benchmark_case_results", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  runId: varchar("run_id").notNull(),
+  caseId: varchar("case_id").notNull(),
+  score: doublePrecision("score").notNull(),             // 0-1 composite score
+  magnitudeRatio: doublePrecision("magnitude_ratio"),
+  trendMatch: boolean("trend_match"),
+  mape: doublePrecision("mape"),                         // mean absolute percentage error
+  executionSuccess: boolean("execution_success").notNull(),
+  sanityPassed: boolean("sanity_passed"),
+  dataSource: text("data_source"),
+  sqlUsed: text("sql_used"),
+  errorMessage: text("error_message"),
+  latencyMs: integer("latency_ms"),
+  llmCalls: integer("llm_calls"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type BenchmarkCaseResult = typeof benchmarkCaseResults.$inferSelect;
+
+/** Compound financial query templates (SQL with placeholders) */
+export const queryTemplates = pgTable("query_templates", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  businessModel: text("business_model").notNull(),
+  description: text("description"),
+  sqlTemplate: text("sql_template").notNull(),
+  requiredParams: jsonb("required_params").notNull(),
+  outputMetrics: jsonb("output_metrics").notNull(),
+  exampleProtocol: text("example_protocol"),
+  savedQueryDependencies: jsonb("saved_query_dependencies"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertQueryTemplateSchema = createInsertSchema(queryTemplates).omit({
+  id: true,
+  createdAt: true,
+});
+export type QueryTemplate = typeof queryTemplates.$inferSelect;
+export type InsertQueryTemplate = z.infer<typeof insertQueryTemplateSchema>;
+
+/** Protocol revenue models — researched and validated revenue logic per protocol */
+export const protocolRevenueModels = pgTable("protocol_revenue_models", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  protocol: text("protocol").notNull(),
+  protocolSlug: text("protocol_slug"),                         // DeFiLlama slug
+  protocolType: text("protocol_type").notNull(),               // 'lending', 'dex', 'staking', 'stablecoin_yield', 'derivatives'
+  revenueSources: jsonb("revenue_sources").notNull(),          // [{ name, description, onChainSignal }]
+  keyContracts: jsonb("key_contracts").notNull(),              // [{ label, address, chain }]
+  feeStructure: text("fee_structure"),                         // human-readable description
+  suggestedDuneTables: jsonb("suggested_dune_tables"),         // ["lending.borrow", "tokens.transfers", ...]
+  existingDuneQueryIds: jsonb("existing_dune_query_ids"),      // [number, ...]
+  revenueSqlDraft: text("revenue_sql_draft"),                  // Working SQL that produces revenue time series
+  validationStatus: text("validation_status").notNull().default("unvalidated"), // 'unvalidated', 'validated', 'failed'
+  validationScore: doublePrecision("validation_score"),        // cross-validation score vs DeFiLlama
+  validationError: text("validation_error"),                   // error details if validation failed
+  coinGeckoId: text("coingecko_id"),                           // for price/mcap lookups
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+/** Protocol knowledge base — crawled from DeFiLlama + CoinGecko + Dune */
+export const projectKnowledge = pgTable("project_knowledge", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  slug: text("slug").notNull().unique(),              // DeFiLlama slug
+  category: text("category"),                          // 'Lending', 'Dexs', 'Liquid Staking', 'CEX', etc.
+  protocolType: text("protocol_type"),                 // normalized: 'lending', 'dex', 'liquid_staking', 'cex', 'bridge', etc.
+  primaryChain: text("primary_chain"),                 // highest TVL chain
+  chains: jsonb("chains"),                             // all chains
+  tvl: doublePrecision("tvl"),                         // latest TVL
+  tvlRank: integer("tvl_rank"),                        // rank by TVL
+  geckoId: text("gecko_id"),                           // CoinGecko token ID
+  symbol: text("symbol"),                              // token symbol
+  hasFeeData: boolean("has_fee_data").default(false),
+  hasRevenueData: boolean("has_revenue_data").default(false),
+  hasDexVolumeData: boolean("has_dex_volume_data").default(false),
+  fees24h: doublePrecision("fees_24h"),
+  revenue24h: doublePrecision("revenue_24h"),
+  duneSpellbookCoverage: jsonb("dune_spellbook_coverage"),  // { dex_trades: true, lending_borrow: true, ... }
+  duneProjectName: text("dune_project_name"),          // project name in Dune Spellbook (e.g., 'aave', 'uniswap')
+  lastCrawledAt: timestamp("last_crawled_at").defaultNow().notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertProjectKnowledgeSchema = createInsertSchema(projectKnowledge).omit({
+  id: true,
+  createdAt: true,
+});
+export type ProjectKnowledge = typeof projectKnowledge.$inferSelect;
+export type InsertProjectKnowledge = z.infer<typeof insertProjectKnowledgeSchema>;
+
+export const insertProtocolRevenueModelSchema = createInsertSchema(protocolRevenueModels).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+export type ProtocolRevenueModel = typeof protocolRevenueModels.$inferSelect;
+export type InsertProtocolRevenueModel = z.infer<typeof insertProtocolRevenueModelSchema>;
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
