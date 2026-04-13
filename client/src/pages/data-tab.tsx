@@ -702,6 +702,8 @@ function DataCard({ chart }: { chart: DashboardChart }) {
 
     const tooltipEl = (
       <Tooltip
+        position={{ y: 0 }}
+        allowEscapeViewBox={{ x: true, y: true }}
         contentStyle={{
           backgroundColor: "var(--color-tooltip-bg)",
           border: "1px solid var(--color-tooltip-border)",
@@ -711,7 +713,9 @@ function DataCard({ chart }: { chart: DashboardChart }) {
           color: "var(--color-tooltip-text)",
           backdropFilter: "blur(12px)",
           boxShadow: "0 4px 20px rgba(0,0,0,0.2)",
+          pointerEvents: "none",
         }}
+        wrapperStyle={{ pointerEvents: "none", zIndex: 10 }}
         labelStyle={{ color: "var(--color-chart-tick)", fontSize: "10px", marginBottom: "4px" }}
         labelFormatter={isDate ? dateFmt!.tooltipFormatter : (l: any) => {
           if (typeof l === "number") {
