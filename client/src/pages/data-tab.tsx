@@ -477,7 +477,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
   });
 
 
-  const cardClass = "group rounded border border-border/40 bg-card/30 overflow-hidden";
+  const cardClass = "group rounded border border-border/40 bg-card/30 overflow-visible relative";
   const { subtitle } = parseSubtitle(chart.description);
 
   if (chart.status === "pending" || chart.status === "generating") {
@@ -702,8 +702,8 @@ function DataCard({ chart }: { chart: DashboardChart }) {
 
     const tooltipEl = (
       <Tooltip
-        position={{ y: 0 }}
-        allowEscapeViewBox={{ x: true, y: true }}
+        allowEscapeViewBox={{ x: false, y: true }}
+        offset={16}
         contentStyle={{
           backgroundColor: "var(--color-tooltip-bg)",
           border: "1px solid var(--color-tooltip-border)",
@@ -715,7 +715,7 @@ function DataCard({ chart }: { chart: DashboardChart }) {
           boxShadow: "0 4px 20px rgba(0,0,0,0.2)",
           pointerEvents: "none",
         }}
-        wrapperStyle={{ pointerEvents: "none", zIndex: 10 }}
+        wrapperStyle={{ pointerEvents: "none", zIndex: 50 }}
         labelStyle={{ color: "var(--color-chart-tick)", fontSize: "10px", marginBottom: "4px" }}
         labelFormatter={isDate ? dateFmt!.tooltipFormatter : (l: any) => {
           if (typeof l === "number") {
@@ -802,8 +802,8 @@ function DataCard({ chart }: { chart: DashboardChart }) {
     })();
 
     return (
-      <div className="px-1 pb-0">
-        <ResponsiveContainer width="100%" height={245}>
+      <div className="px-1 pb-0" style={{ overflow: "visible" }}>
+        <ResponsiveContainer width="100%" height={245} style={{ overflow: "visible" }}>
           {chartEl}
         </ResponsiveContainer>
       </div>
