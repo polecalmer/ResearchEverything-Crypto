@@ -482,6 +482,7 @@ export default function SessionResearch() {
     } catch (err: any) {
       toast({ title: "Error", description: err.message || "Research failed", variant: "destructive" });
       queryClient.invalidateQueries({ queryKey: [`/api/research/sessions/${sessionId}/messages`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/research/sessions"] });
     } finally {
       setPendingUserMsg(null);
       setIsSending(false);

@@ -1683,6 +1683,8 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Message is required" });
       }
 
+      let keepalive: ReturnType<typeof setInterval> | null = null;
+
       res.writeHead(200, {
         "Content-Type": "text/event-stream",
         "Cache-Control": "no-cache",
@@ -1691,7 +1693,7 @@ export async function registerRoutes(
       });
       res.flushHeaders();
 
-      const keepalive = setInterval(() => {
+      keepalive = setInterval(() => {
         res.write(": keepalive\n\n");
       }, 15000);
 
@@ -1745,7 +1747,7 @@ export async function registerRoutes(
 
       res.end();
     } catch (e: any) {
-      clearInterval(keepalive);
+      if (keepalive) clearInterval(keepalive);
       console.error("[SessionResearch] Error:", e.message);
       if (!res.headersSent) {
         res.status(500).json({ message: e.message });

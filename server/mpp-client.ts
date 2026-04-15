@@ -182,13 +182,15 @@ async function callAnthropic(request: AnthropicRequest): Promise<AnthropicRespon
         throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
       }
 
-      const mppCost = response.receipt
-        ? Number(response.cumulative) / 1e6
-        : 0;
-      state.totalSpent = Number(response.cumulative || 0n) / 1e6;
+      const prevCumulative = state.totalSpent;
+      const rawCumulative = response.cumulative ? Number(response.cumulative) / 1e6 : null;
+      if (rawCumulative !== null && rawCumulative >= prevCumulative) {
+        state.totalSpent = rawCumulative;
+      }
+      const mppCost = Math.max(0, state.totalSpent - prevCumulative);
       state.requestCount++;
 
-      console.log(`[MPP-Channel] Request #${state.requestCount}: cost ~$${(mppCost - (state.totalSpent - mppCost)).toFixed(4)} (cumulative: $${state.totalSpent.toFixed(4)})`);
+      console.log(`[MPP-Channel] Request #${state.requestCount}: cost ~$${mppCost.toFixed(4)} (cumulative: $${state.totalSpent.toFixed(4)})`);
 
       const data = await response.json();
 
@@ -290,8 +292,12 @@ export async function callAnthropicRaw(request: any): Promise<AnthropicRawRespon
         throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
       }
 
-      const mppCost = response.receipt ? Number(response.cumulative) / 1e6 : 0;
-      state.totalSpent = Number(response.cumulative || 0n) / 1e6;
+      const prevCumulative = state.totalSpent;
+      const rawCumulative = response.cumulative ? Number(response.cumulative) / 1e6 : null;
+      if (rawCumulative !== null && rawCumulative >= prevCumulative) {
+        state.totalSpent = rawCumulative;
+      }
+      const mppCost = Math.max(0, state.totalSpent - prevCumulative);
       state.requestCount++;
 
       console.log(`[MPP-Channel] Request #${state.requestCount}: cost ~$${mppCost.toFixed(4)} (cumulative: $${state.totalSpent.toFixed(4)})`);
