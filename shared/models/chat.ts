@@ -17,6 +17,9 @@ export const researchBrains = pgTable("research_brains", {
   entities: jsonb("entities").default(sql`'{}'::jsonb`).notNull(),
   knowledge: jsonb("knowledge").default(sql`'[]'::jsonb`).notNull(),
   preferences: jsonb("preferences").default(sql`'{}'::jsonb`).notNull(),
+  relationships: jsonb("relationships").default(sql`'[]'::jsonb`).notNull(),
+  contradictions: jsonb("contradictions").default(sql`'[]'::jsonb`).notNull(),
+  meta: jsonb("meta").default(sql`'{}'::jsonb`).notNull(),
   updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 

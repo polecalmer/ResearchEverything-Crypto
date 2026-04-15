@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { LayoutDashboard, Building2, Chrome, BarChart3, Search, LogOut, User, Wallet, Activity, FlaskConical } from "lucide-react";
+import { LayoutDashboard, Building2, Chrome, BarChart3, Search, LogOut, User, Wallet, Activity, FlaskConical, Brain } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -19,6 +19,7 @@ const navItems = [
   { title: "Pipeline", url: "/", icon: LayoutDashboard },
   { title: "Companies", url: "/companies", icon: Building2 },
   { title: "Research", url: "/research", icon: FlaskConical },
+  { title: "Brain", url: "/brain", icon: Brain },
   { title: "Wallet", url: "/wallet", icon: Wallet },
   { title: "Extension", url: "/extension", icon: Chrome },
   { title: "Data", url: "/data", icon: BarChart3 },

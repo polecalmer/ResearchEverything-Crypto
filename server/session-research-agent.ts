@@ -4,6 +4,7 @@ import { discoverTablesForProtocol } from "./dune-mcp-client";
 import { fetchTokenSnapshot } from "./allium-client";
 import * as defillama from "./defillama-client";
 import * as vm from "vm";
+import { retrieveRelevantContext, formatRetrievedContext } from "./brain-retrieval";
 
 export interface ResearchArtifact {
   type: "chart" | "table" | "metric_cards";
@@ -420,7 +421,22 @@ OUTPUT QUALITY RULES:
 - Every bullet point should have a "so what" — raw data without interpretation is useless
 - Bold key numbers and conclusions — the reader should be able to skim and get the thesis
 - Structure long responses with clear H2 headers: Current State → Historical Analysis → Forward Model → Scenarios → Thesis
-- When using execute_code, always assign a COMPLETE result object with labeled fields, not raw numbers`;
+- When using execute_code, always assign a COMPLETE result object with labeled fields, not raw numbers
+
+RESEARCH BRAIN — KNOWLEDGE GRAPH:
+You have access to a persistent Research Brain that accumulates intelligence across all sessions. At the END of every analysis, you MUST call update_research_brain to record what you learned.
+
+What to record:
+- entities: Every protocol, token, chain, person, fund, or concept you analyzed — with type, category, chains, competitors, tags, and a 1-sentence summary
+- relationships: How entities connect — competes_with, built_on, invested_in, forked_from, partners_with, related_to
+- facts: Specific verified data points from your tool calls — each fact links to the entities it relates to and names the source tool
+- preferences: Any analysis preferences you inferred about the user (valuation frameworks they prefer, sectors they focus on, etc.)
+
+The brain context injected above (if present) shows what you already know from past sessions. USE IT:
+- Reference prior findings when relevant ("In our previous analysis, HYPE revenue was $X — it has since grown to $Y")
+- Note when data has changed significantly from what the brain recorded
+- Build on past research instead of starting from scratch
+- If the brain shows competitors for an entity, include them in your analysis without the user having to ask`;
 
 async function executeCode(code: string): Promise<string> {
   try {
@@ -575,14 +591,6 @@ async function executeTool(name: string, input: any): Promise<string> {
         const chains = await defillama.getChainTvls();
         return JSON.stringify({ count: chains.length, chains });
       }
-      case "update_research_brain": {
-        pendingBrainUpdate = input as BrainUpdate;
-        const entityCount = Object.keys(input.entities || {}).length;
-        const factCount = (input.facts || []).length;
-        const relCount = (input.relationships || []).length;
-        console.log(`[SessionResearch] Brain update: ${entityCount} entities, ${factCount} facts, ${relCount} relationships`);
-        return JSON.stringify({ status: "recorded", entities: entityCount, facts: factCount, relationships: relCount });
-      }
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
@@ -664,81 +672,6 @@ function summarizeHistory(history: Array<{ role: string; content: string }>): Ar
   return msgs;
 }
 
-function buildBrainContext(brain: BrainContext): string {
-  if (!brain) return "";
-
-  const sections: string[] = [];
-  const entities = brain.entities || {};
-  const entityNames = Object.keys(entities);
-
-  if (entityNames.length > 0) {
-    const entityLines = entityNames.slice(0, 30).map(name => {
-      const e = entities[name];
-      const parts = [`${name} (${e.type}${e.category ? `, ${e.category}` : ""})`];
-      if (e.summary) parts.push(`  → ${e.summary}`);
-      if (e.competitors?.length) parts.push(`  Competitors: ${e.competitors.join(", ")}`);
-      if (e.tags?.length) parts.push(`  Tags: ${e.tags.join(", ")}`);
-      parts.push(`  Researched ${e.researchCount}x, last: ${e.lastResearched}`);
-      return parts.join("\n");
-    });
-    sections.push("KNOWN ENTITIES:\n" + entityLines.join("\n\n"));
-  }
-
-  const relationships = brain.relationships || [];
-  if (relationships.length > 0) {
-    const relLines = relationships.slice(-30).map(r =>
-      `${r.from} → ${r.type.replace(/_/g, " ")} → ${r.to}${r.context ? ` (${r.context})` : ""}`
-    );
-    sections.push("ENTITY RELATIONSHIPS:\n" + relLines.join("\n"));
-  }
-
-  const knowledge = brain.knowledge || [];
-  if (knowledge.length > 0) {
-    const recent = knowledge.slice(-40);
-    const byEntity: Record<string, BrainFact[]> = {};
-    for (const fact of recent) {
-      for (const ent of fact.entities) {
-        if (!byEntity[ent]) byEntity[ent] = [];
-        byEntity[ent].push(fact);
-      }
-    }
-    const factLines: string[] = [];
-    for (const [ent, facts] of Object.entries(byEntity)) {
-      factLines.push(`${ent}:`);
-      for (const f of facts.slice(-5)) {
-        const conf = f.confidence === "estimated" ? " ⚠️ estimated" : "";
-        const stale = f.supersedes ? " (updated)" : "";
-        factLines.push(`  - [${f.date}] ${f.fact} (via ${f.source})${conf}${stale}`);
-      }
-    }
-    sections.push("ACCUMULATED KNOWLEDGE:\n" + factLines.join("\n"));
-  }
-
-  const contradictions = brain.contradictions || [];
-  if (contradictions.length > 0) {
-    const recent = contradictions.slice(-5);
-    sections.push("RECENT DATA CHANGES:\n" + recent.map(c =>
-      `- ${c.summary} (${c.date})`
-    ).join("\n"));
-  }
-
-  const prefs = brain.preferences || {};
-  if (Object.keys(prefs).length > 0) {
-    sections.push("USER PREFERENCES:\n" + Object.entries(prefs).map(([k, v]) =>
-      `- ${k}: ${v}`
-    ).join("\n"));
-  }
-
-  const meta = brain.meta;
-  if (meta) {
-    sections.push(`RESEARCH STATS: ${meta.totalSessions} sessions, last active: ${meta.lastActive}` +
-      (meta.topEntities?.length ? `, most researched: ${meta.topEntities.join(", ")}` : ""));
-  }
-
-  if (sections.length === 0) return "";
-  return "\n\nRESEARCH BRAIN (persistent knowledge graph from past sessions):\n" + sections.join("\n\n");
-}
-
 export interface ThinkingStep {
   type: "thinking" | "tool_start" | "tool_result" | "analyzing" | "complete";
   label: string;
@@ -792,7 +725,9 @@ export async function runSessionResearchAgent(
   let totalCost = 0;
   let pendingBrainUpdate: BrainUpdate | undefined;
 
-  const brainContext = buildBrainContext(brain);
+  const retrieved = retrieveRelevantContext(userMessage, brain);
+  const brainContext = formatRetrievedContext(retrieved);
+  console.log(`[SessionResearch] Brain retrieval: ${retrieved.retrievalSummary}`);
   const systemPrompt = SYSTEM_PROMPT + brainContext;
 
   const messages: Array<{ role: string; content: any }> = summarizeHistory(history);
@@ -869,6 +804,19 @@ export async function runSessionResearchAgent(
         onStep?.({ type: "tool_start", label, detail: block.name, round: round + 1 });
         console.log(`[SessionResearch] Tool: ${block.name}(${JSON.stringify(block.input).slice(0, 120)})`);
         toolCalls.push(block.name);
+
+        if (block.name === "update_research_brain") {
+          pendingBrainUpdate = block.input as BrainUpdate;
+          const ec = Object.keys(block.input.entities || {}).length;
+          const fc = (block.input.facts || []).length;
+          const rc = (block.input.relationships || []).length;
+          console.log(`[SessionResearch] Brain update recorded: ${ec} entities, ${fc} facts, ${rc} relationships`);
+          const brainResult = JSON.stringify({ status: "recorded", entities: ec, facts: fc, relationships: rc });
+          onStep?.({ type: "tool_result", label: `Saved ${ec} entities, ${fc} facts`, detail: block.name, round: round + 1 });
+          toolResults.push({ type: "tool_result", tool_use_id: block.id, content: brainResult });
+          continue;
+        }
+
         const result = await executeTool(block.name, block.input);
 
         let resultSummary = "";

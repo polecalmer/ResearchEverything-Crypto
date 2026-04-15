@@ -152,7 +152,7 @@ export interface IStorage {
   getMessages(conversationId: number): Promise<Message[]>;
   createMessage(data: { conversationId: number; role: string; content: string; artifacts?: any }): Promise<Message>;
   getResearchBrain(userId: string): Promise<any | null>;
-  upsertResearchBrain(userId: string, brain: { entities?: any; knowledge?: any; preferences?: any }): Promise<void>;
+  upsertResearchBrain(userId: string, brain: { entities?: any; knowledge?: any; preferences?: any; relationships?: any; contradictions?: any; meta?: any }): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -930,13 +930,16 @@ export class DatabaseStorage implements IStorage {
     return brain || null;
   }
 
-  async upsertResearchBrain(userId: string, brain: { entities?: any; knowledge?: any; preferences?: any }): Promise<void> {
+  async upsertResearchBrain(userId: string, brain: { entities?: any; knowledge?: any; preferences?: any; relationships?: any; contradictions?: any; meta?: any }): Promise<void> {
     const existing = await this.getResearchBrain(userId);
     if (existing) {
       const updates: any = { updatedAt: new Date() };
-      if (brain.entities) updates.entities = brain.entities;
-      if (brain.knowledge) updates.knowledge = brain.knowledge;
-      if (brain.preferences) updates.preferences = brain.preferences;
+      if (brain.entities !== undefined) updates.entities = brain.entities;
+      if (brain.knowledge !== undefined) updates.knowledge = brain.knowledge;
+      if (brain.preferences !== undefined) updates.preferences = brain.preferences;
+      if (brain.relationships !== undefined) updates.relationships = brain.relationships;
+      if (brain.contradictions !== undefined) updates.contradictions = brain.contradictions;
+      if (brain.meta !== undefined) updates.meta = brain.meta;
       await db.update(researchBrains).set(updates).where(eq(researchBrains.userId, userId));
     } else {
       await db.insert(researchBrains).values({
@@ -944,6 +947,9 @@ export class DatabaseStorage implements IStorage {
         entities: brain.entities || {},
         knowledge: brain.knowledge || [],
         preferences: brain.preferences || {},
+        relationships: brain.relationships || [],
+        contradictions: brain.contradictions || [],
+        meta: brain.meta || {},
       });
     }
   }

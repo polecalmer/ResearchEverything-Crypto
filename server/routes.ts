@@ -1641,6 +1641,32 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/brain/graph", requireAuth, async (req, res) => {
+    try {
+      const brainRecord = await storage.getResearchBrain(req.user!.id);
+      if (!brainRecord) {
+        return res.json({
+          entities: {},
+          relationships: [],
+          knowledge: [],
+          contradictions: [],
+          preferences: {},
+          meta: { totalSessions: 0, lastActive: null, topEntities: [] },
+        });
+      }
+      res.json({
+        entities: brainRecord.entities || {},
+        relationships: brainRecord.relationships || [],
+        knowledge: brainRecord.knowledge || [],
+        contradictions: brainRecord.contradictions || [],
+        preferences: brainRecord.preferences || {},
+        meta: brainRecord.meta || { totalSessions: 0, lastActive: null, topEntities: [] },
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.post("/api/research/sessions", requireAuth, async (req, res) => {
     try {
       const session = await storage.createConversation({
@@ -1713,8 +1739,11 @@ export async function registerRoutes(
       const brainRecord = await storage.getResearchBrain(req.user!.id);
       const brain = brainRecord ? {
         entities: (brainRecord.entities || {}) as Record<string, any>,
-        knowledge: (brainRecord.knowledge || []) as Array<{ topic: string; fact: string; date: string }>,
+        knowledge: (brainRecord.knowledge || []) as any[],
         preferences: (brainRecord.preferences || {}) as Record<string, any>,
+        relationships: (brainRecord.relationships || []) as any[],
+        contradictions: (brainRecord.contradictions || []) as any[],
+        meta: (brainRecord.meta || { totalSessions: 0, lastActive: new Date().toISOString().slice(0, 10), topEntities: [] }) as any,
       } : null;
 
       const { runSessionResearchAgent, parseArtifacts } = await import("./session-research-agent");
@@ -1737,13 +1766,84 @@ export async function registerRoutes(
 
       if (result.brainUpdates) {
         try {
-          const existing = brainRecord || { entities: {}, knowledge: [], preferences: {} };
-          const merged = {
-            entities: { ...(existing.entities as any || {}), ...(result.brainUpdates.entities || {}) },
-            knowledge: [...((existing.knowledge as any[] || [])).slice(-100), ...(result.brainUpdates.knowledge || [])],
-            preferences: { ...(existing.preferences as any || {}), ...(result.brainUpdates.preferences || {}) },
+          const existing = brainRecord || { entities: {}, knowledge: [], preferences: {}, relationships: [], contradictions: [], meta: { totalSessions: 0, lastActive: "", topEntities: [] } };
+          const today = new Date().toISOString().slice(0, 10);
+
+          const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype", "toString", "valueOf"]);
+          const mergedEntities = { ...(existing.entities as any || {}) };
+          for (const [name, data] of Object.entries(result.brainUpdates.entities || {})) {
+            if (FORBIDDEN_KEYS.has(name) || typeof name !== "string" || name.length > 100) continue;
+            const prev = mergedEntities[name];
+            if (prev) {
+              mergedEntities[name] = {
+                ...prev,
+                ...data,
+                researchCount: (prev.researchCount || 0) + 1,
+                lastResearched: today,
+                tags: [...new Set([...(prev.tags || []), ...(data.tags || [])])],
+                competitors: [...new Set([...(prev.competitors || []), ...(data.competitors || [])])],
+                chains: [...new Set([...(prev.chains || []), ...(data.chains || [])])],
+              };
+            } else {
+              mergedEntities[name] = { ...data, researchCount: 1, lastResearched: today };
+            }
+          }
+
+          const existingFacts = (existing.knowledge as any[] || []);
+          const newContradictions = [...(existing.contradictions as any[] || [])];
+
+          const newFacts = (result.brainUpdates.facts || []).reduce((acc: any[], f: any) => {
+            const exactDupe = existingFacts.find((ef: any) =>
+              ef.topic === f.topic && ef.fact === f.fact
+            );
+            if (exactDupe) return acc;
+
+            const id = `fact_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            const existingFact = existingFacts.find((ef: any) =>
+              ef.topic === f.topic && ef.entities?.some((e: string) => f.entities?.includes(e)) && ef.confidence !== "stale"
+            );
+            if (existingFact && existingFact.fact !== f.fact) {
+              newContradictions.push({
+                factIdOld: existingFact.id,
+                factIdNew: id,
+                summary: `${f.topic}: was "${existingFact.fact}" → now "${f.fact}"`,
+                date: today,
+              });
+              existingFact.confidence = "stale";
+              existingFact.supersedes = id;
+            }
+            acc.push({ ...f, id, date: today });
+            return acc;
+          }, []);
+
+          const mergedKnowledge = [...existingFacts, ...newFacts].slice(-200);
+
+          const existingRels = (existing.relationships as any[] || []);
+          const newRels = (result.brainUpdates.relationships || []).filter((nr: any) =>
+            !existingRels.some((er: any) => er.from === nr.from && er.to === nr.to && er.type === nr.type)
+          ).map((r: any) => ({ ...r, date: today }));
+          const mergedRelationships = [...existingRels, ...newRels].slice(-100);
+
+          const entityCounts = Object.entries(mergedEntities)
+            .map(([name, e]: [string, any]) => ({ name, count: e.researchCount || 0 }))
+            .sort((a, b) => b.count - a.count);
+          const topEntities = entityCounts.slice(0, 5).map(e => e.name);
+
+          const mergedMeta = {
+            totalSessions: ((existing.meta as any)?.totalSessions || 0) + 1,
+            lastActive: today,
+            topEntities,
           };
-          await storage.upsertResearchBrain(req.user!.id, merged);
+
+          await storage.upsertResearchBrain(req.user!.id, {
+            entities: mergedEntities,
+            knowledge: mergedKnowledge,
+            preferences: { ...(existing.preferences as any || {}), ...(result.brainUpdates.preferences || {}) },
+            relationships: mergedRelationships,
+            contradictions: newContradictions.slice(-50),
+            meta: mergedMeta,
+          });
+          console.log(`[SessionResearch] Brain merged: ${Object.keys(mergedEntities).length} entities, ${mergedKnowledge.length} facts, ${mergedRelationships.length} rels, ${newContradictions.length} contradictions`);
         } catch (brainErr: any) {
           console.warn("[SessionResearch] Brain update failed:", brainErr.message);
         }
