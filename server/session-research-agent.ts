@@ -17,23 +17,79 @@ export interface ResearchArtifact {
   columns?: string[];
 }
 
+export interface BrainEntity {
+  type: "protocol" | "token" | "chain" | "person" | "fund" | "concept";
+  category?: string;
+  chains?: string[];
+  competitors?: string[];
+  relatedEntities?: string[];
+  tags?: string[];
+  summary?: string;
+  lastResearched: string;
+  researchCount: number;
+}
+
+export interface BrainRelationship {
+  from: string;
+  to: string;
+  type: "competes_with" | "built_on" | "invested_in" | "forked_from" | "partners_with" | "related_to";
+  context?: string;
+  date: string;
+}
+
+export interface BrainFact {
+  id: string;
+  topic: string;
+  fact: string;
+  entities: string[];
+  source: string;
+  date: string;
+  confidence: "verified" | "estimated" | "stale";
+  supersedes?: string;
+}
+
+export interface BrainContradiction {
+  factIdOld: string;
+  factIdNew: string;
+  summary: string;
+  date: string;
+}
+
+export interface BrainGraph {
+  entities: Record<string, BrainEntity>;
+  relationships: BrainRelationship[];
+  knowledge: BrainFact[];
+  contradictions: BrainContradiction[];
+  preferences: Record<string, any>;
+  meta: {
+    totalSessions: number;
+    lastActive: string;
+    topEntities: string[];
+  };
+}
+
+export interface BrainUpdate {
+  entities?: Record<string, Partial<BrainEntity>>;
+  relationships?: BrainRelationship[];
+  facts?: Array<{
+    topic: string;
+    fact: string;
+    entities: string[];
+    source: string;
+    confidence: "verified" | "estimated";
+  }>;
+  preferences?: Record<string, any>;
+}
+
 export interface ResearchResponse {
   content: string;
   artifacts: ResearchArtifact[];
   mppCost: number;
   toolCalls: string[];
-  brainUpdates?: {
-    entities?: Record<string, any>;
-    knowledge?: Array<{ topic: string; fact: string; date: string }>;
-    preferences?: Record<string, any>;
-  };
+  brainUpdates?: BrainUpdate;
 }
 
-export interface BrainContext {
-  entities: Record<string, any>;
-  knowledge: Array<{ topic: string; fact: string; date: string }>;
-  preferences: Record<string, any>;
-}
+export type BrainContext = BrainGraph | null;
 
 const TOOLS = [
   {
@@ -195,6 +251,73 @@ const TOOLS = [
       type: "object" as const,
       properties: {
         chain: { type: "string" as const, description: "Chain name for historical TVL (e.g. 'Ethereum', 'Arbitrum', 'Solana'). Omit for all chains ranked by TVL." },
+      },
+    },
+  },
+  {
+    name: "update_research_brain",
+    description: `Record findings to the persistent Research Brain (knowledge graph). Call this ONCE at the END of every research session to save what you learned. The brain persists across all sessions and builds compounding intelligence.
+
+Record:
+- entities: protocols/tokens/chains you analyzed, with type, category, competitors, tags, and a 1-sentence summary
+- relationships: connections between entities (competes_with, built_on, invested_in, forked_from, partners_with, related_to)
+- facts: specific data points you verified via tools, with the source tool name and which entities they relate to
+- preferences: any user analysis preferences you inferred (e.g. preferred valuation frameworks, focus areas)
+
+IMPORTANT: Only record facts that came from tool calls (verified data). Mark projections/estimates as confidence: "estimated".`,
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        entities: {
+          type: "object" as const,
+          description: "Map of entity name → entity data. Example: {\"HYPE\": {\"type\": \"protocol\", \"category\": \"derivatives-dex\", \"chains\": [\"hyperliquid\"], \"competitors\": [\"GMX\", \"DYDX\"], \"tags\": [\"perps\", \"L1\", \"buyback\"], \"summary\": \"On-chain derivatives exchange with native L1\"}}",
+          additionalProperties: {
+            type: "object" as const,
+            properties: {
+              type: { type: "string" as const, enum: ["protocol", "token", "chain", "person", "fund", "concept"] },
+              category: { type: "string" as const },
+              chains: { type: "array" as const, items: { type: "string" as const } },
+              competitors: { type: "array" as const, items: { type: "string" as const } },
+              relatedEntities: { type: "array" as const, items: { type: "string" as const } },
+              tags: { type: "array" as const, items: { type: "string" as const } },
+              summary: { type: "string" as const },
+            },
+          },
+        },
+        relationships: {
+          type: "array" as const,
+          description: "Connections between entities",
+          items: {
+            type: "object" as const,
+            properties: {
+              from: { type: "string" as const },
+              to: { type: "string" as const },
+              type: { type: "string" as const, enum: ["competes_with", "built_on", "invested_in", "forked_from", "partners_with", "related_to"] },
+              context: { type: "string" as const },
+            },
+            required: ["from", "to", "type"],
+          },
+        },
+        facts: {
+          type: "array" as const,
+          description: "Verified data points from tool calls",
+          items: {
+            type: "object" as const,
+            properties: {
+              topic: { type: "string" as const, description: "What this fact is about (e.g. 'HYPE revenue', 'ETH TVL')" },
+              fact: { type: "string" as const, description: "The specific data point (e.g. 'LTM revenue $1.06B as of Apr 2026')" },
+              entities: { type: "array" as const, items: { type: "string" as const }, description: "Which entities this fact relates to" },
+              source: { type: "string" as const, description: "Which tool provided this data (e.g. 'query_defillama_fees_revenue', 'get_token_snapshot')" },
+              confidence: { type: "string" as const, enum: ["verified", "estimated"] },
+            },
+            required: ["topic", "fact", "entities", "source", "confidence"],
+          },
+        },
+        preferences: {
+          type: "object" as const,
+          description: "User analysis preferences inferred from this session",
+          additionalProperties: { type: "string" as const },
+        },
       },
     },
   },
@@ -452,6 +575,14 @@ async function executeTool(name: string, input: any): Promise<string> {
         const chains = await defillama.getChainTvls();
         return JSON.stringify({ count: chains.length, chains });
       }
+      case "update_research_brain": {
+        pendingBrainUpdate = input as BrainUpdate;
+        const entityCount = Object.keys(input.entities || {}).length;
+        const factCount = (input.facts || []).length;
+        const relCount = (input.relationships || []).length;
+        console.log(`[SessionResearch] Brain update: ${entityCount} entities, ${factCount} facts, ${relCount} relationships`);
+        return JSON.stringify({ status: "recorded", entities: entityCount, facts: factCount, relationships: relCount });
+      }
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
@@ -533,23 +664,61 @@ function summarizeHistory(history: Array<{ role: string; content: string }>): Ar
   return msgs;
 }
 
-function buildBrainContext(brain: BrainContext | null): string {
+function buildBrainContext(brain: BrainContext): string {
   if (!brain) return "";
 
   const sections: string[] = [];
-
   const entities = brain.entities || {};
-  if (Object.keys(entities).length > 0) {
-    sections.push("KNOWN ENTITIES:\n" + Object.entries(entities).map(([name, data]: [string, any]) =>
-      `- ${name}: ${JSON.stringify(data)}`
-    ).join("\n"));
+  const entityNames = Object.keys(entities);
+
+  if (entityNames.length > 0) {
+    const entityLines = entityNames.slice(0, 30).map(name => {
+      const e = entities[name];
+      const parts = [`${name} (${e.type}${e.category ? `, ${e.category}` : ""})`];
+      if (e.summary) parts.push(`  → ${e.summary}`);
+      if (e.competitors?.length) parts.push(`  Competitors: ${e.competitors.join(", ")}`);
+      if (e.tags?.length) parts.push(`  Tags: ${e.tags.join(", ")}`);
+      parts.push(`  Researched ${e.researchCount}x, last: ${e.lastResearched}`);
+      return parts.join("\n");
+    });
+    sections.push("KNOWN ENTITIES:\n" + entityLines.join("\n\n"));
+  }
+
+  const relationships = brain.relationships || [];
+  if (relationships.length > 0) {
+    const relLines = relationships.slice(-30).map(r =>
+      `${r.from} → ${r.type.replace(/_/g, " ")} → ${r.to}${r.context ? ` (${r.context})` : ""}`
+    );
+    sections.push("ENTITY RELATIONSHIPS:\n" + relLines.join("\n"));
   }
 
   const knowledge = brain.knowledge || [];
   if (knowledge.length > 0) {
-    const recent = knowledge.slice(-50);
-    sections.push("ACCUMULATED KNOWLEDGE:\n" + recent.map((k: any) =>
-      `- [${k.topic}] ${k.fact}`
+    const recent = knowledge.slice(-40);
+    const byEntity: Record<string, BrainFact[]> = {};
+    for (const fact of recent) {
+      for (const ent of fact.entities) {
+        if (!byEntity[ent]) byEntity[ent] = [];
+        byEntity[ent].push(fact);
+      }
+    }
+    const factLines: string[] = [];
+    for (const [ent, facts] of Object.entries(byEntity)) {
+      factLines.push(`${ent}:`);
+      for (const f of facts.slice(-5)) {
+        const conf = f.confidence === "estimated" ? " ⚠️ estimated" : "";
+        const stale = f.supersedes ? " (updated)" : "";
+        factLines.push(`  - [${f.date}] ${f.fact} (via ${f.source})${conf}${stale}`);
+      }
+    }
+    sections.push("ACCUMULATED KNOWLEDGE:\n" + factLines.join("\n"));
+  }
+
+  const contradictions = brain.contradictions || [];
+  if (contradictions.length > 0) {
+    const recent = contradictions.slice(-5);
+    sections.push("RECENT DATA CHANGES:\n" + recent.map(c =>
+      `- ${c.summary} (${c.date})`
     ).join("\n"));
   }
 
@@ -560,8 +729,14 @@ function buildBrainContext(brain: BrainContext | null): string {
     ).join("\n"));
   }
 
+  const meta = brain.meta;
+  if (meta) {
+    sections.push(`RESEARCH STATS: ${meta.totalSessions} sessions, last active: ${meta.lastActive}` +
+      (meta.topEntities?.length ? `, most researched: ${meta.topEntities.join(", ")}` : ""));
+  }
+
   if (sections.length === 0) return "";
-  return "\n\nUSER RESEARCH BRAIN (accumulated from past sessions):\n" + sections.join("\n\n");
+  return "\n\nRESEARCH BRAIN (persistent knowledge graph from past sessions):\n" + sections.join("\n\n");
 }
 
 export interface ThinkingStep {
@@ -587,6 +762,7 @@ const TOOL_LABELS: Record<string, string> = {
   query_yield_pools: "Fetching yield/APY data",
   query_stablecoins: "Loading stablecoin market data",
   query_chain_tvl: "Querying chain TVL data",
+  update_research_brain: "Saving to knowledge graph",
 };
 
 function toolLabel(name: string, input: any): string {
@@ -606,30 +782,6 @@ function toolLabel(name: string, input: any): string {
   return base;
 }
 
-function extractBrainUpdates(content: string, toolCalls: string[]): ResearchResponse["brainUpdates"] {
-  const updates: ResearchResponse["brainUpdates"] = {};
-
-  const entities: Record<string, any> = {};
-  const entityRegex = /(?:analyzing|researching|looking at)\s+(\w+)\s+(?:token|protocol)/gi;
-  let m;
-  while ((m = entityRegex.exec(content)) !== null) {
-    entities[m[1].toUpperCase()] = { lastResearched: new Date().toISOString().slice(0, 10) };
-  }
-  if (Object.keys(entities).length > 0) updates.entities = entities;
-
-  const knowledge: Array<{ topic: string; fact: string; date: string }> = [];
-  const metricRegex = /(?:current|latest)\s+(?:TVL|revenue|fees|price|market cap|mcap|P\/S)[^.]*\$[\d,.]+[BMK]?/gi;
-  const facts = content.match(metricRegex);
-  if (facts) {
-    for (const fact of facts.slice(0, 10)) {
-      knowledge.push({ topic: "metric", fact: fact.trim(), date: new Date().toISOString().slice(0, 10) });
-    }
-  }
-  if (knowledge.length > 0) updates.knowledge = knowledge;
-
-  return Object.keys(updates).length > 0 ? updates : undefined;
-}
-
 export async function runSessionResearchAgent(
   userMessage: string,
   history: Array<{ role: string; content: string }>,
@@ -638,6 +790,7 @@ export async function runSessionResearchAgent(
 ): Promise<ResearchResponse> {
   const toolCalls: string[] = [];
   let totalCost = 0;
+  let pendingBrainUpdate: BrainUpdate | undefined;
 
   const brainContext = buildBrainContext(brain);
   const systemPrompt = SYSTEM_PROMPT + brainContext;
@@ -754,13 +907,12 @@ export async function runSessionResearchAgent(
   }
 
   const artifacts = parseArtifacts(finalText);
-  const brainUpdates = extractBrainUpdates(finalText, toolCalls);
 
   return {
     content: finalText,
     artifacts,
     mppCost: totalCost,
     toolCalls,
-    brainUpdates,
+    brainUpdates: pendingBrainUpdate,
   };
 }
