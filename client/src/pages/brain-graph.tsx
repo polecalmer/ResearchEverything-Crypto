@@ -783,6 +783,9 @@ export default function BrainGraphPage() {
   }
 
   const entityNames = Object.keys(data?.entities || {});
+  const hasPreferences = Object.values(data?.preferences || {}).some(
+    (v: any) => Array.isArray(v) && v.length > 0
+  );
   const isEmpty = entityNames.length === 0;
 
   const graphNodes: GraphNode[] = entityNames.map((name, i) => ({
@@ -849,24 +852,63 @@ export default function BrainGraphPage() {
 
       {isEmpty ? (
         <div className="flex-1 flex items-center justify-center">
-          <div className="text-center max-w-sm">
-            <Brain className="w-12 h-12 mx-auto mb-4 text-muted-foreground/30" />
-            <h2 className="text-sm font-medium mb-2" data-testid="text-empty-title">Your Brain Is Empty</h2>
-            <p className="text-xs text-muted-foreground leading-relaxed mb-4" data-testid="text-empty-description">
-              Go to Research and ask questions about protocols, tokens, or chains.
-              The AI agent will automatically record findings here, building a knowledge graph over time.
-            </p>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setShowImport(true)}
-              className="text-xs"
-              data-testid="button-import-brain-empty"
-            >
-              <Upload className="w-3 h-3 mr-1.5" />
-              Import Preferences To Get Started
-            </Button>
-          </div>
+          {hasPreferences ? (
+            <div className="text-center max-w-md">
+              <Brain className="w-12 h-12 mx-auto mb-4 text-muted-foreground/50" />
+              <h2 className="text-sm font-medium mb-2" data-testid="text-prefs-title">Brain Preferences Loaded</h2>
+              <p className="text-xs text-muted-foreground leading-relaxed mb-4" data-testid="text-prefs-description">
+                Your research style, data sources, and analysis frameworks are active.
+                Start a research session to build your knowledge graph — the agent will follow your preferences from the first message.
+              </p>
+              <div className="flex flex-wrap justify-center gap-2 mb-4">
+                {Object.entries(data?.preferences || {}).map(([key, val]: [string, any]) => {
+                  if (!Array.isArray(val) || val.length === 0) return null;
+                  const labels: Record<string, string> = {
+                    data_sources: "Data Sources",
+                    research_style: "Research Style",
+                    analysis_lens: "Frameworks",
+                    custom_instructions: "Instructions",
+                  };
+                  return (
+                    <Badge key={key} variant="secondary" className="text-[10px]" data-testid={`badge-pref-${key}`}>
+                      {labels[key] || key}: {val.length}
+                    </Badge>
+                  );
+                })}
+              </div>
+              <div className="flex gap-2 justify-center">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => setShowImport(true)}
+                  className="text-xs"
+                  data-testid="button-edit-preferences"
+                >
+                  <Settings className="w-3 h-3 mr-1.5" />
+                  Edit Preferences
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center max-w-sm">
+              <Brain className="w-12 h-12 mx-auto mb-4 text-muted-foreground/30" />
+              <h2 className="text-sm font-medium mb-2" data-testid="text-empty-title">Your Brain Is Empty</h2>
+              <p className="text-xs text-muted-foreground leading-relaxed mb-4" data-testid="text-empty-description">
+                Go to Research and ask questions about protocols, tokens, or chains.
+                The AI agent will automatically record findings here, building a knowledge graph over time.
+              </p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowImport(true)}
+                className="text-xs"
+                data-testid="button-import-brain-empty"
+              >
+                <Upload className="w-3 h-3 mr-1.5" />
+                Import Preferences To Get Started
+              </Button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="flex-1 flex overflow-hidden">
