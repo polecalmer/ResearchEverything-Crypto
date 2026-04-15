@@ -213,12 +213,18 @@ For charts, use:
 \`\`\`artifact:chart
 {
   "title": "Chart Title",
-  "chartType": "line|bar|area",
+  "chartType": "line|bar|area|composed",
   "xAxis": { "dataKey": "column_name", "label": "X Label", "format": "date|currency|number|percent" },
-  "yAxes": [{ "dataKey": "column_name", "label": "Y Label", "format": "currency|number|percent" }],
+  "yAxes": [{ "dataKey": "column_name", "label": "Y Label", "format": "currency|number|percent", "chartType": "bar|line|area" }],
   "data": [{"column_name": value, ...}, ...]
 }
 \`\`\`
+
+IMPORTANT CHART RULES:
+- When two Y-axis series have DIFFERENT units (e.g. revenue in $ vs growth rate in %), use chartType: "composed" with different formats per yAxis — the system renders a dual-axis chart automatically
+- For composed charts, specify chartType on each yAxis entry (e.g. first yAxis: {chartType: "bar", format: "currency"}, second yAxis: {chartType: "line", format: "percent"})
+- NEVER plot $ values and % values on the same axis — they will be invisible. Use composed charts or separate charts
+- Keep data arrays under 100 points for bar charts, under 365 for line charts
 
 For tables, use:
 \`\`\`artifact:table
@@ -240,11 +246,17 @@ TOOL USAGE GUIDELINES:
 - Make 10-20+ tool calls for complex questions — don't satisfice with 3-4 calls
 - If a tool call fails, explain what happened and try an alternative approach
 
-IMPORTANT:
-- Keep chart data arrays reasonable (max ~365 points). For long time series, the system auto-samples
+OUTPUT QUALITY RULES:
 - Format large numbers readably ($1.2B, not $1,200,000,000)
-- Always show your work — make assumptions explicit
-- End with a clear investment thesis or actionable conclusion`;
+- Always show your work — make assumptions explicit and number every assumption
+- End with a clear investment thesis or actionable conclusion with a probability-weighted price target
+- Use metric_cards at the TOP of every analysis for the key snapshot numbers
+- Use tables for scenario analysis and sensitivity matrices — never write them as plain text
+- Use composed charts (dual-axis) when comparing $ values with % values — NEVER on the same axis
+- Every bullet point should have a "so what" — raw data without interpretation is useless
+- Bold key numbers and conclusions — the reader should be able to skim and get the thesis
+- Structure long responses with clear H2 headers: Current State → Historical Analysis → Forward Model → Scenarios → Thesis
+- When using execute_code, always assign a COMPLETE result object with labeled fields, not raw numbers`;
 
 async function executeCode(code: string): Promise<string> {
   try {

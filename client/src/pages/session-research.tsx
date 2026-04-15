@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import {
   ResponsiveContainer,
   LineChart, Line, BarChart, Bar, AreaChart, Area,
+  ComposedChart,
   XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from "recharts";
 import { format } from "date-fns";
@@ -28,7 +29,7 @@ interface Artifact {
   chartConfig?: {
     chartType: string;
     xAxis: { dataKey: string; label?: string; format?: string };
-    yAxes: Array<{ dataKey: string; label?: string; format?: string }>;
+    yAxes: Array<{ dataKey: string; label?: string; format?: string; chartType?: string }>;
   };
   columns?: string[];
 }
@@ -94,8 +95,10 @@ function InlineChart({ artifact }: { artifact: Artifact }) {
     return [formatValue(value, ax?.format), ax?.label || name.replace(/_/g, " ")];
   };
 
+  const needsDualAxis = yAxes.length > 1 && yAxes[0]?.format !== yAxes[1]?.format;
+
   const renderChart = () => {
-    const commonProps = { data, margin: { top: 8, right: 16, left: 0, bottom: 4 } };
+    const commonProps = { data, margin: { top: 8, right: needsDualAxis ? 52 : 16, left: 0, bottom: 4 } };
     const grid = <CartesianGrid strokeDasharray="2 6" stroke="var(--color-chart-grid)" vertical={false} />;
     const xAx = (
       <XAxis
@@ -104,15 +107,6 @@ function InlineChart({ artifact }: { artifact: Artifact }) {
         tick={{ fontSize: 9, fill: "var(--color-chart-tick)" }}
         axisLine={false}
         tickLine={false}
-      />
-    );
-    const yAx = (
-      <YAxis
-        tickFormatter={(v: number) => formatValue(v, yAxes[0]?.format)}
-        tick={{ fontSize: 9, fill: "var(--color-chart-tick)" }}
-        axisLine={false}
-        tickLine={false}
-        width={52}
       />
     );
     const tip = (
@@ -140,6 +134,55 @@ function InlineChart({ artifact }: { artifact: Artifact }) {
         formatter={(v: string) => { const ax = yAxes.find(y => y.dataKey === v); return ax?.label || v.replace(/_/g, " "); }}
       />
     ) : null;
+
+    if (needsDualAxis || chartType === "composed") {
+      return (
+        <ComposedChart {...commonProps}>
+          {grid}{xAx}
+          <YAxis
+            yAxisId="left"
+            tickFormatter={(v: number) => formatValue(v, yAxes[0]?.format)}
+            tick={{ fontSize: 9, fill: CHART_COLORS[0] }}
+            axisLine={false}
+            tickLine={false}
+            width={52}
+          />
+          {yAxes.length > 1 && (
+            <YAxis
+              yAxisId="right"
+              orientation="right"
+              tickFormatter={(v: number) => formatValue(v, yAxes[1]?.format)}
+              tick={{ fontSize: 9, fill: CHART_COLORS[1] }}
+              axisLine={false}
+              tickLine={false}
+              width={48}
+            />
+          )}
+          {tip}{leg}
+          {yAxes.map((y, i) => {
+            const axisId = i === 0 ? "left" : "right";
+            const yChartType = y.chartType || (i === 0 ? "bar" : "line");
+            if (yChartType === "bar") {
+              return <Bar key={y.dataKey} yAxisId={axisId} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[1, 1, 0, 0]} maxBarSize={32} opacity={0.85} />;
+            }
+            if (yChartType === "area") {
+              return <Area key={y.dataKey} yAxisId={axisId} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.2} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.08} dot={false} />;
+            }
+            return <Line key={y.dataKey} yAxisId={axisId} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.5} dot={false} activeDot={{ r: 2.5 }} />;
+          })}
+        </ComposedChart>
+      );
+    }
+
+    const yAx = (
+      <YAxis
+        tickFormatter={(v: number) => formatValue(v, yAxes[0]?.format)}
+        tick={{ fontSize: 9, fill: "var(--color-chart-tick)" }}
+        axisLine={false}
+        tickLine={false}
+        width={52}
+      />
+    );
 
     if (chartType === "bar") {
       return (
@@ -282,31 +325,38 @@ function parseContentAndArtifacts(content: string, artifacts?: Artifact[] | null
   return parts;
 }
 
+function InlineFormatted({ text }: { text: string }) {
+  const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g);
+  return (
+    <>
+      {parts.map((part, j) => {
+        if (part.startsWith("**") && part.endsWith("**"))
+          return <strong key={j} className="font-semibold text-foreground/90">{part.slice(2, -2)}</strong>;
+        if (part.startsWith("`") && part.endsWith("`"))
+          return <code key={j} className="bg-muted/50 px-1 rounded text-[9px]">{part.slice(1, -1)}</code>;
+        return <span key={j}>{part}</span>;
+      })}
+    </>
+  );
+}
+
 function MarkdownText({ text }: { text: string }) {
   const lines = text.split("\n");
   return (
     <div className="space-y-1">
       {lines.map((line, i) => {
-        if (line.startsWith("### ")) return <h4 key={i} className="text-[11px] font-semibold text-foreground/90 mt-2">{line.slice(4)}</h4>;
-        if (line.startsWith("## ")) return <h3 key={i} className="text-[12px] font-semibold text-foreground/90 mt-3">{line.slice(3)}</h3>;
-        if (line.startsWith("# ")) return <h2 key={i} className="text-[13px] font-bold text-foreground mt-3">{line.slice(2)}</h2>;
-        if (line.startsWith("- ") || line.startsWith("* ")) return <p key={i} className="text-[10px] text-foreground/80 pl-3">• {line.slice(2)}</p>;
-        if (line.match(/^\d+\.\s/)) return <p key={i} className="text-[10px] text-foreground/80 pl-3">{line}</p>;
-        if (line.startsWith("> ")) return <p key={i} className="text-[10px] text-foreground/60 italic border-l-2 border-border/40 pl-2">{line.slice(2)}</p>;
+        if (line.startsWith("### ")) return <h4 key={i} className="text-[11px] font-semibold text-foreground/90 mt-2"><InlineFormatted text={line.slice(4)} /></h4>;
+        if (line.startsWith("## ")) return <h3 key={i} className="text-[12px] font-semibold text-foreground/90 mt-3"><InlineFormatted text={line.slice(3)} /></h3>;
+        if (line.startsWith("# ")) return <h2 key={i} className="text-[13px] font-bold text-foreground mt-3"><InlineFormatted text={line.slice(2)} /></h2>;
+        if (line.startsWith("- ") || line.startsWith("* ")) return <p key={i} className="text-[10px] text-foreground/80 pl-3">• <InlineFormatted text={line.slice(2)} /></p>;
+        if (line.match(/^\d+\.\s/)) return <p key={i} className="text-[10px] text-foreground/80 pl-3"><InlineFormatted text={line} /></p>;
+        if (line.startsWith("> ")) return <p key={i} className="text-[10px] text-foreground/60 italic border-l-2 border-border/40 pl-2"><InlineFormatted text={line.slice(2)} /></p>;
         if (line.startsWith("**") && line.endsWith("**")) return <p key={i} className="text-[10px] font-semibold text-foreground/90">{line.slice(2, -2)}</p>;
         if (!line.trim()) return <div key={i} className="h-1" />;
 
-        const parts = line.split(/(\*\*.*?\*\*|`.*?`)/g);
-
         return (
           <p key={i} className="text-[10px] text-foreground/80 leading-relaxed">
-            {parts.map((part, j) => {
-              if (part.startsWith("**") && part.endsWith("**"))
-                return <strong key={j}>{part.slice(2, -2)}</strong>;
-              if (part.startsWith("`") && part.endsWith("`"))
-                return <code key={j} className="bg-muted/50 px-1 rounded text-[9px]">{part.slice(1, -1)}</code>;
-              return <span key={j}>{part}</span>;
-            })}
+            <InlineFormatted text={line} />
           </p>
         );
       })}
