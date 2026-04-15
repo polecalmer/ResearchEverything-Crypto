@@ -17,6 +17,13 @@ export interface AnthropicResponse {
   mppCost: number;
 }
 
+export interface AnthropicRawResponse {
+  content: any[];
+  usage: { input_tokens: number; output_tokens: number };
+  stop_reason: string;
+  mppCost: number;
+}
+
 const CHANNEL_DEPOSIT = "20.0";
 const SHUTDOWN_TIMEOUT_MS = 15000;
 
@@ -250,4 +257,83 @@ export async function callAnthropicServer(request: AnthropicRequest): Promise<An
 
 export async function callAnthropicServerHeavy(request: AnthropicRequest): Promise<AnthropicResponse> {
   return callAnthropic(request);
+}
+
+export async function callAnthropicRaw(request: any): Promise<AnthropicRawResponse> {
+  if (isShuttingDown) {
+    throw new Error("Server is shutting down — please retry in a moment.");
+  }
+
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    const state = getOrCreateClient();
+
+    try {
+      const response = await state.session.fetch(ANTHROPIC_MPP_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "anthropic-version": "2023-06-01",
+          "x-api-key": "mpp",
+        },
+        body: JSON.stringify(request),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "Unknown error");
+        if (isRetryable(response.status) && attempt < MAX_RETRIES) {
+          const delay = RETRY_DELAY_MS * (attempt + 1);
+          await new Promise((r) => setTimeout(r, delay));
+          continue;
+        }
+        throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
+      }
+
+      const mppCost = response.receipt ? Number(response.cumulative) / 1e6 : 0;
+      state.totalSpent = Number(response.cumulative || 0n) / 1e6;
+      state.requestCount++;
+
+      console.log(`[MPP-Channel] Request #${state.requestCount}: cost ~$${mppCost.toFixed(4)} (cumulative: $${state.totalSpent.toFixed(4)})`);
+
+      const data = await response.json();
+
+      return {
+        content: data.content || [],
+        usage: {
+          input_tokens: data.usage?.input_tokens || 0,
+          output_tokens: data.usage?.output_tokens || 0,
+        },
+        stop_reason: data.stop_reason || "end_turn",
+        mppCost,
+      };
+    } catch (err) {
+      lastError = err as Error;
+      const errMsg = (err as any)?.message || "";
+
+      if (errMsg.includes("InsufficientBalance") || errMsg.includes("insufficient funds")) {
+        forceNewChannel();
+        throw new Error("AI service temporarily unavailable — server wallet needs to be topped up.");
+      }
+      if (errMsg.includes("Execution reverted")) {
+        forceNewChannel();
+        throw new Error("AI service payment failed — please try again.");
+      }
+      if (isChannelError(errMsg)) {
+        forceNewChannel();
+        if (attempt < MAX_RETRIES) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+          continue;
+        }
+      }
+      const isRetryableError = errMsg.includes("fetch") || errMsg.includes("524") || errMsg.includes("502") || errMsg.includes("503") || errMsg.includes("timeout") || errMsg.includes("ECONNRESET") || errMsg.includes("429");
+      if (attempt < MAX_RETRIES && isRetryableError) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  throw lastError || new Error("MPP call failed after retries");
 }

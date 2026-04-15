@@ -17,12 +17,14 @@ import {
   type BenchmarkRun, type BenchmarkCaseResult,
   type QueryTemplate, type InsertQueryTemplate,
   type ProtocolRevenueModel, type InsertProtocolRevenueModel,
+  type Conversation, type Message,
   users, companies, founders, notes, reports, transactions,
   tokenProfiles, masterDuneQueries, duneQueries, tokenAnalyses, dashboardCharts,
   provenQueries, systemLearnings,
   queryAttempts, benchmarkCases, benchmarkRuns, benchmarkCaseResults,
   queryTemplates,
   protocolRevenueModels,
+  conversations, messages,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, ne, desc, asc, and, isNull, isNotNull, sql } from "drizzle-orm";
@@ -140,6 +142,15 @@ export interface IStorage {
   getProtocolRevenueModel(protocol: string): Promise<ProtocolRevenueModel | undefined>;
   updateProtocolRevenueModel(id: string, data: Partial<InsertProtocolRevenueModel & { validationStatus: string; validationScore: number; validationError: string }>): Promise<ProtocolRevenueModel>;
   getActiveProtocolRevenueModels(): Promise<ProtocolRevenueModel[]>;
+
+  // Session research conversations
+  createConversation(data: { userId: string; title: string; type: string }): Promise<Conversation>;
+  getConversations(userId: string, type: string): Promise<Conversation[]>;
+  getConversation(id: number): Promise<Conversation | undefined>;
+  updateConversationTitle(id: number, title: string): Promise<void>;
+  deleteConversation(id: number): Promise<void>;
+  getMessages(conversationId: number): Promise<Message[]>;
+  createMessage(data: { conversationId: number; role: string; content: string; artifacts?: any }): Promise<Message>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -875,6 +886,41 @@ export class DatabaseStorage implements IStorage {
 
   async getActiveProtocolRevenueModels(): Promise<ProtocolRevenueModel[]> {
     return db.select().from(protocolRevenueModels).where(eq(protocolRevenueModels.isActive, true));
+  }
+
+  async createConversation(data: { userId: string; title: string; type: string }): Promise<Conversation> {
+    const [conv] = await db.insert(conversations).values(data).returning();
+    return conv;
+  }
+
+  async getConversations(userId: string, type: string): Promise<Conversation[]> {
+    return db.select().from(conversations)
+      .where(and(eq(conversations.userId, userId), eq(conversations.type, type)))
+      .orderBy(desc(conversations.createdAt));
+  }
+
+  async getConversation(id: number): Promise<Conversation | undefined> {
+    const [conv] = await db.select().from(conversations).where(eq(conversations.id, id));
+    return conv;
+  }
+
+  async updateConversationTitle(id: number, title: string): Promise<void> {
+    await db.update(conversations).set({ title }).where(eq(conversations.id, id));
+  }
+
+  async deleteConversation(id: number): Promise<void> {
+    await db.delete(conversations).where(eq(conversations.id, id));
+  }
+
+  async getMessages(conversationId: number): Promise<Message[]> {
+    return db.select().from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .orderBy(asc(messages.createdAt));
+  }
+
+  async createMessage(data: { conversationId: number; role: string; content: string; artifacts?: any }): Promise<Message> {
+    const [msg] = await db.insert(messages).values(data).returning();
+    return msg;
   }
 }
 

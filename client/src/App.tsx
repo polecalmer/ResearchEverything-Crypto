@@ -21,6 +21,7 @@ import CreditsPage from "@/pages/credits";
 import WalletPage from "@/pages/wallet";
 import ReportViewer from "@/pages/report-viewer";
 import AdminPage from "@/pages/admin";
+import SessionResearch from "@/pages/session-research";
 import LandingPage from "@/pages/landing-page";
 import AuthPage from "@/pages/auth-page";
 import { QuickCapture } from "@/components/quick-capture";
@@ -109,6 +110,7 @@ function AuthenticatedApp() {
               <Route path="/credits" component={CreditsPage} />
               <Route path="/wallet" component={WalletPage} />
               <Route path="/data" component={DataPage} />
+              <Route path="/research" component={SessionResearch} />
               <Route path="/admin" component={AdminPage} />
               <Route component={NotFound} />
             </Switch>

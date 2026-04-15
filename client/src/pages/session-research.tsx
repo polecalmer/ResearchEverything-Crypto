@@ -1,0 +1,552 @@
+import { useState, useRef, useEffect, useCallback } from "react";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { queryClient, apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
+import {
+  Send, Plus, Trash2, Loader2, MessageSquare,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  ResponsiveContainer,
+  LineChart, Line, BarChart, Bar, AreaChart, Area,
+  XAxis, YAxis, Tooltip, CartesianGrid, Legend,
+} from "recharts";
+import { format } from "date-fns";
+
+const CHART_COLORS = [
+  "hsl(217 91% 60%)", "hsl(142 71% 45%)", "hsl(262 83% 58%)",
+  "hsl(24 95% 53%)", "hsl(349 89% 60%)", "hsl(47 96% 53%)",
+  "hsl(189 94% 43%)", "hsl(322 81% 43%)",
+];
+
+interface Artifact {
+  type: "chart" | "table";
+  title: string;
+  data: any[];
+  chartConfig?: {
+    chartType: string;
+    xAxis: { dataKey: string; label?: string; format?: string };
+    yAxes: Array<{ dataKey: string; label?: string; format?: string }>;
+  };
+  columns?: string[];
+}
+
+interface SessionMessage {
+  id: number;
+  conversationId: number;
+  role: string;
+  content: string;
+  artifacts?: Artifact[] | null;
+  createdAt: string;
+}
+
+interface Session {
+  id: number;
+  userId: string;
+  title: string;
+  type: string;
+  createdAt: string;
+}
+
+function formatValue(val: any, fmt?: string): string {
+  if (val == null) return "—";
+  const n = Number(val);
+  if (isNaN(n)) return String(val);
+  if (fmt === "currency") {
+    if (Math.abs(n) >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+    if (Math.abs(n) >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+    if (Math.abs(n) >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
+    return `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  }
+  if (fmt === "percent") return `${n.toFixed(2)}%`;
+  if (Math.abs(n) >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+  if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+  return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
+}
+
+function InlineChart({ artifact }: { artifact: Artifact }) {
+  const { chartConfig, data, title } = artifact;
+  if (!chartConfig || !data?.length) return null;
+
+  const { chartType, xAxis, yAxes } = chartConfig;
+
+  const isDate = xAxis.format === "date" || (data[0]?.[xAxis.dataKey] && /^\d{4}-\d{2}/.test(String(data[0][xAxis.dataKey])));
+
+  const xTickFormatter = (val: any) => {
+    if (isDate) {
+      try { return format(new Date(val), "MMM ''yy"); } catch { return val; }
+    }
+    return formatValue(val, xAxis.format);
+  };
+
+  const tooltipLabelFormatter = (val: any) => {
+    if (isDate) {
+      try { return format(new Date(val), "MMM d, yyyy"); } catch { return val; }
+    }
+    return String(val);
+  };
+
+  const tooltipFormatter = (value: any, name: string) => {
+    const ax = yAxes.find(y => y.dataKey === name);
+    return [formatValue(value, ax?.format), ax?.label || name.replace(/_/g, " ")];
+  };
+
+  const renderChart = () => {
+    const commonProps = { data, margin: { top: 8, right: 16, left: 0, bottom: 4 } };
+    const grid = <CartesianGrid strokeDasharray="2 6" stroke="var(--color-chart-grid)" vertical={false} />;
+    const xAx = (
+      <XAxis
+        dataKey={xAxis.dataKey}
+        tickFormatter={xTickFormatter}
+        tick={{ fontSize: 9, fill: "var(--color-chart-tick)" }}
+        axisLine={false}
+        tickLine={false}
+      />
+    );
+    const yAx = (
+      <YAxis
+        tickFormatter={(v: number) => formatValue(v, yAxes[0]?.format)}
+        tick={{ fontSize: 9, fill: "var(--color-chart-tick)" }}
+        axisLine={false}
+        tickLine={false}
+        width={52}
+      />
+    );
+    const tip = (
+      <Tooltip
+        allowEscapeViewBox={{ x: false, y: true }}
+        offset={16}
+        contentStyle={{
+          backgroundColor: "var(--color-tooltip-bg)",
+          border: "1px solid var(--color-tooltip-border)",
+          borderRadius: "8px", fontSize: "12px", padding: "8px 12px",
+          color: "var(--color-tooltip-text)",
+          backdropFilter: "blur(12px)",
+          boxShadow: "0 4px 20px rgba(0,0,0,0.2)",
+          pointerEvents: "none",
+        }}
+        wrapperStyle={{ pointerEvents: "none", zIndex: 50 }}
+        labelFormatter={tooltipLabelFormatter}
+        formatter={tooltipFormatter}
+        cursor={{ fill: "var(--color-chart-cursor)" }}
+      />
+    );
+    const leg = yAxes.length > 1 ? (
+      <Legend verticalAlign="top" align="left" height={22} iconType="plainline" iconSize={10}
+        wrapperStyle={{ fontSize: "9px", color: "var(--color-tooltip-text)", paddingBottom: "2px" }}
+        formatter={(v: string) => { const ax = yAxes.find(y => y.dataKey === v); return ax?.label || v.replace(/_/g, " "); }}
+      />
+    ) : null;
+
+    if (chartType === "bar") {
+      return (
+        <BarChart {...commonProps}>
+          {grid}{xAx}{yAx}{tip}{leg}
+          {yAxes.map((y, i) => (
+            <Bar key={y.dataKey} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[1, 1, 0, 0]} maxBarSize={32} opacity={0.85} />
+          ))}
+        </BarChart>
+      );
+    }
+    if (chartType === "area") {
+      return (
+        <AreaChart {...commonProps}>
+          {grid}{xAx}{yAx}{tip}{leg}
+          {yAxes.map((y, i) => (
+            <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.2} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.08} dot={false} />
+          ))}
+        </AreaChart>
+      );
+    }
+    return (
+      <LineChart {...commonProps}>
+        {grid}{xAx}{yAx}{tip}{leg}
+        {yAxes.map((y, i) => (
+          <Line key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.2} dot={false} activeDot={{ r: 2.5, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "rgba(0,0,0,0.5)", strokeWidth: 1 }} />
+        ))}
+      </LineChart>
+    );
+  };
+
+  return (
+    <div className="my-3 rounded border border-border/40 bg-card/30 p-3" style={{ overflow: "visible" }}>
+      <h4 className="text-[11px] font-medium text-foreground/80 mb-2">{title}</h4>
+      <div style={{ overflow: "visible" }}>
+        <ResponsiveContainer width="100%" height={220} style={{ overflow: "visible" }}>
+          {renderChart()}
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+function InlineTable({ artifact }: { artifact: Artifact }) {
+  const { data, columns, title } = artifact;
+  if (!data?.length) return null;
+
+  const cols = columns || Object.keys(data[0]);
+
+  return (
+    <div className="my-3 rounded border border-border/40 bg-card/30 overflow-hidden">
+      <h4 className="text-[11px] font-medium text-foreground/80 px-3 pt-2 pb-1">{title}</h4>
+      <div className="overflow-x-auto">
+        <table className="w-full text-[10px]">
+          <thead>
+            <tr className="border-b border-border/30">
+              {cols.map(c => (
+                <th key={c} className="px-3 py-1.5 text-left font-medium text-muted-foreground/70 uppercase tracking-wider">{c.replace(/_/g, " ")}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {data.slice(0, 50).map((row: any, i: number) => (
+              <tr key={i} className="border-b border-border/20 last:border-0">
+                {cols.map(c => (
+                  <td key={c} className="px-3 py-1.5 text-foreground/80 font-mono">{formatValue(row[c])}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function parseContentAndArtifacts(content: string, artifacts?: Artifact[] | null): Array<{ type: "text" | "chart" | "table"; content?: string; artifact?: Artifact }> {
+  const parts: Array<{ type: "text" | "chart" | "table"; content?: string; artifact?: Artifact }> = [];
+  const regex = /```artifact:(chart|table)\s*\n([\s\S]*?)```/g;
+  let lastIndex = 0;
+  let artifactIndex = 0;
+  let match;
+
+  while ((match = regex.exec(content)) !== null) {
+    if (match.index > lastIndex) {
+      const textBefore = content.slice(lastIndex, match.index).trim();
+      if (textBefore) parts.push({ type: "text", content: textBefore });
+    }
+
+    const type = match[1] as "chart" | "table";
+    if (artifacts && artifactIndex < artifacts.length) {
+      parts.push({ type, artifact: artifacts[artifactIndex] });
+      artifactIndex++;
+    } else {
+      try {
+        const json = JSON.parse(match[2].trim());
+        const artifact: Artifact = type === "chart"
+          ? { type: "chart", title: json.title || "Chart", data: json.data || [], chartConfig: { chartType: json.chartType || "line", xAxis: json.xAxis || { dataKey: "date" }, yAxes: json.yAxes || [] } }
+          : { type: "table", title: json.title || "Table", data: json.data || [], columns: json.columns };
+        parts.push({ type, artifact });
+      } catch {}
+    }
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < content.length) {
+    const remaining = content.slice(lastIndex).trim();
+    if (remaining) parts.push({ type: "text", content: remaining });
+  }
+
+  if (parts.length === 0 && content.trim()) {
+    parts.push({ type: "text", content: content.trim() });
+  }
+
+  return parts;
+}
+
+function MarkdownText({ text }: { text: string }) {
+  const lines = text.split("\n");
+  return (
+    <div className="space-y-1">
+      {lines.map((line, i) => {
+        if (line.startsWith("### ")) return <h4 key={i} className="text-[11px] font-semibold text-foreground/90 mt-2">{line.slice(4)}</h4>;
+        if (line.startsWith("## ")) return <h3 key={i} className="text-[12px] font-semibold text-foreground/90 mt-3">{line.slice(3)}</h3>;
+        if (line.startsWith("# ")) return <h2 key={i} className="text-[13px] font-bold text-foreground mt-3">{line.slice(2)}</h2>;
+        if (line.startsWith("- ") || line.startsWith("* ")) return <p key={i} className="text-[10px] text-foreground/80 pl-3">• {line.slice(2)}</p>;
+        if (line.match(/^\d+\.\s/)) return <p key={i} className="text-[10px] text-foreground/80 pl-3">{line}</p>;
+        if (line.startsWith("> ")) return <p key={i} className="text-[10px] text-foreground/60 italic border-l-2 border-border/40 pl-2">{line.slice(2)}</p>;
+        if (line.startsWith("**") && line.endsWith("**")) return <p key={i} className="text-[10px] font-semibold text-foreground/90">{line.slice(2, -2)}</p>;
+        if (!line.trim()) return <div key={i} className="h-1" />;
+
+        const parts = line.split(/(\*\*.*?\*\*|`.*?`)/g);
+
+        return (
+          <p key={i} className="text-[10px] text-foreground/80 leading-relaxed">
+            {parts.map((part, j) => {
+              if (part.startsWith("**") && part.endsWith("**"))
+                return <strong key={j}>{part.slice(2, -2)}</strong>;
+              if (part.startsWith("`") && part.endsWith("`"))
+                return <code key={j} className="bg-muted/50 px-1 rounded text-[9px]">{part.slice(1, -1)}</code>;
+              return <span key={j}>{part}</span>;
+            })}
+          </p>
+        );
+      })}
+    </div>
+  );
+}
+
+function MessageBubble({ msg }: { msg: SessionMessage }) {
+  const isUser = msg.role === "user";
+
+  if (isUser) {
+    return (
+      <div className="flex justify-end mb-4" data-testid={`msg-user-${msg.id}`}>
+        <div className="max-w-[80%] bg-primary/10 rounded-lg px-3 py-2">
+          <p className="text-[10px] text-foreground/90">{msg.content}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const parts = parseContentAndArtifacts(msg.content, msg.artifacts as Artifact[] | null);
+
+  return (
+    <div className="mb-4" data-testid={`msg-assistant-${msg.id}`}>
+      <div className="max-w-full">
+        {parts.map((part, i) => {
+          if (part.type === "text" && part.content) {
+            return <MarkdownText key={i} text={part.content} />;
+          }
+          if (part.type === "chart" && part.artifact) {
+            return <InlineChart key={i} artifact={part.artifact} />;
+          }
+          if (part.type === "table" && part.artifact) {
+            return <InlineTable key={i} artifact={part.artifact} />;
+          }
+          return null;
+        })}
+      </div>
+    </div>
+  );
+}
+
+export default function SessionResearch() {
+  const { user } = useAuth();
+  const { toast } = useToast();
+  const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
+  const [input, setInput] = useState("");
+  const [pendingUserMsg, setPendingUserMsg] = useState<string | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  const sessionsQuery = useQuery<Session[]>({
+    queryKey: ["/api/research/sessions"],
+    enabled: !!user,
+  });
+
+  const messagesQuery = useQuery<SessionMessage[]>({
+    queryKey: [`/api/research/sessions/${activeSessionId}/messages`],
+    enabled: !!activeSessionId,
+  });
+
+  const createSessionMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/research/sessions", {});
+      return res.json();
+    },
+    onSuccess: (session: Session) => {
+      setActiveSessionId(session.id);
+      queryClient.invalidateQueries({ queryKey: ["/api/research/sessions"] });
+    },
+    onError: (err: any) => {
+      setPendingUserMsg(null);
+      toast({ title: "Error", description: "Failed to create session: " + err.message, variant: "destructive" });
+    },
+  });
+
+  const sendMessageMutation = useMutation({
+    mutationFn: async (message: string) => {
+      const res = await apiRequest("POST", `/api/research/sessions/${activeSessionId}/messages`, { message });
+      return res.json();
+    },
+    onSuccess: () => {
+      setPendingUserMsg(null);
+      queryClient.invalidateQueries({ queryKey: [`/api/research/sessions/${activeSessionId}/messages`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/research/sessions"] });
+    },
+    onError: (err: any) => {
+      setPendingUserMsg(null);
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    },
+  });
+
+  const deleteSessionMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/research/sessions/${id}`);
+    },
+    onSuccess: (_, deletedId) => {
+      if (activeSessionId === deletedId) setActiveSessionId(null);
+      queryClient.invalidateQueries({ queryKey: ["/api/research/sessions"] });
+    },
+  });
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messagesQuery.data, sendMessageMutation.isPending]);
+
+  const handleSend = useCallback(() => {
+    const msg = input.trim();
+    if (!msg || sendMessageMutation.isPending) return;
+
+    setPendingUserMsg(msg);
+    setInput("");
+
+    if (!activeSessionId) {
+      createSessionMutation.mutate(undefined, {
+        onSuccess: (session: Session) => {
+          setActiveSessionId(session.id);
+          setTimeout(() => {
+            sendMessageMutation.mutate(msg);
+          }, 100);
+        },
+      });
+    } else {
+      sendMessageMutation.mutate(msg);
+    }
+  }, [input, activeSessionId, sendMessageMutation.isPending]);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
+
+  const sessions = sessionsQuery.data || [];
+  const messages = messagesQuery.data || [];
+
+  const suggestedQueries = [
+    "Compare TVL growth of Aave vs Compound vs Morpho over the last year",
+    "Show me Hyperliquid's derivatives volume trend",
+    "Which DEXs have the highest revenue in the last 30 days?",
+    "What's the P/E ratio trend for Ethereum L2s?",
+  ];
+
+  return (
+    <div className="flex h-[calc(100vh-48px)]" data-testid="session-research-page">
+      <div className="w-56 border-r border-border/30 flex flex-col bg-card/20 shrink-0">
+        <div className="p-3 border-b border-border/30">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full text-[10px] h-7 gap-1.5"
+            onClick={() => { setActiveSessionId(null); }}
+            data-testid="button-new-session"
+          >
+            <Plus className="h-3 w-3" />
+            New Session
+          </Button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {sessions.map(s => (
+            <div
+              key={s.id}
+              className={`group flex items-center gap-1.5 px-3 py-2 cursor-pointer border-b border-border/10 transition-colors ${
+                activeSessionId === s.id ? "bg-primary/5" : "hover:bg-muted/30"
+              }`}
+              onClick={() => setActiveSessionId(s.id)}
+              data-testid={`session-item-${s.id}`}
+            >
+              <MessageSquare className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+              <span className="text-[10px] text-foreground/70 truncate flex-1">{s.title}</span>
+              <button
+                className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-destructive transition-opacity"
+                onClick={(e) => { e.stopPropagation(); deleteSessionMutation.mutate(s.id); }}
+                data-testid={`button-delete-session-${s.id}`}
+              >
+                <Trash2 className="h-3 w-3" />
+              </button>
+            </div>
+          ))}
+          {sessions.length === 0 && !sessionsQuery.isLoading && (
+            <p className="text-[9px] text-muted-foreground/40 text-center py-8 px-3">No sessions yet. Start a new research session.</p>
+          )}
+        </div>
+      </div>
+
+      <div className="flex-1 flex flex-col min-w-0">
+        <div className="flex-1 overflow-y-auto px-6 py-4">
+          {!activeSessionId && messages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full max-w-lg mx-auto">
+              <h2 className="text-[14px] font-semibold text-foreground/90 mb-1">Session Research</h2>
+              <p className="text-[10px] text-muted-foreground/60 mb-6 text-center">
+                Ask anything about DeFi protocols, on-chain data, or market trends. Charts and tables render inline.
+              </p>
+              <div className="grid grid-cols-2 gap-2 w-full">
+                {suggestedQueries.map((q, i) => (
+                  <button
+                    key={i}
+                    className="text-left text-[10px] text-foreground/60 hover:text-foreground/90 bg-card/40 hover:bg-card/60 rounded border border-border/30 px-3 py-2.5 transition-colors"
+                    onClick={() => {
+                      setInput(q);
+                      inputRef.current?.focus();
+                    }}
+                    data-testid={`suggested-query-${i}`}
+                  >
+                    {q}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="max-w-2xl mx-auto">
+              {messages.map(msg => (
+                <MessageBubble key={msg.id} msg={msg} />
+              ))}
+              {pendingUserMsg && sendMessageMutation.isPending && (
+                <div className="flex justify-end mb-4" data-testid="msg-user-pending">
+                  <div className="max-w-[80%] bg-primary/10 rounded-lg px-3 py-2">
+                    <p className="text-[10px] text-foreground/90">{pendingUserMsg}</p>
+                  </div>
+                </div>
+              )}
+              {sendMessageMutation.isPending && (
+                <div className="flex items-center gap-2 mb-4 text-muted-foreground/50" data-testid="loading-indicator">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  <span className="text-[10px]">Researching...</span>
+                </div>
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-border/30 px-6 py-3 bg-background/80 backdrop-blur">
+          <div className="max-w-2xl mx-auto flex items-end gap-2">
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={e => {
+                setInput(e.target.value);
+                e.target.style.height = "auto";
+                e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+              }}
+              onKeyDown={handleKeyDown}
+              placeholder="Ask about protocols, metrics, or on-chain data..."
+              className="flex-1 resize-none rounded border border-border/40 bg-card/30 px-3 py-2 text-[11px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 min-h-[36px] max-h-[120px]"
+              rows={1}
+              disabled={sendMessageMutation.isPending}
+              data-testid="input-research-message"
+            />
+            <Button
+              size="sm"
+              className="h-9 w-9 p-0 shrink-0"
+              onClick={handleSend}
+              disabled={!input.trim() || sendMessageMutation.isPending}
+              data-testid="button-send-message"
+            >
+              {sendMessageMutation.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Send className="h-3.5 w-3.5" />
+              )}
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

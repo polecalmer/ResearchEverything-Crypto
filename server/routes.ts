@@ -1628,5 +1628,120 @@ export async function registerRoutes(
     }
   });
 
+  // ═══════════════════════════════════════════════════
+  // Session Research
+  // ═══════════════════════════════════════════════════
+
+  app.get("/api/research/sessions", requireAuth, async (req, res) => {
+    try {
+      const sessions = await storage.getConversations(req.user!.id, "research");
+      res.json(sessions);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/research/sessions", requireAuth, async (req, res) => {
+    try {
+      const session = await storage.createConversation({
+        userId: req.user!.id,
+        title: req.body.title || "New Research Session",
+        type: "research",
+      });
+      res.json(session);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/research/sessions/:id/messages", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid session ID" });
+      const session = await storage.getConversation(id);
+      if (!session || session.userId !== req.user!.id) {
+        return res.status(404).json({ message: "Session not found" });
+      }
+      const msgs = await storage.getMessages(session.id);
+      res.json(msgs);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/research/sessions/:id/messages", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid session ID" });
+      const session = await storage.getConversation(id);
+      if (!session || session.userId !== req.user!.id) {
+        return res.status(404).json({ message: "Session not found" });
+      }
+
+      const { message } = req.body;
+      if (!message || typeof message !== "string") {
+        return res.status(400).json({ message: "Message is required" });
+      }
+
+      await storage.createMessage({
+        conversationId: session.id,
+        role: "user",
+        content: message,
+      });
+
+      const history = await storage.getMessages(session.id);
+      const historyForAgent = history.map(m => ({ role: m.role, content: m.content }));
+
+      const { runSessionResearchAgent, parseArtifacts } = await import("./session-research-agent");
+      const result = await runSessionResearchAgent(message, historyForAgent.slice(0, -1));
+
+      const artifacts = parseArtifacts(result.content);
+      const assistantMsg = await storage.createMessage({
+        conversationId: session.id,
+        role: "assistant",
+        content: result.content,
+        artifacts: artifacts.length > 0 ? artifacts : undefined,
+      });
+
+      if (history.length <= 2) {
+        const titleSnippet = message.slice(0, 60) + (message.length > 60 ? "..." : "");
+        await storage.updateConversationTitle(session.id, titleSnippet);
+      }
+
+      await storage.logTransaction({
+        userId: req.user!.id,
+        type: "session_research",
+        description: `Research: "${message.slice(0, 80)}"`,
+        amount: result.mppCost.toFixed(4),
+        apiCost: result.mppCost.toFixed(4),
+      });
+
+      res.json({
+        message: assistantMsg,
+        artifacts,
+        mppCost: result.mppCost,
+        toolCalls: result.toolCalls,
+      });
+    } catch (e: any) {
+      console.error("[SessionResearch] Error:", e.message);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/research/sessions/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid session ID" });
+      const session = await storage.getConversation(id);
+      if (!session || session.userId !== req.user!.id) {
+        return res.status(404).json({ message: "Session not found" });
+      }
+      await storage.deleteConversation(session.id);
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   return httpServer;
 }
