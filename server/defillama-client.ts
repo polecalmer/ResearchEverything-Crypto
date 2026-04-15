@@ -284,3 +284,53 @@ export async function getProtocolSummary(slug: string): Promise<{
   ]);
   return { tvl, fees, revenue };
 }
+
+export async function getYieldPools(protocol?: string): Promise<any[]> {
+  const data = await fetchJson("https://yields.llama.fi/pools");
+  let pools = data.data || [];
+  if (protocol) {
+    const lower = protocol.toLowerCase();
+    pools = pools.filter((p: any) => p.project?.toLowerCase().includes(lower));
+  }
+  return pools.slice(0, 50).map((p: any) => ({
+    pool: p.pool,
+    chain: p.chain,
+    project: p.project,
+    symbol: p.symbol,
+    tvlUsd: p.tvlUsd,
+    apy: p.apy,
+    apyBase: p.apyBase,
+    apyReward: p.apyReward,
+    stablecoin: p.stablecoin,
+  }));
+}
+
+export async function getStablecoins(): Promise<any[]> {
+  const data = await fetchJson("https://stablecoins.llama.fi/stablecoins?includePrices=true");
+  const pegged = data.peggedAssets || [];
+  return pegged.slice(0, 30).map((s: any) => ({
+    name: s.name,
+    symbol: s.symbol,
+    circulating: s.circulating?.peggedUSD,
+    price: s.price,
+    chains: s.chains?.slice(0, 5),
+  }));
+}
+
+export async function getChainTvls(): Promise<any[]> {
+  const data = await fetchJson(`${DEFILLAMA_BASE}/v2/chains`);
+  return (data || []).slice(0, 50).map((c: any) => ({
+    name: c.name,
+    tvl: c.tvl,
+    tokenSymbol: c.tokenSymbol,
+    gecko_id: c.gecko_id,
+  }));
+}
+
+export async function getChainTvlHistory(chain: string): Promise<any[]> {
+  const data = await fetchJson(`${DEFILLAMA_BASE}/v2/historicalChainTvl/${chain}`);
+  return (data || []).map((d: any) => ({
+    date: d.date,
+    tvl: d.tvl,
+  }));
+}

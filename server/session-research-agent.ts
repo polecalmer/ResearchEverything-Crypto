@@ -107,7 +107,7 @@ const TOOLS = [
   },
   {
     name: "execute_dune_sql",
-    description: "Execute a DuneSQL query (Trino dialect) against Dune Analytics' blockchain data warehouse. Use for on-chain metrics not available via DeFiLlama.",
+    description: "Execute a DuneSQL query (Trino dialect) against Dune Analytics' blockchain data warehouse. Use for on-chain metrics not available via DeFiLlama — active users, transaction counts, wallet distributions, unique traders, etc.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -167,6 +167,35 @@ const TOOLS = [
         description: { type: "string" as const, description: "What this code computes" },
       },
       required: ["code", "description"],
+    },
+  },
+  {
+    name: "query_yield_pools",
+    description: "Get DeFi yield/APY data for a protocol's pools from DeFiLlama Yields. Returns pool TVL, APY breakdown (base vs reward), chain, and asset info.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        protocol: { type: "string" as const, description: "Protocol name to filter pools (e.g. 'aave', 'lido', 'compound')" },
+      },
+      required: ["protocol"],
+    },
+  },
+  {
+    name: "query_stablecoins",
+    description: "Get stablecoin market data — circulating supply, prices, top chains. Useful for understanding stablecoin landscape and market share.",
+    input_schema: {
+      type: "object" as const,
+      properties: {},
+    },
+  },
+  {
+    name: "query_chain_tvl",
+    description: "Get TVL data for blockchain L1/L2 chains. Without a chain parameter, returns all chains ranked by TVL. With a chain, returns historical TVL for that chain.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        chain: { type: "string" as const, description: "Chain name for historical TVL (e.g. 'Ethereum', 'Arbitrum', 'Solana'). Omit for all chains ranked by TVL." },
+      },
     },
   },
 ];
@@ -238,12 +267,16 @@ For tables, use:
 TOOL USAGE GUIDELINES:
 - Start with get_token_snapshot for current price/mcap/supply data
 - Use DeFiLlama for historical metrics (TVL, fees, revenue, volume)
+- Use query_yield_pools for yield/APY data and liquidity pool analysis
+- Use query_stablecoins for stablecoin market landscape
+- Use query_chain_tvl for chain-level TVL trends (L1 vs L2 capital flows)
 - Use web search (built into this model) for qualitative context — governance proposals, ecosystem news, analyst estimates, token unlock schedules
 - Use execute_code for ALL financial calculations — growth rates, projected revenue, P/S ratios, scenario analysis, sensitivity tables
 - Use Dune SQL for on-chain granularity (active users, transaction counts, wallet distributions)
 - Before writing Dune SQL, use discover_dune_tables to find the right tables
 - When comparing protocols, use compare_protocols for quick benchmarks
 - Make 10-20+ tool calls for complex questions — don't satisfice with 3-4 calls
+- THINK DEEPLY before each tool call about what data you actually need
 - If a tool call fails, explain what happened and try an alternative approach
 
 OUTPUT QUALITY RULES:
@@ -391,6 +424,26 @@ async function executeTool(name: string, input: any): Promise<string> {
         const result = await executeCode(input.code);
         return result;
       }
+      case "query_yield_pools": {
+        const pools = await defillama.getYieldPools(input.protocol);
+        return JSON.stringify({ count: pools.length, pools });
+      }
+      case "query_stablecoins": {
+        const stables = await defillama.getStablecoins();
+        return JSON.stringify({ count: stables.length, stablecoins: stables });
+      }
+      case "query_chain_tvl": {
+        if (input.chain) {
+          const history = await defillama.getChainTvlHistory(input.chain);
+          const sampled = sampleData(history.map((d: any) => ({
+            date: new Date(d.date * 1000).toISOString().slice(0, 10),
+            tvl: Math.round(d.tvl),
+          })), 365);
+          return JSON.stringify({ chain: input.chain, points: sampled.length, data: sampled });
+        }
+        const chains = await defillama.getChainTvls();
+        return JSON.stringify({ count: chains.length, chains });
+      }
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
@@ -523,6 +576,9 @@ const TOOL_LABELS: Record<string, string> = {
   compare_protocols: "Comparing protocols side-by-side",
   get_token_snapshot: "Fetching live token metrics",
   execute_code: "Running financial model",
+  query_yield_pools: "Fetching yield/APY data",
+  query_stablecoins: "Loading stablecoin market data",
+  query_chain_tvl: "Querying chain TVL data",
 };
 
 function toolLabel(name: string, input: any): string {
@@ -537,6 +593,8 @@ function toolLabel(name: string, input: any): string {
   if (name === "compare_protocols") return `${base}: ${(input.protocols || []).join(", ")}`;
   if (name === "get_token_snapshot") return `${base} for ${input.ticker || "token"}`;
   if (name === "execute_code") return `${base}: ${input.description || "computation"}`;
+  if (name === "query_yield_pools") return `${base} for ${input.protocol || "pools"}`;
+  if (name === "query_chain_tvl") return input.chain ? `${base} for ${input.chain}` : base;
   return base;
 }
 
@@ -591,39 +649,53 @@ export async function runSessionResearchAgent(
     max_uses: 5,
   });
 
-  const MAX_TOOL_ROUNDS = 12;
+  const MAX_TOOL_ROUNDS = 15;
   let finalText = "";
 
-  onStep?.({ type: "thinking", label: "Planning research approach" });
+  onStep?.({ type: "thinking", label: "Deep thinking about research approach..." });
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     console.log(`[SessionResearch] Round ${round + 1}/${MAX_TOOL_ROUNDS}`);
 
-    const response: AnthropicRawResponse = await callAnthropicRaw({
-      model: "claude-sonnet-4-20250514",
+    const requestBody: any = {
+      model: "claude-opus-4-0-20250514",
       max_tokens: 16000,
+      thinking: {
+        type: "enabled",
+        budget_tokens: 10000,
+      },
       system: systemPrompt,
       messages,
       tools: anthropicTools,
-    });
+      temperature: 1,
+    };
+
+    const response: AnthropicRawResponse = await callAnthropicRaw(requestBody);
 
     totalCost += response.mppCost;
 
-    const thinkingText = response.content
-      .filter((b: any) => b.type === "text")
-      .map((b: any) => b.text)
-      .join("");
+    const thinkingBlocks = response.content.filter((b: any) => b.type === "thinking");
+    const textBlocks = response.content.filter((b: any) => b.type === "text");
+    const outputText = textBlocks.map((b: any) => b.text).join("");
+
+    if (thinkingBlocks.length > 0) {
+      const thinkingSummary = (thinkingBlocks[0].thinking || "").slice(0, 200);
+      console.log(`[SessionResearch] Thinking: ${thinkingSummary}...`);
+    }
 
     const hasToolUse = response.content.some((b: any) => b.type === "tool_use");
 
     if (!hasToolUse || response.stop_reason === "end_turn") {
-      finalText = thinkingText;
+      finalText = outputText;
       onStep?.({ type: "complete", label: "Composing final analysis" });
       break;
     }
 
-    if (thinkingText.trim()) {
-      const snippet = thinkingText.trim().split("\n")[0].slice(0, 120);
+    if (outputText.trim()) {
+      const snippet = outputText.trim().split("\n")[0].slice(0, 120);
+      onStep?.({ type: "thinking", label: snippet, round: round + 1, totalRounds: MAX_TOOL_ROUNDS });
+    } else if (thinkingBlocks.length > 0) {
+      const snippet = (thinkingBlocks[0].thinking || "Analyzing...").slice(0, 120);
       onStep?.({ type: "thinking", label: snippet, round: round + 1, totalRounds: MAX_TOOL_ROUNDS });
     }
 
