@@ -6,7 +6,7 @@ export function setAccessTokenGetter(fn: () => Promise<string | null>) {
   getAccessTokenFn = fn;
 }
 
-async function getAuthHeaders(): Promise<Record<string, string>> {
+export async function getAuthHeaders(): Promise<Record<string, string>> {
   if (!getAccessTokenFn) return {};
   const token = await getAccessTokenFn();
   if (!token) return {};

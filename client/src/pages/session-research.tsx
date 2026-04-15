@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import {
   Send, Plus, Trash2, Loader2, MessageSquare,
+  CheckCircle2, ChevronDown, Brain, Search, BarChart3,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -323,12 +324,60 @@ function MessageBubble({ msg }: { msg: SessionMessage }) {
   );
 }
 
+interface ThinkingStep {
+  type: "thinking" | "tool_start" | "tool_result" | "analyzing" | "complete";
+  label: string;
+  detail?: string;
+  round?: number;
+  totalRounds?: number;
+  timestamp?: number;
+}
+
+function ThinkingPanel({ steps }: { steps: ThinkingStep[] }) {
+  const [expanded, setExpanded] = useState(true);
+  if (steps.length === 0) return null;
+
+  const latestLabel = steps[steps.length - 1]?.label || "Thinking...";
+  const isComplete = steps[steps.length - 1]?.type === "complete";
+
+  return (
+    <div className="mb-3 rounded border border-border/30 bg-card/20 overflow-hidden" data-testid="thinking-panel">
+      <button
+        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/20 transition-colors"
+        onClick={() => setExpanded(!expanded)}
+        data-testid="button-toggle-thinking"
+      >
+        {!isComplete && <Loader2 className="h-3 w-3 animate-spin text-primary/60" />}
+        {isComplete && <CheckCircle2 className="h-3 w-3 text-emerald-500/70" />}
+        <span className="text-[10px] text-foreground/60 flex-1 truncate">{latestLabel}</span>
+        <ChevronDown className={`h-3 w-3 text-muted-foreground/40 transition-transform ${expanded ? "" : "-rotate-90"}`} />
+      </button>
+      {expanded && (
+        <div className="px-3 pb-2 space-y-0.5">
+          {steps.map((step, i) => (
+            <div key={i} className="flex items-start gap-2 py-0.5">
+              {step.type === "thinking" && <Brain className="h-3 w-3 text-blue-400/60 mt-0.5 shrink-0" />}
+              {step.type === "tool_start" && <Search className="h-3 w-3 text-amber-400/60 mt-0.5 shrink-0" />}
+              {step.type === "tool_result" && <CheckCircle2 className="h-3 w-3 text-emerald-400/60 mt-0.5 shrink-0" />}
+              {step.type === "analyzing" && <BarChart3 className="h-3 w-3 text-purple-400/60 mt-0.5 shrink-0" />}
+              {step.type === "complete" && <CheckCircle2 className="h-3 w-3 text-emerald-500/60 mt-0.5 shrink-0" />}
+              <span className="text-[9px] text-foreground/50 leading-relaxed">{step.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SessionResearch() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
   const [input, setInput] = useState("");
   const [pendingUserMsg, setPendingUserMsg] = useState<string | null>(null);
+  const [thinkingSteps, setThinkingSteps] = useState<ThinkingStep[]>([]);
+  const [isSending, setIsSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -353,23 +402,8 @@ export default function SessionResearch() {
     },
     onError: (err: any) => {
       setPendingUserMsg(null);
+      setIsSending(false);
       toast({ title: "Error", description: "Failed to create session: " + err.message, variant: "destructive" });
-    },
-  });
-
-  const sendMessageMutation = useMutation({
-    mutationFn: async (message: string) => {
-      const res = await apiRequest("POST", `/api/research/sessions/${activeSessionId}/messages`, { message });
-      return res.json();
-    },
-    onSuccess: () => {
-      setPendingUserMsg(null);
-      queryClient.invalidateQueries({ queryKey: [`/api/research/sessions/${activeSessionId}/messages`] });
-      queryClient.invalidateQueries({ queryKey: ["/api/research/sessions"] });
-    },
-    onError: (err: any) => {
-      setPendingUserMsg(null);
-      toast({ title: "Error", description: err.message, variant: "destructive" });
     },
   });
 
@@ -383,13 +417,79 @@ export default function SessionResearch() {
     },
   });
 
+  const sendStreamingMessage = useCallback(async (sessionId: number, message: string) => {
+    setIsSending(true);
+    setThinkingSteps([]);
+
+    try {
+      const authHeaders = await getAuthHeaders();
+      const headers: Record<string, string> = { "Content-Type": "application/json", ...authHeaders };
+
+      const res = await fetch(`/api/research/sessions/${sessionId}/messages`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify({ message }),
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Request failed" }));
+        throw new Error(err.message);
+      }
+
+      const reader = res.body?.getReader();
+      if (!reader) throw new Error("No response stream");
+
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        let currentEvent = "";
+        for (const line of lines) {
+          if (line.startsWith("event: ")) {
+            currentEvent = line.slice(7).trim();
+          } else if (line.startsWith("data: ") && currentEvent) {
+            try {
+              const data = JSON.parse(line.slice(6));
+              if (currentEvent === "step") {
+                setThinkingSteps(prev => [...prev, { ...data, timestamp: Date.now() }]);
+              } else if (currentEvent === "done") {
+                setPendingUserMsg(null);
+                setIsSending(false);
+                queryClient.invalidateQueries({ queryKey: [`/api/research/sessions/${sessionId}/messages`] });
+                queryClient.invalidateQueries({ queryKey: ["/api/research/sessions"] });
+              } else if (currentEvent === "error") {
+                throw new Error(data.message);
+              }
+            } catch (e: any) {
+              if (e.message && e.message !== "Unexpected end of JSON input") throw e;
+            }
+            currentEvent = "";
+          }
+        }
+      }
+    } catch (err: any) {
+      toast({ title: "Error", description: err.message, variant: "destructive" });
+    } finally {
+      setPendingUserMsg(null);
+      setIsSending(false);
+    }
+  }, [toast]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messagesQuery.data, sendMessageMutation.isPending]);
+  }, [messagesQuery.data, isSending, thinkingSteps]);
 
   const handleSend = useCallback(() => {
     const msg = input.trim();
-    if (!msg || sendMessageMutation.isPending) return;
+    if (!msg || isSending) return;
 
     setPendingUserMsg(msg);
     setInput("");
@@ -398,15 +498,13 @@ export default function SessionResearch() {
       createSessionMutation.mutate(undefined, {
         onSuccess: (session: Session) => {
           setActiveSessionId(session.id);
-          setTimeout(() => {
-            sendMessageMutation.mutate(msg);
-          }, 100);
+          setTimeout(() => sendStreamingMessage(session.id, msg), 100);
         },
       });
     } else {
-      sendMessageMutation.mutate(msg);
+      sendStreamingMessage(activeSessionId, msg);
     }
-  }, [input, activeSessionId, sendMessageMutation.isPending]);
+  }, [input, activeSessionId, isSending, sendStreamingMessage]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -496,19 +594,14 @@ export default function SessionResearch() {
               {messages.map(msg => (
                 <MessageBubble key={msg.id} msg={msg} />
               ))}
-              {pendingUserMsg && sendMessageMutation.isPending && (
+              {pendingUserMsg && isSending && (
                 <div className="flex justify-end mb-4" data-testid="msg-user-pending">
                   <div className="max-w-[80%] bg-primary/10 rounded-lg px-3 py-2">
                     <p className="text-[10px] text-foreground/90">{pendingUserMsg}</p>
                   </div>
                 </div>
               )}
-              {sendMessageMutation.isPending && (
-                <div className="flex items-center gap-2 mb-4 text-muted-foreground/50" data-testid="loading-indicator">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  <span className="text-[10px]">Researching...</span>
-                </div>
-              )}
+              {isSending && <ThinkingPanel steps={thinkingSteps} />}
               <div ref={messagesEndRef} />
             </div>
           )}
@@ -528,17 +621,17 @@ export default function SessionResearch() {
               placeholder="Ask about protocols, metrics, or on-chain data..."
               className="flex-1 resize-none rounded border border-border/40 bg-card/30 px-3 py-2 text-[11px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 min-h-[36px] max-h-[120px]"
               rows={1}
-              disabled={sendMessageMutation.isPending}
+              disabled={isSending}
               data-testid="input-research-message"
             />
             <Button
               size="sm"
               className="h-9 w-9 p-0 shrink-0"
               onClick={handleSend}
-              disabled={!input.trim() || sendMessageMutation.isPending}
+              disabled={!input.trim() || isSending}
               data-testid="button-send-message"
             >
-              {sendMessageMutation.isPending ? (
+              {isSending ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
                 <Send className="h-3.5 w-3.5" />

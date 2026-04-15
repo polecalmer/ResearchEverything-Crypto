@@ -1683,6 +1683,17 @@ export async function registerRoutes(
         return res.status(400).json({ message: "Message is required" });
       }
 
+      res.writeHead(200, {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        "Connection": "keep-alive",
+        "X-Accel-Buffering": "no",
+      });
+
+      const sendEvent = (event: string, data: any) => {
+        res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      };
+
       await storage.createMessage({
         conversationId: session.id,
         role: "user",
@@ -1693,7 +1704,9 @@ export async function registerRoutes(
       const historyForAgent = history.map(m => ({ role: m.role, content: m.content }));
 
       const { runSessionResearchAgent, parseArtifacts } = await import("./session-research-agent");
-      const result = await runSessionResearchAgent(message, historyForAgent.slice(0, -1));
+      const result = await runSessionResearchAgent(message, historyForAgent.slice(0, -1), (step) => {
+        sendEvent("step", step);
+      });
 
       const artifacts = parseArtifacts(result.content);
       const assistantMsg = await storage.createMessage({
@@ -1716,15 +1729,22 @@ export async function registerRoutes(
         apiCost: result.mppCost.toFixed(4),
       });
 
-      res.json({
+      sendEvent("done", {
         message: assistantMsg,
         artifacts,
         mppCost: result.mppCost,
         toolCalls: result.toolCalls,
       });
+
+      res.end();
     } catch (e: any) {
       console.error("[SessionResearch] Error:", e.message);
-      res.status(500).json({ message: e.message });
+      if (!res.headersSent) {
+        res.status(500).json({ message: e.message });
+      } else {
+        res.write(`event: error\ndata: ${JSON.stringify({ message: e.message })}\n\n`);
+        res.end();
+      }
     }
   });
 

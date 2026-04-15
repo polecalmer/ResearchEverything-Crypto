@@ -133,12 +133,21 @@ const TOOLS = [
   },
 ];
 
-const SYSTEM_PROMPT = `You are a DeFi Research Agent in Research Everything — an institutional-grade research platform. You help users analyze protocols, tokens, and on-chain data through natural conversation.
+const SYSTEM_PROMPT = `You are a Senior DeFi Research Analyst at Research Everything — an institutional-grade VC research platform. You provide deep, actionable analysis comparable to top-tier crypto research desks (Messari, Delphi Digital, Galaxy Research).
 
-You have access to tools to query live blockchain data. Use them to answer questions with real data — never guess or hallucinate numbers.
+You have access to tools to query live blockchain data. Use them aggressively to answer questions with real data — never guess or hallucinate numbers. Call multiple tools to build comprehensive views.
+
+ANALYSIS QUALITY:
+- Think like a VC analyst: focus on unit economics, growth drivers, competitive moats, and risk factors
+- For valuation models: show your assumptions, derive multiples from comparable protocols, build scenario analyses
+- For protocol research: cover TVL trajectory, revenue quality (organic vs incentivized), fee capture rates, market share trends
+- Always calculate derived metrics: revenue run rate, P/S ratio, TVL/mcap ratio, fee capture %, growth rates (MoM, QoQ, YoY)
+- Provide clear bull/bear/base case frameworks when doing projections
+- Reference specific catalysts (governance proposals, upgrades, launches) when relevant
+- Compare against relevant peers to contextualize numbers
 
 RESPONSE FORMAT:
-- Write clear, concise analysis in markdown
+- Write thorough, structured analysis in markdown with clear section headers
 - When you have data to show, embed charts and tables using special blocks
 - For charts, use this format in your response:
 
@@ -163,13 +172,13 @@ RESPONSE FORMAT:
 \`\`\`
 
 GUIDELINES:
-- Always call tools to get real data before answering data questions
+- Always call tools to get real data before answering — use multiple tools to build complete pictures
 - Prefer DeFiLlama for aggregate metrics (TVL, fees, revenue, volume) — it's fast and reliable
-- Use Dune SQL only for on-chain granularity that DeFiLlama doesn't cover
+- Use Dune SQL for on-chain granularity: wallet activity, transaction counts, unique users, token flows
 - Before writing Dune SQL, use discover_dune_tables to find the right tables
 - When comparing protocols, use the compare_protocols tool
-- Include data context: time periods, latest values, percentage changes
-- Be concise but thorough. Lead with the key insight, then show the data
+- Calculate and present derived metrics (growth rates, ratios, multiples) — don't just dump raw numbers
+- Build valuation frameworks with explicit assumptions when asked about token value
 - Format large numbers readably ($1.2B, not $1,200,000,000)
 - If a tool call fails, explain what happened and try an alternative approach
 
@@ -347,9 +356,43 @@ function summarizeHistory(history: Array<{ role: string; content: string }>): Ar
   return msgs;
 }
 
+export interface ThinkingStep {
+  type: "thinking" | "tool_start" | "tool_result" | "analyzing" | "complete";
+  label: string;
+  detail?: string;
+  round?: number;
+  totalRounds?: number;
+}
+
+const TOOL_LABELS: Record<string, string> = {
+  query_defillama_tvl: "Fetching TVL data",
+  query_defillama_fees_revenue: "Pulling fees & revenue metrics",
+  query_defillama_volume: "Querying trading volume",
+  query_defillama_protocol_summary: "Loading protocol overview",
+  query_defillama_price_history: "Retrieving price history",
+  list_defi_protocols: "Searching protocol database",
+  execute_dune_sql: "Running on-chain SQL query",
+  discover_dune_tables: "Discovering available data tables",
+  compare_protocols: "Comparing protocols side-by-side",
+};
+
+function toolLabel(name: string, input: any): string {
+  const base = TOOL_LABELS[name] || `Calling ${name}`;
+  if (name === "query_defillama_tvl" || name === "query_defillama_fees_revenue" || name === "query_defillama_volume" || name === "query_defillama_protocol_summary") {
+    return `${base} for ${input.protocol || "protocol"}`;
+  }
+  if (name === "query_defillama_price_history") return `${base} for ${input.coinId || "token"}`;
+  if (name === "list_defi_protocols") return `${base} matching "${input.search || ""}"`;
+  if (name === "execute_dune_sql") return `${base}: ${input.description || "custom query"}`;
+  if (name === "discover_dune_tables") return `${base} for ${input.protocol || "protocol"}`;
+  if (name === "compare_protocols") return `${base}: ${(input.protocols || []).join(", ")}`;
+  return base;
+}
+
 export async function runSessionResearchAgent(
   userMessage: string,
   history: Array<{ role: string; content: string }>,
+  onStep?: (step: ThinkingStep) => void,
 ): Promise<ResearchResponse> {
   const toolCalls: string[] = [];
   let totalCost = 0;
@@ -366,12 +409,14 @@ export async function runSessionResearchAgent(
   const MAX_TOOL_ROUNDS = 8;
   let finalText = "";
 
+  onStep?.({ type: "thinking", label: "Planning research approach" });
+
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     console.log(`[SessionResearch] Round ${round + 1}/${MAX_TOOL_ROUNDS}`);
 
     const response: AnthropicRawResponse = await callAnthropicRaw({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 8192,
+      model: "claude-opus-4-20250514",
+      max_tokens: 12000,
       system: SYSTEM_PROMPT,
       messages,
       tools: anthropicTools,
@@ -379,14 +424,22 @@ export async function runSessionResearchAgent(
 
     totalCost += response.mppCost;
 
+    const thinkingText = response.content
+      .filter((b: any) => b.type === "text")
+      .map((b: any) => b.text)
+      .join("");
+
     const hasToolUse = response.content.some((b: any) => b.type === "tool_use");
 
     if (!hasToolUse || response.stop_reason === "end_turn") {
-      finalText = response.content
-        .filter((b: any) => b.type === "text")
-        .map((b: any) => b.text)
-        .join("");
+      finalText = thinkingText;
+      onStep?.({ type: "complete", label: "Composing final analysis" });
       break;
+    }
+
+    if (thinkingText.trim()) {
+      const snippet = thinkingText.trim().split("\n")[0].slice(0, 120);
+      onStep?.({ type: "thinking", label: snippet, round: round + 1, totalRounds: MAX_TOOL_ROUNDS });
     }
 
     messages.push({ role: "assistant", content: response.content });
@@ -394,9 +447,25 @@ export async function runSessionResearchAgent(
     const toolResults: any[] = [];
     for (const block of response.content) {
       if (block.type === "tool_use") {
+        const label = toolLabel(block.name, block.input);
+        onStep?.({ type: "tool_start", label, detail: block.name, round: round + 1 });
         console.log(`[SessionResearch] Tool: ${block.name}(${JSON.stringify(block.input).slice(0, 120)})`);
         toolCalls.push(block.name);
         const result = await executeTool(block.name, block.input);
+
+        let resultSummary = "";
+        try {
+          const parsed = JSON.parse(result);
+          if (parsed.error) resultSummary = `Error: ${parsed.error}`;
+          else if (parsed.points) resultSummary = `Got ${parsed.points} data points`;
+          else if (parsed.rowCount) resultSummary = `Got ${parsed.rowCount} rows`;
+          else if (parsed.count) resultSummary = `Found ${parsed.count} results`;
+          else if (parsed.data?.length) resultSummary = `Got ${parsed.data.length} records`;
+          else resultSummary = "Data received";
+        } catch { resultSummary = "Data received"; }
+
+        onStep?.({ type: "tool_result", label: resultSummary, detail: block.name, round: round + 1 });
+
         toolResults.push({
           type: "tool_result",
           tool_use_id: block.id,
@@ -406,6 +475,7 @@ export async function runSessionResearchAgent(
     }
 
     messages.push({ role: "user", content: toolResults });
+    onStep?.({ type: "analyzing", label: "Analyzing results", round: round + 1, totalRounds: MAX_TOOL_ROUNDS });
   }
 
   if (!finalText) {
