@@ -442,6 +442,8 @@ export default function SessionResearch() {
 
       const decoder = new TextDecoder();
       let buffer = "";
+      let currentEvent = "";
+      let gotDone = false;
 
       while (true) {
         const { done, value } = await reader.read();
@@ -451,32 +453,35 @@ export default function SessionResearch() {
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
 
-        let currentEvent = "";
         for (const line of lines) {
           if (line.startsWith("event: ")) {
             currentEvent = line.slice(7).trim();
           } else if (line.startsWith("data: ") && currentEvent) {
+            const rawData = line.slice(6);
             try {
-              const data = JSON.parse(line.slice(6));
+              const data = JSON.parse(rawData);
               if (currentEvent === "step") {
                 setThinkingSteps(prev => [...prev, { ...data, timestamp: Date.now() }]);
               } else if (currentEvent === "done") {
-                setPendingUserMsg(null);
-                setIsSending(false);
-                queryClient.invalidateQueries({ queryKey: [`/api/research/sessions/${sessionId}/messages`] });
-                queryClient.invalidateQueries({ queryKey: ["/api/research/sessions"] });
+                gotDone = true;
               } else if (currentEvent === "error") {
-                throw new Error(data.message);
+                throw new Error(data.message || "Research failed");
               }
             } catch (e: any) {
-              if (e.message && e.message !== "Unexpected end of JSON input") throw e;
+              if (currentEvent === "error") throw e;
             }
             currentEvent = "";
+          } else if (line.startsWith(":")) {
+            // SSE comment/keepalive — ignore
           }
         }
       }
+
+      queryClient.invalidateQueries({ queryKey: [`/api/research/sessions/${sessionId}/messages`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/research/sessions"] });
     } catch (err: any) {
-      toast({ title: "Error", description: err.message, variant: "destructive" });
+      toast({ title: "Error", description: err.message || "Research failed", variant: "destructive" });
+      queryClient.invalidateQueries({ queryKey: [`/api/research/sessions/${sessionId}/messages`] });
     } finally {
       setPendingUserMsg(null);
       setIsSending(false);

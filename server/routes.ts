@@ -1689,6 +1689,11 @@ export async function registerRoutes(
         "Connection": "keep-alive",
         "X-Accel-Buffering": "no",
       });
+      res.flushHeaders();
+
+      const keepalive = setInterval(() => {
+        res.write(": keepalive\n\n");
+      }, 15000);
 
       const sendEvent = (event: string, data: any) => {
         res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -1729,6 +1734,8 @@ export async function registerRoutes(
         apiCost: result.mppCost.toFixed(4),
       });
 
+      clearInterval(keepalive);
+
       sendEvent("done", {
         message: assistantMsg,
         artifacts,
@@ -1738,6 +1745,7 @@ export async function registerRoutes(
 
       res.end();
     } catch (e: any) {
+      clearInterval(keepalive);
       console.error("[SessionResearch] Error:", e.message);
       if (!res.headersSent) {
         res.status(500).json({ message: e.message });
