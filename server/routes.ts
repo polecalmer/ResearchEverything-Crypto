@@ -1667,6 +1667,34 @@ export async function registerRoutes(
     }
   });
 
+  app.put("/api/brain/preferences", requireAuth, async (req, res) => {
+    try {
+      const { preferences } = req.body;
+      if (!preferences || typeof preferences !== "object" || Array.isArray(preferences)) {
+        return res.status(400).json({ message: "preferences must be an object" });
+      }
+
+      const validKeys = new Set(["data_sources", "research_style", "analysis_lens", "custom_instructions"]);
+      const cleaned: Record<string, string[]> = {};
+
+      for (const [key, val] of Object.entries(preferences)) {
+        if (key === "__proto__" || key === "constructor" || key === "prototype") continue;
+        if (!validKeys.has(key)) continue;
+        if (!Array.isArray(val)) continue;
+        const items = (val as any[])
+          .filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+          .map(v => v.trim().slice(0, 1000))
+          .slice(0, 50);
+        if (items.length > 0) cleaned[key] = items;
+      }
+
+      await storage.upsertResearchBrain(req.user!.id, { preferences: cleaned });
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.post("/api/research/sessions", requireAuth, async (req, res) => {
     try {
       const session = await storage.createConversation({

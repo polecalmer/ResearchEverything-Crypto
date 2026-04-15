@@ -228,9 +228,54 @@ export function formatRetrievedContext(ctx: RetrievedContext): string {
   }
 
   if (Object.keys(ctx.preferences).length > 0) {
-    sections.push("USER PREFERENCES:\n" + Object.entries(ctx.preferences).map(([k, v]) =>
-      `- ${k}: ${v}`
-    ).join("\n"));
+    const prefLines: string[] = [];
+
+    const dataSources = ctx.preferences.data_sources;
+    if (Array.isArray(dataSources) && dataSources.length > 0) {
+      prefLines.push("TRUSTED DATA SOURCES (user-specified — follow these):");
+      for (const ds of dataSources) {
+        if (typeof ds === "string") prefLines.push(`  - ${ds}`);
+        else if (ds.name) prefLines.push(`  - ${ds.name}${ds.url ? ` (${ds.url})` : ""}${ds.description ? `: ${ds.description}` : ""}`);
+      }
+    }
+
+    const researchStyle = ctx.preferences.research_style;
+    if (Array.isArray(researchStyle) && researchStyle.length > 0) {
+      prefLines.push("USER'S RESEARCH STYLE (match this approach):");
+      for (const rs of researchStyle) {
+        prefLines.push(`  - ${typeof rs === "string" ? rs : rs.description || JSON.stringify(rs)}`);
+      }
+    }
+
+    const analysisLens = ctx.preferences.analysis_lens;
+    if (Array.isArray(analysisLens) && analysisLens.length > 0) {
+      prefLines.push("ANALYSIS LENS & FRAMEWORKS:");
+      for (const al of analysisLens) {
+        prefLines.push(`  - ${typeof al === "string" ? al : al.description || JSON.stringify(al)}`);
+      }
+    }
+
+    const customInstructions = ctx.preferences.custom_instructions;
+    if (Array.isArray(customInstructions) && customInstructions.length > 0) {
+      prefLines.push("CUSTOM INSTRUCTIONS:");
+      for (const ci of customInstructions) {
+        prefLines.push(`  - ${typeof ci === "string" ? ci : ci.description || JSON.stringify(ci)}`);
+      }
+    }
+
+    const otherPrefs = Object.entries(ctx.preferences).filter(
+      ([k]) => !["data_sources", "research_style", "analysis_lens", "custom_instructions"].includes(k)
+    );
+    if (otherPrefs.length > 0) {
+      prefLines.push("OTHER PREFERENCES:");
+      for (const [k, v] of otherPrefs) {
+        prefLines.push(`  - ${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`);
+      }
+    }
+
+    if (prefLines.length > 0) {
+      sections.push("USER PREFERENCES & STYLE:\n" + prefLines.join("\n"));
+    }
   }
 
   if (ctx.meta) {
