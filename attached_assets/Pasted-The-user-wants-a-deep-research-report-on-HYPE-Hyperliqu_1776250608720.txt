@@ -1,0 +1,224 @@
+The user wants a deep research report on HYPE (Hyperliquid's token) with:
+1. NTM (Next Twelve Months) multiples chart and financial model
+2. Baseline revenue growth analysis (Q1 2025 vs Q1 2026, YoY growth rate)
+3. Apply discounts for market conditions
+4. Account for HIP-3/HIP-4 growth
+5. Use Adjusted MCAP instead of pure MCAP
+
+Let me start by resolving entities, getting KG enrichment, searching web for context, and then building the financial model.
+
+First, let me resolve "HYPE" as an entity and get relevant data.
+
+
+Now I need to gather the core data points: HYPE's current price, market cap, and fully diluted valuation, along with Hyperliquid's historical revenue and fee data. I'll also need to understand what HIP-3 and HIP-4 represent and how they impact growth projections. For the NTM multiples, I'm calculating P/S and P/F ratios using Adjusted MCAP divided by projected twelve-month revenue and fees respectively—where Adjusted MCAP accounts for locked tokens expected to enter circulation and treasury holdings rather than just the current circulating supply.
+
+Let me organize this into parallel research tracks: one agent pulling historical fee and revenue data from the database to establish baseline metrics, another handling token economics and supply schedules to calculate the proper adjusted market cap, and a third searching for context on HIP-3 and HIP-4 proposals and their implications for the protocol.Excellent! I now have a lot of data. Let me also search for:
+1. Adjusted MCAP for HYPE (what's the methodology)
+2. Current HYPE price and token supply data
+3. HIP-3 and HIP-4 specific revenue contribution data
+
+And I need to pull historical revenue data from the DB. Let me now get the quarterly revenue data (which I can partially see from the DefiLlama page), and also get the HYPE token price/mcap data.
+
+From the search results I can see:
+- Q1 2025: $139.67M revenue
+
+
+- Q2 2025: $180.35M revenue
+- Q3 2025: $354.94M revenue (there might be an error, likely fees not revenue — let me check)
+- Q4 2025: $286.53M revenue (but also shows $277.49M somewhere)
+- Q1 2026: $214.95M revenue
+- Q2 2026: $18.72M (partial)
+
+Let me verify these figures against the DefiLlama income statement to make sure I'm looking at consistent metrics across quarters.
+
+Looking at the year-over-year growth from Q1 2025 to Q1 2026, I'm getting $214.95M divided by $139.67M, which comes out to about 1.54x or roughly 54% growth. That's notably higher than the 1.35x example mentioned earlier.
+
+For the Adjusted MCAP calculation on Hyperliquid, I need to account for the HYPE tokens held in the treasury or assistance fund — the adjusted figure would be the market cap minus the value of those treasury holdings.
+
+Now I'm gathering the historical revenue data and current price metrics to build out the NTM financial model, which requires pulling quarterly figures, calculating growth rates, and applying appropriate discounting factors and valuation multiples.The SQL query for daily metrics failed because `ps_ratio` doesn't exist. Let me fix that and also get the current price/mcap data. I also need to get the token supply data for the "Adjusted MCAP" calculation.
+
+Let me now run the corrected SQL queries and also get the current HYPE price and mcap.
+
+From the quarterly data I can see:
+- Q4 2024: $10.51M revenue (first full quarter with data)
+- Q1 2025: $132.73M revenue (DB) vs $139.67M (DefiLlama website)
+
+
+- Q2 2025: $170.61M revenue
+- Q3 2025: $316.77M revenue
+- Q4 2025: $255.06M revenue
+- Q1 2026: $192.26M revenue
+- Q2 2026 (partial, only 14 days in): $22.88M revenue
+
+Year-over-year from Q1 2025 to Q1 2026 shows about 45% growth at $192.26M. The difference with DefiLlama's reported $139.67M comes down to how they're calculating fees versus what's in my database.
+
+Now I need to pull the current HYPE price and market cap, gather token supply details for the adjusted valuation calculation, and collect historical daily price and market cap data to build out the NTM multiples chart. For the adjusted market cap, I'm accounting for the Assistance Fund's buyback of roughly 41 million tokens, the ~37 million burned in December 2025, and the circulating supply sitting around 340-350 million out of the 1 billion total, then I'll need to deduct team and other locked allocations. I'm working through the valuation framework for HYPE—whether to use FDV or a float-adjusted approach that excludes the AF holdings and foundation treasury. Let me pull the current price and market cap data to ground these calculations.Now I have enough data to build the financial model. Let me now run the financial model analysis in execute_code.
+
+Key data points:
+1. **Quarterly Revenue (from DB)**:
+   - Q4 2024: $10.51M
+   - Q1 2025: $132.73M
+   - Q2 2025: $170.61M
+   - Q3 2025: $316.77M
+   - Q4 2025: $255.06M
+   - Q1 2026: $192.26M
+   - Q2 2026 (partial, ~14 days): $22.88M
+
+
+2. **Current metrics (from DB)**:
+   - Price: $44.96
+   - MCAP: $10.72B
+   - FDV: $43.26B
+   - Revenue 30d: $55.29M
+   - Revenue 365d: $936.42M
+   - Fees 30d: $62.20M
+   - Fees 365d: $1.04B
+3. **Token Supply**:
+   - Total Supply: 1B HYPE
+   - Circulating: ~238M-463M HYPE (different sources give different numbers)
+     - Tokenomist says 238.
+
+39M (April 1, 2026), while Tokenomics.com shows 463.29M currently, likely due to 405.41M tokens unlocked but only 3.19M claimed so far
+   - Post-burn total supply: ~962M after the December 2025 burn of ~37M tokens
+   - AF buyback: ~41M HYPE tokens
+4. **NTM Revenue Estimate**:
+   Looking at the YoY growth from Q1 data showing 44.9% growth, I need to project the next four quarters starting from Q2 2026 through Q1 2027 to estimate next twelve months revenue.
+   
+   For Q2 2026, I only have 14 days of data so far (April 1-14) showing $22.88M, which gives a daily average of $1.634M. Extrapolating that across the full 91-day quarter gives roughly $148.7M for Q2 2026.
+   
+   Now I'm setting up the baseline growth rate using the 44.9% YoY figure from Q1 to model out the remaining quarters.
+   
+   The Q1 to Q4 2025 decline of about 24.6% signals weaker market conditions, so I'm applying a discount to that baseline growth rate. I'm testing three scenarios: a bull case at 40% YoY growth, a base case at 20% YoY (roughly 35% below the baseline), and a bear case with flat revenue.
+   
+   For the adjusted market cap calculation, I need to account for the AF holdings of about 41M HYPE tokens worth roughly $1.85B—these are effectively locked and should be subtracted from the standard circulating supply calculation. The burned tokens of around 37M are already permanently removed from circulation.
+   
+   I'm weighing two approaches: a float-adjusted MCAP using the actual circulating supply (either 238M per tokenomist or 422M after subtracting AF holdings from CoinGecko's figure), or an enterprise value analog where I subtract the AF holdings as if they were treasury stock being used for buybacks. B - ($1.247B) = $9.47B
+
+Actually, I think the most insightful approach for "Adjusted MCAP" is to account for the fact that circulating supply definitions vary wildly for HYPE. So I'll break this down into circulating MCAP (what CoinGecko shows), FDV based on total supply, and then an adjusted MCAP that subtracts out locked team tokens, AF holdings, and foundation reserves. More practically, I could treat AF buybacks as treasury stock reducing the effective float, or weight the current MCAP by upcoming dilution from token unlocks over the next 12 months.
+
+For the P/S analysis, I'm looking at three angles: current LTM P/S using the last 12 months of revenue, NTM P/S based on projected revenue growth, and an adjusted NTM P/S using the adjusted MCAP figure. The LTM revenue sits at $936M, giving me an 11.4x P/S on the current $10.72B MCAP, while FDV pushes that to 46.2x. For NTM scenarios, I'm projecting baseline growth of around 45% from Q1 2025 to Q1 2026 and building out the revenue estimates from there. So the adjusted MCAP comes to $8.87B when I subtract the AF's token holdings from the total market cap. The reasoning here is that these buyback tokens are effectively locked out of circulation, similar to how you'd remove cash from an enterprise value calculation. Though I'm realizing there's some nuance—the circulating supply reported by exchanges might already account for this, so I need to be careful not to double-count. The core adjustments that matter are the 37M tokens already burned, which reduced total supply from 1B to 963M, and the 41M HYPE currently held by the AF that could be considered outside the free float.
+
+For team tokens, most of the 238M allocated to core contributors hasn't actually been claimed yet—only about 3.19M of the 405M unlocked portion is in circulation. So the real tradeable supply is much tighter than the headline numbers suggest. When I calculate an adjusted FDV, I should start with the post-burn supply of 963M, then subtract both the AF holdings and the unclaimed team allocations weighted by their vesting status. The challenge is I don't have exact on-chain data for all the vesting schedules, so I'm working with the FDV from the database at $43.26B, which uses the pre-burn total supply figure.
+
+Actually, looking at the math more carefully—if the DB shows FDV of $43.26B at a price of $44.96, that implies a total supply of about 962M, which means the database is already accounting for the burn. For the float-adjusted MCAP, I should use the actual circulating supply from the database, which shows a MCAP of $10.72B at that same price, giving me a circulating supply of about 238M HYPE. But there's a discrepancy here between what CoinGecko reports as circulating and what the tokenomics actually show.
+
+Looking at the next layer, CoinGecko lists 463M as circulating, which is roughly 225M more than the tight float definition. That gap likely represents tokens that are unlocked but haven't been claimed yet. So I'm thinking about this in two ways: a tight float MCAP of $10.72B using just the 238M in active circulation, and a diluted float MCAP of around $20.8B if I account for those claimable unlocked tokens. The full dilution picture is the $43.3B FDV at 962M total supply.
+
+For the NTM P/S calculation, I need to factor in the forward-looking dilution from the next 12 months of unlocks, particularly the core contributors who are releasing about 119M tokens over that period.
+
+Building the financial model now with quarterly revenue data, baseline growth assumptions, and various MCAP frameworks to stress-test the valuation multiples. spawn_agent call to build the financial model, charts, and analysis.
+
+Actually, I think I have enough data already. Let me just use execute_code to build the financial model and then generate the charts.
+
+Let me think about what charts to generate:
+1. **Historical Revenue Chart** (quarterly, showing Q1 2024 - Q2 2026 actual)
+2. **NTM Revenue Scenarios Chart** (bar chart showing different scenarios)
+3. **NTM P/S Multiples Chart** (line chart showing P/S over time + NTM scenario ranges)
+4. **Revenue by Product Mix** (stacked area showing perps vs spot vs HIP-3)
+
+Let me build the financial model now.
+
+Key metrics:
+- Current Price: $44.96
+- Current MCAP: $10.72B (circulating ~238M)
+- FDV: $43.26B (total supply ~962M)
+- Quarterly revenue: available from DB
+
+For Adjusted MCAP, I need to account for the token unlock schedule. The circulating supply is only 238M, but there are 405M tokens unlocked at the vesting contract level with just 3.19M actually claimed so far. For NTM, I'm projecting about 150M tokens will unlock (roughly 9.92M monthly plus community rewards), which at $45 per token adds $6.75B in dilution. I'll subtract the AF's 41M holdings worth $1.84B since they offset some of that dilution, giving me an adjusted MCAP of around $15.63B for NTM valuation purposes. I'm settling on a cleaner framework: standard MCAP times circulating supply, FDV times total supply, then adjusted MCAP as a "NTM Weighted" figure that accounts for expected unlocks and buybacks over the next twelve months—essentially an enterprise-value equivalent for the token. I should be clear about this methodology when I present it to the user. For visualizations, I'm thinking a revenue waterfall showing historical quarters plus NTM scenarios, and a P/S multiple chart tracking daily historical multiples against projections.
+
+Now I'm loading the financial modeling and charting tools to build this out with the data I've already collected, rather than spinning up parallel agents since I have what I need to proceed directly.Now I have all the data I need. Let me build the comprehensive financial model. Let me now use execute_code to build the NTM model and then generate all the charts.
+
+Key data I have:
+- **Quarterly Revenue** (from DB):
+  - Q4 2024: $10.51M
+  - Q1 2025: $132.73M
+  - Q2 2025: $170.61M
+  - Q3 2025: $316.77M
+  - Q4 2025: $255.06M
+  - Q1 2026: $192.26M
+  - Q2 2026 (partial, ~14 days): $22.88M
+
+
+- **Current Metrics** (as of mid-April 2026): Price at $44.96 with a market cap of $10.72B and fully diluted valuation of $43.26B, plus trailing 30-day and 365-day revenue figures of $55.29M and $936.42M respectively, with corresponding fee data showing $62.20M and $1.04B.
+- **Token Supply**: Total supply of 1B tokens with approximately 962M remaining post-burn, and circulating supply around 238M HYPE tokens.
+
+Now I'm looking at the remaining token allocation—there's about 405M HYPE still unlocked but unclaimed at vesting, plus 41M from AF buybacks and 37M that have been burned. For the NTM model, I need to establish the year-over-year growth trajectory, build out revenue scenarios, calculate the relevant valuation multiples, and develop an adjusted market cap framework. Looking at the growth rates, Q1 2026 showed 44.9% YoY growth compared to Q1 2025, but the trend is concerning—revenue peaked in Q3 2025 at $316.77M and has been declining since, dropping 19.4% in Q4 and another 24.6% into Q1 2026, which suggests the market is normalizing from that peak.
+
+For the NTM period starting in Q2 2026, I'm building three scenarios off the LTM base of $936M: a bull case with 40% growth reaching $1.3B, a base case at 20% growth to $1.1B, and a bear case assuming a 10% decline to $842M given the current downward momentum. I could also approach this by projecting quarters individually—Q2 2026 is tracking around $148M based on early April run-rate, then layering in growth assumptions for the remaining quarters and comparing Q1 2027 against Q1 2026's actual performance.
+
+Now I'm factoring in the HIP-3 and HIP-4 uplift potential. HIP-3 open interest surged to $1.43B in March with revenue scaling from $23M annually to over $100M on a run-rate basis, and HIP-4's prediction markets are still in testnet but represent a massive addressable market. For the market cap framework, I'm defining three tiers: the tight float MCAP at $10.72B using the ~238M circulating supply, an economic float MCAP that includes the ~402M unlocked-but-unclaimed tokens for a total of $28.8B, and an EV-adjusted MCAP that subtracts the value of AF holdings from the tight float number.
+
+The EV-adjusted figure comes to $8.87B when I treat the AF buybacks as a treasury reducing the effective float. I'm also calculating a forward-looking NTM diluted MCAP that factors in expected 12-month unlocks and buybacks. For valuation comparisons, I'll use three P/S ratio approaches: standard MCAP divided by revenue, FDV divided by revenue, and the most conservative EV-adjusted MCAP divided by revenue.
+
+Building out the financial model and visualizations now... daily P/S ratio, then I'll calculate the NTM buyback yield—with $990M annually going to buybacks on a $10.72B market cap, that's a 9.2% yield, or 2.3% on the fully diluted valuation.
+
+Now I'm setting up the financial model with four key visualizations: quarterly revenue actuals through Q1 2026 with three scenario projections, a monthly revenue trend from October 2024 onward, historical monthly P/S ratios, and an NTM P/S scenario table across different growth rates and valuation bases. For the quarterly estimates, I'm using the current 30-day revenue run-rate of $55.29M to project Q2 2026 at roughly $165M.
+
+For the growth scenarios, I'm anchoring to the actual Q1 2025 to Q1 2026 growth of 1.45x, then applying conservative assumptions: 35% YoY for the bull case, 15% for the base case, and -5% for the bear case to account for potential market normalization.
+
+Now I'm working through the NTM projections by applying these growth rates to each quarter's prior-year baseline, but I notice Q2 2026 is already partially realized with early run-rate data, so I need to adjust my estimate to incorporate what's actually happened so far. Now I'm modeling out the NTM scenarios with different growth assumptions—bull case at 30% YoY growth gets me to $1.217B, base case at 15% is $1.077B, and bear case holds flat at $936M. HIP-3 and HIP-4 could be meaningful upside drivers, with HIP-4's prediction market volume potentially adding $8-12M monthly even at a conservative take rate, pushing total upside to $50-150M annually in the bull scenario. For the valuation multiple, I'm working with the tight float market cap of $10.72B and adjusting for the AF holdings to get an enterprise value of $8.87B.
+
+Looking at the P/S multiples across the three scenarios, the MCAP-based valuations range from 8.8x in the bull case to 11.4x in the bear case, while the EV-adjusted multiples compress that to 7.3x and 9.5x respectively. The FDV multiples are significantly higher though—35.5x to 46.2x depending on the scenario—which seems stretched relative to the other valuation approaches.
+
+Now I'm calculating historical P/S ratios by annualizing the monthly revenue figures and comparing them against the average market cap for each month. Looking at the data from January through April 2025, the annualized revenues range from around $464M to $598M, with corresponding market caps that produce P/S multiples in the 10.9x to 15.1x range. Continuing through the rest of 2025 and into early 2026, I'm seeing the revenue stabilize around $700M-$1.2B annualized while market cap fluctuates between $6B-$11.5B, keeping the P/S ratios fairly consistent in the 7-10x range with a couple of outliers.
+
+For April's partial data, using the 30-day run rate gives me a P/S of 16.2x, which is notably higher than the 365-day calculation at 11.4x. The historical range spans from about 7x to 17x, so I'm now moving into the NTM valuation approach.
+
+I want to shift to forward-looking revenue estimates rather than backward-looking metrics, since that gives a clearer picture of where the company is headed. I'll also need to define an EV-adjusted market cap by treating the AF holdings as treasury stock—essentially subtracting that $1.85B from the $10.72B circulating market cap to get a more conservative $8.87B figure.
+
+But I'm realizing there's a nuance here: I need to verify whether the circulating supply already accounts for the AF holdings or not. If the 238M circulating tokens exclude the 41M AF tokens, then I don't need to adjust further. However, if there are 402M unlocked but unclaimed tokens that should be factored in, the true economic supply could be closer to 640M, which would push the adjusted market cap up to $28.8B. This is getting complicated, so I need to clarify the supply dynamics before moving forward.
+
+For the report, I'll establish clear definitions: the circulating MCAP is $10.72B based on the 238M tokens in circulation, but I should also calculate an EV-adjusted figure by subtracting the AF holdings value ($1.85B) to get $8.87B, and note the FDV at $43.26B. The "true float" calculation is trickier since unclaimed unlocked tokens aren't technically in circulation yet, so I'll present that as a more aggressive scenario rather than the primary metric.
+
+For valuation purposes, what's most useful is the NTM diluted MCAP, which accounts for expected token unlocks over the next year (around 130M from community and foundation schedules) minus anticipated buybacks from revenue (roughly 22M tokens). That nets to about 108M tokens of dilution, pushing the NTM diluted MCAP to roughly $15.58B, which then gives me a more realistic forward-looking multiple for the P/S analysis.
+
+Now I'm working through what "Adjusted MCAP" actually means in this context—I think the user is asking for something similar to how analysts adjust enterprise value by removing cash holdings. For HYPE, the Arbitrum Foundation holds about 41M tokens worth roughly $1.85B, which could be excluded from the valuation since they're not part of the circulating market cap.
+
+So the adjusted approach would be taking the standard market cap and subtracting the AF's holdings, giving us $8.87B. This reframes the valuation multiples more like a company with an active buyback program—the P/S ratios become 7.3x, 8.2x, and 9.5x across the scenarios, which feels more analytically clean.
+
+I'm ready to build out the model now, and I should also factor in the HIP-3 and HIP-4 uplift scenarios.
+
+Building the visualization framework...Let me fix the date parsing issue.Now I have the financial model. The April 2026 P/S is spiked because only 14 days of data is in (annualizing a partial month). Let me filter out the partial April month for the P/S history chart.
+
+Now let me generate the charts. I need to:
+1. Extract `qChart` into a separate execute_code result for charting
+2. Extract `psHistory` into a separate result
+3. Extract `psChart` into a separate result
+
+Actually, I can use the code result IDs directly with generate_chart. The result contains `chart_data`, so I need to make sure generate_chart can find the data. 
+
+Looking at the generate_chart docs, it takes a result_id from execute_sql or execute_code, and the execute_code returns data in `result.chart_data.*`. I'll need to structure each chart dataset as a separate execute_code result so generate_chart can access them properly.The alias "hype_model" didn't work. Let me use the result_id "code_f7dea3" directly.Now I have the chart data. Also note that the December 2024 P/S is 55.26x which is an outlier because revenue was very low in December. Let me filter that out too for the P/S history.
+
+Now let me generate the charts. I'll generate:
+1. Monthly revenue trend (bar, from hype_monthly data)
+2. Quarterly revenue + NTM scenarios (bar, from hype_qchart)
+3. Historical P/S ratio (line, from hype_ps_hist)
+
+
+4. NTM P/S scenarios (hbar, from hype_ps_scen)
+
+Let me create all four charts now.All charts generated. Now let me load the rich-display skill reference for cards.md to build the metric cards for the report summary.Excellent! I now have all the data I need. Let me compile the comprehensive report.
+
+Key data points from the model:
+- Current Price: $44.96
+- Circulating MCAP: $10.72B
+- FDV: $43.26B
+- EV-Adjusted MCAP (subtract AF holdings): $8.88B
+- NTM-Diluted MCAP (add 12M unlocks, subtract buybacks): $14.99B
+- LTM Revenue: $936.4M
+- 30d Revenue Run-rate: $55.3M/month = $663.5M annualized
+
+
+- YoY Growth Q1 2025 → Q1 2026: +44.8%
+
+Looking at the quarterly progression, revenue peaked in Q3 2025 at $316.8M but has been declining since, with Q1 2026 coming in at $192.3M. Now I'm mapping out the forward scenarios for the next twelve months, starting with the bull case that assumes 35% YoY growth plus additional upside from HIP, projecting total NTM revenue around $1.31B.
+
+The base case models 15% YoY growth for roughly $1.1B in NTM revenue, while the bear scenario assumes a 5% YoY decline totaling $888M. Looking at the valuation multiples, the bull case implies a 8.17x circulating market cap multiple and 6x on an EV-adjusted basis.
+
+Now I'm examining how these multiples expand across different scenarios—the base case sits at 9.79x circulating and 8.11x EV-adjusted, while the bear case pushes to 12.07x and 10x respectively. The diluted and FDV multiples widen significantly in the bear scenario, reaching 16.88x and 48.73x, though buyback yields compress from 12.1% in the bull case down to 8.2% in the bear. Historically, the stock has traded in a 7.3x to 17.3x P/S range excluding the December 2024 outlier.
+
+Looking at the newer revenue drivers, HIP-3 went live in October 2025 and now accounts for over 35% of Hyperliquid's trading volume with $1.43B in open interest as of March 2026, generating a 50/50 revenue split between deployers and the protocol. HIP-4 was announced in February 2026 with testnet already live, though mainnet timing remains vague with just an expectation of "within 2026"—analyst estimates suggest it could contribute $150-216M in combined annual run rate, with prediction markets potentially adding $1.5-3M monthly and options-like products $11-15M monthly.
+
+At the March 2026 snapshot, HYPE was trading at $36.82 with a $10.9B market cap, generating $759M in annualized revenue and trading at a 14.3x P/E on a rolling 14-day basis, supported by daily buybacks averaging $2.08M over two weeks. The token unlock schedule presents a meaningful overhang with roughly 9.92M HYPE unlocking monthly through 2027, with the next unlock on April 6 releasing approximately $367M worth at current prices, and 42.8M tokens have already been burned to date.
+
+Now I'm structuring the comprehensive analysis into eight sections covering the current snapshot, historical revenue trends, forward-looking revenue projections under different growth scenarios, an adjusted market cap framework to account for token dilution, NTM price-to-sales multiples, potential revenue uplifts from HIP-3 and HIP-4 implementations, key risk factors, and a summary table consolidating the findings.
