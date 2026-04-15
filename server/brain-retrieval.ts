@@ -155,11 +155,16 @@ export function retrieveRelevantContext(
   const retrievedEntities = Object.keys(relevantEntities).length;
   const retrievedFacts = relevantFacts.length;
 
+  const hasPrefs = Object.values(brain.preferences || {}).some(
+    (v: any) => Array.isArray(v) && v.length > 0
+  );
   const summary = directMatches.length > 0
     ? `Matched entities: ${directMatches.join(", ")}. Retrieved ${retrievedEntities}/${totalEntities} entities, ${retrievedFacts}/${totalFacts} facts (+ ${relevantRelationships.length} relationships)`
     : totalFacts > 0
       ? `No direct entity match — keyword search returned ${retrievedFacts}/${totalFacts} facts`
-      : "Brain is empty — first research session";
+      : hasPrefs
+        ? "No entities/facts yet — preferences loaded"
+        : "Brain is empty — first research session";
 
   return {
     entities: relevantEntities,

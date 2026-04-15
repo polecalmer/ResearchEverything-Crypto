@@ -1724,6 +1724,7 @@ export async function registerRoutes(
   });
 
   app.post("/api/research/sessions/:id/messages", requireAuth, async (req, res) => {
+    let keepalive: ReturnType<typeof setInterval> | null = null;
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid session ID" });
@@ -1736,8 +1737,6 @@ export async function registerRoutes(
       if (!message || typeof message !== "string") {
         return res.status(400).json({ message: "Message is required" });
       }
-
-      let keepalive: ReturnType<typeof setInterval> | null = null;
 
       res.writeHead(200, {
         "Content-Type": "text/event-stream",
