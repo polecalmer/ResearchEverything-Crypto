@@ -11,6 +11,15 @@ export const conversations = pgTable("conversations", {
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
+export const researchBrains = pgTable("research_brains", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().unique(),
+  entities: jsonb("entities").default(sql`'{}'::jsonb`).notNull(),
+  knowledge: jsonb("knowledge").default(sql`'[]'::jsonb`).notNull(),
+  preferences: jsonb("preferences").default(sql`'{}'::jsonb`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
 export const messages = pgTable("messages", {
   id: serial("id").primaryKey(),
   conversationId: integer("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
@@ -34,3 +43,4 @@ export type Conversation = typeof conversations.$inferSelect;
 export type InsertConversation = z.infer<typeof insertConversationSchema>;
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
+export type ResearchBrain = typeof researchBrains.$inferSelect;

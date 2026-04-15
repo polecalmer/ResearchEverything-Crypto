@@ -1710,8 +1710,15 @@ export async function registerRoutes(
       const history = await storage.getMessages(session.id);
       const historyForAgent = history.map(m => ({ role: m.role, content: m.content }));
 
+      const brainRecord = await storage.getResearchBrain(req.user!.id);
+      const brain = brainRecord ? {
+        entities: (brainRecord.entities || {}) as Record<string, any>,
+        knowledge: (brainRecord.knowledge || []) as Array<{ topic: string; fact: string; date: string }>,
+        preferences: (brainRecord.preferences || {}) as Record<string, any>,
+      } : null;
+
       const { runSessionResearchAgent, parseArtifacts } = await import("./session-research-agent");
-      const result = await runSessionResearchAgent(message, historyForAgent.slice(0, -1), (step) => {
+      const result = await runSessionResearchAgent(message, historyForAgent.slice(0, -1), brain, (step) => {
         sendEvent("step", step);
       });
 
@@ -1726,6 +1733,20 @@ export async function registerRoutes(
       if (history.length <= 2) {
         const titleSnippet = message.slice(0, 60) + (message.length > 60 ? "..." : "");
         await storage.updateConversationTitle(session.id, titleSnippet);
+      }
+
+      if (result.brainUpdates) {
+        try {
+          const existing = brainRecord || { entities: {}, knowledge: [], preferences: {} };
+          const merged = {
+            entities: { ...(existing.entities as any || {}), ...(result.brainUpdates.entities || {}) },
+            knowledge: [...((existing.knowledge as any[] || [])).slice(-100), ...(result.brainUpdates.knowledge || [])],
+            preferences: { ...(existing.preferences as any || {}), ...(result.brainUpdates.preferences || {}) },
+          };
+          await storage.upsertResearchBrain(req.user!.id, merged);
+        } catch (brainErr: any) {
+          console.warn("[SessionResearch] Brain update failed:", brainErr.message);
+        }
       }
 
       await storage.logTransaction({

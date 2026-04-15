@@ -24,7 +24,7 @@ import {
   queryAttempts, benchmarkCases, benchmarkRuns, benchmarkCaseResults,
   queryTemplates,
   protocolRevenueModels,
-  conversations, messages,
+  conversations, messages, researchBrains,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, ne, desc, asc, and, isNull, isNotNull, sql } from "drizzle-orm";
@@ -151,6 +151,8 @@ export interface IStorage {
   deleteConversation(id: number): Promise<void>;
   getMessages(conversationId: number): Promise<Message[]>;
   createMessage(data: { conversationId: number; role: string; content: string; artifacts?: any }): Promise<Message>;
+  getResearchBrain(userId: string): Promise<any | null>;
+  upsertResearchBrain(userId: string, brain: { entities?: any; knowledge?: any; preferences?: any }): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -921,6 +923,29 @@ export class DatabaseStorage implements IStorage {
   async createMessage(data: { conversationId: number; role: string; content: string; artifacts?: any }): Promise<Message> {
     const [msg] = await db.insert(messages).values(data).returning();
     return msg;
+  }
+
+  async getResearchBrain(userId: string): Promise<any | null> {
+    const [brain] = await db.select().from(researchBrains).where(eq(researchBrains.userId, userId));
+    return brain || null;
+  }
+
+  async upsertResearchBrain(userId: string, brain: { entities?: any; knowledge?: any; preferences?: any }): Promise<void> {
+    const existing = await this.getResearchBrain(userId);
+    if (existing) {
+      const updates: any = { updatedAt: new Date() };
+      if (brain.entities) updates.entities = brain.entities;
+      if (brain.knowledge) updates.knowledge = brain.knowledge;
+      if (brain.preferences) updates.preferences = brain.preferences;
+      await db.update(researchBrains).set(updates).where(eq(researchBrains.userId, userId));
+    } else {
+      await db.insert(researchBrains).values({
+        userId,
+        entities: brain.entities || {},
+        knowledge: brain.knowledge || [],
+        preferences: brain.preferences || {},
+      });
+    }
   }
 }
 

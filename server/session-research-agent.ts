@@ -1,10 +1,12 @@
 import { callAnthropicRaw, type AnthropicRawResponse } from "./mpp-client";
 import { executeDuneSQL, isDuneConfigured } from "./dune-client";
 import { discoverTablesForProtocol } from "./dune-mcp-client";
+import { fetchTokenSnapshot } from "./allium-client";
 import * as defillama from "./defillama-client";
+import * as vm from "vm";
 
 export interface ResearchArtifact {
-  type: "chart" | "table";
+  type: "chart" | "table" | "metric_cards";
   title: string;
   data: any[];
   chartConfig?: {
@@ -20,6 +22,17 @@ export interface ResearchResponse {
   artifacts: ResearchArtifact[];
   mppCost: number;
   toolCalls: string[];
+  brainUpdates?: {
+    entities?: Record<string, any>;
+    knowledge?: Array<{ topic: string; fact: string; date: string }>;
+    preferences?: Record<string, any>;
+  };
+}
+
+export interface BrainContext {
+  entities: Record<string, any>;
+  knowledge: Array<{ topic: string; fact: string; date: string }>;
+  preferences: Record<string, any>;
 }
 
 const TOOLS = [
@@ -52,7 +65,7 @@ const TOOLS = [
       type: "object" as const,
       properties: {
         protocol: { type: "string" as const, description: "Protocol name or slug" },
-        type: { type: "string" as const, enum: ["dex", "derivatives"], description: "Type of volume: 'dex' for spot trading, 'derivatives' for perps/futures" },
+        type: { type: "string" as const, enum: ["dex", "derivatives"], description: "Type of volume: 'dex' for spot, 'derivatives' for perps/futures" },
       },
       required: ["protocol"],
     },
@@ -94,7 +107,7 @@ const TOOLS = [
   },
   {
     name: "execute_dune_sql",
-    description: "Execute a DuneSQL query (Trino dialect) against Dune Analytics' blockchain data warehouse. Use for on-chain metrics not available via DeFiLlama. Dune indexes all major EVM chains and Solana with decoded contract data.",
+    description: "Execute a DuneSQL query (Trino dialect) against Dune Analytics' blockchain data warehouse. Use for on-chain metrics not available via DeFiLlama.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -131,26 +144,72 @@ const TOOLS = [
       required: ["protocols"],
     },
   },
+  {
+    name: "get_token_snapshot",
+    description: "Get real-time token market data: price, market cap, FDV, 24h volume, circulating/total supply, holder count, 24h price change. Use for current valuation metrics.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        ticker: { type: "string" as const, description: "Token ticker symbol (e.g. 'HYPE', 'ETH', 'AAVE')" },
+        contractAddress: { type: "string" as const, description: "Token contract address (optional, defaults to native)" },
+        chain: { type: "string" as const, description: "Blockchain (e.g. 'ethereum', 'hyperliquid', 'solana'). Default: 'ethereum'" },
+      },
+      required: ["ticker"],
+    },
+  },
+  {
+    name: "execute_code",
+    description: "Execute JavaScript code to compute financial models, derived metrics, growth rates, projections, P/S ratios, scenario analysis, etc. The code runs in a sandboxed environment with access to Math, JSON, Date. Return results via the `result` variable. Use this for any calculations that need precision — never do complex math in your head.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        code: { type: "string" as const, description: "JavaScript code to execute. Assign your output to `result`. Example: `const revenue = 936; const mcap = 10720; result = { ps_ratio: (mcap/revenue).toFixed(2) };`" },
+        description: { type: "string" as const, description: "What this code computes" },
+      },
+      required: ["code", "description"],
+    },
+  },
 ];
 
-const SYSTEM_PROMPT = `You are a Senior DeFi Research Analyst at Research Everything — an institutional-grade VC research platform. You provide deep, actionable analysis comparable to top-tier crypto research desks (Messari, Delphi Digital, Galaxy Research).
+const SYSTEM_PROMPT = `You are a Senior DeFi Research Analyst at Research Everything — an institutional-grade VC research platform. You produce analysis comparable to top-tier crypto research desks (Messari, Delphi Digital, Galaxy Research).
 
-You have access to tools to query live blockchain data. Use them aggressively to answer questions with real data — never guess or hallucinate numbers. Call multiple tools to build comprehensive views.
+You have access to tools to query live blockchain data, search the web, fetch real-time token metrics, and execute code for financial modeling. Use them aggressively — never guess or hallucinate numbers. Call multiple tools to build comprehensive views.
 
-ANALYSIS QUALITY:
-- Think like a VC analyst: focus on unit economics, growth drivers, competitive moats, and risk factors
-- For valuation models: show your assumptions, derive multiples from comparable protocols, build scenario analyses
-- For protocol research: cover TVL trajectory, revenue quality (organic vs incentivized), fee capture rates, market share trends
-- Always calculate derived metrics: revenue run rate, P/S ratio, TVL/mcap ratio, fee capture %, growth rates (MoM, QoQ, YoY)
-- Provide clear bull/bear/base case frameworks when doing projections
-- Reference specific catalysts (governance proposals, upgrades, launches) when relevant
-- Compare against relevant peers to contextualize numbers
+RESEARCH METHODOLOGY:
+1. PLAN FIRST: Before making any tool calls, outline your research approach and what data you need
+2. GATHER BROADLY: Pull data from multiple sources — DeFiLlama for aggregate metrics, token snapshots for current valuation, web search for qualitative context (governance proposals, ecosystem developments, competitive landscape), Dune for on-chain granularity
+3. COMPUTE WITH CODE: Use execute_code for all financial calculations — growth rates, P/S ratios, scenario models, NTM projections. Never do complex math in your response text
+4. SYNTHESIZE DEEPLY: Don't just present data — analyze what it means for valuation, competitive position, and investment thesis
+
+FINANCIAL MODELING FRAMEWORKS:
+When doing valuation or financial analysis, always consider:
+- **Multiple MCAP definitions**: Circulating MCAP, EV-Adjusted MCAP (subtract treasury/locked tokens), NTM-Diluted MCAP (account for upcoming unlocks minus buybacks), and FDV
+- **Scenario analysis**: Bear / Base / Bull cases with explicit growth rate assumptions and discount factors
+- **Historical context**: Track how P/S, P/F, and other multiples have traded over time to contextualize current levels
+- **Sensitivity matrices**: Show how multiples change across scenarios and MCAP definitions
+- **Catalyst mapping**: Identify specific upcoming events (governance proposals, product launches, token unlocks) that could shift the thesis
+- **Comparable protocol analysis**: Always benchmark against relevant peers
+- **Revenue quality**: Distinguish organic vs incentivized revenue, fee capture rates, take rates
 
 RESPONSE FORMAT:
 - Write thorough, structured analysis in markdown with clear section headers
-- When you have data to show, embed charts and tables using special blocks
-- For charts, use this format in your response:
+- Lead with a snapshot of key metrics using metric cards
+- Embed charts and tables inline using special artifact blocks
+- Every section should have a "so what?" — don't just present data, explain what it means
 
+For metric cards (KPI-style summary at top), use:
+\`\`\`artifact:metric_cards
+{
+  "title": "Snapshot: Current State",
+  "data": [
+    {"label": "Price", "value": "$44.96", "subtitle": "As of Apr 14, 2026"},
+    {"label": "Circ. MCAP", "value": "$10.7B", "subtitle": "238M HYPE circ."},
+    {"label": "LTM Revenue", "value": "$936M", "subtitle": "Trailing 12 months"}
+  ]
+}
+\`\`\`
+
+For charts, use:
 \`\`\`artifact:chart
 {
   "title": "Chart Title",
@@ -161,8 +220,7 @@ RESPONSE FORMAT:
 }
 \`\`\`
 
-- For tables, use this format:
-
+For tables, use:
 \`\`\`artifact:table
 {
   "title": "Table Title",
@@ -171,18 +229,47 @@ RESPONSE FORMAT:
 }
 \`\`\`
 
-GUIDELINES:
-- Always call tools to get real data before answering — use multiple tools to build complete pictures
-- Prefer DeFiLlama for aggregate metrics (TVL, fees, revenue, volume) — it's fast and reliable
-- Use Dune SQL for on-chain granularity: wallet activity, transaction counts, unique users, token flows
+TOOL USAGE GUIDELINES:
+- Start with get_token_snapshot for current price/mcap/supply data
+- Use DeFiLlama for historical metrics (TVL, fees, revenue, volume)
+- Use web search (built into this model) for qualitative context — governance proposals, ecosystem news, analyst estimates, token unlock schedules
+- Use execute_code for ALL financial calculations — growth rates, projected revenue, P/S ratios, scenario analysis, sensitivity tables
+- Use Dune SQL for on-chain granularity (active users, transaction counts, wallet distributions)
 - Before writing Dune SQL, use discover_dune_tables to find the right tables
-- When comparing protocols, use the compare_protocols tool
-- Calculate and present derived metrics (growth rates, ratios, multiples) — don't just dump raw numbers
-- Build valuation frameworks with explicit assumptions when asked about token value
-- Format large numbers readably ($1.2B, not $1,200,000,000)
+- When comparing protocols, use compare_protocols for quick benchmarks
+- Make 10-20+ tool calls for complex questions — don't satisfice with 3-4 calls
 - If a tool call fails, explain what happened and try an alternative approach
 
-IMPORTANT: Keep chart data arrays reasonable (max ~365 points). For long time series, the system auto-samples — but prefer requesting just the timeframe you need.`;
+IMPORTANT:
+- Keep chart data arrays reasonable (max ~365 points). For long time series, the system auto-samples
+- Format large numbers readably ($1.2B, not $1,200,000,000)
+- Always show your work — make assumptions explicit
+- End with a clear investment thesis or actionable conclusion`;
+
+async function executeCode(code: string): Promise<string> {
+  try {
+    const sandbox: any = {
+      Math,
+      JSON,
+      Date,
+      Number,
+      String,
+      Array,
+      Object,
+      parseFloat,
+      parseInt,
+      isNaN,
+      isFinite,
+      console: { log: () => {} },
+      result: undefined,
+    };
+    const context = vm.createContext(sandbox);
+    vm.runInContext(code, context, { timeout: 5000 });
+    return JSON.stringify(sandbox.result ?? { output: "No result assigned" });
+  } catch (err: any) {
+    return JSON.stringify({ error: `Code execution failed: ${err.message}` });
+  }
+}
 
 async function executeTool(name: string, input: any): Promise<string> {
   try {
@@ -281,6 +368,17 @@ async function executeTool(name: string, input: any): Promise<string> {
         }
         return JSON.stringify({ count: results.length, protocols: results });
       }
+      case "get_token_snapshot": {
+        const addr = input.contractAddress || "native";
+        const chain = input.chain || "ethereum";
+        const { snapshot, mppCost } = await fetchTokenSnapshot(addr, chain, input.ticker);
+        return JSON.stringify({ ...snapshot, mppCost });
+      }
+      case "execute_code": {
+        console.log(`[SessionResearch] Executing code: ${input.description}`);
+        const result = await executeCode(input.code);
+        return result;
+      }
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
@@ -304,11 +402,11 @@ function sampleData(data: any[], maxPoints: number): any[] {
 
 export function parseArtifacts(content: string): ResearchArtifact[] {
   const artifacts: ResearchArtifact[] = [];
-  const regex = /```artifact:(chart|table)\s*\n([\s\S]*?)```/g;
+  const regex = /```artifact:(chart|table|metric_cards)\s*\n([\s\S]*?)```/g;
   let match;
   while ((match = regex.exec(content)) !== null) {
     try {
-      const type = match[1] as "chart" | "table";
+      const type = match[1] as "chart" | "table" | "metric_cards";
       const json = JSON.parse(match[2].trim());
       if (type === "chart") {
         artifacts.push({
@@ -320,6 +418,12 @@ export function parseArtifacts(content: string): ResearchArtifact[] {
             xAxis: json.xAxis || { dataKey: "date" },
             yAxes: json.yAxes || [],
           },
+        });
+      } else if (type === "metric_cards") {
+        artifacts.push({
+          type: "metric_cards",
+          title: json.title || "Metrics",
+          data: json.data || [],
         });
       } else {
         artifacts.push({
@@ -339,11 +443,11 @@ function summarizeHistory(history: Array<{ role: string; content: string }>): Ar
   const recent = history.slice(-20);
   for (const msg of recent) {
     if (msg.role === "assistant") {
-      const cleaned = msg.content.replace(/```artifact:(chart|table)\s*\n[\s\S]*?```/g, (m, type) => {
+      const cleaned = msg.content.replace(/```artifact:(chart|table|metric_cards)\s*\n[\s\S]*?```/g, (m, type) => {
         try {
           const jsonStr = m.replace(/```artifact:\w+\s*\n/, "").replace(/```$/, "").trim();
           const json = JSON.parse(jsonStr);
-          return `[${type === "chart" ? "📊" : "📋"} ${json.title || type}]`;
+          return `[${type === "chart" ? "📊" : type === "metric_cards" ? "📈" : "📋"} ${json.title || type}]`;
         } catch {
           return `[${type}]`;
         }
@@ -354,6 +458,37 @@ function summarizeHistory(history: Array<{ role: string; content: string }>): Ar
     }
   }
   return msgs;
+}
+
+function buildBrainContext(brain: BrainContext | null): string {
+  if (!brain) return "";
+
+  const sections: string[] = [];
+
+  const entities = brain.entities || {};
+  if (Object.keys(entities).length > 0) {
+    sections.push("KNOWN ENTITIES:\n" + Object.entries(entities).map(([name, data]: [string, any]) =>
+      `- ${name}: ${JSON.stringify(data)}`
+    ).join("\n"));
+  }
+
+  const knowledge = brain.knowledge || [];
+  if (knowledge.length > 0) {
+    const recent = knowledge.slice(-50);
+    sections.push("ACCUMULATED KNOWLEDGE:\n" + recent.map((k: any) =>
+      `- [${k.topic}] ${k.fact}`
+    ).join("\n"));
+  }
+
+  const prefs = brain.preferences || {};
+  if (Object.keys(prefs).length > 0) {
+    sections.push("USER PREFERENCES:\n" + Object.entries(prefs).map(([k, v]) =>
+      `- ${k}: ${v}`
+    ).join("\n"));
+  }
+
+  if (sections.length === 0) return "";
+  return "\n\nUSER RESEARCH BRAIN (accumulated from past sessions):\n" + sections.join("\n\n");
 }
 
 export interface ThinkingStep {
@@ -374,6 +509,8 @@ const TOOL_LABELS: Record<string, string> = {
   execute_dune_sql: "Running on-chain SQL query",
   discover_dune_tables: "Discovering available data tables",
   compare_protocols: "Comparing protocols side-by-side",
+  get_token_snapshot: "Fetching live token metrics",
+  execute_code: "Running financial model",
 };
 
 function toolLabel(name: string, input: any): string {
@@ -386,27 +523,63 @@ function toolLabel(name: string, input: any): string {
   if (name === "execute_dune_sql") return `${base}: ${input.description || "custom query"}`;
   if (name === "discover_dune_tables") return `${base} for ${input.protocol || "protocol"}`;
   if (name === "compare_protocols") return `${base}: ${(input.protocols || []).join(", ")}`;
+  if (name === "get_token_snapshot") return `${base} for ${input.ticker || "token"}`;
+  if (name === "execute_code") return `${base}: ${input.description || "computation"}`;
   return base;
+}
+
+function extractBrainUpdates(content: string, toolCalls: string[]): ResearchResponse["brainUpdates"] {
+  const updates: ResearchResponse["brainUpdates"] = {};
+
+  const entities: Record<string, any> = {};
+  const entityRegex = /(?:analyzing|researching|looking at)\s+(\w+)\s+(?:token|protocol)/gi;
+  let m;
+  while ((m = entityRegex.exec(content)) !== null) {
+    entities[m[1].toUpperCase()] = { lastResearched: new Date().toISOString().slice(0, 10) };
+  }
+  if (Object.keys(entities).length > 0) updates.entities = entities;
+
+  const knowledge: Array<{ topic: string; fact: string; date: string }> = [];
+  const metricRegex = /(?:current|latest)\s+(?:TVL|revenue|fees|price|market cap|mcap|P\/S)[^.]*\$[\d,.]+[BMK]?/gi;
+  const facts = content.match(metricRegex);
+  if (facts) {
+    for (const fact of facts.slice(0, 10)) {
+      knowledge.push({ topic: "metric", fact: fact.trim(), date: new Date().toISOString().slice(0, 10) });
+    }
+  }
+  if (knowledge.length > 0) updates.knowledge = knowledge;
+
+  return Object.keys(updates).length > 0 ? updates : undefined;
 }
 
 export async function runSessionResearchAgent(
   userMessage: string,
   history: Array<{ role: string; content: string }>,
+  brain: BrainContext | null,
   onStep?: (step: ThinkingStep) => void,
 ): Promise<ResearchResponse> {
   const toolCalls: string[] = [];
   let totalCost = 0;
 
+  const brainContext = buildBrainContext(brain);
+  const systemPrompt = SYSTEM_PROMPT + brainContext;
+
   const messages: Array<{ role: string; content: any }> = summarizeHistory(history);
   messages.push({ role: "user", content: userMessage });
 
-  const anthropicTools = TOOLS.map(t => ({
+  const anthropicTools: any[] = TOOLS.map(t => ({
     name: t.name,
     description: t.description,
     input_schema: t.input_schema,
   }));
 
-  const MAX_TOOL_ROUNDS = 8;
+  anthropicTools.push({
+    type: "web_search_20250305",
+    name: "web_search",
+    max_uses: 5,
+  });
+
+  const MAX_TOOL_ROUNDS = 12;
   let finalText = "";
 
   onStep?.({ type: "thinking", label: "Planning research approach" });
@@ -415,9 +588,9 @@ export async function runSessionResearchAgent(
     console.log(`[SessionResearch] Round ${round + 1}/${MAX_TOOL_ROUNDS}`);
 
     const response: AnthropicRawResponse = await callAnthropicRaw({
-      model: "claude-opus-4-20250514",
-      max_tokens: 12000,
-      system: SYSTEM_PROMPT,
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 16000,
+      system: systemPrompt,
       messages,
       tools: anthropicTools,
     });
@@ -461,6 +634,7 @@ export async function runSessionResearchAgent(
           else if (parsed.rowCount) resultSummary = `Got ${parsed.rowCount} rows`;
           else if (parsed.count) resultSummary = `Found ${parsed.count} results`;
           else if (parsed.data?.length) resultSummary = `Got ${parsed.data.length} records`;
+          else if (parsed.price) resultSummary = `Price: $${parsed.price}`;
           else resultSummary = "Data received";
         } catch { resultSummary = "Data received"; }
 
@@ -471,10 +645,15 @@ export async function runSessionResearchAgent(
           tool_use_id: block.id,
           content: result.slice(0, 80000),
         });
+      } else if (block.type === "web_search_tool_result" || block.type === "server_tool_use") {
+        onStep?.({ type: "tool_start", label: "Searching the web", detail: "web_search", round: round + 1 });
+        toolCalls.push("web_search");
       }
     }
 
-    messages.push({ role: "user", content: toolResults });
+    if (toolResults.length > 0) {
+      messages.push({ role: "user", content: toolResults });
+    }
     onStep?.({ type: "analyzing", label: "Analyzing results", round: round + 1, totalRounds: MAX_TOOL_ROUNDS });
   }
 
@@ -483,11 +662,13 @@ export async function runSessionResearchAgent(
   }
 
   const artifacts = parseArtifacts(finalText);
+  const brainUpdates = extractBrainUpdates(finalText, toolCalls);
 
   return {
     content: finalText,
     artifacts,
     mppCost: totalCost,
     toolCalls,
+    brainUpdates,
   };
 }

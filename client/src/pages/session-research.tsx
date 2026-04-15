@@ -22,7 +22,7 @@ const CHART_COLORS = [
 ];
 
 interface Artifact {
-  type: "chart" | "table";
+  type: "chart" | "table" | "metric_cards";
   title: string;
   data: any[];
   chartConfig?: {
@@ -216,9 +216,29 @@ function InlineTable({ artifact }: { artifact: Artifact }) {
   );
 }
 
-function parseContentAndArtifacts(content: string, artifacts?: Artifact[] | null): Array<{ type: "text" | "chart" | "table"; content?: string; artifact?: Artifact }> {
-  const parts: Array<{ type: "text" | "chart" | "table"; content?: string; artifact?: Artifact }> = [];
-  const regex = /```artifact:(chart|table)\s*\n([\s\S]*?)```/g;
+function MetricCards({ artifact }: { artifact: Artifact }) {
+  const { data, title } = artifact;
+  if (!data?.length) return null;
+
+  return (
+    <div className="my-3" data-testid="metric-cards">
+      {title && <h4 className="text-[11px] font-medium text-foreground/80 mb-2">{title}</h4>}
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
+        {data.map((card: any, i: number) => (
+          <div key={i} className="rounded border border-border/40 bg-card/30 px-3 py-2.5">
+            <p className="text-[9px] uppercase tracking-wider text-muted-foreground/60 mb-0.5">{card.label}</p>
+            <p className="text-[14px] font-semibold text-foreground/90 leading-tight">{card.value}</p>
+            {card.subtitle && <p className="text-[8px] text-muted-foreground/50 mt-0.5">{card.subtitle}</p>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function parseContentAndArtifacts(content: string, artifacts?: Artifact[] | null): Array<{ type: "text" | "chart" | "table" | "metric_cards"; content?: string; artifact?: Artifact }> {
+  const parts: Array<{ type: "text" | "chart" | "table" | "metric_cards"; content?: string; artifact?: Artifact }> = [];
+  const regex = /```artifact:(chart|table|metric_cards)\s*\n([\s\S]*?)```/g;
   let lastIndex = 0;
   let artifactIndex = 0;
   let match;
@@ -229,16 +249,21 @@ function parseContentAndArtifacts(content: string, artifacts?: Artifact[] | null
       if (textBefore) parts.push({ type: "text", content: textBefore });
     }
 
-    const type = match[1] as "chart" | "table";
+    const type = match[1] as "chart" | "table" | "metric_cards";
     if (artifacts && artifactIndex < artifacts.length) {
       parts.push({ type, artifact: artifacts[artifactIndex] });
       artifactIndex++;
     } else {
       try {
         const json = JSON.parse(match[2].trim());
-        const artifact: Artifact = type === "chart"
-          ? { type: "chart", title: json.title || "Chart", data: json.data || [], chartConfig: { chartType: json.chartType || "line", xAxis: json.xAxis || { dataKey: "date" }, yAxes: json.yAxes || [] } }
-          : { type: "table", title: json.title || "Table", data: json.data || [], columns: json.columns };
+        let artifact: Artifact;
+        if (type === "chart") {
+          artifact = { type: "chart", title: json.title || "Chart", data: json.data || [], chartConfig: { chartType: json.chartType || "line", xAxis: json.xAxis || { dataKey: "date" }, yAxes: json.yAxes || [] } };
+        } else if (type === "metric_cards") {
+          artifact = { type: "metric_cards", title: json.title || "Metrics", data: json.data || [] };
+        } else {
+          artifact = { type: "table", title: json.title || "Table", data: json.data || [], columns: json.columns };
+        }
         parts.push({ type, artifact });
       } catch {}
     }
@@ -310,6 +335,9 @@ function MessageBubble({ msg }: { msg: SessionMessage }) {
         {parts.map((part, i) => {
           if (part.type === "text" && part.content) {
             return <MarkdownText key={i} text={part.content} />;
+          }
+          if (part.type === "metric_cards" && part.artifact) {
+            return <MetricCards key={i} artifact={part.artifact} />;
           }
           if (part.type === "chart" && part.artifact) {
             return <InlineChart key={i} artifact={part.artifact} />;
