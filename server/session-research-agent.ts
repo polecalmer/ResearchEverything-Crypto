@@ -753,16 +753,15 @@ export async function runSessionResearchAgent(
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     console.log(`[SessionResearch] Round ${round + 1}/${MAX_TOOL_ROUNDS}`);
 
+    const useOpus = (process.env.SESSION_MODEL || "").toLowerCase().includes("opus");
     const requestBody: any = {
-      model: "claude-sonnet-4-20250514",
+      model: useOpus ? "claude-opus-4-0-20250514" : "claude-sonnet-4-20250514",
       max_tokens: 16000,
       system: systemPrompt,
       messages,
       tools: anthropicTools,
+      ...(useOpus ? { thinking: { type: "enabled", budget_tokens: 10000 }, temperature: 1 } : {}),
     };
-    // NOTE: Opus + extended thinking preferred but requires higher MPP wallet balance.
-    // Switch back when wallet is topped up:
-    // model: "claude-opus-4-0-20250514", thinking: { type: "enabled", budget_tokens: 10000 }, temperature: 1
 
     const response: AnthropicRawResponse = await callAnthropicRaw(requestBody);
 

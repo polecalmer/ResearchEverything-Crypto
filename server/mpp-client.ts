@@ -24,7 +24,7 @@ export interface AnthropicRawResponse {
   mppCost: number;
 }
 
-const CHANNEL_DEPOSIT = "3.0";
+const CHANNEL_DEPOSIT = "1.0";
 const SHUTDOWN_TIMEOUT_MS = 15000;
 
 interface MppClientState {
