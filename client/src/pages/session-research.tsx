@@ -264,16 +264,32 @@ function MetricCards({ artifact }: { artifact: Artifact }) {
   if (!data?.length) return null;
 
   return (
-    <div className="my-3" data-testid="metric-cards">
-      {title && <h4 className="text-[11px] font-medium text-foreground/80 mb-2">{title}</h4>}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
-        {data.map((card: any, i: number) => (
-          <div key={i} className="rounded border border-border/40 bg-card/30 px-3 py-2.5">
-            <p className="text-[9px] uppercase tracking-wider text-muted-foreground/60 mb-0.5">{card.label}</p>
-            <p className="text-[14px] font-semibold text-foreground/90 leading-tight">{card.value}</p>
-            {card.subtitle && <p className="text-[8px] text-muted-foreground/50 mt-0.5">{card.subtitle}</p>}
-          </div>
-        ))}
+    <div className="my-3 rounded border border-border/40 bg-card/30 overflow-hidden" data-testid="metric-cards">
+      {title && <h4 className="text-[11px] font-medium text-foreground/80 px-3 pt-2 pb-1">{title}</h4>}
+      <div className="overflow-x-auto">
+        <table className="w-full text-[10px]">
+          <thead>
+            <tr className="border-b border-border/30">
+              {data.map((card: any, i: number) => (
+                <th key={i} className="px-3 py-1.5 text-left font-medium text-muted-foreground/70 uppercase tracking-wider whitespace-nowrap">{card.label}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            <tr className="border-b border-border/20">
+              {data.map((card: any, i: number) => (
+                <td key={i} className="px-3 py-1.5 font-mono font-semibold text-foreground/90 whitespace-nowrap">{card.value}</td>
+              ))}
+            </tr>
+            {data.some((c: any) => c.subtitle) && (
+              <tr>
+                {data.map((card: any, i: number) => (
+                  <td key={i} className="px-3 py-1 text-[8px] text-muted-foreground/50 whitespace-nowrap">{card.subtitle || ""}</td>
+                ))}
+              </tr>
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
