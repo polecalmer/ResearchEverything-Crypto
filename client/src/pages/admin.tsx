@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Users, Activity, DollarSign, Building2, TrendingUp, Radio, Wallet, RefreshCw, XCircle, ArrowDownCircle, ExternalLink, BarChart3 } from "lucide-react";
+import { Loader2, Users, Activity, DollarSign, Building2, TrendingUp, Radio, Wallet, RefreshCw, XCircle, ArrowDownCircle, ExternalLink, BarChart3, Calendar, Clock } from "lucide-react";
 import { format } from "date-fns";
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { apiRequest } from "@/lib/queryClient";
 
 const EVENT_LABELS: Record<string, string> = {
@@ -210,11 +210,62 @@ function WalletPanel() {
   );
 }
 
+const TYPE_LABELS: Record<string, string> = {
+  enrichment: "Enrichment",
+  next_steps: "Next Steps",
+  deep_research: "Deep Research",
+  session_research: "Research Session",
+  token_analysis: "Token Analysis",
+  data_chart: "Data Chart",
+  dune_query: "Dune Query",
+  token_snapshot: "Token Snapshot",
+};
+
+function CostTrendBar({ items, maxValue, valueKey, formatLabel }: {
+  items: any[];
+  maxValue: number;
+  valueKey: string;
+  formatLabel: (item: any) => string;
+}) {
+  if (!items || items.length === 0) return null;
+  return (
+    <div className="space-y-1">
+      {items.map((item: any, i: number) => {
+        const value = Number(item[valueKey]) || 0;
+        const pct = maxValue > 0 ? (value / maxValue) * 100 : 0;
+        return (
+          <div key={i} className="flex items-center gap-2 text-[10px]" data-testid={`trend-bar-${i}`}>
+            <span className="text-muted-foreground/50 w-16 shrink-0 text-right">{formatLabel(item)}</span>
+            <div className="flex-1 h-3 bg-border/20 rounded overflow-hidden">
+              <div
+                className="h-full bg-amber-400/60 rounded"
+                style={{ width: `${Math.max(pct, 1)}%` }}
+              />
+            </div>
+            <span className="font-mono text-foreground/60 w-16 shrink-0 text-right">${value.toFixed(4)}</span>
+            <span className="font-mono text-muted-foreground/40 w-12 shrink-0 text-right">{item.tx_count}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function CostReportPanel() {
   const { data, isLoading, refetch, isFetching } = useQuery<any>({
     queryKey: ["/api/admin/cost-report"],
     refetchInterval: false,
   });
+  const [trendView, setTrendView] = useState<"daily" | "weekly">("daily");
+  const [sessionExpanded, setSessionExpanded] = useState(false);
+
+  const trendData = useMemo(() => {
+    if (!data) return { items: [], max: 0 };
+    const items = trendView === "daily" ? (data.dailyCosts || []) : (data.weeklyCosts || []);
+    const costKey = trendView === "daily" ? "daily_cost" : "weekly_cost";
+    const max = Math.max(...items.map((d: any) => Number(d[costKey]) || 0), 0.0001);
+    return { items, max, costKey };
+  }, [data, trendView]);
 
   if (isLoading) {
     return (
@@ -227,102 +278,228 @@ function CostReportPanel() {
 
   if (!data) return null;
 
-  const { onChain, transactionBreakdown, tokenUsage } = data;
+  const { onChain, transactionBreakdown, tokenUsage, sessionBreakdown } = data;
+  const sessionsToShow = sessionExpanded ? (sessionBreakdown || []) : (sessionBreakdown || []).slice(0, 10);
 
   return (
-    <div className="rounded border border-border/40 bg-card/30 overflow-hidden" data-testid="cost-report-panel">
-      <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
-        <BarChart3 className="w-3.5 h-3.5 text-foreground/60" />
-        <h2 className="text-[12px] font-medium text-foreground/80 tracking-tight">On-Chain Cost Report</h2>
-        <span className="ml-auto flex items-center gap-2">
-          <span className="text-[10px] text-muted-foreground/40">{onChain?.generatedAt ? format(new Date(onChain.generatedAt), "h:mm a") : ""}</span>
-          <button
-            onClick={() => refetch()}
-            disabled={isFetching}
-            className="text-[10px] text-muted-foreground/60 hover:text-foreground/70 transition-colors flex items-center gap-1"
-            data-testid="button-refresh-cost-report"
-          >
-            <RefreshCw className={`w-3 h-3 ${isFetching ? "animate-spin" : ""}`} />
-          </button>
-        </span>
-      </div>
+    <div className="space-y-4">
+      <div className="rounded border border-border/40 bg-card/30 overflow-hidden" data-testid="cost-report-panel">
+        <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
+          <BarChart3 className="w-3.5 h-3.5 text-foreground/60" />
+          <h2 className="text-[12px] font-medium text-foreground/80 tracking-tight">On-Chain Cost Report</h2>
+          <span className="ml-auto flex items-center gap-2">
+            <span className="text-[10px] text-muted-foreground/40">{onChain?.generatedAt ? format(new Date(onChain.generatedAt), "h:mm a") : ""}</span>
+            <button
+              onClick={() => refetch()}
+              disabled={isFetching}
+              className="text-[10px] text-muted-foreground/60 hover:text-foreground/70 transition-colors flex items-center gap-1"
+              data-testid="button-refresh-cost-report"
+            >
+              <RefreshCw className={`w-3 h-3 ${isFetching ? "animate-spin" : ""}`} />
+            </button>
+          </span>
+        </div>
 
-      <div className="p-4 grid grid-cols-5 gap-4">
-        <div>
-          <p className="text-[10px] text-muted-foreground/50 mb-0.5">Total Funded</p>
-          <p className="text-sm font-mono font-semibold text-foreground/80" data-testid="text-total-funded">
-            ${onChain?.totalFunded?.toFixed(2)}
-          </p>
+        <div className="p-4 grid grid-cols-5 gap-4">
+          <div>
+            <p className="text-[10px] text-muted-foreground/50 mb-0.5">Total Funded</p>
+            <p className="text-sm font-mono font-semibold text-foreground/80" data-testid="text-total-funded">
+              ${onChain?.totalFunded?.toFixed(2)}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground/50 mb-0.5">Current Balance</p>
+            <p className="text-sm font-mono font-semibold text-foreground/80" data-testid="text-current-balance">
+              ${onChain?.currentBalance?.toFixed(2)}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground/50 mb-0.5">Net Cost</p>
+            <p className="text-sm font-mono font-semibold text-amber-400" data-testid="text-net-cost">
+              ${onChain?.netCost?.toFixed(2)}
+            </p>
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground/50 mb-0.5">Protocol Fees</p>
+            <p className="text-sm font-mono font-semibold text-foreground/80" data-testid="text-protocol-fees">
+              ${onChain?.protocolFees?.toFixed(4)}
+            </p>
+            <p className="text-[9px] text-muted-foreground/40">{onChain?.protocolFeeTxCount} txns</p>
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground/50 mb-0.5">Escrow Locked</p>
+            <p className="text-sm font-mono font-semibold text-foreground/80" data-testid="text-escrow-locked">
+              ${onChain?.escrowLocked?.toFixed(2)}
+            </p>
+          </div>
         </div>
-        <div>
-          <p className="text-[10px] text-muted-foreground/50 mb-0.5">Current Balance</p>
-          <p className="text-sm font-mono font-semibold text-foreground/80" data-testid="text-current-balance">
-            ${onChain?.currentBalance?.toFixed(2)}
-          </p>
-        </div>
-        <div>
-          <p className="text-[10px] text-muted-foreground/50 mb-0.5">Net Cost</p>
-          <p className="text-sm font-mono font-semibold text-amber-400" data-testid="text-net-cost">
-            ${onChain?.netCost?.toFixed(2)}
-          </p>
-        </div>
-        <div>
-          <p className="text-[10px] text-muted-foreground/50 mb-0.5">Protocol Fees</p>
-          <p className="text-sm font-mono font-semibold text-foreground/80" data-testid="text-protocol-fees">
-            ${onChain?.protocolFees?.toFixed(4)}
-          </p>
-          <p className="text-[9px] text-muted-foreground/40">{onChain?.protocolFeeTxCount} txns</p>
-        </div>
-        <div>
-          <p className="text-[10px] text-muted-foreground/50 mb-0.5">Escrow Locked</p>
-          <p className="text-sm font-mono font-semibold text-foreground/80" data-testid="text-escrow-locked">
-            ${onChain?.escrowLocked?.toFixed(2)}
-          </p>
-        </div>
-      </div>
 
-      {tokenUsage && (
-        <div className="px-4 pb-3 border-t border-border/20 pt-3">
-          <div className="flex items-center gap-6 text-[10px]">
-            <span className="text-muted-foreground/50">
-              Input Tokens: <span className="font-mono text-foreground/60">{Number(tokenUsage.total_input).toLocaleString()}</span>
-            </span>
-            <span className="text-muted-foreground/50">
-              Output Tokens: <span className="font-mono text-foreground/60">{Number(tokenUsage.total_output).toLocaleString()}</span>
-            </span>
-            <span className="text-muted-foreground/50">
-              API Calls: <span className="font-mono text-foreground/60">{Number(tokenUsage.total_txns).toLocaleString()}</span>
-            </span>
-            {Number(tokenUsage.total_txns) > 0 && onChain?.protocolFees > 0 && (
+        {tokenUsage && (
+          <div className="px-4 pb-3 border-t border-border/20 pt-3">
+            <div className="flex items-center gap-6 text-[10px]">
               <span className="text-muted-foreground/50">
-                Avg Fee/Call: <span className="font-mono text-foreground/60">${(onChain.protocolFees / Number(tokenUsage.total_txns)).toFixed(4)}</span>
+                Input Tokens: <span className="font-mono text-foreground/60">{Number(tokenUsage.total_input).toLocaleString()}</span>
               </span>
-            )}
+              <span className="text-muted-foreground/50">
+                Output Tokens: <span className="font-mono text-foreground/60">{Number(tokenUsage.total_output).toLocaleString()}</span>
+              </span>
+              <span className="text-muted-foreground/50">
+                API Calls: <span className="font-mono text-foreground/60">{Number(tokenUsage.total_txns).toLocaleString()}</span>
+              </span>
+              {Number(tokenUsage.total_txns) > 0 && onChain?.protocolFees > 0 && (
+                <span className="text-muted-foreground/50">
+                  Avg Fee/Call: <span className="font-mono text-foreground/60">${(onChain.protocolFees / Number(tokenUsage.total_txns)).toFixed(4)}</span>
+                </span>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {transactionBreakdown && transactionBreakdown.length > 0 && (
-        <div className="border-t border-border/20">
-          <div className="px-4 py-2">
-            <span className="text-[10px] text-muted-foreground/50">By Type</span>
+        {transactionBreakdown && transactionBreakdown.length > 0 && (
+          <div className="border-t border-border/20">
+            <div className="px-4 py-2">
+              <span className="text-[10px] text-muted-foreground/50">By Type</span>
+            </div>
+            <div className="divide-y divide-border/10">
+              {transactionBreakdown.map((t: any) => (
+                <div key={t.type} className="px-4 py-1.5 flex items-center gap-3 text-[11px]" data-testid={`cost-row-${t.type}`}>
+                  <span className="text-foreground/70 w-32">{TYPE_LABELS[t.type] || t.type}</span>
+                  <span className="font-mono text-muted-foreground/60 w-16 text-right">{t.count} calls</span>
+                  <span className="font-mono text-muted-foreground/60 w-24 text-right">
+                    {Number(t.total_input_tokens).toLocaleString()} in
+                  </span>
+                  <span className="font-mono text-muted-foreground/60 w-24 text-right">
+                    {Number(t.total_output_tokens).toLocaleString()} out
+                  </span>
+                  <span className="font-mono text-amber-400/70 w-20 text-right">
+                    ${Number(t.logged_cost).toFixed(4)}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="divide-y divide-border/10">
-            {transactionBreakdown.map((t: any) => (
-              <div key={t.type} className="px-4 py-1.5 flex items-center gap-3 text-[11px]" data-testid={`cost-row-${t.type}`}>
-                <span className="text-foreground/70 w-32">{t.type}</span>
-                <span className="font-mono text-muted-foreground/60 w-16 text-right">{t.count} calls</span>
-                <span className="font-mono text-muted-foreground/60 w-24 text-right">
-                  {Number(t.total_input_tokens).toLocaleString()} in
-                </span>
-                <span className="font-mono text-muted-foreground/60 w-24 text-right">
-                  {Number(t.total_output_tokens).toLocaleString()} out
-                </span>
-              </div>
-            ))}
+        )}
+      </div>
+
+      <div className="rounded border border-border/40 bg-card/30 overflow-hidden" data-testid="cost-trend-panel">
+        <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
+          <TrendingUp className="w-3.5 h-3.5 text-foreground/60" />
+          <h2 className="text-[12px] font-medium text-foreground/80 tracking-tight">Cost Trend</h2>
+          <div className="ml-auto flex items-center gap-1">
+            <button
+              onClick={() => setTrendView("daily")}
+              className={`text-[10px] px-2 py-0.5 rounded transition-colors ${trendView === "daily" ? "bg-accent text-foreground/80" : "text-muted-foreground/50 hover:text-foreground/60"}`}
+              data-testid="button-trend-daily"
+            >
+              <Calendar className="w-3 h-3 inline mr-1" />Daily
+            </button>
+            <button
+              onClick={() => setTrendView("weekly")}
+              className={`text-[10px] px-2 py-0.5 rounded transition-colors ${trendView === "weekly" ? "bg-accent text-foreground/80" : "text-muted-foreground/50 hover:text-foreground/60"}`}
+              data-testid="button-trend-weekly"
+            >
+              <Clock className="w-3 h-3 inline mr-1" />Weekly
+            </button>
           </div>
         </div>
-      )}
+        <div className="p-4">
+          {trendData.items.length === 0 ? (
+            <p className="text-xs text-muted-foreground/50 italic">No cost data for this period.</p>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 text-[9px] text-muted-foreground/40 mb-2">
+                <span className="w-16 text-right">Date</span>
+                <span className="flex-1">API Cost</span>
+                <span className="w-16 text-right">Cost</span>
+                <span className="w-12 text-right">Calls</span>
+              </div>
+              <CostTrendBar
+                items={trendData.items}
+                maxValue={trendData.max}
+                valueKey={trendData.costKey}
+                formatLabel={(item: any) => {
+                  const dateStr = trendView === "daily" ? item.day : item.week_start;
+                  try { return format(new Date(dateStr), trendView === "daily" ? "MMM d" : "MMM d"); }
+                  catch { return String(dateStr).slice(5, 10); }
+                }}
+              />
+            </>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded border border-border/40 bg-card/30 overflow-hidden" data-testid="session-breakdown-panel">
+        <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
+          <DollarSign className="w-3.5 h-3.5 text-foreground/60" />
+          <h2 className="text-[12px] font-medium text-foreground/80 tracking-tight">Per-Session Cost Breakdown</h2>
+          <span className="text-[10px] text-muted-foreground/40 ml-1">
+            {(sessionBreakdown || []).length} sessions
+          </span>
+        </div>
+        <div className="overflow-x-auto">
+          {(!sessionBreakdown || sessionBreakdown.length === 0) ? (
+            <p className="p-4 text-xs text-muted-foreground/50 italic">No session data yet.</p>
+          ) : (
+            <>
+              <table className="w-full text-[11px]" data-testid="table-session-costs">
+                <thead>
+                  <tr className="border-b border-border/30 text-muted-foreground/50">
+                    <th className="text-left px-4 py-2 font-medium">Type</th>
+                    <th className="text-left px-4 py-2 font-medium">Description</th>
+                    <th className="text-left px-4 py-2 font-medium">User</th>
+                    <th className="text-right px-4 py-2 font-medium">Input</th>
+                    <th className="text-right px-4 py-2 font-medium">Output</th>
+                    <th className="text-right px-4 py-2 font-medium">API Cost</th>
+                    <th className="text-right px-4 py-2 font-medium">Charged</th>
+                    <th className="text-right px-4 py-2 font-medium">Time</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sessionsToShow.map((s: any) => (
+                    <tr key={s.id} className="border-b border-border/20 hover:bg-accent/30 transition-colors" data-testid={`session-row-${s.id}`}>
+                      <td className="px-4 py-1.5">
+                        <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-medium bg-accent/40 text-foreground/70">
+                          {TYPE_LABELS[s.type] || s.type}
+                        </span>
+                      </td>
+                      <td className="px-4 py-1.5 text-foreground/70 max-w-[200px] truncate" title={s.description}>
+                        {s.company_name || s.description?.slice(0, 50) || "—"}
+                      </td>
+                      <td className="px-4 py-1.5 text-muted-foreground/60">{s.username || "—"}</td>
+                      <td className="px-4 py-1.5 text-right font-mono text-muted-foreground/60">
+                        {Number(s.input_tokens).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-1.5 text-right font-mono text-muted-foreground/60">
+                        {Number(s.output_tokens).toLocaleString()}
+                      </td>
+                      <td className="px-4 py-1.5 text-right font-mono text-amber-400/70">
+                        ${Number(s.api_cost || 0).toFixed(4)}
+                      </td>
+                      <td className="px-4 py-1.5 text-right font-mono text-foreground/70">
+                        ${Number(s.amount || 0).toFixed(4)}
+                      </td>
+                      <td className="px-4 py-1.5 text-right text-muted-foreground/50">
+                        {s.created_at ? format(new Date(s.created_at), "MMM d, h:mm a") : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {(sessionBreakdown || []).length > 10 && (
+                <div className="px-4 py-2 border-t border-border/20">
+                  <button
+                    onClick={() => setSessionExpanded(!sessionExpanded)}
+                    className="text-[10px] text-muted-foreground/60 hover:text-foreground/70 transition-colors"
+                    data-testid="button-toggle-sessions"
+                  >
+                    {sessionExpanded ? "Show less" : `Show all ${sessionBreakdown.length} sessions`}
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

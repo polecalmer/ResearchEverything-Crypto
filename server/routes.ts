@@ -1399,10 +1399,57 @@ export async function registerRoutes(
           COUNT(*) as total_txns
         FROM transactions WHERE status = 'success'
       `);
+      const sessionBreakdown = await db.execute(sql`
+        SELECT 
+          t.id,
+          t.type,
+          t.description,
+          t.company_name,
+          CAST(t.api_cost AS NUMERIC) as api_cost,
+          CAST(t.amount AS NUMERIC) as amount,
+          COALESCE(t.input_tokens, 0) as input_tokens,
+          COALESCE(t.output_tokens, 0) as output_tokens,
+          t.created_at,
+          u.username
+        FROM transactions t
+        LEFT JOIN users u ON t.user_id = u.id
+        WHERE t.status = 'success'
+        ORDER BY t.created_at DESC
+        LIMIT 100
+      `);
+      const dailyCosts = await db.execute(sql`
+        SELECT 
+          DATE(created_at) as day,
+          COUNT(*) as tx_count,
+          COALESCE(SUM(CAST(api_cost AS NUMERIC)), 0) as daily_cost,
+          COALESCE(SUM(CAST(amount AS NUMERIC)), 0) as daily_charged,
+          COALESCE(SUM(input_tokens), 0) as daily_input_tokens,
+          COALESCE(SUM(output_tokens), 0) as daily_output_tokens
+        FROM transactions
+        WHERE status = 'success' AND created_at >= NOW() - INTERVAL '30 days'
+        GROUP BY DATE(created_at)
+        ORDER BY day ASC
+      `);
+      const weeklyCosts = await db.execute(sql`
+        SELECT 
+          DATE_TRUNC('week', created_at)::date as week_start,
+          COUNT(*) as tx_count,
+          COALESCE(SUM(CAST(api_cost AS NUMERIC)), 0) as weekly_cost,
+          COALESCE(SUM(CAST(amount AS NUMERIC)), 0) as weekly_charged,
+          COALESCE(SUM(input_tokens), 0) as weekly_input_tokens,
+          COALESCE(SUM(output_tokens), 0) as weekly_output_tokens
+        FROM transactions
+        WHERE status = 'success' AND created_at >= NOW() - INTERVAL '12 weeks'
+        GROUP BY DATE_TRUNC('week', created_at)
+        ORDER BY week_start ASC
+      `);
       res.json({
         onChain: report,
         transactionBreakdown: txSummary.rows,
         tokenUsage: totalTokens.rows[0],
+        sessionBreakdown: sessionBreakdown.rows,
+        dailyCosts: dailyCosts.rows,
+        weeklyCosts: weeklyCosts.rows,
       });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
