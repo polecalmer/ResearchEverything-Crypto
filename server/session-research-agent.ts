@@ -754,11 +754,13 @@ export async function runSessionResearchAgent(
     console.log(`[SessionResearch] Round ${round + 1}/${MAX_TOOL_ROUNDS}`);
 
     const requestBody: any = {
-      model: "claude-sonnet-4-20250514",
+      model: "claude-opus-4-6",
       max_tokens: 16000,
       system: systemPrompt,
       messages,
       tools: anthropicTools,
+      thinking: { type: "enabled", budget_tokens: 10000 },
+      temperature: 1,
     };
 
     const response: AnthropicRawResponse = await callAnthropicRaw(requestBody);
