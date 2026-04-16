@@ -11,10 +11,13 @@ export interface AnthropicRequest {
   tools?: Array<{ type: string; name: string; max_uses?: number }>;
 }
 
+export type CostSource = "receipt" | "voucher_estimate";
+
 export interface AnthropicResponse {
   text: string;
   usage: { input_tokens: number; output_tokens: number };
   mppCost: number;
+  costSource: CostSource;
 }
 
 export interface AnthropicRawResponse {
@@ -22,6 +25,7 @@ export interface AnthropicRawResponse {
   usage: { input_tokens: number; output_tokens: number };
   stop_reason: string;
   mppCost: number;
+  costSource: CostSource;
 }
 
 const CHANNEL_DEPOSIT = "20.0";
@@ -30,6 +34,7 @@ const SHUTDOWN_TIMEOUT_MS = 15000;
 interface MppClientState {
   session: ReturnType<typeof tempo.session>;
   totalSpent: number;
+  totalVoucherAuthorized: number;
   requestCount: number;
   createdAt: number;
 }
@@ -57,6 +62,7 @@ function getOrCreateClient(): MppClientState {
   const state: MppClientState = {
     session,
     totalSpent: 0,
+    totalVoucherAuthorized: 0,
     requestCount: 0,
     createdAt: Date.now(),
   };
@@ -67,8 +73,39 @@ function getOrCreateClient(): MppClientState {
 }
 
 function forceNewChannel() {
-  console.log(`[MPP-Channel] Forcing new channel (previous: ${sharedClient?.requestCount || 0} requests, $${sharedClient?.totalSpent.toFixed(4) || 0} spent)`);
+  console.log(`[MPP-Channel] Forcing new channel (previous: ${sharedClient?.requestCount || 0} requests, $${sharedClient?.totalSpent.toFixed(4) || 0} spent, voucher: $${sharedClient?.totalVoucherAuthorized.toFixed(4) || 0})`);
   sharedClient = null;
+}
+
+function extractCostFromResponse(response: any, state: MppClientState): { cost: number; source: CostSource } {
+  const prevSpent = state.totalSpent;
+  const prevVoucher = state.totalVoucherAuthorized;
+  let source: CostSource = "voucher_estimate";
+
+  const rawVoucher = response.cumulative ? Number(response.cumulative) / 1e6 : null;
+  if (rawVoucher !== null && rawVoucher >= prevVoucher) {
+    state.totalVoucherAuthorized = rawVoucher;
+  }
+
+  const receipt = response.receipt;
+  if (receipt?.spent) {
+    const serverSpent = Number(BigInt(receipt.spent)) / 1e6;
+    if (serverSpent >= prevSpent) {
+      state.totalSpent = serverSpent;
+    }
+    source = "receipt";
+  } else if (receipt?.acceptedCumulative) {
+    const accepted = Number(BigInt(receipt.acceptedCumulative)) / 1e6;
+    if (accepted >= prevSpent) {
+      state.totalSpent = accepted;
+    }
+    source = "receipt";
+  } else if (rawVoucher !== null) {
+    state.totalSpent = state.totalVoucherAuthorized;
+    source = "voucher_estimate";
+  }
+
+  return { cost: Math.max(0, state.totalSpent - prevSpent), source };
 }
 
 export function isServerMppReady(): boolean {
@@ -80,6 +117,7 @@ export function getChannelStats() {
   return {
     deposit: CHANNEL_DEPOSIT,
     totalSpent: sharedClient.totalSpent,
+    totalVoucherAuthorized: sharedClient.totalVoucherAuthorized,
     requestCount: sharedClient.requestCount,
     uptime: Math.round((Date.now() - sharedClient.createdAt) / 1000),
   };
@@ -94,7 +132,7 @@ async function closeChannel(): Promise<void> {
   const { session, requestCount, totalSpent } = sharedClient;
 
   try {
-    console.log(`[MPP-Channel] Closing channel (${requestCount} requests, $${totalSpent.toFixed(4)} spent)...`);
+    console.log(`[MPP-Channel] Closing channel (${requestCount} requests, $${totalSpent.toFixed(4)} spent, voucher: $${sharedClient.totalVoucherAuthorized.toFixed(4)})...`);
     const receipt = await Promise.race([
       session.close(),
       new Promise<null>((_, reject) =>
@@ -182,15 +220,10 @@ async function callAnthropic(request: AnthropicRequest): Promise<AnthropicRespon
         throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
       }
 
-      const prevCumulative = state.totalSpent;
-      const rawCumulative = response.cumulative ? Number(response.cumulative) / 1e6 : null;
-      if (rawCumulative !== null && rawCumulative >= prevCumulative) {
-        state.totalSpent = rawCumulative;
-      }
-      const mppCost = Math.max(0, state.totalSpent - prevCumulative);
+      const { cost: mppCost, source: costSource } = extractCostFromResponse(response, state);
       state.requestCount++;
 
-      console.log(`[MPP-Channel] Request #${state.requestCount}: cost ~$${mppCost.toFixed(4)} (cumulative: $${state.totalSpent.toFixed(4)})`);
+      console.log(`[MPP-Channel] Request #${state.requestCount}: cost $${mppCost.toFixed(4)} [${costSource}] (spent: $${state.totalSpent.toFixed(4)}, voucher: $${state.totalVoucherAuthorized.toFixed(4)})`);
 
       const data = await response.json();
 
@@ -210,6 +243,7 @@ async function callAnthropic(request: AnthropicRequest): Promise<AnthropicRespon
           output_tokens: data.usage?.output_tokens || 0,
         },
         mppCost,
+        costSource,
       };
     } catch (err) {
       lastError = err as Error;
@@ -292,15 +326,10 @@ export async function callAnthropicRaw(request: any): Promise<AnthropicRawRespon
         throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
       }
 
-      const prevCumulative = state.totalSpent;
-      const rawCumulative = response.cumulative ? Number(response.cumulative) / 1e6 : null;
-      if (rawCumulative !== null && rawCumulative >= prevCumulative) {
-        state.totalSpent = rawCumulative;
-      }
-      const mppCost = Math.max(0, state.totalSpent - prevCumulative);
+      const { cost: mppCost, source: costSource } = extractCostFromResponse(response, state);
       state.requestCount++;
 
-      console.log(`[MPP-Channel] Request #${state.requestCount}: cost ~$${mppCost.toFixed(4)} (cumulative: $${state.totalSpent.toFixed(4)})`);
+      console.log(`[MPP-Channel] Request #${state.requestCount}: cost $${mppCost.toFixed(4)} [${costSource}] (spent: $${state.totalSpent.toFixed(4)}, voucher: $${state.totalVoucherAuthorized.toFixed(4)})`);
 
       const data = await response.json();
 
@@ -312,6 +341,7 @@ export async function callAnthropicRaw(request: any): Promise<AnthropicRawRespon
         },
         stop_reason: data.stop_reason || "end_turn",
         mppCost,
+        costSource,
       };
     } catch (err) {
       lastError = err as Error;

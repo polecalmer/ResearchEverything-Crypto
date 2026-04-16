@@ -382,9 +382,11 @@ export default function AdminPage() {
                 <p className="text-sm font-mono font-semibold text-foreground/80">${mppChannel.deposit}</p>
               </div>
               <div>
-                <p className="text-[10px] text-muted-foreground/50 mb-0.5">Voucher Amount</p>
+                <p className="text-[10px] text-muted-foreground/50 mb-0.5">Actual Spent</p>
                 <p className="text-sm font-mono font-semibold text-foreground/80">${Number(mppChannel.totalSpent).toFixed(4)}</p>
-                <p className="text-[9px] text-muted-foreground/40">Off-chain vouchers</p>
+                <p className="text-[9px] text-muted-foreground/40">
+                  Voucher: ${Number(mppChannel.totalVoucherAuthorized || mppChannel.totalSpent).toFixed(4)}
+                </p>
               </div>
               <div>
                 <p className="text-[10px] text-muted-foreground/50 mb-0.5">Requests</p>
