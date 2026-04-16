@@ -276,39 +276,38 @@ export default function LandingPage() {
         </div>
       </nav>
 
-      <section className="pt-28 pb-20 px-6">
-        <div className="max-w-6xl mx-auto grid lg:grid-cols-2 gap-16 items-start">
-          <div className="space-y-8 pt-8">
-            <div>
-              <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-[1.12] mb-5">
-                Research that<br />
-                <span className="text-muted-foreground">learns with you.</span>
-              </h1>
-              <p className="text-lg text-muted-foreground leading-relaxed max-w-md">
-                An AI research platform for crypto. Run deep analysis, build
-                financial models, generate reports, and have conversations with
-                AI that remembers your work.
-              </p>
-            </div>
+      <section className="pt-28 pb-8 px-6">
+        <div className="max-w-6xl mx-auto flex flex-col items-center text-center">
+          <img src={sessionsLogo} alt="Sessions" className="w-20 h-20 sm:w-24 sm:h-24 object-contain rounded-2xl mb-8" />
+          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.12] mb-5">
+            Research that<br />
+            <span className="text-muted-foreground">learns with you.</span>
+          </h1>
+          <p className="text-lg text-muted-foreground leading-relaxed max-w-lg mb-8">
+            An AI research platform for crypto. Run deep analysis, build
+            financial models, generate reports, and have conversations with
+            AI that remembers your work.
+          </p>
 
-            <TypingDemo />
+          <TypingDemo />
 
-            <div className="flex items-center gap-3">
-              <Button size="lg" className="h-11 px-6 gap-2 text-sm" onClick={() => login()} data-testid="button-cta-start">
-                Start a session
-                <ArrowRight className="w-4 h-4" />
+          <div className="flex items-center gap-3 mt-8">
+            <Button size="lg" className="h-11 px-6 gap-2 text-sm" onClick={() => login()} data-testid="button-cta-start">
+              Start a session
+              <ArrowRight className="w-4 h-4" />
+            </Button>
+            <a href="#what-you-get">
+              <Button variant="ghost" size="lg" className="h-11 px-4 text-sm text-muted-foreground" data-testid="button-how-it-works">
+                Learn more
               </Button>
-              <a href="#what-you-get">
-                <Button variant="ghost" size="lg" className="h-11 px-4 text-sm text-muted-foreground" data-testid="button-how-it-works">
-                  Learn more
-                </Button>
-              </a>
-            </div>
+            </a>
           </div>
+        </div>
+      </section>
 
-          <div className="hidden lg:flex flex-col items-end pt-4">
-            <HeroVisual />
-          </div>
+      <section className="py-12 px-6">
+        <div className="max-w-6xl mx-auto flex justify-center">
+          <HeroVisual />
         </div>
       </section>
 
