@@ -3,7 +3,7 @@ const DEFAULT_DASHBOARD_URL = "https://workspace.replit.app";
 chrome.runtime.onInstalled.addListener(() => {
   chrome.contextMenus.create({
     id: "add-to-dealflow",
-    title: "Add to Research Everything",
+    title: "Add to Sessions",
     contexts: ["page", "link", "selection"]
   });
 

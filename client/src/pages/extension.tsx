@@ -49,7 +49,7 @@ export default function ExtensionPage() {
           <div className="flex-1 min-w-[200px]">
             <h3 className="text-sm font-semibold mb-2">Right-Click to Capture</h3>
             <p className="text-sm text-muted-foreground leading-relaxed mb-4">
-              The Research Everything Chrome extension adds a right-click context menu to every webpage.
+              The Sessions Chrome extension adds a right-click context menu to every webpage.
               See a company you're interested in? Right-click and select "Research This" — the deal
               is captured instantly with the page URL, and a floating card confirms it without
               leaving the page.

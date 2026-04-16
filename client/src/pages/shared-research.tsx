@@ -307,7 +307,7 @@ export default function SharedResearch() {
         </div>
         <div className="mt-8 pt-4 border-t border-border/30 text-center">
           <p className="text-[9px] text-muted-foreground/50">
-            Powered by Research Everything
+            Powered by Sessions
           </p>
         </div>
       </div>

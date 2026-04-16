@@ -1,8 +1,8 @@
-# Research Everything
+# Sessions
 
 ## Overview
 
-Research Everything (researcheverything.xyz) is a deal pipeline management and research intelligence dashboard for venture capitalists (VCs). It aims to streamline the process of sourcing, evaluating, and managing potential investments by combining a web application with a Chrome extension. The platform transforms web links into structured deal intelligence, offering tools for efficient deal flow management, AI-powered enrichment, token analytics, and comprehensive reporting. Its vision is to empower VCs with an intelligent system to manage their deal pipeline from discovery to investment, leveraging AI to reduce manual effort and improve decision-making.
+Sessions is an AI research platform for crypto researchers — both institutional and retail. It captures and compounds knowledge across projects, tokens, and protocols. The platform transforms any input (links, tickers, descriptions) into structured research intelligence, offering deep analysis, financial modeling, on-chain data visualization, and conversational AI agents with persistent memory. Its key differentiator: Sessions doesn't outsource learning — it captures it. The more you use it, the smarter your research suite becomes.
 
 Key capabilities include:
 - Automatic deal creation and enrichment from web links.

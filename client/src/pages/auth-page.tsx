@@ -2,7 +2,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useLocation } from "wouter";
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Loader2, ShieldCheck, Search, FileSearch, Sparkles, Wallet } from "lucide-react";
+import { ArrowRight, Loader2, ShieldCheck, Brain, FileSearch, Sparkles, Wallet } from "lucide-react";
 
 export default function AuthPage() {
   const { login, isAuthenticated, isLoading } = useAuth();
@@ -28,8 +28,8 @@ export default function AuthPage() {
         <div className="w-full max-w-sm space-y-8">
           <div className="space-y-3">
             <div className="flex items-center gap-2 mb-8">
-              <Search className="w-4.5 h-4.5 text-foreground" />
-              <span className="text-sm font-semibold tracking-tight">Research Everything</span>
+              <Brain className="w-4.5 h-4.5 text-foreground" />
+              <span className="text-sm font-semibold tracking-tight">Sessions</span>
             </div>
             <h1 className="text-2xl font-bold tracking-tight" data-testid="text-auth-title">
               Get started
@@ -73,7 +73,7 @@ export default function AuthPage() {
 
           <div className="space-y-1">
             {[
-              { icon: Search, title: "Drop any link", desc: "URL, tweet, founder profile, blog post" },
+              { icon: Brain, title: "Drop any link", desc: "URL, tweet, founder profile, blog post" },
               { icon: FileSearch, title: "AI researches deeply", desc: "4 agents build a verified deal card" },
               { icon: ShieldCheck, title: "Hallucination firewall", desc: "Every claim fact-checked before saving" },
               { icon: Sparkles, title: "Pay per use", desc: "Micropayments via Tempo wallet" },

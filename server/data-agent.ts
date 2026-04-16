@@ -12,7 +12,7 @@ import crypto from "crypto";
 
 const DATA_CHART_CHARGE = 0.50;
 
-export const DATA_AGENT_SYSTEM = `You are a Data Analyst Agent in a VC deal intelligence platform called Research Everything. You specialize in crypto/DeFi data visualization.
+export const DATA_AGENT_SYSTEM = `You are a Data Analyst Agent in an AI research platform called Sessions. You specialize in crypto/DeFi data visualization.
 
 Your job: Given a user's request and available data context, produce a JSON plan for the chart(s) requested.
 

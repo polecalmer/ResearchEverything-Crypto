@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { LayoutDashboard, Building2, Chrome, BarChart3, Search, LogOut, User, Wallet, Activity, FlaskConical, Brain } from "lucide-react";
+import { LayoutDashboard, Building2, Chrome, BarChart3, LogOut, User, Wallet, Activity, FlaskConical, Brain } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -43,8 +43,8 @@ export function AppSidebar() {
       <SidebarHeader className="p-4 pb-6">
         <Link href="/">
           <div className="flex items-center gap-2.5 cursor-pointer">
-            <Search className="w-4.5 h-4.5 text-foreground" />
-            <span className="text-sm font-semibold tracking-tight" data-testid="text-app-title">Research Everything</span>
+            <Brain className="w-4.5 h-4.5 text-foreground" />
+            <span className="text-sm font-semibold tracking-tight" data-testid="text-app-title">Sessions</span>
           </div>
         </Link>
       </SidebarHeader>

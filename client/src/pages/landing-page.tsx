@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import {
-  ArrowRight, Search, Twitter,
+  ArrowRight, Brain, Twitter,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { usePrivy } from "@privy-io/react-auth";
@@ -45,7 +45,7 @@ function TypingDemo() {
   return (
     <div className="rounded-lg border border-border/40 bg-card/40 px-4 py-3 max-w-md">
       <div className="flex items-center gap-2">
-        <Search className="w-3.5 h-3.5 text-muted-foreground/40" />
+        <Brain className="w-3.5 h-3.5 text-muted-foreground/40" />
         <div className="font-mono text-sm">
           <span className="text-foreground">{current.slice(0, charIdx)}</span>
           <span className="inline-block w-[2px] h-[14px] bg-foreground animate-pulse ml-[1px] align-middle" />
@@ -187,8 +187,8 @@ export default function LandingPage() {
       <nav className="fixed top-0 left-0 right-0 z-50 bg-background/90 backdrop-blur-lg border-b border-border/50">
         <div className="max-w-6xl mx-auto px-6 h-12 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Search className="w-4 h-4 text-foreground" />
-            <span className="text-sm font-semibold tracking-tight">Research Everything</span>
+            <Brain className="w-4 h-4 text-foreground" />
+            <span className="text-sm font-semibold tracking-tight">Sessions</span>
           </div>
           <div className="flex items-center gap-1">
             <Button variant="ghost" size="sm" className="text-xs h-7 text-muted-foreground hover:text-foreground" onClick={() => login()} data-testid="button-nav-login">Sign in</Button>
@@ -202,13 +202,13 @@ export default function LandingPage() {
           <div className="space-y-8 pt-8">
             <div>
               <h1 className="text-4xl sm:text-5xl font-bold tracking-tight leading-[1.12] mb-5">
-                Paste a link.<br />
-                <span className="text-muted-foreground">Know everything.</span>
+                Research that<br />
+                <span className="text-muted-foreground">learns with you.</span>
               </h1>
               <p className="text-lg text-muted-foreground leading-relaxed max-w-md">
-                Drop a tweet, a website, or a token name. A team of AI agents
-                will scrape, verify, and synthesize — delivering a complete
-                research hub in under a minute.
+                An AI research platform that doesn't outsource learning — it captures it.
+                Drop a link, run deep analysis, build models, and have conversations
+                with AI agents that remember everything.
               </p>
             </div>
 
@@ -216,7 +216,7 @@ export default function LandingPage() {
 
             <div className="flex items-center gap-3">
               <Button size="lg" className="h-11 px-6 gap-2 text-sm" onClick={() => login()} data-testid="button-cta-start">
-                Start researching
+                Start a session
                 <ArrowRight className="w-4 h-4" />
               </Button>
               <a href="#how-it-works">
@@ -241,10 +241,10 @@ export default function LandingPage() {
               One input. Eight agents. Complete intelligence.
             </h2>
             <p className="text-base text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-              You give us a link, a name, or even a vague description. Our agent
-              team fans out — scraping the web, identifying the company, detecting
-              tokens, verifying contracts, fact-checking claims, and compiling
-              deep research — all in parallel.
+              Drop a link, a name, or even a vague description. Our agent team
+              fans out — scraping the web, identifying the project, detecting
+              tokens, verifying contracts, fact-checking claims, and building
+              your research foundation — all in parallel.
             </p>
           </div>
 
@@ -312,8 +312,8 @@ export default function LandingPage() {
               What you get back
             </h2>
             <p className="text-base text-muted-foreground max-w-xl mx-auto leading-relaxed">
-              Every research session produces a living intelligence hub — not a
-              static report. Ask follow-up questions, generate charts, go deeper.
+              Every session produces a living intelligence hub — not a
+              static report. Build models, generate charts, write reports, go deeper.
             </p>
           </div>
 
@@ -351,9 +351,9 @@ export default function LandingPage() {
                 The agents do the rest.
               </h2>
               <p className="text-sm text-muted-foreground leading-relaxed mb-8">
-                The research system accepts anything — a tweet you saw, a website
-                someone shared, a token ticker, a vague description. The agents
-                figure out what you mean and build the intelligence from there.
+                Sessions accepts anything — a tweet you saw, a website someone
+                shared, a token ticker, a vague description. The agents figure
+                out what you mean and build the intelligence from there.
               </p>
 
               <div className="space-y-6">
@@ -364,7 +364,7 @@ export default function LandingPage() {
                   },
                   {
                     title: "Telegram bot",
-                    body: "Forward a message to @ResearchEverythingBot. It extracts the link, runs the agents, and replies with a summary.",
+                    body: "Forward a message to @SessionsBot. It extracts the link, runs the agents, and replies with a summary.",
                   },
                   {
                     title: "Plain language",
@@ -416,11 +416,11 @@ export default function LandingPage() {
       <section className="py-20 px-6 border-t">
         <div className="max-w-2xl mx-auto text-center">
           <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-4">
-            Your research team is ready
+            Your research suite is ready
           </h2>
           <p className="text-sm text-muted-foreground mb-8 max-w-md mx-auto">
-            Sign in with email or wallet. Drop your first link and watch eight
-            agents build your research hub in real time.
+            Sign in with email or wallet. Start your first session and watch
+            the agents build your research foundation in real time.
           </p>
           <Button size="lg" className="h-12 px-8 gap-2" onClick={() => login()} data-testid="button-cta-bottom">
             Get started free
@@ -432,10 +432,10 @@ export default function LandingPage() {
       <footer className="border-t py-6 px-6">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Search className="w-3 h-3" />
-            <span>Research Everything</span>
+            <Brain className="w-3 h-3" />
+            <span>Sessions</span>
           </div>
-          <p className="text-[10px] text-muted-foreground/40 font-mono">researcheverything.xyz</p>
+          <p className="text-[10px] text-muted-foreground/40 font-mono">sessions.xyz</p>
         </div>
       </footer>
     </div>

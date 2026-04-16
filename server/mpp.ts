@@ -29,7 +29,7 @@ function withAdminBypass(chargeMiddleware: RequestHandler): RequestHandler {
 export const enrichmentPaywall: RequestHandler = withAdminBypass(
   mppx.charge({
     amount: FLAT_FEE,
-    description: `Research Everything AI enrichment ($${FLAT_FEE})`,
+    description: `Sessions AI enrichment ($${FLAT_FEE})`,
   }) as RequestHandler
 );
 
