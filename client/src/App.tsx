@@ -25,6 +25,7 @@ import SessionResearch from "@/pages/session-research";
 import BrainGraph from "@/pages/brain-graph";
 import LandingPage from "@/pages/landing-page";
 import AuthPage from "@/pages/auth-page";
+import SharedResearch from "@/pages/shared-research";
 import { QuickCapture } from "@/components/quick-capture";
 import { Loader2 } from "lucide-react";
 import { useTrackPageView } from "@/hooks/use-track";
@@ -75,6 +76,7 @@ function AppRouter() {
       <Switch>
         <Route path="/" component={LandingPage} />
         <Route path="/auth" component={AuthPage} />
+        <Route path="/shared/research/:token" component={SharedResearch} />
         <Route>
           <Redirect to="/" />
         </Route>
@@ -112,6 +114,7 @@ function AuthenticatedApp() {
               <Route path="/wallet" component={WalletPage} />
               <Route path="/data" component={DataPage} />
               <Route path="/research" component={SessionResearch} />
+              <Route path="/shared/research/:token" component={SharedResearch} />
               <Route path="/brain" component={BrainGraph} />
               <Route path="/admin" component={AdminPage} />
               <Route component={NotFound} />

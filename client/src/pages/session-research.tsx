@@ -6,6 +6,7 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   Send, Plus, Trash2, Loader2, MessageSquare,
   CheckCircle2, ChevronDown, Brain, Search, BarChart3,
+  Share2, Link2, Check, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,6 +49,7 @@ interface Session {
   userId: string;
   title: string;
   type: string;
+  shareToken?: string | null;
   createdAt: string;
 }
 
@@ -464,6 +466,104 @@ function ThinkingPanel({ steps }: { steps: ThinkingStep[] }) {
   );
 }
 
+function ShareBar({ sessionId, session }: { sessionId: number; session?: Session }) {
+  const { toast } = useToast();
+  const [shareToken, setShareToken] = useState<string | null>(session?.shareToken || null);
+  const [copied, setCopied] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    setShareToken(session?.shareToken || null);
+  }, [session?.shareToken, sessionId]);
+
+  const shareUrl = shareToken ? `${window.location.origin}/shared/research/${shareToken}` : null;
+
+  const handleShare = async () => {
+    setLoading(true);
+    try {
+      const authHeaders = await getAuthHeaders();
+      const res = await fetch(`/api/research/sessions/${sessionId}/share`, {
+        method: "POST",
+        headers: { ...authHeaders },
+        credentials: "include",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message);
+      setShareToken(data.shareToken);
+      const url = `${window.location.origin}/shared/research/${data.shareToken}`;
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+      toast({ title: "Link Copied", description: "Read-only share link copied to clipboard." });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUnshare = async () => {
+    try {
+      const authHeaders = await getAuthHeaders();
+      await fetch(`/api/research/sessions/${sessionId}/share`, {
+        method: "DELETE",
+        headers: { ...authHeaders },
+        credentials: "include",
+      });
+      setShareToken(null);
+      toast({ title: "Unshared", description: "Share link has been revoked." });
+    } catch {}
+  };
+
+  const handleCopy = async () => {
+    if (!shareUrl) return;
+    await navigator.clipboard.writeText(shareUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="flex items-center gap-2 px-6 py-1.5 border-b border-border/20 bg-card/10">
+      {!shareToken ? (
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-6 text-[9px] gap-1 text-muted-foreground/60 hover:text-foreground/80"
+          onClick={handleShare}
+          disabled={loading}
+          data-testid="button-share-session"
+        >
+          {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <Share2 className="h-3 w-3" />}
+          Share
+        </Button>
+      ) : (
+        <div className="flex items-center gap-1.5">
+          <Link2 className="h-3 w-3 text-emerald-500/60" />
+          <span className="text-[9px] text-muted-foreground/50 truncate max-w-[200px]">{shareUrl}</span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 w-5 p-0"
+            onClick={handleCopy}
+            data-testid="button-copy-share-link"
+          >
+            {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Link2 className="h-3 w-3 text-muted-foreground/50" />}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-5 w-5 p-0 text-muted-foreground/40 hover:text-destructive"
+            onClick={handleUnshare}
+            data-testid="button-unshare-session"
+          >
+            <X className="h-3 w-3" />
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SessionResearch() {
   const { user } = useAuth();
   const { toast } = useToast();
@@ -666,6 +766,9 @@ export default function SessionResearch() {
       </div>
 
       <div className="flex-1 flex flex-col min-w-0">
+        {activeSessionId && messages.length > 0 && (
+          <ShareBar sessionId={activeSessionId} session={sessions.find(s => s.id === activeSessionId)} />
+        )}
         <div className="flex-1 overflow-y-auto px-6 py-4">
           {!activeSessionId && messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full max-w-lg mx-auto">

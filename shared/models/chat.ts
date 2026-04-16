@@ -8,6 +8,7 @@ export const conversations = pgTable("conversations", {
   userId: text("user_id"),
   title: text("title").notNull(),
   type: text("type").default("chat").notNull(),
+  shareToken: text("share_token"),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 

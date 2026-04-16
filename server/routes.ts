@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import crypto from "crypto";
 import { storage } from "./storage";
 import { insertCompanySchema, insertFounderSchema, insertNoteSchema, insertTokenProfileSchema, insertDuneQuerySchema, insertMasterDuneQuerySchema, PIPELINE_STAGES } from "@shared/schema";
 import { z } from "zod";
@@ -1903,6 +1904,64 @@ export async function registerRoutes(
         res.write(`event: error\ndata: ${JSON.stringify({ message: e.message })}\n\n`);
         res.end();
       }
+    }
+  });
+
+  app.post("/api/research/sessions/:id/share", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid session ID" });
+      const session = await storage.getConversation(id);
+      if (!session || session.userId !== req.user!.id) {
+        return res.status(404).json({ message: "Session not found" });
+      }
+      if (session.shareToken) {
+        return res.json({ shareToken: session.shareToken });
+      }
+      const token = crypto.randomBytes(16).toString("hex");
+      await storage.setConversationShareToken(id, token);
+      res.json({ shareToken: token });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/research/sessions/:id/share", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid session ID" });
+      const session = await storage.getConversation(id);
+      if (!session || session.userId !== req.user!.id) {
+        return res.status(404).json({ message: "Session not found" });
+      }
+      await storage.setConversationShareToken(id, null);
+      res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/shared/research/:token", async (req, res) => {
+    try {
+      const { token } = req.params;
+      const session = await storage.getConversationByShareToken(token);
+      if (!session) return res.status(404).json({ message: "Shared session not found" });
+      const msgs = await storage.getMessages(session.id);
+      const user = session.userId ? await storage.getUser(session.userId) : null;
+      res.json({
+        title: session.title,
+        createdAt: session.createdAt,
+        author: user?.username || "Anonymous",
+        messages: msgs.map((m) => ({
+          id: m.id,
+          role: m.role,
+          content: m.content,
+          artifacts: m.artifacts,
+          createdAt: m.createdAt,
+        })),
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
     }
   });
 

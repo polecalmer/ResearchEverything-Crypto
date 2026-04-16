@@ -148,6 +148,8 @@ export interface IStorage {
   getConversations(userId: string, type: string): Promise<Conversation[]>;
   getConversation(id: number): Promise<Conversation | undefined>;
   updateConversationTitle(id: number, title: string): Promise<void>;
+  setConversationShareToken(id: number, shareToken: string | null): Promise<void>;
+  getConversationByShareToken(shareToken: string): Promise<Conversation | undefined>;
   deleteConversation(id: number): Promise<void>;
   getMessages(conversationId: number): Promise<Message[]>;
   createMessage(data: { conversationId: number; role: string; content: string; artifacts?: any }): Promise<Message>;
@@ -908,6 +910,15 @@ export class DatabaseStorage implements IStorage {
 
   async updateConversationTitle(id: number, title: string): Promise<void> {
     await db.update(conversations).set({ title }).where(eq(conversations.id, id));
+  }
+
+  async setConversationShareToken(id: number, shareToken: string | null): Promise<void> {
+    await db.update(conversations).set({ shareToken }).where(eq(conversations.id, id));
+  }
+
+  async getConversationByShareToken(shareToken: string): Promise<Conversation | undefined> {
+    const [conv] = await db.select().from(conversations).where(eq(conversations.shareToken, shareToken));
+    return conv;
   }
 
   async deleteConversation(id: number): Promise<void> {
