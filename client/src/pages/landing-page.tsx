@@ -4,6 +4,7 @@ import {
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { usePrivy } from "@privy-io/react-auth";
+import sessionsLogo from "@assets/sessions_logo.png";
 
 function TypingDemo() {
   const inputs = [
@@ -265,7 +266,7 @@ export default function LandingPage() {
       <nav className="fixed top-0 left-0 right-0 z-50 bg-background/90 backdrop-blur-lg border-b border-border/50">
         <div className="max-w-6xl mx-auto px-6 h-12 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Brain className="w-4 h-4 text-foreground" />
+            <img src={sessionsLogo} alt="Sessions" className="w-5 h-5 object-contain" />
             <span className="text-sm font-semibold tracking-tight">Sessions</span>
           </div>
           <div className="flex items-center gap-1">
@@ -415,7 +416,7 @@ export default function LandingPage() {
       <footer className="border-t py-6 px-6">
         <div className="max-w-6xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <Brain className="w-3 h-3" />
+            <img src={sessionsLogo} alt="Sessions" className="w-4 h-4 object-contain" />
             <span>Sessions</span>
           </div>
           <p className="text-[10px] text-muted-foreground/40 font-mono">sessions.xyz</p>

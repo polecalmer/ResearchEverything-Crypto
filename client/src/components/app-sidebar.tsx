@@ -1,5 +1,6 @@
 import { useLocation, Link } from "wouter";
 import { LayoutDashboard, Building2, Chrome, BarChart3, LogOut, User, Wallet, Activity, FlaskConical, Brain } from "lucide-react";
+import sessionsLogo from "@assets/sessions_logo.png";
 import {
   Sidebar,
   SidebarContent,
@@ -43,7 +44,7 @@ export function AppSidebar() {
       <SidebarHeader className="p-4 pb-6">
         <Link href="/">
           <div className="flex items-center gap-2.5 cursor-pointer">
-            <Brain className="w-4.5 h-4.5 text-foreground" />
+            <img src={sessionsLogo} alt="Sessions" className="w-5 h-5 object-contain" />
             <span className="text-sm font-semibold tracking-tight" data-testid="text-app-title">Sessions</span>
           </div>
         </Link>

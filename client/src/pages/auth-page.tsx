@@ -3,6 +3,7 @@ import { useLocation } from "wouter";
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Loader2, ShieldCheck, Brain, FileSearch, Sparkles, Wallet } from "lucide-react";
+import sessionsLogo from "@assets/sessions_logo.png";
 
 export default function AuthPage() {
   const { login, isAuthenticated, isLoading } = useAuth();
@@ -28,7 +29,7 @@ export default function AuthPage() {
         <div className="w-full max-w-sm space-y-8">
           <div className="space-y-3">
             <div className="flex items-center gap-2 mb-8">
-              <Brain className="w-4.5 h-4.5 text-foreground" />
+              <img src={sessionsLogo} alt="Sessions" className="w-5 h-5 object-contain" />
               <span className="text-sm font-semibold tracking-tight">Sessions</span>
             </div>
             <h1 className="text-2xl font-bold tracking-tight" data-testid="text-auth-title">
