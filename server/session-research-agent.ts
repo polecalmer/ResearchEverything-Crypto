@@ -759,7 +759,7 @@ export async function runSessionResearchAgent(
       system: systemPrompt,
       messages,
       tools: anthropicTools,
-      thinking: { type: "enabled", budget_tokens: 10000 },
+      thinking: { type: "enabled", budget_tokens: 32000 },
       temperature: 1,
     };
 
