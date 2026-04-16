@@ -28,7 +28,7 @@ export interface AnthropicRawResponse {
   costSource: CostSource;
 }
 
-const CHANNEL_DEPOSIT = "20.0";
+const CHANNEL_DEPOSIT = "50.0";
 const SHUTDOWN_TIMEOUT_MS = 15000;
 
 interface MppClientState {
@@ -211,6 +211,16 @@ async function callAnthropic(request: AnthropicRequest): Promise<AnthropicRespon
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "Unknown error");
+
+        if (response.status === 402 && errorText.includes("amount-exceeds-deposit")) {
+          console.log(`[MPP-Channel] Deposit exceeded — forcing new channel and retrying (attempt ${attempt + 1}/${MAX_RETRIES})...`);
+          forceNewChannel();
+          if (attempt < MAX_RETRIES) {
+            await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+            continue;
+          }
+        }
+
         if (isRetryable(response.status) && attempt < MAX_RETRIES) {
           const delay = RETRY_DELAY_MS * (attempt + 1);
           console.log(`[MPP-Channel] Retryable error ${response.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
