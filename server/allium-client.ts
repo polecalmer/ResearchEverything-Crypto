@@ -1,8 +1,8 @@
-import { Mppx, tempo } from "mppx/client";
+import { tempo } from "mppx/client";
 import { privateKeyToAccount } from "viem/accounts";
+import type { CostSource } from "./mpp-client";
 
 const ALLIUM_MPP_URL = "https://allium.mpp.tempo.xyz/v1/token/snapshot";
-const USDC_DECIMALS = 6;
 
 export interface TokenSnapshot {
   contractAddress: string;
@@ -38,11 +38,17 @@ const CHAIN_MAP: Record<string, string> = {
   hyperliquid: "hyperliquid",
 };
 
-let alliumMppClient: ReturnType<typeof Mppx.create> | null = null;
-let alliumLastChallengeAmount = 0;
+interface AlliumMppState {
+  session: ReturnType<typeof tempo.session>;
+  totalSpent: number;
+  totalVoucherAuthorized: number;
+  requestCount: number;
+}
 
-function getAlliumMppClient(): ReturnType<typeof Mppx.create> {
-  if (alliumMppClient) return alliumMppClient;
+let alliumClient: AlliumMppState | null = null;
+
+function getOrCreateAlliumClient(): AlliumMppState {
+  if (alliumClient) return alliumClient;
 
   const privateKey = process.env.MPP_SERVER_WALLET_KEY;
   if (!privateKey) {
@@ -50,38 +56,59 @@ function getAlliumMppClient(): ReturnType<typeof Mppx.create> {
   }
 
   const account = privateKeyToAccount(privateKey as `0x${string}`);
-  const sessionMethods = tempo({ account, maxDeposit: "0.5" });
+  const session = tempo.session({ account, maxDeposit: "0.5" });
 
-  alliumMppClient = Mppx.create({
-    methods: [sessionMethods],
-    polyfill: false,
-    onChallenge: async (challenge, helpers) => {
-      const rawAmount = challenge.request?.amount;
-      if (rawAmount) {
-        const amountNum = typeof rawAmount === "string" ? parseInt(rawAmount, 10) : Number(rawAmount);
-        alliumLastChallengeAmount = amountNum / Math.pow(10, USDC_DECIMALS);
-        console.log(`[Allium-MPP] Challenge amount: $${alliumLastChallengeAmount.toFixed(6)} USDC`);
-      } else {
-        alliumLastChallengeAmount = 0;
-      }
-      return helpers.createCredential();
-    },
-  });
+  alliumClient = {
+    session,
+    totalSpent: 0,
+    totalVoucherAuthorized: 0,
+    requestCount: 0,
+  };
 
-  console.log(`[Allium-MPP] Client initialized: ${account.address}`);
-  return alliumMppClient;
+  console.log(`[Allium-MPP] Session initialized: ${account.address}`);
+  return alliumClient;
+}
+
+function extractAlliumCost(response: any, state: AlliumMppState): { cost: number; source: CostSource } {
+  const prevSpent = state.totalSpent;
+  const prevVoucher = state.totalVoucherAuthorized;
+  let source: CostSource = "voucher_estimate";
+
+  const rawVoucher = response.cumulative ? Number(response.cumulative) / 1e6 : null;
+  if (rawVoucher !== null && rawVoucher >= prevVoucher) {
+    state.totalVoucherAuthorized = rawVoucher;
+  }
+
+  const receipt = response.receipt;
+  if (receipt?.spent) {
+    const serverSpent = Number(BigInt(receipt.spent)) / 1e6;
+    if (serverSpent >= prevSpent) {
+      state.totalSpent = serverSpent;
+    }
+    source = "receipt";
+  } else if (receipt?.acceptedCumulative) {
+    const accepted = Number(BigInt(receipt.acceptedCumulative)) / 1e6;
+    if (accepted >= prevSpent) {
+      state.totalSpent = accepted;
+    }
+    source = "receipt";
+  } else if (rawVoucher !== null) {
+    state.totalSpent = state.totalVoucherAuthorized;
+    source = "voucher_estimate";
+  }
+
+  return { cost: Math.max(0, state.totalSpent - prevSpent), source };
 }
 
 async function fetchViaAlliumMpp(
   contractAddress: string,
   chain: string,
-): Promise<{ data: any; mppCost: number }> {
-  const client = getAlliumMppClient();
-  alliumLastChallengeAmount = 0;
+): Promise<{ data: any; mppCost: number; costSource: CostSource }> {
+  const state = getOrCreateAlliumClient();
 
   const url = `${ALLIUM_MPP_URL}?address=${encodeURIComponent(contractAddress)}&chain=${encodeURIComponent(chain)}`;
 
-  const response = await client.fetch(url, {
+  const response = await state.session.fetch(url, {
     method: "GET",
     headers: {
       "Content-Type": "application/json",
@@ -94,8 +121,13 @@ async function fetchViaAlliumMpp(
     throw new Error(`Allium MPP error (${response.status}): ${errorText}`);
   }
 
+  const { cost: mppCost, source: costSource } = extractAlliumCost(response, state);
+  state.requestCount++;
+
+  console.log(`[Allium-MPP] Request #${state.requestCount}: cost $${mppCost.toFixed(6)} [${costSource}] (spent: $${state.totalSpent.toFixed(6)}, voucher: $${state.totalVoucherAuthorized.toFixed(6)})`);
+
   const data = await response.json();
-  return { data, mppCost: alliumLastChallengeAmount };
+  return { data, mppCost, costSource };
 }
 
 const COINGECKO_TICKER_TO_ID: Record<string, string> = {
@@ -242,17 +274,19 @@ export async function fetchTokenSnapshot(
   contractAddress: string,
   chain: string,
   ticker: string,
-): Promise<{ snapshot: TokenSnapshot; mppCost: number }> {
+): Promise<{ snapshot: TokenSnapshot; mppCost: number; costSource: CostSource }> {
   const normalizedChain = CHAIN_MAP[chain.toLowerCase()] || chain.toLowerCase();
 
   let data: any = null;
   let mppCost = 0;
+  let costSource: CostSource = "voucher_estimate";
   let source = "allium-mpp";
 
   try {
     const result = await fetchViaAlliumMpp(contractAddress, normalizedChain);
     data = result.data;
     mppCost = result.mppCost;
+    costSource = result.costSource;
     source = "allium-mpp";
     console.log(`[Allium] Fetched via MPP for ${ticker} on ${normalizedChain}`);
   } catch (err: any) {
@@ -262,6 +296,7 @@ export async function fetchTokenSnapshot(
       const result = await fetchViaPublicApi(contractAddress, normalizedChain, ticker);
       data = result.data;
       mppCost = result.mppCost;
+      costSource = "voucher_estimate";
       source = "coingecko-fallback";
       console.log(`[Allium] Fetched via CoinGecko fallback for ${ticker}`);
     } catch (fallbackErr: any) {
@@ -287,5 +322,5 @@ export async function fetchTokenSnapshot(
     source,
   };
 
-  return { snapshot, mppCost };
+  return { snapshot, mppCost, costSource };
 }
