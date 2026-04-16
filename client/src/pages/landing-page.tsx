@@ -1,19 +1,17 @@
 import { Button } from "@/components/ui/button";
 import {
-  ArrowRight, Brain, Twitter,
+  ArrowRight, Brain, MessageSquare, FileText, BarChart3, GitBranch, Zap, BookOpen,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 
-const CHART_COLORS = ["#5b8def", "#7ca3f4", "#4a7de0", "#6690ed"];
-
 function TypingDemo() {
   const inputs = [
-    "https://x.com/pumpdotfun",
+    "What's Hyperliquid's real P/E ratio?",
+    "Compare Ethena vs Maker revenue models",
+    "Build a DCF model for PUMP token",
     "hyperliquid.xyz",
-    "ethena.fi",
-    "Show me revenue vs buybacks for PUMP",
-    "Who founded Morpho?",
+    "Show me protocol revenue vs token buybacks",
   ];
   const [idx, setIdx] = useState(0);
   const [charIdx, setCharIdx] = useState(0);
@@ -58,14 +56,14 @@ function TypingDemo() {
 function MiniBarChart() {
   const bars = [35, 52, 44, 68, 55, 82, 74, 90, 65, 78, 95, 88];
   return (
-    <div className="flex items-end gap-[3px] h-12">
+    <div className="flex items-end gap-[3px] h-10">
       {bars.map((h, i) => (
         <div
           key={i}
           className="flex-1 rounded-[1px]"
           style={{
             height: `${h}%`,
-            backgroundColor: CHART_COLORS[i % CHART_COLORS.length],
+            backgroundColor: ["#5b8def", "#7ca3f4", "#4a7de0", "#6690ed"][i % 4],
             opacity: 0.85,
           }}
         />
@@ -74,105 +72,246 @@ function MiniBarChart() {
   );
 }
 
-function MiniLineChart() {
-  const points = [20, 35, 28, 45, 40, 55, 48, 62, 58, 72, 65, 80];
-  const width = 200;
-  const height = 48;
-  const path = points
-    .map((p, i) => {
-      const x = (i / (points.length - 1)) * width;
-      const y = height - (p / 100) * height;
-      return `${i === 0 ? "M" : "L"}${x},${y}`;
-    })
-    .join(" ");
-
+function MiniAreaChart() {
+  const points = [15, 22, 18, 35, 30, 45, 42, 55, 50, 68, 62, 78, 72, 85];
+  const w = 200, h = 40;
+  const path = points.map((p, i) => {
+    const x = (i / (points.length - 1)) * w;
+    const y = h - (p / 100) * h;
+    return `${i === 0 ? "M" : "L"}${x},${y}`;
+  }).join(" ");
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-12">
-      <path d={path} fill="none" stroke="#5b8def" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d={`${path} L${width},${height} L0,${height} Z`} fill="url(#lineGrad)" opacity="0.12" />
-      <defs>
-        <linearGradient id="lineGrad" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#5b8def" />
-          <stop offset="100%" stopColor="#5b8def" stopOpacity="0" />
-        </linearGradient>
-      </defs>
+    <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-10">
+      <path d={path} fill="none" stroke="#10b981" strokeWidth="1.5" strokeLinecap="round" />
+      <path d={`${path} L${w},${h} L0,${h} Z`} fill="#10b981" opacity="0.08" />
     </svg>
   );
 }
 
-function CircleCheck() {
-  return (
-    <span className="w-3 h-3 rounded-full border border-emerald-500/40 bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
-      <svg className="w-1.5 h-1.5 text-emerald-500" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.5L5 9L9.5 3.5" /></svg>
-    </span>
-  );
-}
-
 function HeroVisual() {
+  const [activeTab, setActiveTab] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => setActiveTab(t => (t + 1) % 4), 3500);
+    return () => clearInterval(timer);
+  }, []);
+
+  const tabs = ["Session", "Research", "Data", "Brain"];
+
   return (
-    <div className="space-y-4 w-full max-w-lg">
-      <div className="rounded-xl border border-border/40 bg-card/30 backdrop-blur p-4 space-y-3">
-        <div className="flex items-center gap-2 text-[9px] text-muted-foreground/50 font-mono">
-          <Twitter className="w-3 h-3" />
-          <span>x.com/pumpdotfun</span>
-          <ArrowRight className="w-2.5 h-2.5" />
-          <span className="text-emerald-500">8 agents complete</span>
+    <div className="w-full max-w-lg">
+      <div className="rounded-xl border border-border/30 bg-[#0d1117] overflow-hidden shadow-2xl shadow-black/30">
+        <div className="flex items-center gap-1.5 px-3 py-2 border-b border-border/20 bg-[#0d1117]">
+          <div className="flex gap-1.5 mr-3">
+            <div className="w-2.5 h-2.5 rounded-full bg-red-500/40" />
+            <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/40" />
+            <div className="w-2.5 h-2.5 rounded-full bg-green-500/40" />
+          </div>
+          {tabs.map((tab, i) => (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(i)}
+              className={`px-2.5 py-1 rounded text-[10px] font-mono transition-all ${
+                activeTab === i
+                  ? "bg-white/10 text-white"
+                  : "text-white/30 hover:text-white/50"
+              }`}
+            >
+              {tab}
+            </button>
+          ))}
         </div>
 
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-md bg-accent flex items-center justify-center">
-              <span className="text-xs font-mono font-bold">P</span>
-            </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-semibold">Pump.fun</p>
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 font-mono">PUMP</span>
+        <div className="p-4 min-h-[280px]">
+          {activeTab === 0 && (
+            <div className="space-y-3 animate-in fade-in duration-300">
+              <div className="flex items-center gap-2 mb-3">
+                <MessageSquare className="w-3 h-3 text-blue-400" />
+                <span className="text-[10px] font-mono text-blue-400">Session with Hyperliquid analyst</span>
               </div>
-              <p className="text-[10px] text-muted-foreground font-mono">Solana Token Launchpad</p>
+              <div className="space-y-2.5">
+                <div className="flex gap-2">
+                  <div className="w-5 h-5 rounded-full bg-blue-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                    <span className="text-[8px] text-blue-400">Y</span>
+                  </div>
+                  <div className="rounded-lg bg-white/5 px-3 py-2 text-[11px] text-white/70 leading-relaxed max-w-[85%]">
+                    What's Hyperliquid's actual revenue vs what they spend on token buybacks?
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                    <Brain className="w-2.5 h-2.5 text-emerald-400" />
+                  </div>
+                  <div className="rounded-lg bg-emerald-500/5 border border-emerald-500/10 px-3 py-2 text-[11px] text-white/70 leading-relaxed max-w-[85%]">
+                    <p className="text-emerald-400 text-[9px] font-mono mb-1">Querying Dune Analytics + DeFiLlama...</p>
+                    Hyperliquid generated <span className="text-white font-medium">$584M</span> in cumulative trading fees. Of that, <span className="text-white font-medium">$180M</span> was used for HYPE buybacks — a <span className="text-white font-medium">30.8%</span> payout ratio. This is aggressive compared to peers...
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0 mt-0.5">
+                    <Zap className="w-2.5 h-2.5 text-amber-400" />
+                  </div>
+                  <div className="rounded-lg bg-amber-500/5 border border-amber-500/10 px-3 py-2 text-[10px] text-amber-300/80 leading-relaxed">
+                    <span className="font-mono text-[9px] text-amber-400">Brain updated:</span> Added "HYPE buyback ratio = 30.8%" to knowledge graph
+                  </div>
+                </div>
+              </div>
             </div>
-          </div>
+          )}
+
+          {activeTab === 1 && (
+            <div className="space-y-3 animate-in fade-in duration-300">
+              <div className="flex items-center gap-2 mb-3">
+                <FileText className="w-3 h-3 text-violet-400" />
+                <span className="text-[10px] font-mono text-violet-400">Deep Research Report — Ethena</span>
+              </div>
+              <div className="space-y-2">
+                <div className="rounded bg-white/[0.03] border border-border/10 p-2.5">
+                  <p className="text-[9px] font-mono text-white/40 mb-1">EXECUTIVE SUMMARY</p>
+                  <p className="text-[11px] text-white/60 leading-relaxed">
+                    Ethena has built a synthetic dollar protocol generating <span className="text-white font-medium">$127M annualized revenue</span> through basis trade yields. The sUSDe product captures 78% of TVL...
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="rounded bg-white/[0.03] border border-border/10 p-2">
+                    <p className="text-[8px] text-white/30 font-mono">TVL</p>
+                    <p className="text-xs font-mono text-white/80">$5.2B</p>
+                  </div>
+                  <div className="rounded bg-white/[0.03] border border-border/10 p-2">
+                    <p className="text-[8px] text-white/30 font-mono">Revenue (Ann.)</p>
+                    <p className="text-xs font-mono text-white/80">$127M</p>
+                  </div>
+                </div>
+                <div className="rounded bg-white/[0.03] border border-border/10 p-2.5">
+                  <p className="text-[9px] font-mono text-white/40 mb-1">KEY RISKS</p>
+                  <div className="space-y-1">
+                    {["Negative funding rate environments", "Custodial concentration (Fireblocks)", "Regulatory classification of sUSDe"].map(r => (
+                      <div key={r} className="flex items-start gap-1.5">
+                        <span className="text-red-400/60 text-[8px] mt-0.5">●</span>
+                        <span className="text-[10px] text-white/50">{r}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-1">
+                  <span className="text-[8px] px-1.5 py-0.5 rounded bg-violet-500/10 text-violet-400 font-mono">47 sources cited</span>
+                  <span className="text-[8px] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 font-mono">Fact-checked</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 2 && (
+            <div className="space-y-3 animate-in fade-in duration-300">
+              <div className="flex items-center gap-2 mb-3">
+                <BarChart3 className="w-3 h-3 text-blue-400" />
+                <span className="text-[10px] font-mono text-blue-400">Data — Revenue vs Buybacks</span>
+              </div>
+              <div className="rounded bg-white/[0.03] border border-border/10 p-3">
+                <div className="flex justify-between items-center mb-2">
+                  <p className="text-[9px] font-medium text-white/60">Monthly Protocol Revenue</p>
+                  <p className="text-[9px] font-mono text-emerald-400">+342% YoY</p>
+                </div>
+                <MiniBarChart />
+                <div className="flex gap-3 mt-2">
+                  <div className="flex items-center gap-1">
+                    <div className="w-1.5 h-1.5 rounded-sm bg-[#5b8def]" />
+                    <span className="text-[8px] text-white/30">Revenue</span>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded bg-white/[0.03] border border-border/10 p-3">
+                <div className="flex justify-between items-center mb-2">
+                  <p className="text-[9px] font-medium text-white/60">Cumulative Buyback Value</p>
+                  <p className="text-[9px] font-mono text-white/40">$180M total</p>
+                </div>
+                <MiniAreaChart />
+              </div>
+              <div className="rounded bg-white/[0.03] border border-border/10 p-2.5">
+                <p className="text-[9px] font-mono text-white/40 mb-1.5">Financial Model — DCF Valuation</p>
+                <div className="grid grid-cols-3 gap-2">
+                  <div>
+                    <p className="text-[7px] text-white/25">Bear Case</p>
+                    <p className="text-[10px] font-mono text-red-400/70">$12.40</p>
+                  </div>
+                  <div>
+                    <p className="text-[7px] text-white/25">Base Case</p>
+                    <p className="text-[10px] font-mono text-white/70">$28.50</p>
+                  </div>
+                  <div>
+                    <p className="text-[7px] text-white/25">Bull Case</p>
+                    <p className="text-[10px] font-mono text-emerald-400/70">$54.20</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 3 && (
+            <div className="space-y-3 animate-in fade-in duration-300">
+              <div className="flex items-center gap-2 mb-3">
+                <Brain className="w-3 h-3 text-amber-400" />
+                <span className="text-[10px] font-mono text-amber-400">Knowledge Brain — 847 nodes</span>
+              </div>
+              <div className="rounded bg-white/[0.03] border border-border/10 p-3">
+                <p className="text-[9px] font-mono text-white/40 mb-2">KNOWLEDGE GRAPH</p>
+                <div className="relative h-28 overflow-hidden">
+                  <svg className="w-full h-full" viewBox="0 0 200 100">
+                    {[
+                      { x: 100, y: 50, r: 8, label: "DeFi", color: "#5b8def" },
+                      { x: 50, y: 30, r: 5, label: "Ethena", color: "#8b5cf6" },
+                      { x: 150, y: 25, r: 6, label: "HYPE", color: "#10b981" },
+                      { x: 40, y: 70, r: 4, label: "Maker", color: "#f59e0b" },
+                      { x: 155, y: 70, r: 5, label: "Perps", color: "#ef4444" },
+                      { x: 80, y: 15, r: 4, label: "USDe", color: "#8b5cf6" },
+                      { x: 125, y: 80, r: 4, label: "Fees", color: "#5b8def" },
+                      { x: 70, y: 55, r: 3, label: "TVL", color: "#10b981" },
+                    ].map((node, i) => (
+                      <g key={i}>
+                        <line x1={100} y1={50} x2={node.x} y2={node.y} stroke={node.color} strokeWidth="0.5" opacity="0.2" />
+                        <circle cx={node.x} cy={node.y} r={node.r} fill={node.color} opacity="0.15" stroke={node.color} strokeWidth="0.5" />
+                        <text x={node.x} y={node.y + 2} textAnchor="middle" className="fill-white/50" style={{ fontSize: "5px" }}>{node.label}</text>
+                      </g>
+                    ))}
+                  </svg>
+                </div>
+              </div>
+              <div className="space-y-1.5">
+                <p className="text-[9px] font-mono text-white/40">RECENTLY LEARNED</p>
+                {[
+                  { fact: "HYPE buyback ratio = 30.8% of revenue", source: "Session #12", time: "2m ago" },
+                  { fact: "Ethena sUSDe captures 78% of protocol TVL", source: "Deep Research", time: "1h ago" },
+                  { fact: "Hyperliquid 24h volume exceeds $8B regularly", source: "Data query", time: "3h ago" },
+                ].map((item, i) => (
+                  <div key={i} className="flex items-start gap-2 rounded bg-white/[0.02] px-2 py-1.5">
+                    <GitBranch className="w-2.5 h-2.5 text-amber-400/50 shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] text-white/60 truncate">{item.fact}</p>
+                      <div className="flex gap-2">
+                        <span className="text-[8px] text-white/25">{item.source}</span>
+                        <span className="text-[8px] text-white/15">{item.time}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center gap-2 pt-1">
+                <BookOpen className="w-3 h-3 text-amber-400/40" />
+                <span className="text-[9px] text-white/30 italic">Your brain gets smarter with every session</span>
+              </div>
+            </div>
+          )}
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
-          <div className="rounded border border-border/20 bg-background/40 p-2">
-            <p className="text-[8px] text-muted-foreground/40">Price</p>
-            <p className="text-xs font-mono font-medium">$0.00188</p>
-          </div>
-          <div className="rounded border border-border/20 bg-background/40 p-2">
-            <p className="text-[8px] text-muted-foreground/40">Mcap</p>
-            <p className="text-xs font-mono font-medium">$1.1B</p>
-          </div>
-          <div className="rounded border border-border/20 bg-background/40 p-2">
-            <p className="text-[8px] text-muted-foreground/40">24h Vol</p>
-            <p className="text-xs font-mono font-medium">$40.5M</p>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2">
-          <div className="rounded border border-border/20 bg-background/40 p-2.5">
-            <p className="text-[9px] font-medium mb-1">Revenue Trend</p>
-            <MiniBarChart />
-          </div>
-          <div className="rounded border border-border/20 bg-background/40 p-2.5">
-            <p className="text-[9px] font-medium mb-1">Buyback Analysis</p>
-            <MiniLineChart />
-          </div>
-        </div>
-
-        <div className="border-t border-border/20 pt-2.5 space-y-1.5">
-          <div className="flex items-center gap-1.5">
-            <CircleCheck />
-            <span className="text-[10px] text-muted-foreground">All claims independently verified</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <CircleCheck />
-            <span className="text-[10px] text-muted-foreground">Deep research report generated</span>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <CircleCheck />
-            <span className="text-[10px] text-muted-foreground">3 charts generated from on-chain data</span>
-          </div>
+        <div className="px-4 py-2 border-t border-border/10 flex items-center gap-3">
+          {tabs.map((tab, i) => (
+            <div
+              key={tab}
+              className={`h-0.5 flex-1 rounded-full transition-all duration-300 ${
+                activeTab === i ? "bg-white/30" : "bg-white/5"
+              }`}
+            />
+          ))}
         </div>
       </div>
     </div>
@@ -236,15 +375,64 @@ export default function LandingPage() {
       <section id="how-it-works" className="py-24 px-6 border-t">
         <div className="max-w-6xl mx-auto">
           <div className="text-center mb-16">
-            <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground/50 mb-3">How it works</p>
+            <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground/50 mb-3">The platform</p>
             <h2 className="text-3xl sm:text-4xl font-bold tracking-tight leading-snug mb-4">
-              One input. Eight agents. Complete intelligence.
+              A complete research suite.
             </h2>
             <p className="text-base text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-              Drop a link, a name, or even a vague description. Our agent team
-              fans out — scraping the web, identifying the project, detecting
-              tokens, verifying contracts, fact-checking claims, and building
-              your research foundation — all in parallel.
+              Sessions combines AI agents, conversational research, deep reports,
+              financial modeling, on-chain data, and a persistent knowledge brain
+              into one platform. Everything compounds.
+            </p>
+          </div>
+
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {[
+              {
+                icon: MessageSquare,
+                title: "Session Research",
+                detail: "Conversational AI that queries live data, builds models, and writes analysis — with full tool use. Every insight feeds your brain.",
+                color: "text-blue-400",
+              },
+              {
+                icon: FileText,
+                title: "Deep Research Reports",
+                detail: "Long-form, fact-checked reports with cited sources. Executive summaries, competitive analysis, risk assessments, tokenomics deep-dives.",
+                color: "text-violet-400",
+              },
+              {
+                icon: BarChart3,
+                title: "Data & Modeling",
+                detail: "Ask any question, get a chart. Build DCF models, compare protocols, track revenue. Data from Dune, DeFiLlama, CoinGecko, Allium.",
+                color: "text-emerald-400",
+              },
+              {
+                icon: Brain,
+                title: "Knowledge Brain",
+                detail: "An Obsidian-style persistent graph that captures every insight. Your research suite gets smarter and adapts to your standards.",
+                color: "text-amber-400",
+              },
+            ].map(({ icon: Icon, title, detail, color }) => (
+              <div key={title} className="rounded-xl border border-border/20 bg-card/10 p-5 space-y-3" data-testid={`feature-${title.toLowerCase().replace(/\s+/g, "-")}`}>
+                <Icon className={`w-5 h-5 ${color}`} />
+                <h3 className="text-sm font-semibold">{title}</h3>
+                <p className="text-[13px] text-muted-foreground leading-relaxed">{detail}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="py-24 px-6 border-t">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-16">
+            <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground/50 mb-3">The workflow</p>
+            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight leading-snug mb-4">
+              Start with a link. End with conviction.
+            </h2>
+            <p className="text-base text-muted-foreground max-w-xl mx-auto leading-relaxed">
+              Eight AI agents run in parallel to build your research foundation.
+              Then go deeper with sessions, reports, data, and models.
             </p>
           </div>
 
@@ -253,49 +441,39 @@ export default function LandingPage() {
               {[
                 {
                   step: "1",
-                  agent: "Web Scraper",
-                  detail: "Fetches and extracts content from the URL you provide — websites, tweets, GitHub repos, LinkedIn profiles, blog posts.",
+                  title: "Drop any input",
+                  detail: "A link, a token ticker, a tweet, a vague description. Eight agents fan out — scraping, identifying, verifying, researching.",
                 },
                 {
                   step: "2",
-                  agent: "Identifier",
-                  detail: "Determines the company name, sector, and key facts from the scraped content, even from partial or ambiguous inputs.",
+                  title: "Get a verified research foundation",
+                  detail: "Company profile, founder intel, token snapshot, competitive landscape, contract verification — all fact-checked against live sources.",
                 },
                 {
                   step: "3",
-                  agent: "Token Scanner",
-                  detail: "Detects if the company has a liquid token, identifies the ticker and tier, and routes to contract verification if found.",
+                  title: "Go deep with sessions",
+                  detail: "Open a research session. Ask questions in plain language. The AI queries live data, builds charts, creates models, and writes analysis — all in conversation.",
                 },
                 {
                   step: "4",
-                  agent: "Contract Finder + Verifier",
-                  detail: "Searches for contract addresses across chains, then verifies each against block explorers and official documentation.",
+                  title: "Generate reports and models",
+                  detail: "Create deep research reports with 40+ cited sources. Build DCF valuations, compare protocol economics, model scenarios with bear/base/bull cases.",
                 },
                 {
                   step: "5",
-                  agent: "Research Agent",
-                  detail: "Builds the full research profile — competitive landscape, funding history, founder backgrounds, business model analysis.",
+                  title: "Your brain captures everything",
+                  detail: "Every insight, every data point, every conclusion feeds into your persistent knowledge graph. Your research suite gets smarter the more you use it.",
                 },
-                {
-                  step: "6",
-                  agent: "Fact Checker",
-                  detail: "Cross-references every claim against live sources. Flags anything unverifiable. Cleans hallucinated URLs and fabricated data.",
-                },
-                {
-                  step: "7",
-                  agent: "DD Reads Finder",
-                  detail: "Surfaces the most relevant external research — CFTC filings, governance proposals, audit reports, analyst deep-dives.",
-                },
-              ].map(({ step, agent, detail }) => (
-                <div key={step} className="flex gap-5 py-4 group" data-testid={`agent-step-${step}`}>
+              ].map(({ step, title, detail }) => (
+                <div key={step} className="flex gap-5 py-4 group" data-testid={`step-${step}`}>
                   <div className="flex flex-col items-center">
                     <div className="w-7 h-7 rounded-full border border-border/30 bg-card/30 flex items-center justify-center shrink-0">
                       <span className="text-[10px] font-mono text-muted-foreground/60">{step}</span>
                     </div>
-                    {step !== "7" && <div className="w-px flex-1 bg-border/15 mt-1" />}
+                    {step !== "5" && <div className="w-px flex-1 bg-border/15 mt-1" />}
                   </div>
                   <div className="pb-2">
-                    <h3 className="text-sm font-semibold mb-1">{agent}</h3>
+                    <h3 className="text-sm font-semibold mb-1">{title}</h3>
                     <p className="text-[13px] text-muted-foreground leading-relaxed">{detail}</p>
                   </div>
                 </div>
@@ -307,72 +485,36 @@ export default function LandingPage() {
 
       <section className="py-24 px-6 border-t">
         <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight leading-snug mb-4">
-              What you get back
-            </h2>
-            <p className="text-base text-muted-foreground max-w-xl mx-auto leading-relaxed">
-              Every session produces a living intelligence hub — not a
-              static report. Build models, generate charts, write reports, go deeper.
-            </p>
-          </div>
-
-          <div className="grid sm:grid-cols-3 gap-10">
-            {[
-              {
-                title: "Verified intelligence",
-                body: "Company profile, founder backgrounds, funding history, competitive landscape — all fact-checked against live sources. Nothing fabricated.",
-              },
-              {
-                title: "On-chain data on demand",
-                body: "Ask any question in plain English. \"Show me revenue over time\" or \"What's Hyperliquid's P/E?\" — get a chart back instantly from Dune, DeFiLlama, or CoinGecko.",
-              },
-              {
-                title: "Deep research reports",
-                body: "When a quick snapshot isn't enough, generate a long-form analysis covering market dynamics, regulatory risk, tokenomics, and adjacent opportunities.",
-              },
-            ].map(({ title, body }) => (
-              <div key={title} data-testid={`feature-${title.toLowerCase().replace(/\s+/g, "-")}`}>
-                <h3 className="text-base font-semibold mb-2">{title}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">{body}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="py-24 px-6 border-t">
-        <div className="max-w-6xl mx-auto">
           <div className="grid lg:grid-cols-[1fr,1.2fr] gap-20 items-start">
             <div>
-              <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground/60 mb-3">The input layer</p>
+              <p className="text-xs font-mono uppercase tracking-widest text-muted-foreground/60 mb-3">The difference</p>
               <h2 className="text-2xl sm:text-3xl font-bold tracking-tight leading-snug mb-4">
-                Capture from anywhere.<br />
-                The agents do the rest.
+                Capture learning.<br />
+                Don't outsource it.
               </h2>
               <p className="text-sm text-muted-foreground leading-relaxed mb-8">
-                Sessions accepts anything — a tweet you saw, a website someone
-                shared, a token ticker, a vague description. The agents figure
-                out what you mean and build the intelligence from there.
+                Other tools give you answers then forget. Sessions builds a persistent
+                knowledge brain that compounds with every research session, every report,
+                every data query. Your standards evolve. Your brain adapts.
               </p>
 
               <div className="space-y-6">
                 {[
                   {
-                    title: "Browser extension",
-                    body: "Right-click any webpage and send it directly to your research queue. The agents start working immediately.",
+                    title: "Persistent knowledge graph",
+                    body: "Every fact, metric, and conclusion is captured in an Obsidian-style brain. Import notes, export insights, build connections between projects.",
                   },
                   {
-                    title: "Telegram bot",
-                    body: "Forward a message to @SessionsBot. It extracts the link, runs the agents, and replies with a summary.",
+                    title: "Adaptive research standards",
+                    body: "The AI learns what matters to you. Your frameworks, your diligence criteria, your analytical preferences — all encoded in the brain.",
                   },
                   {
-                    title: "Plain language",
-                    body: "Don't have a link? Just describe what you're looking at. \"AI infra startup from YC W24\" is enough to get started.",
+                    title: "Cross-session intelligence",
+                    body: "Research from one session informs the next. Compare Ethena to Maker? The brain already knows both from your prior work.",
                   },
                   {
-                    title: "Charts on demand",
-                    body: "Once a company is researched, ask any data question. The system queries Dune, DeFiLlama, and CoinGecko to build the chart.",
+                    title: "Shareable sessions",
+                    body: "Share any research session with a link. Colleagues see the full conversation, analysis, and data — no login required.",
                   },
                 ].map(({ title, body }) => (
                   <div key={title} data-testid={`input-${title.toLowerCase().replace(/\s+/g, "-")}`}>
@@ -385,16 +527,16 @@ export default function LandingPage() {
 
             <div className="hidden lg:block">
               <div className="rounded-xl border border-border/30 bg-card/10 p-6">
-                <p className="text-[10px] font-mono text-muted-foreground/40 mb-5">What the agents produce</p>
+                <p className="text-[10px] font-mono text-muted-foreground/40 mb-5">What your research suite produces</p>
                 <div className="space-y-4">
                   {[
-                    { label: "Company Profile", detail: "Verified overview, sector, stage, business model" },
-                    { label: "Founder Intelligence", detail: "Backgrounds, prior exits, verified social links" },
-                    { label: "Token Snapshot", detail: "Live price, market cap, volume, contract addresses" },
-                    { label: "Competitive Landscape", detail: "Key competitors, positioning, market dynamics" },
-                    { label: "On-Demand Charts", detail: "Revenue, volume, TVL, protocol-specific metrics" },
-                    { label: "Deep Research Report", detail: "Long-form analysis with cited sources" },
-                    { label: "AI Next Steps", detail: "What to ask, who to reference check, what to watch" },
+                    { label: "Verified Research Foundation", detail: "Company profile, founders, token data, competitive landscape" },
+                    { label: "AI Research Sessions", detail: "Conversational analysis with live data, tool use, and brain context" },
+                    { label: "Deep Research Reports", detail: "Long-form analysis with 40+ cited sources, fact-checked" },
+                    { label: "Financial Models", detail: "DCF valuations, scenario analysis, protocol economics" },
+                    { label: "On-Chain Data & Charts", detail: "Revenue, volume, TVL, fees — from Dune, DeFiLlama, Allium" },
+                    { label: "Token Intelligence", detail: "Live snapshots, contract verification, on-chain metrics" },
+                    { label: "Persistent Knowledge Brain", detail: "Every insight captured, connected, and compounding" },
                   ].map(({ label, detail }, i) => (
                     <div key={label} className="flex items-start gap-3">
                       <div className="w-5 h-5 rounded bg-accent/50 flex items-center justify-center mt-0.5 shrink-0">
@@ -420,7 +562,7 @@ export default function LandingPage() {
           </h2>
           <p className="text-sm text-muted-foreground mb-8 max-w-md mx-auto">
             Sign in with email or wallet. Start your first session and watch
-            the agents build your research foundation in real time.
+            your research brain start learning.
           </p>
           <Button size="lg" className="h-12 px-8 gap-2" onClick={() => login()} data-testid="button-cta-bottom">
             Get started free
