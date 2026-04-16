@@ -86,6 +86,7 @@ export interface ResearchResponse {
   content: string;
   artifacts: ResearchArtifact[];
   mppCost: number;
+  costBasis: "receipt" | "voucher_estimate";
   toolCalls: string[];
   brainUpdates?: BrainUpdate;
 }
@@ -723,6 +724,7 @@ export async function runSessionResearchAgent(
 ): Promise<ResearchResponse> {
   const toolCalls: string[] = [];
   let totalCost = 0;
+  let anyCostSourceVoucher = false;
   let pendingBrainUpdate: BrainUpdate | undefined;
 
   const retrieved = retrieveRelevantContext(userMessage, brain);
@@ -764,6 +766,7 @@ export async function runSessionResearchAgent(
     const response: AnthropicRawResponse = await callAnthropicRaw(requestBody);
 
     totalCost += response.mppCost;
+    if (response.costSource === "voucher_estimate") anyCostSourceVoucher = true;
 
     const thinkingBlocks = response.content.filter((b: any) => b.type === "thinking");
     const textBlocks = response.content.filter((b: any) => b.type === "text");
@@ -855,6 +858,7 @@ export async function runSessionResearchAgent(
     content: finalText,
     artifacts,
     mppCost: totalCost,
+    costBasis: anyCostSourceVoucher ? "voucher_estimate" : "receipt",
     toolCalls,
     brainUpdates: pendingBrainUpdate,
   };

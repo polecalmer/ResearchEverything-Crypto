@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Users, Activity, DollarSign, Building2, TrendingUp, Radio, Wallet, RefreshCw, XCircle, ArrowDownCircle, ExternalLink, BarChart3, Calendar, Clock } from "lucide-react";
+import { Loader2, Users, Activity, DollarSign, Building2, TrendingUp, Radio, Wallet, RefreshCw, XCircle, ArrowDownCircle, ExternalLink, BarChart3, Calendar, Clock, Scale, AlertTriangle, CheckCircle2, HelpCircle, Flag } from "lucide-react";
 import { format } from "date-fns";
 import { useState, useMemo } from "react";
 import { apiRequest } from "@/lib/queryClient";
@@ -504,6 +504,235 @@ function CostReportPanel() {
   );
 }
 
+function CostBasisBadge({ basis }: { basis: string | null }) {
+  if (basis === "receipt") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full bg-green-500/10 text-green-400" data-testid="badge-receipt">
+        <CheckCircle2 className="w-2.5 h-2.5" />
+        Receipt
+      </span>
+    );
+  }
+  if (basis === "voucher_estimate") {
+    return (
+      <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full bg-yellow-500/10 text-yellow-400" data-testid="badge-voucher">
+        <AlertTriangle className="w-2.5 h-2.5" />
+        Voucher
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full bg-muted/30 text-muted-foreground/50" data-testid="badge-unknown">
+      <HelpCircle className="w-2.5 h-2.5" />
+      Unknown
+    </span>
+  );
+}
+
+function ReconciliationPanel() {
+  const queryClient = useQueryClient();
+  const [showTransactions, setShowTransactions] = useState(false);
+
+  const { data, isLoading, refetch, isFetching } = useQuery<any>({
+    queryKey: ["/api/admin/reconciliation"],
+    refetchInterval: false,
+  });
+
+  const flagMutation = useMutation({
+    mutationFn: () => apiRequest("POST", "/api/admin/reconciliation/flag", { action: "flag_legacy" }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/reconciliation"] });
+    },
+  });
+
+  if (isLoading) {
+    return (
+      <div className="rounded border border-border/40 bg-card/30 p-6 flex items-center justify-center">
+        <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        <span className="text-xs text-muted-foreground/60 ml-2">Loading reconciliation...</span>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const { summary, onChain, discrepancy, discrepancyPct, byType, recentTransactions } = data;
+  const discrepancyColor = Math.abs(discrepancyPct) < 5 ? "text-green-400" : Math.abs(discrepancyPct) < 20 ? "text-yellow-400" : "text-red-400";
+  const totalBasisKnown = summary.receiptCount + summary.voucherCount;
+  const basisCoverage = summary.totalTransactions > 0 ? ((totalBasisKnown / summary.totalTransactions) * 100) : 0;
+
+  return (
+    <div className="rounded border border-border/40 bg-card/30 overflow-hidden" data-testid="reconciliation-panel">
+      <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
+        <Scale className="w-3.5 h-3.5 text-foreground/60" />
+        <h2 className="text-[12px] font-medium text-foreground/80 tracking-tight">Cost Reconciliation</h2>
+        <span className="text-[10px] text-muted-foreground/40">Logged vs On-Chain</span>
+        <span className="ml-auto flex items-center gap-2">
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="text-[10px] text-muted-foreground/60 hover:text-foreground/70 transition-colors flex items-center gap-1"
+            data-testid="button-refresh-reconciliation"
+          >
+            <RefreshCw className={`w-3 h-3 ${isFetching ? "animate-spin" : ""}`} />
+          </button>
+        </span>
+      </div>
+
+      <div className="p-4 grid grid-cols-4 gap-4">
+        <div>
+          <p className="text-[10px] text-muted-foreground/50 mb-0.5">Logged API Cost</p>
+          <p className="text-sm font-mono font-semibold text-foreground/80" data-testid="text-logged-cost">
+            ${summary.totalLoggedCost.toFixed(4)}
+          </p>
+          <p className="text-[9px] text-muted-foreground/40">{summary.totalTransactions} transactions</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-muted-foreground/50 mb-0.5">On-Chain Net Cost</p>
+          <p className="text-sm font-mono font-semibold text-foreground/80" data-testid="text-onchain-cost">
+            ${onChain.netCost.toFixed(4)}
+          </p>
+          <p className="text-[9px] text-muted-foreground/40">funded - balance</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-muted-foreground/50 mb-0.5">Discrepancy</p>
+          <p className={`text-sm font-mono font-semibold ${discrepancyColor}`} data-testid="text-discrepancy">
+            {discrepancy >= 0 ? "+" : ""}${discrepancy.toFixed(4)}
+          </p>
+          <p className={`text-[9px] ${discrepancyColor}`}>
+            {discrepancyPct >= 0 ? "+" : ""}{discrepancyPct.toFixed(1)}% {Math.abs(discrepancyPct) < 5 ? "✓" : Math.abs(discrepancyPct) < 20 ? "⚠" : "✗"}
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] text-muted-foreground/50 mb-0.5">Basis Coverage</p>
+          <p className="text-sm font-mono font-semibold text-foreground/80" data-testid="text-basis-coverage">
+            {basisCoverage.toFixed(0)}%
+          </p>
+          <p className="text-[9px] text-muted-foreground/40">{totalBasisKnown} of {summary.totalTransactions} tracked</p>
+        </div>
+      </div>
+
+      <div className="px-4 pb-3 border-t border-border/20 pt-3">
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-2">
+            <span className="inline-block w-2 h-2 rounded-full bg-green-400"></span>
+            <span className="text-[10px] text-muted-foreground/60">
+              Receipt: <span className="font-mono text-foreground/70">{summary.receiptCount}</span>
+              <span className="text-muted-foreground/40 ml-1">(${summary.receiptCost.toFixed(4)})</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-block w-2 h-2 rounded-full bg-yellow-400"></span>
+            <span className="text-[10px] text-muted-foreground/60">
+              Voucher: <span className="font-mono text-foreground/70">{summary.voucherCount}</span>
+              <span className="text-muted-foreground/40 ml-1">(${summary.voucherCost.toFixed(4)})</span>
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="inline-block w-2 h-2 rounded-full bg-muted-foreground/30"></span>
+            <span className="text-[10px] text-muted-foreground/60">
+              Unknown: <span className="font-mono text-foreground/70">{summary.unknownCount}</span>
+              <span className="text-muted-foreground/40 ml-1">(${summary.unknownCost.toFixed(4)})</span>
+            </span>
+          </div>
+        </div>
+
+        {summary.unknownCount > 0 && (
+          <div className="mt-3 flex items-center gap-2">
+            <button
+              onClick={() => flagMutation.mutate()}
+              disabled={flagMutation.isPending}
+              className="text-[10px] px-2.5 py-1 rounded bg-yellow-500/10 text-yellow-400 hover:bg-yellow-500/20 transition-colors disabled:opacity-50 flex items-center gap-1"
+              data-testid="button-flag-legacy"
+            >
+              {flagMutation.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Flag className="w-3 h-3" />}
+              Flag {summary.unknownCount} Legacy as Voucher Estimates
+            </button>
+            {flagMutation.isSuccess && (
+              <span className="text-[10px] text-green-400">Flagged successfully</span>
+            )}
+          </div>
+        )}
+      </div>
+
+      {byType && byType.length > 0 && (
+        <div className="border-t border-border/20">
+          <div className="px-4 py-2">
+            <span className="text-[10px] text-muted-foreground/50">Reconciliation by Type</span>
+          </div>
+          <div className="divide-y divide-border/10">
+            {byType.map((t: any) => (
+              <div key={t.type} className="px-4 py-1.5 flex items-center gap-3 text-[11px]" data-testid={`recon-row-${t.type}`}>
+                <span className="text-foreground/70 w-28">{t.type}</span>
+                <span className="font-mono text-muted-foreground/60 w-16 text-right">{t.count} txns</span>
+                <span className="font-mono text-muted-foreground/60 w-24 text-right">${Number(t.logged_cost).toFixed(4)}</span>
+                <div className="flex items-center gap-1.5 ml-auto">
+                  {Number(t.receipt_count) > 0 && (
+                    <span className="text-[9px] text-green-400 font-mono">{t.receipt_count}✓</span>
+                  )}
+                  {Number(t.voucher_count) > 0 && (
+                    <span className="text-[9px] text-yellow-400 font-mono">{t.voucher_count}⚠</span>
+                  )}
+                  {Number(t.unknown_count) > 0 && (
+                    <span className="text-[9px] text-muted-foreground/40 font-mono">{t.unknown_count}?</span>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="border-t border-border/20">
+        <button
+          onClick={() => setShowTransactions(!showTransactions)}
+          className="w-full px-4 py-2 text-left text-[10px] text-muted-foreground/60 hover:text-foreground/70 transition-colors flex items-center gap-1"
+          data-testid="button-toggle-transactions"
+        >
+          {showTransactions ? "▼" : "▶"} Recent Transactions ({recentTransactions?.length || 0})
+        </button>
+
+        {showTransactions && recentTransactions && recentTransactions.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[10px]" data-testid="table-reconciliation-transactions">
+              <thead>
+                <tr className="border-b border-border/30 text-muted-foreground/50">
+                  <th className="text-left px-4 py-1.5 font-medium">Type</th>
+                  <th className="text-left px-4 py-1.5 font-medium">Description</th>
+                  <th className="text-right px-4 py-1.5 font-medium">API Cost</th>
+                  <th className="text-right px-4 py-1.5 font-medium">Charged</th>
+                  <th className="text-center px-4 py-1.5 font-medium">Basis</th>
+                  <th className="text-right px-4 py-1.5 font-medium">Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recentTransactions.map((tx: any) => (
+                  <tr key={tx.id} className="border-b border-border/10 hover:bg-accent/20 transition-colors" data-testid={`tx-row-${tx.id}`}>
+                    <td className="px-4 py-1.5 text-foreground/70">{tx.type}</td>
+                    <td className="px-4 py-1.5 text-muted-foreground/60 max-w-[200px] truncate">{tx.description}</td>
+                    <td className="px-4 py-1.5 text-right font-mono text-foreground/70">
+                      ${Number(tx.api_cost || 0).toFixed(4)}
+                    </td>
+                    <td className="px-4 py-1.5 text-right font-mono text-foreground/70">
+                      ${Number(tx.amount || 0).toFixed(4)}
+                    </td>
+                    <td className="px-4 py-1.5 text-center">
+                      <CostBasisBadge basis={tx.cost_basis} />
+                    </td>
+                    <td className="px-4 py-1.5 text-right text-muted-foreground/50">
+                      {tx.created_at ? format(new Date(tx.created_at), "MMM d, h:mm a") : "—"}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const { data, isLoading, isError } = useQuery<any>({
     queryKey: ["/api/admin/analytics"],
@@ -545,6 +774,8 @@ export default function AdminPage() {
         <WalletPanel />
 
         <CostReportPanel />
+
+        <ReconciliationPanel />
 
         {mppChannel && (
           <div className="rounded border border-border/40 bg-card/30 overflow-hidden" data-testid="mpp-channel-card">

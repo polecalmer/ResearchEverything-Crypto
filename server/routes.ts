@@ -438,6 +438,7 @@ export async function registerRoutes(
           let totalMppCost = phase1Result.mppCost;
           let totalInput = phase1Result.usage.input_tokens;
           let totalOutput = phase1Result.usage.output_tokens;
+          let anyCostSourceVoucher = phase1Result.costSource === "voucher_estimate";
           console.log(`[DeepResearch] Phase 1 complete. Cost: $${phase1Result.mppCost.toFixed(6)}`);
 
           console.log(`[DeepResearch] Phase 2/3: Competitive & risk research for ${company.name}`);
@@ -446,6 +447,7 @@ export async function registerRoutes(
           totalMppCost += phase2Result.mppCost;
           totalInput += phase2Result.usage.input_tokens;
           totalOutput += phase2Result.usage.output_tokens;
+          if (phase2Result.costSource === "voucher_estimate") anyCostSourceVoucher = true;
           console.log(`[DeepResearch] Phase 2 complete. Cost: $${phase2Result.mppCost.toFixed(6)}`);
 
           const synthesisRequest = buildAnthropicRequest(
@@ -459,7 +461,9 @@ export async function registerRoutes(
           totalMppCost += phase3Result.mppCost;
           totalInput += phase3Result.usage.input_tokens;
           totalOutput += phase3Result.usage.output_tokens;
-          console.log(`[DeepResearch] Phase 3 complete. Cost: $${phase3Result.mppCost.toFixed(6)}`);
+          if (phase3Result.costSource === "voucher_estimate") anyCostSourceVoucher = true;
+          const deepResearchCostBasis = anyCostSourceVoucher ? "voucher_estimate" : "receipt";
+          console.log(`[DeepResearch] Phase 3 complete. Cost: $${phase3Result.mppCost.toFixed(6)} [${deepResearchCostBasis}]`);
 
           const result = completeDeepResearchSession(
             sessionId, userId, phase3Result.text,
@@ -480,6 +484,7 @@ export async function registerRoutes(
               companyName: company.name,
               inputTokens: result.inputTokens,
               outputTokens: result.outputTokens,
+              costBasis: deepResearchCostBasis,
             });
           } catch (err) {
             console.error("[Transaction] Failed to log deep-research:", err);
@@ -501,6 +506,7 @@ export async function registerRoutes(
                 companyName: company.name,
                 inputTokens: totalInput || 0,
                 outputTokens: totalOutput || 0,
+                costBasis: anyCostSourceVoucher ? "voucher_estimate" : "receipt",
               });
             } catch {}
           }
@@ -1456,6 +1462,103 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/reconciliation", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const onChain = await getOnChainCostReport();
+
+      const summaryResult = await db.execute(sql`
+        SELECT 
+          COUNT(*) as total_transactions,
+          COALESCE(SUM(CAST(api_cost AS NUMERIC)), 0) as total_logged_cost,
+          COALESCE(SUM(CAST(amount AS NUMERIC)), 0) as total_charged,
+          COUNT(CASE WHEN cost_basis = 'receipt' THEN 1 END) as receipt_count,
+          COUNT(CASE WHEN cost_basis = 'voucher_estimate' THEN 1 END) as voucher_count,
+          COUNT(CASE WHEN cost_basis IS NULL THEN 1 END) as unknown_count,
+          COALESCE(SUM(CASE WHEN cost_basis = 'receipt' THEN CAST(api_cost AS NUMERIC) ELSE 0 END), 0) as receipt_cost,
+          COALESCE(SUM(CASE WHEN cost_basis = 'voucher_estimate' THEN CAST(api_cost AS NUMERIC) ELSE 0 END), 0) as voucher_cost,
+          COALESCE(SUM(CASE WHEN cost_basis IS NULL THEN CAST(api_cost AS NUMERIC) ELSE 0 END), 0) as unknown_cost
+        FROM transactions WHERE status = 'success'
+      `);
+
+      const byTypeResult = await db.execute(sql`
+        SELECT 
+          type,
+          COUNT(*) as count,
+          COALESCE(SUM(CAST(api_cost AS NUMERIC)), 0) as logged_cost,
+          COALESCE(SUM(CAST(amount AS NUMERIC)), 0) as charged,
+          COUNT(CASE WHEN cost_basis = 'receipt' THEN 1 END) as receipt_count,
+          COUNT(CASE WHEN cost_basis = 'voucher_estimate' THEN 1 END) as voucher_count,
+          COUNT(CASE WHEN cost_basis IS NULL THEN 1 END) as unknown_count
+        FROM transactions WHERE status = 'success'
+        GROUP BY type ORDER BY logged_cost DESC
+      `);
+
+      const recentTxResult = await db.execute(sql`
+        SELECT id, type, description, amount, api_cost, cost_basis, company_name, created_at
+        FROM transactions 
+        WHERE status = 'success'
+        ORDER BY created_at DESC
+        LIMIT 100
+      `);
+
+      const summary = summaryResult.rows[0];
+      const totalLoggedCost = Number(summary?.total_logged_cost || 0);
+      const onChainNetCost = onChain.netCost;
+      const discrepancy = totalLoggedCost - onChainNetCost;
+      const discrepancyPct = onChainNetCost > 0 ? (discrepancy / onChainNetCost) * 100 : 0;
+
+      res.json({
+        summary: {
+          totalTransactions: Number(summary?.total_transactions || 0),
+          totalLoggedCost,
+          totalCharged: Number(summary?.total_charged || 0),
+          receiptCount: Number(summary?.receipt_count || 0),
+          voucherCount: Number(summary?.voucher_count || 0),
+          unknownCount: Number(summary?.unknown_count || 0),
+          receiptCost: Number(summary?.receipt_cost || 0),
+          voucherCost: Number(summary?.voucher_cost || 0),
+          unknownCost: Number(summary?.unknown_cost || 0),
+        },
+        onChain: {
+          netCost: onChainNetCost,
+          totalFunded: onChain.totalFunded,
+          currentBalance: onChain.currentBalance,
+          protocolFees: onChain.protocolFees,
+          escrowLocked: onChain.escrowLocked,
+        },
+        discrepancy,
+        discrepancyPct,
+        byType: byTypeResult.rows,
+        recentTransactions: recentTxResult.rows,
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/admin/reconciliation/flag", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const { action } = req.body;
+      if (action === "flag_legacy") {
+        const result = await db.execute(sql`
+          UPDATE transactions 
+          SET cost_basis = 'voucher_estimate' 
+          WHERE cost_basis IS NULL AND api_cost IS NOT NULL AND CAST(api_cost AS NUMERIC) > 0
+          RETURNING id
+        `);
+        res.json({ flagged: result.rows.length });
+      } else {
+        res.status(400).json({ message: "Unknown action" });
+      }
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.post("/api/admin/wallet/close-all", requireAuth, async (req, res) => {
     const isAdmin = await storage.checkIsAdmin(req.user!.id);
     if (!isAdmin) return res.status(403).json({ message: "Admin only" });
@@ -1966,6 +2069,7 @@ export async function registerRoutes(
         description: `Research: "${message.slice(0, 80)}"`,
         amount: result.mppCost.toFixed(4),
         apiCost: result.mppCost.toFixed(4),
+        costBasis: result.costBasis,
       });
 
       clearInterval(keepalive);

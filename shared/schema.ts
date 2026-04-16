@@ -231,6 +231,7 @@ export const transactions = pgTable("transactions", {
   outputTokens: integer("output_tokens"),
   txHash: text("tx_hash"),
   status: text("status").default("success").notNull(),
+  costBasis: text("cost_basis"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 

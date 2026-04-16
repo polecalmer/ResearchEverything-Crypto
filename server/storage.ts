@@ -67,7 +67,7 @@ export interface IStorage {
 
   claimOrphanedCompanies(userId: string): Promise<number>;
 
-  logTransaction(data: { userId: string; type: string; description: string; amount: string; apiCost?: string; companyName?: string; inputTokens?: number; outputTokens?: number; txHash?: string; status?: string }): Promise<Transaction>;
+  logTransaction(data: { userId: string; type: string; description: string; amount: string; apiCost?: string; companyName?: string; inputTokens?: number; outputTokens?: number; txHash?: string; status?: string; costBasis?: string }): Promise<Transaction>;
   getTransactions(userId: string, limit?: number): Promise<Transaction[]>;
 
   getTokenProfile(companyId: string): Promise<TokenProfile | undefined>;
@@ -363,7 +363,7 @@ export class DatabaseStorage implements IStorage {
     return orphaned.length;
   }
 
-  async logTransaction(data: { userId: string; type: string; description: string; amount: string; apiCost?: string; companyName?: string; inputTokens?: number; outputTokens?: number; txHash?: string; status?: string }): Promise<Transaction> {
+  async logTransaction(data: { userId: string; type: string; description: string; amount: string; apiCost?: string; companyName?: string; inputTokens?: number; outputTokens?: number; txHash?: string; status?: string; costBasis?: string }): Promise<Transaction> {
     const [tx] = await db.insert(transactions).values(data).returning();
     return tx;
   }
