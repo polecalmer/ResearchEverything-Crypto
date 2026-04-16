@@ -412,7 +412,9 @@ export default function WalletPage() {
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
-  const totalSpent = txs?.filter(tx => tx.status === "success").reduce((sum, tx) => sum + parseFloat(tx.amount || "0"), 0) ?? 0;
+  const totalTokensIn = txs?.filter(tx => tx.status === "success").reduce((sum, tx) => sum + (tx.inputTokens || 0), 0) ?? 0;
+  const totalTokensOut = txs?.filter(tx => tx.status === "success").reduce((sum, tx) => sum + (tx.outputTokens || 0), 0) ?? 0;
+  const txCount = txs?.filter(tx => tx.status === "success").length ?? 0;
 
   return (
     <div className="h-full overflow-y-auto">
@@ -477,18 +479,20 @@ export default function WalletPage() {
                   <span className="text-muted-foreground text-sm">—</span>
                 )}
               </div>
-              <div className="flex justify-between">
-                <div>
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Total Spent</p>
-                  <p className="text-sm font-mono font-semibold tabular-nums" data-testid="text-total-spent">
-                    ${totalSpent.toFixed(2)}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Txns</p>
-                  <p className="text-sm font-mono font-semibold tabular-nums" data-testid="text-tx-count">
-                    {txs?.length ?? 0}
-                  </p>
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest text-muted-foreground">Token Usage</p>
+                    <p className="text-xs font-mono tabular-nums text-foreground/70 mt-0.5" data-testid="text-total-tokens">
+                      {totalTokensIn.toLocaleString()} in · {totalTokensOut.toLocaleString()} out
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] uppercase tracking-widest text-muted-foreground">API Calls</p>
+                    <p className="text-sm font-mono font-semibold tabular-nums" data-testid="text-tx-count">
+                      {txCount}
+                    </p>
+                  </div>
                 </div>
               </div>
               <div className="flex gap-2">
@@ -536,21 +540,20 @@ export default function WalletPage() {
                   <tr className="border-b border-border">
                     <th className="text-left text-[10px] uppercase tracking-widest text-muted-foreground font-medium px-4 py-3">Time</th>
                     <th className="text-left text-[10px] uppercase tracking-widest text-muted-foreground font-medium px-4 py-3">Description</th>
-                    <th className="text-right text-[10px] uppercase tracking-widest text-muted-foreground font-medium px-4 py-3">Fee</th>
-                    <th className="text-right text-[10px] uppercase tracking-widest text-muted-foreground font-medium px-4 py-3">Total</th>
+                    <th className="text-right text-[10px] uppercase tracking-widest text-muted-foreground font-medium px-4 py-3">Tokens</th>
                     <th className="text-center text-[10px] uppercase tracking-widest text-muted-foreground font-medium px-2 py-3 w-10">Tx</th>
                   </tr>
                 </thead>
                 <tbody>
                   {txsLoading ? (
                     <tr>
-                      <td colSpan={5} className="text-center py-12">
+                      <td colSpan={4} className="text-center py-12">
                         <Loader2 className="w-4 h-4 animate-spin text-muted-foreground mx-auto" />
                       </td>
                     </tr>
                   ) : !txs || txs.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="text-center py-12">
+                      <td colSpan={4} className="text-center py-12">
                         <Clock className="w-5 h-5 text-muted-foreground/40 mx-auto mb-2" />
                         <p className="text-xs text-muted-foreground">No transactions yet</p>
                       </td>
@@ -581,23 +584,15 @@ export default function WalletPage() {
                                 ) : null}
                               </span>
                             </div>
-                            {tx.inputTokens && tx.outputTokens && (
-                              <p className="text-[10px] text-muted-foreground font-mono mt-0.5">
-                                {tx.inputTokens.toLocaleString()} in · {tx.outputTokens.toLocaleString()} out
-                              </p>
-                            )}
                           </td>
-                          <td className="px-4 py-3 text-right">
-                            {tx.apiCost && (
+                          <td className="px-4 py-3 text-right" data-testid={`text-tx-tokens-${tx.id}`}>
+                            {tx.inputTokens || tx.outputTokens ? (
                               <span className="text-xs text-muted-foreground/60 font-mono">
-                                ${parseFloat(tx.apiCost).toFixed(2)}
+                                {(tx.inputTokens || 0).toLocaleString()} / {(tx.outputTokens || 0).toLocaleString()}
                               </span>
+                            ) : (
+                              <span className="text-muted-foreground/30">—</span>
                             )}
-                          </td>
-                          <td className="px-4 py-3 text-right" data-testid={`text-tx-amount-${tx.id}`}>
-                            <span className={`text-sm font-mono font-medium tabular-nums ${isFailed ? "text-red-400" : ""}`}>
-                              {isFailed ? "—" : `$${parseFloat(tx.amount).toFixed(2)}`}
-                            </span>
                           </td>
                           <td className="px-2 py-3 text-center">
                             {tx.txHash ? (

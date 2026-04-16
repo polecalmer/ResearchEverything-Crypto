@@ -255,6 +255,124 @@ export async function withdrawChannel(channelId: string): Promise<{ success: boo
   }
 }
 
+export interface OnChainCostReport {
+  totalFunded: number;
+  currentBalance: number;
+  netCost: number;
+  protocolFees: number;
+  protocolFeeTxCount: number;
+  escrowLocked: number;
+  fundingSources: Array<{ from: string; amount: number }>;
+  generatedAt: string;
+}
+
+let costReportCache: { report: OnChainCostReport; cachedAt: number } | null = null;
+const COST_REPORT_TTL = 60_000;
+
+export async function getOnChainCostReport(): Promise<OnChainCostReport> {
+  if (costReportCache && Date.now() - costReportCache.cachedAt < COST_REPORT_TTL) {
+    return costReportCache.report;
+  }
+
+  const { account, publicClient } = getClients();
+  const address = account.address;
+
+  const usdcRaw = await publicClient.readContract({
+    address: USDC,
+    abi: balanceOfAbi,
+    functionName: "balanceOf",
+    args: [address],
+  }) as bigint;
+  const currentBalance = Number(usdcRaw) / 1e6;
+
+  const transferEvent = parseAbiItem(
+    "event Transfer(address indexed from, address indexed to, uint256 value)"
+  );
+
+  const currentBlock = await publicClient.getBlockNumber();
+  const CHUNK = 99000n;
+
+  let totalExternalIn = 0n;
+  let protocolFees = 0n;
+  let protocolFeeTxCount = 0;
+  const fundingSources: Map<string, bigint> = new Map();
+
+  for (let from = 0n; from <= currentBlock; from += CHUNK + 1n) {
+    const to = from + CHUNK > currentBlock ? currentBlock : from + CHUNK;
+    try {
+      const logsIn = await publicClient.getLogs({
+        address: USDC,
+        event: transferEvent,
+        args: { to: address },
+        fromBlock: from,
+        toBlock: to,
+      });
+      for (const log of logsIn) {
+        if (log.args.from!.toLowerCase() !== ESCROW.toLowerCase()) {
+          totalExternalIn += log.args.value!;
+          const key = log.args.from!;
+          fundingSources.set(key, (fundingSources.get(key) || 0n) + log.args.value!);
+        }
+      }
+
+      const logsOut = await publicClient.getLogs({
+        address: USDC,
+        event: transferEvent,
+        args: { from: address },
+        fromBlock: from,
+        toBlock: to,
+      });
+      for (const log of logsOut) {
+        if (log.args.to!.toLowerCase() !== ESCROW.toLowerCase()) {
+          protocolFees += log.args.value!;
+          protocolFeeTxCount++;
+        }
+      }
+    } catch {
+    }
+  }
+
+  const channelIds = await discoverChannelIds(publicClient, address);
+  let escrowLocked = 0;
+  for (const cid of channelIds) {
+    try {
+      const r = await publicClient.readContract({
+        address: ESCROW,
+        abi: channelsAbi,
+        functionName: "channels",
+        args: [cid as any],
+      }) as any;
+      const [finalized, , , , , , deposit, settled] = r;
+      if (!finalized && deposit > 0n) {
+        escrowLocked += (Number(deposit) - Number(settled)) / 1e6;
+      }
+    } catch {}
+  }
+
+  const totalFunded = Number(totalExternalIn) / 1e6;
+  const protoFeesUsd = Number(protocolFees) / 1e6;
+  const netCost = totalFunded - currentBalance;
+
+  const sources = Array.from(fundingSources.entries()).map(([addr, val]) => ({
+    from: addr,
+    amount: Number(val) / 1e6,
+  }));
+
+  const report: OnChainCostReport = {
+    totalFunded,
+    currentBalance,
+    netCost,
+    protocolFees: protoFeesUsd,
+    protocolFeeTxCount,
+    escrowLocked,
+    fundingSources: sources,
+    generatedAt: new Date().toISOString(),
+  };
+
+  costReportCache = { report, cachedAt: Date.now() };
+  return report;
+}
+
 export async function closeAllChannels(): Promise<{ requested: number; finalized: number; errors: string[] }> {
   const info = await getWalletInfo();
   let requested = 0;

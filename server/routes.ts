@@ -20,7 +20,7 @@ import { executeDuneQuery, getLatestDuneResults, isDuneConfigured } from "./dune
 import { runTokenAnalysis } from "./token-agent";
 import { callAnthropicServer, callAnthropicServerHeavy, isServerMppReady, getChannelStats } from "./mpp-client";
 import { generateTelegramLinkCode } from "./telegram";
-import { getWalletInfo, closeAllChannels, requestCloseChannel, withdrawChannel } from "./wallet-manager";
+import { getWalletInfo, closeAllChannels, requestCloseChannel, withdrawChannel, getOnChainCostReport } from "./wallet-manager";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { db } from "./db";
 import { sql } from "drizzle-orm";
@@ -1368,6 +1368,42 @@ export async function registerRoutes(
     try {
       const info = await getWalletInfo();
       res.json(info);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/admin/cost-report", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const report = await getOnChainCostReport();
+      const txSummary = await db.execute(sql`
+        SELECT 
+          type,
+          COUNT(*) as count,
+          COALESCE(SUM(CAST(api_cost AS NUMERIC)), 0) as logged_cost,
+          COALESCE(SUM(input_tokens), 0) as total_input_tokens,
+          COALESCE(SUM(output_tokens), 0) as total_output_tokens,
+          MIN(created_at) as first_tx,
+          MAX(created_at) as last_tx
+        FROM transactions 
+        WHERE status = 'success'
+        GROUP BY type
+        ORDER BY logged_cost DESC
+      `);
+      const totalTokens = await db.execute(sql`
+        SELECT 
+          COALESCE(SUM(input_tokens), 0) as total_input,
+          COALESCE(SUM(output_tokens), 0) as total_output,
+          COUNT(*) as total_txns
+        FROM transactions WHERE status = 'success'
+      `);
+      res.json({
+        onChain: report,
+        transactionBreakdown: txSummary.rows,
+        tokenUsage: totalTokens.rows[0],
+      });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

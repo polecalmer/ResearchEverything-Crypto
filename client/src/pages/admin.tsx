@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Users, Activity, DollarSign, Building2, TrendingUp, Radio, Wallet, RefreshCw, XCircle, ArrowDownCircle, ExternalLink } from "lucide-react";
+import { Loader2, Users, Activity, DollarSign, Building2, TrendingUp, Radio, Wallet, RefreshCw, XCircle, ArrowDownCircle, ExternalLink, BarChart3 } from "lucide-react";
 import { format } from "date-fns";
 import { useState } from "react";
 import { apiRequest } from "@/lib/queryClient";
@@ -210,6 +210,123 @@ function WalletPanel() {
   );
 }
 
+function CostReportPanel() {
+  const { data, isLoading, refetch, isFetching } = useQuery<any>({
+    queryKey: ["/api/admin/cost-report"],
+    refetchInterval: false,
+  });
+
+  if (isLoading) {
+    return (
+      <div className="rounded border border-border/40 bg-card/30 p-6 flex items-center justify-center">
+        <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        <span className="text-xs text-muted-foreground/60 ml-2">Loading cost report...</span>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const { onChain, transactionBreakdown, tokenUsage } = data;
+
+  return (
+    <div className="rounded border border-border/40 bg-card/30 overflow-hidden" data-testid="cost-report-panel">
+      <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
+        <BarChart3 className="w-3.5 h-3.5 text-foreground/60" />
+        <h2 className="text-[12px] font-medium text-foreground/80 tracking-tight">On-Chain Cost Report</h2>
+        <span className="ml-auto flex items-center gap-2">
+          <span className="text-[10px] text-muted-foreground/40">{onChain?.generatedAt ? format(new Date(onChain.generatedAt), "h:mm a") : ""}</span>
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="text-[10px] text-muted-foreground/60 hover:text-foreground/70 transition-colors flex items-center gap-1"
+            data-testid="button-refresh-cost-report"
+          >
+            <RefreshCw className={`w-3 h-3 ${isFetching ? "animate-spin" : ""}`} />
+          </button>
+        </span>
+      </div>
+
+      <div className="p-4 grid grid-cols-5 gap-4">
+        <div>
+          <p className="text-[10px] text-muted-foreground/50 mb-0.5">Total Funded</p>
+          <p className="text-sm font-mono font-semibold text-foreground/80" data-testid="text-total-funded">
+            ${onChain?.totalFunded?.toFixed(2)}
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] text-muted-foreground/50 mb-0.5">Current Balance</p>
+          <p className="text-sm font-mono font-semibold text-foreground/80" data-testid="text-current-balance">
+            ${onChain?.currentBalance?.toFixed(2)}
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] text-muted-foreground/50 mb-0.5">Net Cost</p>
+          <p className="text-sm font-mono font-semibold text-amber-400" data-testid="text-net-cost">
+            ${onChain?.netCost?.toFixed(2)}
+          </p>
+        </div>
+        <div>
+          <p className="text-[10px] text-muted-foreground/50 mb-0.5">Protocol Fees</p>
+          <p className="text-sm font-mono font-semibold text-foreground/80" data-testid="text-protocol-fees">
+            ${onChain?.protocolFees?.toFixed(4)}
+          </p>
+          <p className="text-[9px] text-muted-foreground/40">{onChain?.protocolFeeTxCount} txns</p>
+        </div>
+        <div>
+          <p className="text-[10px] text-muted-foreground/50 mb-0.5">Escrow Locked</p>
+          <p className="text-sm font-mono font-semibold text-foreground/80" data-testid="text-escrow-locked">
+            ${onChain?.escrowLocked?.toFixed(2)}
+          </p>
+        </div>
+      </div>
+
+      {tokenUsage && (
+        <div className="px-4 pb-3 border-t border-border/20 pt-3">
+          <div className="flex items-center gap-6 text-[10px]">
+            <span className="text-muted-foreground/50">
+              Input Tokens: <span className="font-mono text-foreground/60">{Number(tokenUsage.total_input).toLocaleString()}</span>
+            </span>
+            <span className="text-muted-foreground/50">
+              Output Tokens: <span className="font-mono text-foreground/60">{Number(tokenUsage.total_output).toLocaleString()}</span>
+            </span>
+            <span className="text-muted-foreground/50">
+              API Calls: <span className="font-mono text-foreground/60">{Number(tokenUsage.total_txns).toLocaleString()}</span>
+            </span>
+            {Number(tokenUsage.total_txns) > 0 && onChain?.protocolFees > 0 && (
+              <span className="text-muted-foreground/50">
+                Avg Fee/Call: <span className="font-mono text-foreground/60">${(onChain.protocolFees / Number(tokenUsage.total_txns)).toFixed(4)}</span>
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {transactionBreakdown && transactionBreakdown.length > 0 && (
+        <div className="border-t border-border/20">
+          <div className="px-4 py-2">
+            <span className="text-[10px] text-muted-foreground/50">By Type</span>
+          </div>
+          <div className="divide-y divide-border/10">
+            {transactionBreakdown.map((t: any) => (
+              <div key={t.type} className="px-4 py-1.5 flex items-center gap-3 text-[11px]" data-testid={`cost-row-${t.type}`}>
+                <span className="text-foreground/70 w-32">{t.type}</span>
+                <span className="font-mono text-muted-foreground/60 w-16 text-right">{t.count} calls</span>
+                <span className="font-mono text-muted-foreground/60 w-24 text-right">
+                  {Number(t.total_input_tokens).toLocaleString()} in
+                </span>
+                <span className="font-mono text-muted-foreground/60 w-24 text-right">
+                  {Number(t.total_output_tokens).toLocaleString()} out
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const { data, isLoading, isError } = useQuery<any>({
     queryKey: ["/api/admin/analytics"],
@@ -250,6 +367,8 @@ export default function AdminPage() {
 
         <WalletPanel />
 
+        <CostReportPanel />
+
         {mppChannel && (
           <div className="rounded border border-border/40 bg-card/30 overflow-hidden" data-testid="mpp-channel-card">
             <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
@@ -263,8 +382,9 @@ export default function AdminPage() {
                 <p className="text-sm font-mono font-semibold text-foreground/80">${mppChannel.deposit}</p>
               </div>
               <div>
-                <p className="text-[10px] text-muted-foreground/50 mb-0.5">Spent</p>
+                <p className="text-[10px] text-muted-foreground/50 mb-0.5">Voucher Amount</p>
                 <p className="text-sm font-mono font-semibold text-foreground/80">${Number(mppChannel.totalSpent).toFixed(4)}</p>
+                <p className="text-[9px] text-muted-foreground/40">Off-chain vouchers</p>
               </div>
               <div>
                 <p className="text-[10px] text-muted-foreground/50 mb-0.5">Requests</p>
