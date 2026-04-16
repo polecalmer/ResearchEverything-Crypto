@@ -1,0 +1,4 @@
+#!/bin/bash
+set -e
+npm install
+yes '' | npx drizzle-kit push --force 2>&1 || true
