@@ -755,10 +755,14 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* 02 — Thesis: section number in margin, headline left */}
-        <section id="thesis" className="py-32 px-8 lg:px-16">
-          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10">
-            <div className="col-span-12 lg:col-span-9">
+        {/* 02 — Thesis */}
+        <section id="thesis" className="py-24 px-8 lg:px-16">
+          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10 items-end">
+            <div className="col-span-12 lg:col-span-8">
+              <div className="flex items-center gap-3 mb-6 text-[10px] uppercase tracking-[0.32em] text-muted-foreground/60">
+                <SessionsMark size={12} halo={false} pulseRadius={0.55} ringWidth={0.6} strokeWidth={1.2} />
+                <span>01 — Thesis</span>
+              </div>
               <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-semibold tracking-[-0.025em] leading-[0.96] mb-6">
                 <span className="bg-gradient-to-b from-foreground to-foreground/70 bg-clip-text text-transparent">AI is great.</span><br />
                 <span className="text-muted-foreground/55">It lacks perspective.</span>
@@ -769,13 +773,52 @@ export default function LandingPage() {
                 you call.
               </p>
             </div>
+            <div className="hidden lg:flex lg:col-span-4 flex-col items-end gap-3 text-right">
+              <div className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground/45 mb-1">What it gives you</div>
+              {[
+                { k: "01", v: "Conversations that remember" },
+                { k: "02", v: "Deep reports with citations" },
+                { k: "03", v: "Financial models, live" },
+                { k: "04", v: "On-chain data, queryable" },
+                { k: "05", v: "A knowledge brain" },
+              ].map((row) => (
+                <div key={row.k} className="flex items-baseline gap-3 justify-end">
+                  <span className="text-[10px] font-mono text-muted-foreground/40 tracking-wider">{row.k}</span>
+                  <span className="text-sm text-foreground/80">{row.v}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </section>
 
-        {/* 03 — Signal: mirrored right */}
-        <section className="py-32 px-8 lg:px-16">
-          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10">
-            <div className="col-span-12 lg:col-span-9 lg:col-start-3 lg:text-right">
+        {/* 03 — Signal */}
+        <section className="py-24 px-8 lg:px-16">
+          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10 items-end">
+            <div className="hidden lg:flex lg:col-span-4 flex-col items-start gap-4">
+              <div className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground/45">A trace looks like</div>
+              <div className="space-y-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground/75">
+                <div><span className="text-foreground/80">Q.</span> Hyperliquid real P/E?</div>
+                <div className="pl-4 border-l border-foreground/10">
+                  <div className="text-foreground/60">→ session #4218</div>
+                  <div className="text-foreground/40">→ 14 sources, 3 models</div>
+                  <div className="text-foreground/40">→ stored to brain</div>
+                </div>
+                <div><span className="text-foreground/80">Q.</span> Compare to dYdX revenue?</div>
+                <div className="pl-4 border-l border-foreground/10">
+                  <div className="text-foreground/40">→ <span className="text-[#7dcfff]/80">recall:</span> #4218 context</div>
+                  <div className="text-foreground/40">→ 6 sources, 1 model</div>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 text-[10px] uppercase tracking-[0.32em] text-muted-foreground/40 mt-2">
+                <span className="w-8 h-px bg-foreground/20" />
+                <span>compounding</span>
+              </div>
+            </div>
+            <div className="col-span-12 lg:col-span-8 lg:text-right">
+              <div className="flex items-center gap-3 mb-6 text-[10px] uppercase tracking-[0.32em] text-muted-foreground/60 lg:justify-end">
+                <span>02 — Signal</span>
+                <SessionsMark size={12} halo={false} pulseRadius={0.55} ringWidth={0.6} strokeWidth={1.2} />
+              </div>
               <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-semibold tracking-[-0.025em] leading-[0.96] mb-6">
                 <span className="bg-gradient-to-b from-foreground to-foreground/70 bg-clip-text text-transparent">Every session</span><br />
                 <span className="text-muted-foreground/55">leaves a trace.</span>
@@ -788,10 +831,14 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* 04 — Compound: left again */}
-        <section className="py-32 px-8 lg:px-16">
-          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10">
-            <div className="col-span-12 lg:col-span-9">
+        {/* 04 — Compound */}
+        <section className="py-24 px-8 lg:px-16">
+          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10 items-end">
+            <div className="col-span-12 lg:col-span-8">
+              <div className="flex items-center gap-3 mb-6 text-[10px] uppercase tracking-[0.32em] text-muted-foreground/60">
+                <SessionsMark size={12} halo={false} pulseRadius={0.55} ringWidth={0.6} strokeWidth={1.2} />
+                <span>03 — Compound</span>
+              </div>
               <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-semibold tracking-[-0.025em] leading-[0.96] mb-6">
                 <span className="bg-gradient-to-b from-foreground to-foreground/70 bg-clip-text text-transparent">Tomorrow's research</span><br />
                 <span className="text-muted-foreground/55">stands on today's.</span>
@@ -800,6 +847,24 @@ export default function LandingPage() {
                 Models, reports, and on-chain data layer onto a brain that
                 remembers what you've already learned.
               </p>
+            </div>
+            <div className="hidden lg:flex lg:col-span-4 flex-col items-end gap-2 text-right">
+              <div className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground/45 mb-2">Your brain, after a month</div>
+              {[
+                { layer: "Day 1",  count: "1 session",   tone: "text-foreground/40", bar: "w-[8%]"  },
+                { layer: "Week 1", count: "12 sessions", tone: "text-foreground/55", bar: "w-[22%]" },
+                { layer: "Week 2", count: "47 traces",   tone: "text-foreground/65", bar: "w-[42%]" },
+                { layer: "Week 3", count: "118 links",   tone: "text-foreground/75", bar: "w-[68%]" },
+                { layer: "Month 1", count: "1 perspective", tone: "text-foreground", bar: "w-full"   },
+              ].map((row) => (
+                <div key={row.layer} className="flex items-center gap-3 w-full max-w-[260px] ml-auto">
+                  <span className={`text-[11px] font-mono ${row.tone} w-16 text-left`}>{row.layer}</span>
+                  <div className="flex-1 h-px bg-foreground/5 relative overflow-hidden">
+                    <div className={`absolute inset-y-0 left-0 ${row.bar} bg-gradient-to-r from-[#7dcfff]/40 via-[#bb9af7]/40 to-[#7dcfff]/60`} />
+                  </div>
+                  <span className={`text-[11px] ${row.tone} w-24 text-right`}>{row.count}</span>
+                </div>
+              ))}
             </div>
           </div>
         </section>
