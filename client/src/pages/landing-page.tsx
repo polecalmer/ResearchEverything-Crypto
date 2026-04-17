@@ -629,7 +629,7 @@ export default function LandingPage() {
 
       <main className="relative" style={{ zIndex: 10 }}>
         {/* Hero — text floats over the field */}
-        <section className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
+        <section className="py-24 flex flex-col items-center justify-center px-6 text-center">
           <div className="max-w-3xl flex flex-col items-center">
             <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-4">
               ◦ &nbsp;SESSIONS&nbsp; ◦
@@ -661,7 +661,7 @@ export default function LandingPage() {
         </section>
 
         {/* Signal — single editorial statement floating mid-page */}
-        <section id="signal" className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
+        <section id="signal" className="py-24 flex flex-col items-center justify-center px-6 text-center">
           <div className="max-w-3xl flex flex-col items-center">
             <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-4">
               ◦ &nbsp;THE&nbsp;SIGNAL&nbsp; ◦
@@ -677,7 +677,7 @@ export default function LandingPage() {
         </section>
 
         {/* Compounding — second editorial beat */}
-        <section className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
+        <section className="py-24 flex flex-col items-center justify-center px-6 text-center">
           <div className="max-w-3xl flex flex-col items-center">
             <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-4">
               ◦ &nbsp;THE&nbsp;COMPOUND&nbsp; ◦
@@ -693,7 +693,7 @@ export default function LandingPage() {
         </section>
 
         {/* Final CTA — quiet, no card */}
-        <section className="min-h-[80vh] flex flex-col items-center justify-center px-6 text-center">
+        <section className="py-24 flex flex-col items-center justify-center px-6 text-center">
           <div className="max-w-2xl flex flex-col items-center">
             <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-4">
               ◦ &nbsp;BEGIN&nbsp; ◦
