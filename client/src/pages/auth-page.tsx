@@ -3,7 +3,7 @@ import { useLocation } from "wouter";
 import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { ArrowRight, Loader2, ShieldCheck, Brain, FileSearch, Sparkles, Wallet } from "lucide-react";
-import sessionsLogo from "@assets/sessions_logo.png";
+import { SessionsMark } from "@/components/sessions-mark";
 
 export default function AuthPage() {
   const { login, isAuthenticated, isLoading } = useAuth();
@@ -24,66 +24,99 @@ export default function AuthPage() {
   }
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-2 bg-background">
-      <div className="flex items-center justify-center p-8">
-        <div className="w-full max-w-sm space-y-8">
-          <div className="space-y-3">
-            <div className="flex items-center gap-2 mb-8">
-              <img src={sessionsLogo} alt="Sessions" className="w-5 h-5 object-contain" />
-              <span className="text-sm font-semibold tracking-tight">Sessions</span>
+    <div className="min-h-screen grid lg:grid-cols-2 bg-background relative overflow-hidden">
+      <div
+        className="pointer-events-none absolute inset-0 opacity-[0.35]"
+        style={{
+          backgroundImage:
+            "radial-gradient(60% 50% at 20% 20%, rgba(125,207,255,0.10) 0%, transparent 60%), radial-gradient(50% 40% at 80% 80%, rgba(187,154,247,0.08) 0%, transparent 60%)",
+        }}
+      />
+
+      <div className="relative flex items-center justify-center p-8">
+        <div className="w-full max-w-sm space-y-10">
+          <div className="flex items-center gap-2.5 mb-2">
+            <SessionsMark size={20} />
+            <div className="flex flex-col leading-none">
+              <span className="text-sm font-semibold tracking-tight bg-gradient-to-b from-foreground to-foreground/60 bg-clip-text text-transparent">
+                Sessions
+              </span>
+              <span className="text-[9px] uppercase tracking-[0.32em] text-muted-foreground/55 mt-1">
+                the perspective layer
+              </span>
             </div>
-            <h1 className="text-2xl font-bold tracking-tight" data-testid="text-auth-title">
-              Get started
-            </h1>
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              Sign in with your email or wallet. You'll get an embedded Tempo wallet automatically.
-            </p>
           </div>
 
           <div className="space-y-4">
+            <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground/55">
+              <span className="text-cyan-400/80">01</span> &nbsp; Enter
+            </p>
+            <h1
+              className="text-[40px] font-semibold tracking-[-0.025em] leading-[0.96] bg-gradient-to-b from-foreground to-foreground/65 bg-clip-text text-transparent"
+              data-testid="text-auth-title"
+            >
+              Begin a<br />
+              <span className="text-muted-foreground/55">session.</span>
+            </h1>
+            <p className="text-sm text-muted-foreground/75 leading-relaxed max-w-[28ch]">
+              Sign in with email or wallet. An embedded Tempo wallet is provisioned for you automatically.
+            </p>
+          </div>
+
+          <div className="space-y-3">
             <Button
-              className="w-full h-11 text-sm"
+              className="w-full h-11 text-sm group"
               onClick={() => login()}
               data-testid="button-auth-submit"
             >
-              Sign In / Sign Up
-              <ArrowRight className="w-4 h-4 ml-2" />
+              Sign in / Sign up
+              <ArrowRight className="w-4 h-4 ml-2 transition-transform group-hover:translate-x-0.5" />
             </Button>
 
-            <div className="flex items-center gap-2">
-              <Wallet className="w-3.5 h-3.5 text-muted-foreground" />
-              <p className="text-xs text-muted-foreground">
-                Powered by Privy — email or wallet login
+            <div className="flex items-center gap-2 pt-1">
+              <Wallet className="w-3 h-3 text-muted-foreground/60" />
+              <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground/55">
+                Powered by Privy
               </p>
             </div>
           </div>
         </div>
       </div>
 
-      <div className="hidden lg:flex items-center justify-center border-l border-border p-12">
-        <div className="max-w-md space-y-8">
-          <div className="space-y-3">
-            <p className="text-[10px] uppercase tracking-widest text-muted-foreground/60 font-mono">How it works</p>
-            <h2 className="text-2xl font-bold tracking-tight">
-              AI-powered deal intelligence
+      <div className="relative hidden lg:flex items-center justify-center border-l border-border/40 p-12">
+        <div className="max-w-md space-y-10">
+          <div className="space-y-4">
+            <p className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground/55">
+              <span className="text-cyan-400/80">02</span> &nbsp; What you get
+            </p>
+            <h2 className="text-[34px] font-semibold tracking-[-0.025em] leading-[0.98] bg-gradient-to-b from-foreground to-foreground/65 bg-clip-text text-transparent">
+              A research brain<br />
+              <span className="text-muted-foreground/55">that compounds.</span>
             </h2>
-            <p className="text-sm text-muted-foreground leading-relaxed">
-              Turn any link into a structured deal card. Our 3-agent pipeline identifies, researches, and verifies every claim.
+            <p className="text-sm text-muted-foreground/70 leading-relaxed max-w-[34ch]">
+              Conversational research, deep reports, financial models, and on-chain data — every session adds to your perspective.
             </p>
           </div>
 
-          <div className="space-y-1">
+          <div className="space-y-px">
             {[
-              { icon: Brain, title: "Drop any link", desc: "URL, tweet, founder profile, blog post" },
-              { icon: FileSearch, title: "AI researches deeply", desc: "4 agents build a verified deal card" },
-              { icon: ShieldCheck, title: "Hallucination firewall", desc: "Every claim fact-checked before saving" },
-              { icon: Sparkles, title: "Pay per use", desc: "Micropayments via Tempo wallet" },
-            ].map(({ icon: Icon, title, desc }) => (
-              <div key={title} className="flex items-center gap-3 px-3 py-3 rounded-md hover:bg-accent/30 transition-colors">
-                <Icon className="w-4 h-4 text-muted-foreground shrink-0" />
-                <div>
-                  <p className="text-sm font-medium">{title}</p>
-                  <p className="text-xs text-muted-foreground">{desc}</p>
+              { icon: Brain, title: "Conversational research", desc: "Multi-turn sessions with citations" },
+              { icon: FileSearch, title: "Deep reports & DCF models", desc: "Generated from your prompts" },
+              { icon: ShieldCheck, title: "Hallucination firewall", desc: "Every claim verified before saving" },
+              { icon: Sparkles, title: "Pay per session", desc: "Micropayments via Tempo wallet" },
+            ].map(({ icon: Icon, title, desc }, i) => (
+              <div
+                key={title}
+                className="flex items-center gap-4 py-3.5 border-b border-border/30 last:border-b-0"
+                data-testid={`row-feature-${i}`}
+              >
+                <span className="text-[10px] tabular-nums text-muted-foreground/40 font-mono w-5">
+                  0{i + 1}
+                </span>
+                <Icon className="w-3.5 h-3.5 text-cyan-400/70 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium tracking-tight">{title}</p>
+                  <p className="text-xs text-muted-foreground/60 mt-0.5">{desc}</p>
                 </div>
               </div>
             ))}

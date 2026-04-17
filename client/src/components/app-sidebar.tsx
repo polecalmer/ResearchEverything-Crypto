@@ -1,6 +1,6 @@
 import { useLocation, Link } from "wouter";
 import { LayoutDashboard, Building2, Chrome, BarChart3, LogOut, User, Wallet, Activity, FlaskConical, Brain } from "lucide-react";
-import sessionsLogo from "@assets/sessions_logo.png";
+import { SessionsMark } from "@/components/sessions-mark";
 import {
   Sidebar,
   SidebarContent,
@@ -43,9 +43,19 @@ export function AppSidebar() {
     <Sidebar>
       <SidebarHeader className="p-4 pb-6">
         <Link href="/">
-          <div className="flex items-center gap-2.5 cursor-pointer">
-            <img src={sessionsLogo} alt="Sessions" className="w-5 h-5 object-contain" />
-            <span className="text-sm font-semibold tracking-tight" data-testid="text-app-title">Sessions</span>
+          <div className="flex items-center gap-2.5 cursor-pointer group" data-testid="link-sidebar-home">
+            <SessionsMark size={18} />
+            <div className="flex flex-col leading-none">
+              <span
+                className="text-sm font-semibold tracking-tight bg-gradient-to-b from-foreground to-foreground/65 bg-clip-text text-transparent"
+                data-testid="text-app-title"
+              >
+                Sessions
+              </span>
+              <span className="text-[8.5px] uppercase tracking-[0.32em] text-muted-foreground/55 mt-1">
+                perspective layer
+              </span>
+            </div>
           </div>
         </Link>
       </SidebarHeader>
