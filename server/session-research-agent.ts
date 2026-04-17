@@ -1238,6 +1238,82 @@ export async function runSessionResearchAgent(
   const messages: Array<{ role: string; content: any }> = summarizeHistory(history);
   messages.push({ role: "user", content: userMessage });
 
+  const CONTEXT_COMPRESSION_AFTER_ROUND = 4;
+  const COMPRESS_OLDER_THAN_ROUNDS = 2;
+  const MAX_COMPRESSED_RESULT_CHARS = 1500;
+
+  function compressOlderToolResults(msgs: any[], currentRound: number): void {
+    if (currentRound < CONTEXT_COMPRESSION_AFTER_ROUND) return;
+
+    let toolResultMsgIndex = 0;
+    for (let i = 0; i < msgs.length; i++) {
+      const msg = msgs[i];
+      if (!Array.isArray(msg.content)) continue;
+      const hasToolResult = msg.content.some((b: any) => b.type === "tool_result");
+      if (!hasToolResult) continue;
+
+      toolResultMsgIndex++;
+      const roundAge = currentRound - toolResultMsgIndex;
+      if (roundAge < COMPRESS_OLDER_THAN_ROUNDS) continue;
+
+      let compressed = false;
+      msg.content = msg.content.map((block: any) => {
+        if (block.type !== "tool_result") return block;
+        const raw = typeof block.content === "string" ? block.content : JSON.stringify(block.content);
+        if (raw.length <= MAX_COMPRESSED_RESULT_CHARS) return block;
+
+        let summary: string;
+        try {
+          const text = raw.replace(/<brain_context>[\s\S]*?<\/brain_context>\s*/g, "");
+          const inner = text.replace(/<\/?tool_output>/g, "").trim();
+          const parsed = JSON.parse(inner);
+
+          if (parsed.error) {
+            summary = `[compressed] Error: ${String(parsed.error).slice(0, 300)}`;
+          } else if (parsed.chartData || parsed.chart_data) {
+            const cd = parsed.chartData || parsed.chart_data;
+            const points = Array.isArray(cd) ? cd.length : "?";
+            const keys = Array.isArray(cd) && cd[0] ? Object.keys(cd[0]).join(", ") : "";
+            const first = Array.isArray(cd) && cd[0] ? JSON.stringify(cd[0]) : "";
+            const last = Array.isArray(cd) && cd[cd.length - 1] ? JSON.stringify(cd[cd.length - 1]) : "";
+            summary = `[compressed] Chart data: ${points} points, columns: [${keys}]. First: ${first}. Last: ${last}`;
+            if (parsed.summary) summary += `\nSummary: ${JSON.stringify(parsed.summary).slice(0, 500)}`;
+          } else if (parsed.result !== undefined && parsed.logs) {
+            summary = `[compressed] Code execution result:\n${String(parsed.logs).slice(0, 600)}`;
+            if (typeof parsed.result === "string") summary += `\nReturn: ${parsed.result.slice(0, 400)}`;
+          } else if (Array.isArray(parsed.data)) {
+            const rows = parsed.data;
+            const cols = rows[0] ? Object.keys(rows[0]).join(", ") : "";
+            const firstRows = rows.slice(0, 3).map((r: any) => JSON.stringify(r)).join("\n  ");
+            const lastRow = rows.length > 3 ? JSON.stringify(rows[rows.length - 1]) : "";
+            summary = `[compressed] ${rows.length} rows, columns: [${cols}].\nFirst rows:\n  ${firstRows}${lastRow ? `\nLast row:\n  ${lastRow}` : ""}`;
+            if (parsed.metadata) summary += `\nMetadata: ${JSON.stringify(parsed.metadata).slice(0, 300)}`;
+          } else if (parsed.tvl && Array.isArray(parsed.tvl)) {
+            const first = parsed.tvl[0] ? JSON.stringify(parsed.tvl[0]) : "";
+            const last = parsed.tvl[parsed.tvl.length - 1] ? JSON.stringify(parsed.tvl[parsed.tvl.length - 1]) : "";
+            summary = `[compressed] TVL series: ${parsed.tvl.length} points. First: ${first}. Last: ${last}`;
+          } else if (parsed.prices && Array.isArray(parsed.prices)) {
+            const first = parsed.prices[0] ? JSON.stringify(parsed.prices[0]) : "";
+            const last = parsed.prices[parsed.prices.length - 1] ? JSON.stringify(parsed.prices[parsed.prices.length - 1]) : "";
+            summary = `[compressed] Price series: ${parsed.prices.length} points. First: ${first}. Last: ${last}`;
+          } else {
+            const str = JSON.stringify(parsed);
+            summary = `[compressed] ${str.slice(0, MAX_COMPRESSED_RESULT_CHARS)}`;
+          }
+        } catch {
+          summary = `[compressed] ${raw.slice(0, MAX_COMPRESSED_RESULT_CHARS)}`;
+        }
+        compressed = true;
+        return { ...block, content: summary };
+      });
+
+      if (compressed) {
+        const origLen = JSON.stringify(msg.content).length;
+        console.log(`[SessionResearch] Compressed tool results from round ${toolResultMsgIndex} (age=${roundAge} rounds, ${origLen} chars remaining)`);
+      }
+    }
+  }
+
   const FOCUSED_TOOL_BLOCKLIST = new Set(["execute_code"]);
   const anthropicTools: any[] = TOOLS
     .filter(t => mode !== "focused" || !FOCUSED_TOOL_BLOCKLIST.has(t.name))
@@ -1294,6 +1370,8 @@ export async function runSessionResearchAgent(
         console.error("[SessionResearch] Reflection failed (non-fatal):", err.message);
       }
     }
+
+    compressOlderToolResults(messages, round);
 
     const requestBody: any = {
       model: "claude-opus-4-6",
