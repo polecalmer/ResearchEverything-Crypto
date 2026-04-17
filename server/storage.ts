@@ -157,6 +157,7 @@ export interface IStorage {
   createMessage(data: { conversationId: number; role: string; content: string; artifacts?: any }): Promise<Message>;
   getResearchBrain(userId: string): Promise<any | null>;
   upsertResearchBrain(userId: string, brain: { entities?: any; knowledge?: any; preferences?: any; relationships?: any; contradictions?: any; meta?: any }): Promise<void>;
+  getAllResearchBrains(): Promise<Array<{ entities: any; relationships: any }>>;
 
   getAllUsers(): Promise<User[]>;
   getAdminTelegramChatIds(): Promise<string[]>;
@@ -961,6 +962,11 @@ export class DatabaseStorage implements IStorage {
   async getResearchBrain(userId: string): Promise<any | null> {
     const [brain] = await db.select().from(researchBrains).where(eq(researchBrains.userId, userId));
     return brain || null;
+  }
+
+  async getAllResearchBrains(): Promise<Array<{ entities: any; relationships: any }>> {
+    const rows = await db.select({ entities: researchBrains.entities, relationships: researchBrains.relationships }).from(researchBrains);
+    return rows as any;
   }
 
   async upsertResearchBrain(userId: string, brain: { entities?: any; knowledge?: any; preferences?: any; relationships?: any; contradictions?: any; meta?: any }): Promise<void> {

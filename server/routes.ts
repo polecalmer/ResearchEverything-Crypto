@@ -1865,6 +1865,75 @@ export async function registerRoutes(
     }
   });
 
+  let aggregateBrainCache: { data: any; expires: number } | null = null;
+  app.get("/api/brain/aggregate", async (_req, res) => {
+    try {
+      if (aggregateBrainCache && aggregateBrainCache.expires > Date.now()) {
+        return res.json(aggregateBrainCache.data);
+      }
+      const brains = await storage.getAllResearchBrains();
+
+      const entityAgg: Record<string, { type: string; count: number; users: number }> = {};
+      const edgeAgg: Record<string, { from: string; to: string; type: string; weight: number }> = {};
+
+      for (const brain of brains) {
+        const entities = (brain.entities || {}) as Record<string, any>;
+        for (const [name, data] of Object.entries(entities)) {
+          if (!name || typeof name !== "string") continue;
+          const e = data as any;
+          const type = e?.type || "concept";
+          const count = Number(e?.researchCount) || 1;
+          if (!entityAgg[name]) entityAgg[name] = { type, count: 0, users: 0 };
+          entityAgg[name].count += count;
+          entityAgg[name].users += 1;
+        }
+        const rels = (brain.relationships || []) as any[];
+        for (const r of rels) {
+          if (!r?.from || !r?.to) continue;
+          const a = String(r.from);
+          const b = String(r.to);
+          const key = a < b ? `${a}|${b}|${r.type || "rel"}` : `${b}|${a}|${r.type || "rel"}`;
+          if (!edgeAgg[key]) edgeAgg[key] = { from: a, to: b, type: r.type || "related_to", weight: 0 };
+          edgeAgg[key].weight += 1;
+        }
+      }
+
+      const topEntities = Object.entries(entityAgg)
+        .sort((a, b) => b[1].count - a[1].count)
+        .slice(0, 180);
+      const allowed = new Set(topEntities.map(([n]) => n));
+      const nodes = topEntities.map(([name, info]) => ({
+        id: name,
+        type: info.type,
+        count: info.count,
+        users: info.users,
+      }));
+      const edges = Object.values(edgeAgg)
+        .filter(e => allowed.has(e.from) && allowed.has(e.to))
+        .sort((a, b) => b.weight - a.weight)
+        .slice(0, 400);
+
+      const totalEntities = Object.keys(entityAgg).length;
+      const totalRelationships = Object.keys(edgeAgg).length;
+      const data = {
+        nodes,
+        edges,
+        stats: {
+          totalEntities,
+          totalRelationships,
+          totalResearchers: brains.length,
+          shownEntities: nodes.length,
+          shownRelationships: edges.length,
+        },
+      };
+      aggregateBrainCache = { data, expires: Date.now() + 5 * 60 * 1000 };
+      res.json(data);
+    } catch (e: any) {
+      console.error("[BrainAggregate] Error:", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.get("/api/brain/graph", requireAuth, async (req, res) => {
     try {
       const brainRecord = await storage.getResearchBrain(req.user!.id);
