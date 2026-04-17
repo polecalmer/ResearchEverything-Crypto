@@ -616,12 +616,14 @@ export default function LandingPage() {
       <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-background/40">
         <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <svg viewBox="0 0 24 24" className="w-[18px] h-[18px] text-foreground" aria-label="Sessions" xmlns="http://www.w3.org/2000/svg">
-              <g stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-                <line x1="12" y1="3" x2="12" y2="21" />
-                <line x1="4.2" y1="7.5" x2="19.8" y2="16.5" />
-                <line x1="4.2" y1="16.5" x2="19.8" y2="7.5" />
+            <svg viewBox="0 0 24 24" className="w-[19px] h-[19px] text-foreground" aria-label="Sessions" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="12" cy="12" r="10.25" fill="none" stroke="currentColor" strokeOpacity="0.35" strokeWidth="1" />
+              <g stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
+                <line x1="12" y1="3.5" x2="12" y2="20.5" />
+                <line x1="5.6" y1="8.3" x2="18.4" y2="15.7" />
+                <line x1="5.6" y1="15.7" x2="18.4" y2="8.3" />
               </g>
+              <circle cx="12" cy="12" r="1.55" fill="currentColor" />
             </svg>
             <span className="text-sm font-semibold tracking-tight">Sessions</span>
           </div>
