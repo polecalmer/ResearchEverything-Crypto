@@ -1,0 +1,112 @@
+{
+  "version": "v0",
+  "notes": "Start with 8 types. Grow from real planner failures, not upfront design. When two types fit a sub-question equally well, the planner emits both — multi-label is intentional.",
+  "types": [
+    {
+      "id": "fundamentals-snapshot",
+      "description": "Current state of a protocol's headline KPIs: TVL, fees, revenue, mcap/FDV, P/F, P/S, holders, active users. Point-in-time facts, not trends.",
+      "example_prompts": [
+        "What's HYPE's current P/F?",
+        "Pull the latest TVL and revenue for Aave",
+        "How big is Ethena right now?"
+      ],
+      "required_tools": ["query_defillama_protocol_summary", "get_token_snapshot"],
+      "banned_tools": [],
+      "default_artifact": "metric_cards",
+      "typical_sub_shape": "Get current value of {metric} for {protocol}; compare against 30d/90d baseline."
+    },
+    {
+      "id": "trend-analysis",
+      "description": "How a metric has moved over a window. Charts of TVL/revenue/volume/price over time, deltas, regime shifts. Always a chart artifact.",
+      "example_prompts": [
+        "Show me HYPE volume over the last 90 days",
+        "Plot Aave fees since the merge",
+        "Chart Ethena's sUSDe supply growth"
+      ],
+      "required_tools": ["query_defillama_tvl", "query_defillama_fees_revenue", "query_defillama_volume"],
+      "banned_tools": [],
+      "default_artifact": "chart",
+      "typical_sub_shape": "Pull {metric} for {protocol} over {window}; identify inflection points; render chart."
+    },
+    {
+      "id": "flow-analysis",
+      "description": "Net flows, accumulation, deposits/withdrawals, smart-money movement, on-chain activity that signals positioning. Distinct from price/TVL trends — this is about WHO is moving.",
+      "example_prompts": [
+        "Are whales accumulating HYPE?",
+        "What does the bridge inflow data say about Hyperliquid?",
+        "Where is sUSDe collateral coming from?"
+      ],
+      "required_tools": ["execute_dune_sql", "discover_dune_tables"],
+      "banned_tools": [],
+      "default_artifact": "metric_cards_with_chart",
+      "typical_sub_shape": "Identify the relevant on-chain signal; query Dune for flow data; characterize direction and magnitude."
+    },
+    {
+      "id": "valuation-ask",
+      "description": "Forward-looking price/scenario/multiple work. NTM revenue projections, P/E vs comp set, scenario-weighted price targets. Always requires assumptions and a model.",
+      "example_prompts": [
+        "What's HYPE worth at 2x current take rate?",
+        "Build me a price target for ENA",
+        "Compare LDO and JTO P/F to peers"
+      ],
+      "required_tools": ["query_defillama_fees_revenue", "execute_code"],
+      "banned_tools": [],
+      "default_artifact": "model_table",
+      "typical_sub_shape": "State assumptions explicitly; project forward metric; apply comparable multiple; render scenario table.",
+      "lens_hint": "TopherGMI for valuation framework; thiccyth0t for derivatives revenue modeling."
+    },
+    {
+      "id": "tokenomics-mechanics",
+      "description": "How a token captures value: supply schedule, emissions, sinks, fee switch, vote-escrow, staking yield, value-accrual path from protocol revenue to holder. Mechanism design, not market-cap chatter.",
+      "example_prompts": [
+        "How does HYPE accrue value?",
+        "Walk me through ENA's fee switch design",
+        "What's the unlock schedule for JTO over the next year?"
+      ],
+      "required_tools": [],
+      "banned_tools": [],
+      "default_artifact": "structured_doc",
+      "typical_sub_shape": "Map the full path from protocol activity → token holder; flag every leak (treasury, foundation, LM)."
+    },
+    {
+      "id": "comp-analysis",
+      "description": "Side-by-side comparison of N protocols across one or more dimensions. Always produces a comparison table. Distinct from valuation-ask — comp-analysis is about ranking/positioning, valuation is about price.",
+      "example_prompts": [
+        "Compare Aave vs Morpho vs Spark on lending",
+        "How does Hyperliquid stack up against dYdX and GMX?",
+        "Rank the top 5 LSTs by yield and risk"
+      ],
+      "required_tools": ["compare_protocols", "query_defillama_protocol_summary"],
+      "banned_tools": [],
+      "default_artifact": "comparison_table",
+      "typical_sub_shape": "Define the dimensions; pull each metric for each protocol; render comparison table with one-line takeaway."
+    },
+    {
+      "id": "narrative-inquiry",
+      "description": "What's the market story, why is this thing being talked about, what's the bull/bear case, qualitative thesis work. Pulls heavily from analyst corpus and brain context.",
+      "example_prompts": [
+        "What's the bull case for Monad?",
+        "Why is everyone talking about restaking?",
+        "What's the bear thesis on ENA right now?"
+      ],
+      "required_tools": ["query_analyst_corpus"],
+      "banned_tools": [],
+      "default_artifact": "structured_doc",
+      "typical_sub_shape": "Find prevailing narratives in analyst corpus + brain; steelman each side; attribute claims.",
+      "lens_hint": "All three analysts contribute; weight by recency and conviction."
+    },
+    {
+      "id": "playbook-synthesis",
+      "description": "Open-ended 'evaluate X' / 'tell me about X' / 'deep dive on X' that needs a full multi-step playbook applied. Triggers playbook selection. Almost never a leaf node — this expands into many sub-questions.",
+      "example_prompts": [
+        "Deep dive on Hyperliquid",
+        "Build me a thesis on Ethena",
+        "Evaluate Monad as an L1 bet"
+      ],
+      "required_tools": [],
+      "banned_tools": [],
+      "default_artifact": "structured_doc",
+      "typical_sub_shape": "Pick the playbook that fits this asset/sector; instantiate each abstract node against the specific subject."
+    }
+  ]
+}

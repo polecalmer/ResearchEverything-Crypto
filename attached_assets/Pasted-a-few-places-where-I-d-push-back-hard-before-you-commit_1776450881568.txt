@@ -1,0 +1,26 @@
+a few places where I’d push back hard before you commit to building this, because some of the framing will bite you in 3 months.
+Where the agent is correct
+The core insight is sound and matches what the literature shows. Moving “decompose → classify → route → pick artifact” out of a prose prompt and into structured data the planner reads is the right architectural move. Enterprise Deep Research does exactly this — a planning call emits structured decomposition (3–7 tasks with search queries and provenance tags) before the execution loop starts. 
+ And Egnyte’s planner emits a DAG of sub-questions with dependencies that the master agent then topologically traverses 
+ — structure as data, not prose.
+The inspectability argument is also correct and underrated. When your research engine produces a bad ENA report, you want to look at the plan object and say “it classified ‘sensitivities’ as narrative-inquiry instead of flow-analysis and that’s why it skipped the quant tooling.” You can’t do that today.
+The Haiku-tier planner pre-step is also right. You don’t need Opus to classify a sub-question against a typology.
+Where I’d push back
+1. Calling it a “knowledge graph” is overselling the shape you actually need.
+What the agent is describing is a typology + routing table + playbook library. That’s a structured schema, not a graph. A real KG implies entities, relations, traversal queries, probably Neo4j or a triplestore. You don’t need any of that for question-structure metadata. You need:
+ • A JSON schema for question types (enum + required/optional tools + artifact defaults)
+ • A JSON schema for playbooks (ordered or DAG-shaped list of typed sub-question templates)
+ • A prompt that maps free-text user input onto those schemas
+Calling it a KG invites Neo4j, ontology debates, and 3 weeks of modeling work before you ship. Call it a planner schema or question typology and you’ll finish it in a weekend. The analyst KG the agent mentions at the end (entities, comps, history) — that one probably is graph-shaped. The question-structure thing isn’t.
+2. “Analyst playbooks as graphs” is the part most likely to become a maintenance burden.
+Hasu’s “evaluate an L1” playbook is appealing because it feels rigorous, but hardcoded 12-node DAGs go stale fast in crypto. A playbook that made sense for evaluating Solana in 2023 has different nodes than one for evaluating Monad in 2026 (parallel EVM considerations, MonadBFT specifics, Category Labs team dynamics). You’ll either:
+ • Keep rewriting playbooks as the space evolves (high maintenance), or
+ • Let them drift and produce stale analyses (defeats the point).
+The compromise: keep playbooks abstract and short (5–7 node templates like “team → tech differentiation → traction → token design → competitive moat → risks”), and let the planner fill in the specifics from the prompt + current context. Don’t try to encode domain specifics in the playbook itself; encode them at runtime.
+3. The typology itself is the hardest part and the agent glosses over it.
+“roadmap-inquiry, flow-analysis, valuation-ask, tokenomics-mechanics…” — looks clean in a bullet list. In practice you’ll hit:
+ • Sub-questions that are genuinely two types at once (“how does ENA’s sUSDe yield flow through to token holders” is flow-analysis + tokenomics-mechanics + valuation-ask)
+ • Questions that don’t fit any existing type and you either force-fit or add a new type (typology sprawl)
+ • Boundary cases where two analysts would classify the same question differently
+The Eigent paper notes that under-decomposition of multi-step questions is a specific failure mode even with structured tools 
+, and the fix there was multi-label + reflection, not a cleaner typology. Plan for multi-label classification from day one, and build the reflection loop so the planner can revise after partial results come back.

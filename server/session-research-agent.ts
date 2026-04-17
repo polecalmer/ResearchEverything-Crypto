@@ -14,6 +14,12 @@ import {
 } from "./data-source-brain/agent-hooks";
 import { searchAnalystCorpus, searchAnalystFrameworks } from "./analyst-corpus";
 import { ANALYST_NAMES } from "@shared/schema";
+import {
+  planResearch,
+  reflectOnPlan,
+  renderPlanForSystemPrompt,
+  type ResearchPlan,
+} from "./research-planner";
 
 export interface ResearchArtifact {
   type: "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote";
@@ -109,6 +115,7 @@ export interface ResearchResponse {
   brainUpdates?: BrainUpdate;
   mode: ResearchMode;
   modeReason: string;
+  plan?: ResearchPlan;
 }
 
 export type BrainContext = BrainGraph | null;
@@ -1005,6 +1012,7 @@ export async function runSessionResearchAgent(
   brain: BrainContext | null,
   onStep?: (step: ThinkingStep) => void,
   forceMode?: ResearchMode,
+  onPlan?: (plan: ResearchPlan) => void | Promise<void>,
 ): Promise<ResearchResponse> {
   const toolCalls: string[] = [];
   const toolCallSignatures: string[] = [];
@@ -1034,7 +1042,52 @@ export async function runSessionResearchAgent(
   const retrieved = retrieveRelevantContext(userMessage, brain);
   const brainContext = formatRetrievedContext(retrieved);
   console.log(`[SessionResearch] Brain retrieval: ${retrieved.retrievalSummary}`);
-  const systemPrompt = buildSystemPrompt(mode, brainContext);
+
+  // ─── Planner pre-step ──────────────────────────────────────────────────────
+  // Skip for quick mode (cheap lookups don't need decomposition). For focused
+  // and deep, the planner emits a structured ResearchPlan that gets injected
+  // into the system prompt and persisted on the user message for audit.
+  let plan: ResearchPlan | undefined;
+  if (mode !== "quick") {
+    onStep?.({ type: "thinking", label: "Structuring the plan..." });
+    try {
+      const planResult = await planResearch(userMessage, history);
+      plan = planResult.plan;
+      totalCost += planResult.cost;
+      totalInputTokens += planResult.inputTokens;
+      totalOutputTokens += planResult.outputTokens;
+      const subQs = plan.sub_questions.length;
+      const playbook = plan.playbook_used ? ` via ${plan.playbook_used}` : "";
+      console.log(`[SessionResearch] Plan: ${subQs} sub-questions${playbook}, confidence=${plan.confidence.toFixed(2)}, warnings=${(plan.warnings || []).length}`);
+      onStep?.({
+        type: "thinking",
+        label: `Planned ${subQs} sub-question${subQs === 1 ? "" : "s"}${playbook}`,
+        detail: plan.sub_questions.map(q => `• ${q.text} [${q.types.join(", ")}]`).join("\n"),
+      });
+      // Persist immediately so the plan is preserved even if the agent loop
+      // throws mid-execution. The reflected version (if any) overwrites later.
+      if (onPlan) {
+        try {
+          await onPlan(plan);
+        } catch (e: any) {
+          console.warn("[SessionResearch] onPlan callback failed (non-fatal):", e.message);
+        }
+      }
+    } catch (err: any) {
+      // Planner failed (parse error, validation fatal, network). Still account
+      // for any spend that happened before the failure, then fall back to
+      // unplanned execution so the user still gets an answer.
+      if (err.costMeta) {
+        totalCost += err.costMeta.cost || 0;
+        totalInputTokens += err.costMeta.inputTokens || 0;
+        totalOutputTokens += err.costMeta.outputTokens || 0;
+      }
+      console.error("[SessionResearch] Planner failed — falling back to unplanned execution:", err.message);
+    }
+  }
+
+  const planAddendum = plan ? `\n\n${renderPlanForSystemPrompt(plan)}` : "";
+  const systemPrompt = buildSystemPrompt(mode, brainContext) + planAddendum;
 
   const messages: Array<{ role: string; content: any }> = summarizeHistory(history);
   messages.push({ role: "user", content: userMessage });
@@ -1062,13 +1115,43 @@ export async function runSessionResearchAgent(
 
   onStep?.({ type: "thinking", label: mode === "quick" ? "Composing a quick answer..." : mode === "focused" ? "Working through this..." : "Planning deep analysis..." });
 
+  // Reflection checkpoint: for deep mode with a plan, after the agent has
+  // executed enough tools to learn something, give the planner one chance to
+  // revise the plan based on what's actually been found. Only fires once.
+  let activeSystemPrompt = systemPrompt;
+  let reflectionFired = false;
+  // 0-indexed loop; round index 3 is the 4th iteration.
+  const REFLECTION_ROUND_IDX = mode === "deep" ? 3 : -1;
+
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     console.log(`[SessionResearch] Round ${round + 1}/${MAX_TOOL_ROUNDS}`);
+
+    if (plan && !reflectionFired && round === REFLECTION_ROUND_IDX && toolCalls.length >= 2) {
+      reflectionFired = true;
+      try {
+        onStep?.({ type: "thinking", label: "Checking the plan against what's been found..." });
+        const execSummary = `Tools called so far (${toolCalls.length}): ${toolCalls.join(", ")}`;
+        const reflection = await reflectOnPlan(plan, userMessage, execSummary);
+        totalCost += reflection.cost;
+        totalInputTokens += reflection.inputTokens;
+        totalOutputTokens += reflection.outputTokens;
+        const oldCount = plan.sub_questions.length;
+        const newCount = reflection.plan.sub_questions.length;
+        plan = reflection.plan;
+        activeSystemPrompt = buildSystemPrompt(mode, brainContext) + `\n\n${renderPlanForSystemPrompt(plan)}`;
+        console.log(`[SessionResearch] Reflection: ${oldCount}→${newCount} sub-questions, reflection_count=${plan.reflection_count}`);
+        if (onPlan) {
+          try { await onPlan(plan); } catch (e: any) { console.warn("[SessionResearch] onPlan (post-reflection) failed:", e.message); }
+        }
+      } catch (err: any) {
+        console.error("[SessionResearch] Reflection failed (non-fatal):", err.message);
+      }
+    }
 
     const requestBody: any = {
       model: "claude-opus-4-6",
       max_tokens: maxTokens,
-      system: systemPrompt,
+      system: activeSystemPrompt,
       messages,
       tools: anthropicTools,
     };
@@ -1224,7 +1307,7 @@ export async function runSessionResearchAgent(
       const wrapUp = await callAnthropicRaw({
         model: "claude-opus-4-6",
         max_tokens: maxTokens,
-        system: systemPrompt + `\n\nIMPORTANT: ${wrapReason}. Synthesize what you learned from the tool results above into your response now. Do not call any more tools.`,
+        system: activeSystemPrompt + `\n\nIMPORTANT: ${wrapReason}. Synthesize what you learned from the tool results above into your response now. Do not call any more tools.`,
         messages,
       });
       totalCost += wrapUp.mppCost;
@@ -1258,5 +1341,6 @@ export async function runSessionResearchAgent(
     brainUpdates: pendingBrainUpdate,
     mode,
     modeReason,
+    plan,
   };
 }

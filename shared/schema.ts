@@ -627,40 +627,6 @@ export type AnalystDocument = typeof analystDocuments.$inferSelect;
 export type AnalystChunk = typeof analystChunks.$inferSelect;
 export type AnalystFramework = typeof analystFrameworks.$inferSelect;
 
-// ─── Research Planner KG ─────────────────────────────────────────────────────
-// Catalog of question-type nodes and analyst playbooks that drive the planner
-// pre-step. The planner classifies each sub-question against this taxonomy and
-// emits a structured ResearchPlan that the main agent walks instead of
-// improvising decomposition from English rules.
-export const questionTypes = pgTable("question_types", {
-  id: serial("id").primaryKey(),
-  slug: text("slug").notNull().unique(),
-  name: text("name").notNull(),
-  description: text("description").notNull(),
-  requiredTools: text("required_tools").array().notNull().default(sql`'{}'::text[]`),
-  recommendedTools: text("recommended_tools").array().notNull().default(sql`'{}'::text[]`),
-  bannedArtifacts: text("banned_artifacts").array().notNull().default(sql`'{}'::text[]`),
-  recommendedArtifacts: text("recommended_artifacts").array().notNull().default(sql`'{}'::text[]`),
-  subQuestionTemplate: text("sub_question_template"),
-  recommendedLens: text("recommended_lens"),
-  notes: text("notes"),
-  updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
-
-export const analystPlaybooks = pgTable("analyst_playbooks", {
-  id: serial("id").primaryKey(),
-  slug: text("slug").notNull().unique(),
-  name: text("name").notNull(),
-  description: text("description").notNull(),
-  triggerPattern: text("trigger_pattern").notNull(),
-  nodes: jsonb("nodes").notNull(),
-  sourceAnalyst: text("source_analyst"),
-  updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
-});
-
-export type QuestionType = typeof questionTypes.$inferSelect;
-export type AnalystPlaybook = typeof analystPlaybooks.$inferSelect;
-
 export { sessions } from "./models/auth";
 
 export * from "./models/chat";

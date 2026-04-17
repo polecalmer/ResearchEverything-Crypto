@@ -2062,7 +2062,7 @@ export async function registerRoutes(
         res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       };
 
-      await storage.createMessage({
+      const userMsg = await storage.createMessage({
         conversationId: session.id,
         role: "user",
         content: message,
@@ -2094,9 +2094,25 @@ export async function registerRoutes(
         console.log(`[SessionResearch] refreshBrain=true → dropped ${(brain.knowledge || []).length - filtered.length} live-metric facts from context`);
       }
 
-      const result = await runSessionResearchAgent(message, historyForAgent.slice(0, -1), brainForAgent, (step) => {
-        sendEvent("step", step);
-      }, mode);
+      // Plan is persisted via the onPlan callback as soon as the planner
+      // emits it (and again after reflection), so it survives even if the
+      // main agent loop throws. The final result.plan is returned for the
+      // synchronous SSE consumer to mirror.
+      const result = await runSessionResearchAgent(
+        message,
+        historyForAgent.slice(0, -1),
+        brainForAgent,
+        (step) => sendEvent("step", step),
+        mode,
+        async (plan) => {
+          try {
+            await storage.updateMessagePlan(userMsg.id, plan);
+            sendEvent("plan", plan);
+          } catch (err: any) {
+            console.error("[SessionResearch] Failed to persist plan:", err.message);
+          }
+        },
+      );
       sendEvent("mode", { mode: result.mode, reason: result.modeReason });
 
       const artifacts = parseArtifacts(result.content);
