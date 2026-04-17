@@ -1,0 +1,16 @@
+EDR’s decomposition integrates three signals — original query, knowledge gaps from prior iterations, and steering directives — so replanning is continuous rather than one-shot. 
+
+4. “Emits a structured plan before the agent loop runs” is correct but needs a guard.
+If the planner mis-classifies and emits a bad plan, the execution agent faithfully executes a bad plan. You need either (a) a cheap plan-review step before execution, or (b) checkpoints where execution can kick the plan back. Pick one; don’t skip both.
+What I’d actually build
+Forget the KG framing. Build this:
+ 1. question_types.json — flat list of ~15 types, each with {id, description, example_prompts, required_tools, banned_tools, default_artifact, typical_sub_shape}. Start with 8, add as you hit gaps.
+ 2. playbooks.json — 5–10 short abstract templates, each a list of typed sub-question slots. Keep them generic.
+ 3. Planner prompt (runs on Haiku or similar) — input: user prompt + question_types.json + playbooks.json. Output: strict JSON {main_question, sub_questions: [{text, type[s], depends_on, suggested_tools, artifact_hint}], playbook_used, synthesis_required, confidence}.
+ 4. Plan validator — before execution, check the plan for obvious failures (no sub-questions, circular dependencies, banned tool selected, confidence below threshold → route to human or re-plan).
+ 5. Plan log — every plan stored with its final report so you can audit retroactively.
+This gets you 90% of what the agent is describing, with none of the graph-database overhead, and you can build it in a few evenings rather than a sprint.
+The one thing the agent missed
+The typology and playbooks should be versioned and grown from real failures, not designed upfront. Ship v0 with 8 types and 3 playbooks. Run it against 30 historical prompts from your research work. Look at every case where the plan was wrong, and that’s how you discover which types and playbooks are actually missing. Designing the full taxonomy before seeing failures is how you end up with 40 types you’ll never use.
+
+tl;dr — the agent’s architecture recommendation is right, the KG framing is wrong, and the playbook part is the riskiest piece. Build it as structured JSON schemas with a Haiku planner, grow the typology from failures, and keep playbooks abstract.
