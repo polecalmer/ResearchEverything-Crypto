@@ -719,9 +719,9 @@ export default function LandingPage() {
         <section className="min-h-[88vh] flex items-center px-8 lg:px-16 py-24">
           <div className="w-full max-w-[1440px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-10 items-end">
             <div className="lg:col-span-7">
-              <h1 className="text-5xl sm:text-6xl lg:text-[88px] font-bold tracking-tight leading-[0.96] mb-6 whitespace-nowrap">
-                Research that<br />
-                <span className="text-muted-foreground/75">learns with you.</span>
+              <h1 className="text-5xl sm:text-6xl lg:text-[88px] font-semibold tracking-[-0.025em] leading-[0.96] mb-6 whitespace-nowrap">
+                <span className="bg-gradient-to-b from-foreground to-foreground/70 bg-clip-text text-transparent">Research that</span><br />
+                <span className="text-muted-foreground/55">learns with you.</span>
               </h1>
               <p className="text-lg text-muted-foreground leading-relaxed max-w-xl">
                 An AI research platform for crypto. Run deep analysis, build
@@ -759,9 +759,9 @@ export default function LandingPage() {
         <section id="thesis" className="py-32 px-8 lg:px-16">
           <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10">
             <div className="col-span-12 lg:col-span-9">
-              <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-bold tracking-tight leading-[0.96] mb-6">
-                AI is great.<br />
-                <span className="text-muted-foreground/75">It lacks perspective.</span>
+              <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-semibold tracking-[-0.025em] leading-[0.96] mb-6">
+                <span className="bg-gradient-to-b from-foreground to-foreground/70 bg-clip-text text-transparent">AI is great.</span><br />
+                <span className="text-muted-foreground/55">It lacks perspective.</span>
               </h2>
               <p className="text-lg text-muted-foreground leading-relaxed max-w-xl">
                 Sessions is the perspective layer for AI — your context, your
@@ -776,8 +776,9 @@ export default function LandingPage() {
         <section className="py-32 px-8 lg:px-16">
           <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10">
             <div className="col-span-12 lg:col-span-9 lg:col-start-3 lg:text-right">
-              <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-bold tracking-tight leading-[0.96] mb-6">
-                Every session<br />leaves a trace.
+              <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-semibold tracking-[-0.025em] leading-[0.96] mb-6">
+                <span className="bg-gradient-to-b from-foreground to-foreground/70 bg-clip-text text-transparent">Every session</span><br />
+                <span className="text-muted-foreground/55">leaves a trace.</span>
               </h2>
               <p className="text-lg text-muted-foreground leading-relaxed max-w-xl lg:ml-auto">
                 Knowledge doesn't disappear at logout. It compounds, connects,
@@ -791,8 +792,9 @@ export default function LandingPage() {
         <section className="py-32 px-8 lg:px-16">
           <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10">
             <div className="col-span-12 lg:col-span-9">
-              <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-bold tracking-tight leading-[0.96] mb-6">
-                Tomorrow's research<br />stands on today's.
+              <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-semibold tracking-[-0.025em] leading-[0.96] mb-6">
+                <span className="bg-gradient-to-b from-foreground to-foreground/70 bg-clip-text text-transparent">Tomorrow's research</span><br />
+                <span className="text-muted-foreground/55">stands on today's.</span>
               </h2>
               <p className="text-lg text-muted-foreground leading-relaxed max-w-xl">
                 Models, reports, and on-chain data layer onto a brain that
@@ -806,8 +808,9 @@ export default function LandingPage() {
         <section className="py-32 px-8 lg:px-16">
           <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10 items-end">
             <div className="col-span-12 lg:col-span-8">
-              <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-bold tracking-tight leading-[0.96] mb-6">
-                Start your first<br />session.
+              <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-semibold tracking-[-0.025em] leading-[0.96] mb-6">
+                <span className="bg-gradient-to-b from-foreground to-foreground/70 bg-clip-text text-transparent">Start your first</span><br />
+                <span className="text-muted-foreground/55">session.</span>
               </h2>
               <p className="text-lg text-muted-foreground leading-relaxed max-w-md mb-8">
                 Sign in with email or wallet. Paste your first link and see
@@ -818,10 +821,13 @@ export default function LandingPage() {
                 <ArrowRight className="w-4 h-4" />
               </Button>
             </div>
-            <div className="hidden lg:block lg:col-span-4 text-right pb-2">
-              <p className="text-[10px] text-muted-foreground/50 font-mono tracking-[0.25em]">
-                SESSIONS.XYZ
-              </p>
+            <div className="hidden lg:flex lg:col-span-4 flex-col items-end pb-2 gap-1.5">
+              <div className="text-2xl font-semibold tracking-tight leading-none bg-gradient-to-b from-foreground to-foreground/60 bg-clip-text text-transparent">
+                Sessions
+              </div>
+              <div className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground/60">
+                sessions.xyz
+              </div>
             </div>
           </div>
         </section>
