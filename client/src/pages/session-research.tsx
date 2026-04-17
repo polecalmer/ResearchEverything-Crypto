@@ -240,7 +240,23 @@ function InlineTable({ artifact }: { artifact: Artifact }) {
   const { data, columns, title } = artifact;
   if (!data?.length) return null;
 
-  const cols = columns || Object.keys(data[0]);
+  const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+  const resolveCell = (row: any, col: string): any => {
+    if (Array.isArray(row)) {
+      const idx = (columns || []).indexOf(col);
+      return idx >= 0 ? row[idx] : undefined;
+    }
+    if (row == null || typeof row !== "object") return row;
+    if (col in row) return row[col];
+    const target = normalize(col);
+    for (const k of Object.keys(row)) {
+      if (normalize(k) === target) return row[k];
+    }
+    return undefined;
+  };
+
+  const cols = columns || (Array.isArray(data[0]) ? data[0].map((_: any, i: number) => `Col ${i + 1}`) : Object.keys(data[0]));
 
   return (
     <div className="my-3 rounded border border-border/40 bg-card/30 overflow-hidden">
@@ -258,7 +274,7 @@ function InlineTable({ artifact }: { artifact: Artifact }) {
             {data.slice(0, 50).map((row: any, i: number) => (
               <tr key={i} className="border-b border-border/20 last:border-0">
                 {cols.map(c => (
-                  <td key={c} className="px-3 py-1.5 text-foreground/80 font-mono">{formatValue(row[c])}</td>
+                  <td key={c} className="px-3 py-1.5 text-foreground/80 font-mono">{formatValue(resolveCell(row, c))}</td>
                 ))}
               </tr>
             ))}

@@ -362,8 +362,10 @@ For charts:
 
 For tables:
 \`\`\`artifact:table
-{"title": "...", "columns": ["col1", "col2"], "data": [...]}
+{"title": "...", "columns": ["Window", "Daily Avg", "Annualized"], "data": [{"Window": "24h", "Daily Avg": "$289K", "Annualized": "$105M"}, {"Window": "7d", "Daily Avg": "$273K", "Annualized": "$99.6M"}]}
 \`\`\`
+- CRITICAL: Each object in "data" MUST use the EXACT same keys as the strings in "columns" (same case, same spacing, same punctuation). Mismatched keys will render as empty cells.
+- Never include rows with all empty/null values. If you don't have a value for a cell, either omit the row or write "n/a".
 
 For callouts (use SPARINGLY to break up density — max 1-2 per response):
 \`\`\`artifact:callout
