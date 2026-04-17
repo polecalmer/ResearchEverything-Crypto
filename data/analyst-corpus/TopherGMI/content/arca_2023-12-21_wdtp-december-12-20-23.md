@@ -1,0 +1,17 @@
+---
+source: arca-blog
+author: Arca Research Team
+date: 2023-12-21
+url: https://www.ar.ca/blog/wdtp-december-12-20-23
+title: "What's Driving Token Prices? December 20, 2023"
+type: article
+topher_mentioned: false
+---
+
+# What's Driving Token Prices? December 20, 2023
+
+**Arca Research Team** | 2023-12-21
+
+Join Katie Talati, Arca’s Head of Research, weekly on Wednesday at 4PM EST / 1PM PST as she shares notable token activity over the past week and her insights on what market events drove these token price movements. Watch Our Founders Video - ZEC (-4.8%) - On Monday, the founder of Zcash, Zooko Wilcox, announced that he would be stepping down as CEO of Electric Coin Company which backs the project. Zcash, founded in 2016, is a layer-1 cryptocurrency project focused on providing users optional privacy using zero-knowledge proofs to mask transactions. While the industry has moved away from layer-1 projects that provide privacy at the base layer, Zcash has been one of the few privacy-focused projects that chose to operate within the law and developed some of the leading privacy technology adopted by other projects today. The news took the price of $ZEC down about 7%, and it is now down 4.8% for the week. - AR (+10.4%) - Permanent storage solution, Arweave, faced some drama in the past week as its layer-2 solution, Irys, reportedly decided to fork the Arweave’s codebase to create its own blockchain without maintaining the data and tokens already on Arweave. The trouble started late Sunday when Sam Williams, Arweave’s founder, tweeted that Irys planned to fork the Arweave network and not maintain its data set. As a result, access to Irys’s front end was disabled by another project, Ar.io Network, and a backup layer-2 solution was implemented. Irys published a response declaring that the project was being censored for simply “exploring” a fork, and these statements have been supported by other players, including one of Irys’s venture backers, Framework Ventures, and one of Arweave’s leading developers, Dmac. The community remains relatively split on which party is correct, but more importantly, there is concern that Irys leaving the ecosystem could mean less usage for Arwaeve. While Arweave claims that most projects using Irys have already migrated to the layer-2 solution offered by Ar.io, Irys is currently responsible for most transactions and data stored on Arweave’s blockchain. Transactions on Arweave have yet to see any discernible change in their direction, with monthly transaction growth up 36% on average in the last six months. - SOL/BONK (+12%/+44%) - The Solana mania continues with last week’s hot commodity, the Solana Saga phone. Released this summer, early sales for the Saga phone were sluggish and even incited a price cut of $400. However, a new promotional offer last week caused the phones to sell out everywhere. The promotion offered new customers an airdrop of 30 million BONK tokens, the Dogecoin of Solana, preloaded on the phone. As the price of the newly released memecoin BONK rose, so did the value of the airdrop. At one point last week, the airdrop was worth about $700, while the Saga phone list price was $599. The phone has continued to fly off of shelves, with some of the phones reportedly selling on eBay for as much as $2000.
+
+DISCLAIMER: This commentary is provided as general information only and is in no way intended as investment advice, investment research, legal advice, tax advice, a research report, or a recommendation.

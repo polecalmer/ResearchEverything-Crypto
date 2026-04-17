@@ -1,0 +1,17 @@
+---
+source: arca-blog
+author: Arca Research Team
+date: 2024-12-04
+url: https://www.ar.ca/blog/wdtp-december-4-2024
+title: "What's Driving Token Prices? December 4, 2024"
+type: article
+topher_mentioned: false
+---
+
+# What's Driving Token Prices? December 4, 2024
+
+**Arca Research Team** | 2024-12-04
+
+Join Katie Talati, Arca’s Head of Research, weekly on Wednesday at 4PM EST / 1PM PST as she shares notable token activity over the past week and her insights on what market events drove these token price movements. Watch Our Founders Video - XRP (+59%) - Last week, sources reported that Ripple’s upcoming stablecoin, RLUSD, is expected to be greenlit by the New York Department of Financial Services in the coming months. Ripple is one of the oldest crypto projects, has long been focused on building transfer rails for international payments and has aimed to replace SWIFT. However, in recent years, Ripple has come under the regulatory gun and has been mired in a mult-year lawsuit with the SEC over the issuance of its XRP token. The news of the stablecoin approval has many believing that with the new administration this SEC lawsuit will be dropped. This news has sent XRP to new highs as it even surpassed the market cap of Solana over the weekend. It now sits as the third largest crypto asset by market cap behind Bitcoin and Ethereum. - CRV (+117%) - Last week, decentralized stableswap protocol Curve announced that it would be integrating with Elixir to allow holders of Blackrock’s BUIDL fund to swap into other stable assets on Curve. The partnership essentially creates a bridge between users who hold tokenized shares of the BUIDL fund to Defi. Elixir is a blockchain network that specializes in orderbook infrastructure and has a yield-bearing stablecoin deUSD. Holders of BUIDL can mint the deUSD stablecoin against shares of BUIDL and can now swap that deUSD through Curve to other stablecoin assets, essentially giving them access to Defi. The market is viewing this integration as valuable for Curve as it really cements its place as the venue for stableswap orderflow for Blackrock and any of its future products. - HYPE (+259%) - On Friday, Hyperliquid, the largest decentralized derivatives exchange released its HYPE token in an airdrop worth $1.36B at today’s prices. Hyperliquid, which launched in 2023, slowly claimed the top derivative DEX spot following a long running points program that encouraged usage of the product. Hyperliquid differs from other solutions as it launched on its own chain and focused on providing a superior user experience versus other competitors in the market. It also allows for users to create new markets leading to a much more vibrant array of assets that can be traded using perpetual futures products. Notably, Hyperliquid did not give out any tokens to private investors, centralized exchanges or market makers. A massive 31% of the initial supply was allocated to the first airdrop with another 38.8% reserved for future airdrops, which is in stark contrast with more recent airdrops where 6-10% is allocated for an initial airdrop with another 5-10% for future airdrops. The token also did not list on any centralized exchanges to start, only on the Hyperliquid DEX. This has led to what is probably one of the most successful token launches as the HYPE token is now up 259% since launch.
+
+DISCLAIMER: This commentary is provided as general information only and is in no way intended as investment advice, investment research, legal advice, tax advice, a research report, or a recommendation.

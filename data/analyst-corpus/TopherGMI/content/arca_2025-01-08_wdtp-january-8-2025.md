@@ -1,0 +1,17 @@
+---
+source: arca-blog
+author: Arca Research Team
+date: 2025-01-08
+url: https://www.ar.ca/blog/wdtp-january-8-2025
+title: "What's Driving Token Prices? January 8, 2025"
+type: article
+topher_mentioned: false
+---
+
+# What's Driving Token Prices? January 8, 2025
+
+**Arca Research Team** | 2025-01-08
+
+Join Katie Talati, Arca’s Head of Research, weekly on Wednesday at 4PM EST / 1PM PST as she shares notable token activity over the past week and her insights on what market events drove these token price movements. Watch Our Founders Video - USUAL (-24%) - Decentralized stablecoin project Usual Money, announced yesterday that it would activate a revenue switch. This would redirect revenues to stakers of its USUAL token and will happen either when more than 50% of the USUAL token supply is staked or by February 1st of this year. Once this happens, the protocol promises to distribute up to $5M of protocol revenues per month in the form of USD0 (Usual’s stablecoin). Stakers of the USUAL token already earn more USUAL tokens (currently at a 216% APY rate) and will earn an additional 49% yield in USD0 tokens at the current amount of USUAL staked. - VIRTUAL/ILV (-20%/-4.9%) - Yesterday, gaming studio Illuvium announced it has partnered with Virtuals Protocol to bring AI innovations into its games. Specifically, Illuvium will be using Virtual’s G.A.M.E. framework for building AI agents that can become “non-player characters” (NPCs for short) within the game that can interact with real players and continually change gameplay. The result means that games can be engaging and more interesting for much longer than those with linear storylines. Echelon Prime has also been working on similar technology for its games which will be fully released soon. - FXS (-10%) - Over the weekend, decentralized finance project Frax relaunched its website dubbing it the “Universal Interface”. The purpose of the new product is to package its many product lines into a simple and clean user interface for swapping, bridging and staking assets in the Frax ecosystem. Frax, which started out as a decentralized stablecoin issuer, has since expanded its ecosystem to include a Layer-2 protocol, Ethereum liquid staking, US-Treasury backed products and more. As a very grassroots, community-based project, however, it has struggled to achieve mainstream adoption, particularly due to a complex model and even more complicated user interface. The new interface, which also includes a fiat on-ramp option for users, could potentially lead to inflow to Frax’s product and greater usage. Currently the TVL of Frax is $504M and is basically flat in the last 6 months. - AAVE/APT (-9.4%/-0.4%) - Yesterday, money market protocol Aave launched on the Aptos testnet, marking its first non-EVM deployment of the protocol. Aptos is a layer-1 protocol that utilizes the MOVE programming language and was developed by the team that created Facebook’s shelved stablecoin project Diem. Aptos has seen quite a bit of growth over the past year with TVL of $1.62B, which is more than 10x growth in the past year. This growth has attracted projects like Aave to rewrite its entire codebase to launch on the Aptos blockchain. Aptos also made headlines at the end of December when its founder, Mo Shaikh, abruptly resigned from his role as CEO of Aptos Labs.
+
+DISCLAIMER: This commentary is provided as general information only and is in no way intended as investment advice, investment research, legal advice, tax advice, a research report, or a recommendation.

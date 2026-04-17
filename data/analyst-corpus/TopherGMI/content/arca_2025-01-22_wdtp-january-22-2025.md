@@ -1,0 +1,17 @@
+---
+source: arca-blog
+author: Arca Research Team
+date: 2025-01-22
+url: https://www.ar.ca/blog/wdtp-january-22-2025
+title: "What's Driving Token Prices? January 22, 2025"
+type: article
+topher_mentioned: false
+---
+
+# What's Driving Token Prices? January 22, 2025
+
+**Arca Research Team** | 2025-01-22
+
+Join Katie Talati, Arca’s Head of Research, weekly on Wednesday at 4PM EST / 1PM PST as she shares notable token activity over the past week and her insights on what market events drove these token price movements. Watch Our Founders Video - POL (-7.2%) - Last week, Layer-2 protocol Polygon announced it has partnered with Reliance Jio, one of the largest Indian conglomerates. As part of the partnership, Jio will use Polygon as part of the rollout of its Web3 capabilities, specifically they are aiming to add Web3 functionality to existing apps. Jio has over 450M customers and serves India’s growing market. Polygon has struggled recently to keep pace with the market and the growing number of L2 projects. Its TVL has been basically flat over the past year. - TRX (+8.6%) - Last week, Layer-1 protocol Tron announced it would relaunch its USDD stablecoin with a 20% APY. Justin Sun, Tron’s founder, claims that the yield is from Tron itself as it has an excess of cash. USDD was originally launched in 2022 to compete with Terra’s stablecoin UST which at the time offered 20% yields (USDD offered 30%). However, this yield was not maintained as the market began to contract in Q2 of 2022. Tron is also in the spotlight this week after World Liberty Financial (the Trump crypto project) purchased TRX tokens for its own balance sheet. - MORPHO (+9.2%) - Last week, Coinbase announced the launch of Bitcoin-backed loans on the Base Layer-2 network. These Bitcoin backed loans are actually backed by cbBTC, Coinbase’s wrapped version of Bitcoin (since tokens like Bitcoin can’t be natively transferred cross chain, they are given wrappers to represent their value on other chains). DeFi protocol Morpho is the backend facilitator of these loans on the Base blockchain, an unusual choice given Base already has its own native lend/borrow protocol Moonwell and the largest lending protocol Aave is live on Base. Although TVL has seen a decent bump of 28% as a result of this new product offering, the real success was how the MORPHO token moved up 60% on the announcement and is up 9.2% for the week. - TRUMP (+507%) - The big news of the past few days is the newly launched TRUMP memecoin. The TRUMP token was released late Friday night (during the Crypto Ball) with many at first unsure if it was actually backed by Trump. Once confirmed, the token was quick to rise and reach a massive $39B valuation. The token is at its core a memecoin, which means it has no value. 20% of the token is freely trading for the public, the other 80% is owned by the Trump family and is locked up for the next 3 years. The token was notably launched on the Solana blockchain and the SOL token rose 20% over the weekend as a direct result of this. The new memecoin has brought in 400,000 new users to crypto based on some estimates from platforms like MoonPay which allows users to buy crypto with a credit card.
+
+DISCLAIMER: This commentary is provided as general information only and is in no way intended as investment advice, investment research, legal advice, tax advice, a research report, or a recommendation.

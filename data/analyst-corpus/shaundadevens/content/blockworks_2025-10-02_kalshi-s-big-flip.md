@@ -1,0 +1,109 @@
+---
+source: blockworks
+author: blockworks-0xresearch
+date: 2025-10-02
+url: https://blockworks-research.beehiiv.com/p/kalshi-s-big-flip
+title: "Kalshi's big flip"
+type: article
+tags: [crypto, defi, research]
+---
+
+# Kalshi's big flip
+
+While Flying Tulips bloom
+
+Kunal Doshi & Shaunda Devens October 02, 2025
+
+The week started strong with BTC climbing nearly 4%, pulling all sectors higher, notably Meme and Launchpad. Prediction markets are hitting mainstream adoption, highlighted by Kalshi surpassing Polymarket volumes. Plus, Andre Cronje returns to the spotlight with Flying Tulip and a potential $1 billion raise.
+
+Market strength continued yesterday with all indexes closing in the green. BTC surged +3.9%, providing the lift that carried every sector higher. The Meme (+7.3%) and Launchpad (+7.3%) sectors led the way, driven by standout moves from Doge and Pump.
+
+Pump in particular has benefited from a rebound in revenue and token graduation rates. If sustained, this outperformance could mark a shift back toward risk-on sentiment, underscored by the Fear & Greed Index climbing to 51 after touching a fear reading of 32 just days ago.
+
+On the other side, Gaming lagged the broader rebound, gaining a more modest +3.4%. While the sector has recently been supported by IMX’s strong run, the slowdown in its momentum has started to drag on overall performance.
+
+Prediction markets are no longer a niche corner of crypto. They are quickly becoming the internet’s scoreboard for truth. During the recent US government shutdown, outlets like CNBC leaned on Polymarket and Kalshi odds to gauge how long the standoff would last.
+
+For those who thought the sector would fade after last year’s US presidential election, volumes tell a different story. Prediction markets racked up $1.3 billion last week alone, just shy of the $1.9 billion peak set during election mania.
+
+The biggest plot twist is that Kalshi has flipped Polymarket in volumes. The turning point came after Aug. 19, when Robinhood partnered with Kalshi to launch NFL and College Football markets. That surge proves two things: Sports betting is the volume king, and distribution is everything.
+
+On Polymarket, sports betting already drives nearly 70% of activity, up from 40-50% at the end of last year.
+
+Anyone from the class of 2021 will be familiar with the name Andre Cronje, architect and founder behind Yearn Finance ($3 billion peak market cap), Keep3r Network, and famously Solidly (a ve(3,3) AMM launched on Fantom in February 2022). Solidly gained over $2 billion TVL shortly following launch. Despite collapsing, it inspired future generations of AMMs, such as Aerodrome and Velodrome, which were built from Solidly’s ve(3,3) model. There are many fair criticisms about Cronje, but one thing is clear: He understands how to financially engineer a protocol.
+
+Cronje seemingly kept a low profile this cycle (building at Sonic as CTO, steering the Fantom-to-Sonic transition and its developer fee-rebate model). However, Cronje recently announced that his project Flying Tulip has “raised” $200 million in a private seed at a $1 billion token valuation from Brevan Howard Digital, CoinFund, DWF Labs and others, and will “raise” another $800 million in a public round.
+
+According to its website, “Flying Tulip introduces several first-of-their-kind onchain financial innovations.” However, in an effort to remain intellectually honest, let's focus on the project in its current state rather than its future promises. Currently, Flying Tulip resembles a financial engineering project leveraging Ponzi-style game theory:
+
+Flying Tulip is raising $1 billion target raise. They will take the $1 billion and deploy it into diversified low-risk DeFi liquid yield strategies.
+
+Investors get 10 FT token / $1 deposited into the raise. However they also get a perpetual PUT option that lets them redeem their deposit 1:1 at any time.
+
+Flying Tulip takes the $1 billion, deposits into DeFi protocols, and earns yield on them (projected $44 million / year). With this, it buys back the FT token and burns it. This allows the protocol to have high “revenue” figures, and gives buy pressure to the FT token.
+
+Investors are protected with their put option which allows them to get a refund on their original capital whenever they want (remember the users allocation is still inside the protocol earning yield). They burn the FT token and exercise the put that allows them to sell it at 10 FT / $1. The key here is if you sell or transfer any of your FT token then you lose the right to exercise this put.
+
+Therefore, the “raise” works as follows:
+
+Smart users trade off the opportunity cost of directly farming stablecoins themselves (approximately 4.4% APY) for a call option to potentially sell FT tokens at a higher price, while still being protected from downside risk.
+
+Revenue mints the team's supply, effectively granting them around 50% of the revenue generated by this $1 billion in stablecoins earning yield. When users sell FT at a premium to presale, they forfeit the USD they deposited, which permanently remains in the treasury, allowing the team to earn yield in perpetuity.
+
+In theory, aside from tail risk and opportunity cost, the only possible losers here are those who either (a) purchase FT tokens after the public launch, or (b) incrementally sell FT tokens and thus lose their redemption rights.
+
+Considering these dynamics, Flying Tulip presents a decent opportunity for those who understand its mechanics. In the bear scenario, you retain redemption of your principal; the base scenario offers decent yield if you choose to exit; and in the bullish scenario, should they successfully execute their strategy, it provides exposure to a potentially promising project.
+
+Crypto is changing TradFi derivatives and rate markets as we know them.
+
+DAS: London will feature all the builders driving this change.
+
+📅 October 13-15 | London
+
+The stablecoin duopoly is ending
+
+Carter argues USDT/USDC’s grip (peaked ~92% share in March 2024, now ~86%) will keep slipping as intermediaries roll their own stables and route yield via rev-share post-GENIUS. White-label issuance and partners (Anchorage, Brale, M0, Agora, Bridge/Stripe) cut fixed costs; exchanges, wallets and DeFi protocols redirect user float into in-house coins (Global Dollar consortium; Hyperliquid’s USDH; Phantom Cash), while yield-sharing entrants (Sky’s DAI, Ethena’s USDe, PayPal’s PYUSD, USD1, USDY, USDG, AUSD) compete on rewards. Cross-/ and intra-chain swapping is cheap, making stables more fungible and weakening network effects. With GENIUS enabling bank-issued stables and consortia talks underway, Carter sees a race that compresses issuer margins and erodes the duopoly, with supply dispersing across a broader set of credible issuers.
+
+BASE Token Design Proposal
+
+Outlier Ventures released a proposal on the design of a BASE token, framing it as an opportunity to reinvent L2 economics beyond fee extraction. The report argued that BASE should serve as the primary quote currency within its ecosystem, using vote-escrow mechanics (veBASE) and adaptive emission schedules to align growth incentives with liquidity demand. By shifting value capture from sequencer fees to quote currency utility, the analysis positioned BASE as a $4 billion+ opportunity and a path toward sustainable decentralization.
+
+Digital Native explored how Kalshi and Polymarket have propelled prediction markets into the mainstream, even making it onto South Park. Both firms highlight a broader shift toward the “financialization of everything,” as younger generations turn to riskier, higher-upside strategies amid stagnant wages and AI-driven job uncertainty. The analysis framed prediction markets as both a speculative risk and a potential path to greater economic mobility, echoing broader trends reshaping work and wealth.
+
+Q3 is officially wrapped, and Maple once again delivered || @maplefinance
+
+Over the quarter, Maple achieved:
+
+▫️$4B TVL, hitting the target one quarter ahead of schedule
+
+▫️Consecutive ATH revenue, closing Q3 at $1.5M (+265% YTD)
+
+▫️$200M filled with Plasma’s integration
+
+— GLC (@GLC_Research)  2:14 PM • Oct 1, 2025
+
+We have three cool announcements today:
+
+(1) @OpenAI is launching commerce in ChatGPT. Their new Instant Checkout is powered by @stripe. (2) We're releasing the Agentic Commerce Protocol, codeveloped by Stripe and OpenAI. (3) @stripe is launching an API for agentic payments,
+
+— Patrick Collison (@patrickc)  5:33 PM • Sep 29, 2025
+
+Pendle is now live on @PlasmaFDN.
+
+With this, we're finally unlocking fixed yield for billions around the world, giving anyone access to Pendle's products directly through Plasma's digital bank.
+
+— Pendle (@pendle_fi)  2:00 AM • Oct 2, 2025
+
+Every metric shows that Solana trenches are starting to heal
+
+Bridge yourself back to solana
+
+— Dodo (@dodothedegen)  8:16 AM • Oct 1, 2025
+
+Turn referrals into returns 💎
+
+When the alpha's this good, you have to share. Use the 0xResearch referral program to onboard your friends while banking the rewards:
+
+📣 15 referrals: A free ticket to Blockworks’ Digital Asset Summit
+
+Share the newsletter
