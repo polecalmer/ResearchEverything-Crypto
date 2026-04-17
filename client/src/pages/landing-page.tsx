@@ -32,344 +32,254 @@ interface AggNode {
 }
 interface AggEdge { from: string; to: string; weight: number; }
 
-const PHASES = [
-  {
-    key: "input",
-    label: "Drop a question",
-    sub: "Paste a link, a ticker, or just ask",
-    capability: "Conversational research",
-    capBody: "Plain-English questions. The session understands context and asks follow-ups.",
-    accent: "#7dcfff",
-  },
-  {
-    key: "data",
-    label: "Pull live data",
-    sub: "DeFiLlama · Allium · Dune · on-chain",
-    capability: "On-chain data & charts",
-    capBody: "Revenue, TVL, funding rates, holder distribution — fetched and rendered instantly.",
-    accent: "#7aa2f7",
-  },
-  {
-    key: "model",
-    label: "Build the model",
-    sub: "DCF · scenarios · comparables",
-    capability: "Financial models",
-    capBody: "DCF valuations, P/E ratios, bear/base/bull cases assembled from live numbers.",
-    accent: "#9ece6a",
-  },
-  {
-    key: "report",
-    label: "Draft the report",
-    sub: "Sourced. Structured. Publishable.",
-    capability: "Deep research reports",
-    capBody: "Long-form analysis with cited sources, risk assessments, and clear next steps.",
-    accent: "#f7c97a",
-  },
-  {
-    key: "brain",
-    label: "Commit to brain",
-    sub: "Entities · relationships · facts",
-    capability: "It remembers",
-    capBody: "Each session compounds. Tomorrow's research starts smarter than today's.",
-    accent: "#bb9af7",
-  },
-];
-
-function SessionInMotion() {
-  const [phase, setPhase] = useState(0);
-  const [tick, setTick] = useState(0);
+function SynapseField() {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const animRef = useRef<number>(0);
 
   useEffect(() => {
-    const id = setInterval(() => setTick(t => t + 1), 80);
-    return () => clearInterval(id);
-  }, []);
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
-  useEffect(() => {
-    const id = setInterval(() => setPhase(p => (p + 1) % PHASES.length), 3800);
-    return () => clearInterval(id);
-  }, []);
+    const PALETTE = ["#7aa2f7", "#bb9af7", "#7dcfff", "#9ece6a", "#f7c97a", "#f7768e"];
+    const NODE_COUNT = 60;
 
-  const active = PHASES[phase];
+    type N = { x: number; y: number; vx: number; vy: number; color: string; flash: number; baseR: number };
+    type E = { a: number; b: number; len: number };
+    type P = { e: number; from: number; to: number; t: number; speed: number; color: string };
+
+    let nodes: N[] = [];
+    let edges: E[] = [];
+    let pulses: P[] = [];
+
+    function init() {
+      const rect = canvas!.getBoundingClientRect();
+      nodes = [];
+      for (let i = 0; i < NODE_COUNT; i++) {
+        const angle = Math.random() * Math.PI * 2;
+        const r = Math.random() * Math.min(rect.width, rect.height) * 0.42;
+        nodes.push({
+          x: Math.cos(angle) * r,
+          y: Math.sin(angle) * r * 0.7,
+          vx: (Math.random() - 0.5) * 0.08,
+          vy: (Math.random() - 0.5) * 0.08,
+          color: PALETTE[Math.floor(Math.random() * PALETTE.length)],
+          flash: 0,
+          baseR: 1.5 + Math.random() * 1.8,
+        });
+      }
+      edges = [];
+      for (let i = 0; i < nodes.length; i++) {
+        const dists: Array<[number, number]> = [];
+        for (let j = 0; j < nodes.length; j++) {
+          if (i === j) continue;
+          const dx = nodes[j].x - nodes[i].x;
+          const dy = nodes[j].y - nodes[i].y;
+          dists.push([j, dx * dx + dy * dy]);
+        }
+        dists.sort((a, b) => a[1] - b[1]);
+        const k = 2 + Math.floor(Math.random() * 2);
+        for (let m = 0; m < k; m++) {
+          const j = dists[m][0];
+          if (i < j) edges.push({ a: i, b: j, len: Math.sqrt(dists[m][1]) });
+          else if (!edges.some(e => (e.a === j && e.b === i))) edges.push({ a: j, b: i, len: Math.sqrt(dists[m][1]) });
+        }
+      }
+    }
+
+    function neighbors(nodeIdx: number): number[] {
+      const out: number[] = [];
+      for (const e of edges) {
+        if (e.a === nodeIdx) out.push(e.b);
+        else if (e.b === nodeIdx) out.push(e.a);
+      }
+      return out;
+    }
+
+    function findEdge(a: number, b: number): number {
+      for (let i = 0; i < edges.length; i++) {
+        if ((edges[i].a === a && edges[i].b === b) || (edges[i].a === b && edges[i].b === a)) return i;
+      }
+      return -1;
+    }
+
+    function spawnPulse(from: number, to: number, color: string) {
+      if (pulses.length > 120) return;
+      const e = findEdge(from, to);
+      if (e === -1) return;
+      pulses.push({
+        e, from, to, t: 0,
+        speed: 0.006 + Math.random() * 0.008,
+        color,
+      });
+    }
+
+    function spawnRandom() {
+      const i = Math.floor(Math.random() * nodes.length);
+      const ns = neighbors(i);
+      if (!ns.length) return;
+      const j = ns[Math.floor(Math.random() * ns.length)];
+      nodes[i].flash = Math.max(nodes[i].flash, 0.6);
+      spawnPulse(i, j, nodes[i].color);
+    }
+
+    init();
+    let frame = 0;
+    let lastSpawn = 0;
+
+    function draw() {
+      const rect = canvas!.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      if (canvas!.width !== rect.width * dpr || canvas!.height !== rect.height * dpr) {
+        canvas!.width = rect.width * dpr;
+        canvas!.height = rect.height * dpr;
+      }
+      ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      ctx!.fillStyle = "rgba(10, 10, 12, 0.18)";
+      ctx!.fillRect(0, 0, rect.width, rect.height);
+
+      const cx = rect.width / 2;
+      const cy = rect.height / 2;
+
+      for (const n of nodes) {
+        n.x += n.vx;
+        n.y += n.vy;
+        n.vx -= n.x * 0.0001;
+        n.vy -= n.y * 0.0001;
+        if (Math.abs(n.x) > rect.width * 0.5) n.vx *= -0.8;
+        if (Math.abs(n.y) > rect.height * 0.5) n.vy *= -0.8;
+        n.flash *= 0.93;
+      }
+
+      ctx!.save();
+      ctx!.translate(cx, cy);
+
+      for (const e of edges) {
+        const a = nodes[e.a], b = nodes[e.b];
+        ctx!.beginPath();
+        ctx!.moveTo(a.x, a.y);
+        ctx!.lineTo(b.x, b.y);
+        ctx!.strokeStyle = "rgba(150, 170, 220, 0.06)";
+        ctx!.lineWidth = 0.6;
+        ctx!.stroke();
+      }
+
+      const survivingPulses: P[] = [];
+      for (const p of pulses) {
+        const e = edges[p.e];
+        if (!e) continue;
+        const fromN = nodes[p.from];
+        const toN = nodes[p.to];
+        p.t += p.speed;
+
+        const px = fromN.x + (toN.x - fromN.x) * p.t;
+        const py = fromN.y + (toN.y - fromN.y) * p.t;
+
+        const grad = ctx!.createRadialGradient(px, py, 0, px, py, 14);
+        grad.addColorStop(0, p.color + "ff");
+        grad.addColorStop(0.4, p.color + "55");
+        grad.addColorStop(1, p.color + "00");
+        ctx!.fillStyle = grad;
+        ctx!.beginPath();
+        ctx!.arc(px, py, 14, 0, Math.PI * 2);
+        ctx!.fill();
+
+        ctx!.beginPath();
+        ctx!.moveTo(fromN.x, fromN.y);
+        ctx!.lineTo(px, py);
+        const lineGrad = ctx!.createLinearGradient(fromN.x, fromN.y, px, py);
+        lineGrad.addColorStop(0, p.color + "00");
+        lineGrad.addColorStop(1, p.color + "88");
+        ctx!.strokeStyle = lineGrad;
+        ctx!.lineWidth = 1.2;
+        ctx!.stroke();
+
+        if (p.t >= 1) {
+          toN.flash = Math.min(1, toN.flash + 0.85);
+          if (Math.random() < 0.55) {
+            const ns = neighbors(p.to).filter(n => n !== p.from);
+            if (ns.length) {
+              const next = ns[Math.floor(Math.random() * ns.length)];
+              spawnPulse(p.to, next, toN.color);
+            }
+          }
+          if (Math.random() < 0.18) {
+            const ns = neighbors(p.to).filter(n => n !== p.from);
+            if (ns.length) {
+              const next = ns[Math.floor(Math.random() * ns.length)];
+              spawnPulse(p.to, next, toN.color);
+            }
+          }
+        } else {
+          survivingPulses.push(p);
+        }
+      }
+      pulses = survivingPulses;
+
+      for (const n of nodes) {
+        const r = n.baseR + n.flash * 3;
+        if (n.flash > 0.05) {
+          const glowR = r * (4 + n.flash * 4);
+          const grad = ctx!.createRadialGradient(n.x, n.y, 0, n.x, n.y, glowR);
+          grad.addColorStop(0, n.color + toHex2(0.35 * n.flash));
+          grad.addColorStop(1, n.color + "00");
+          ctx!.fillStyle = grad;
+          ctx!.beginPath();
+          ctx!.arc(n.x, n.y, glowR, 0, Math.PI * 2);
+          ctx!.fill();
+        }
+        ctx!.beginPath();
+        ctx!.arc(n.x, n.y, r, 0, Math.PI * 2);
+        ctx!.fillStyle = n.flash > 0.1 ? n.color : n.color + toHex2(0.55);
+        ctx!.fill();
+      }
+
+      ctx!.restore();
+
+      frame++;
+      if (frame - lastSpawn > 14 || pulses.length < 6) {
+        spawnRandom();
+        if (Math.random() < 0.4) spawnRandom();
+        lastSpawn = frame;
+      }
+
+      animRef.current = requestAnimationFrame(draw);
+    }
+
+    animRef.current = requestAnimationFrame(draw);
+    const onResize = () => init();
+    window.addEventListener("resize", onResize);
+    return () => {
+      cancelAnimationFrame(animRef.current);
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
 
   return (
     <section id="what-you-get" className="relative py-24 px-6 overflow-hidden">
-      <div className="max-w-6xl mx-auto">
-        <div className="text-center mb-14">
+      <div className="max-w-5xl mx-auto">
+        <div className="text-center mb-10">
           <div className="font-mono text-[10px] tracking-[0.2em] text-muted-foreground/50 mb-3">
-            HOW A SESSION UNFOLDS
+            ⌁ THE SIGNAL
           </div>
           <h2 className="text-3xl sm:text-4xl font-bold tracking-tight leading-snug mb-4">
-            Question in. Verified research out.
+            A brain that fires with you.
           </h2>
           <p className="text-base text-muted-foreground max-w-xl mx-auto leading-relaxed">
-            Every session moves through the same loop — pulling data, building models,
-            drafting reports, and growing a brain that gets sharper every time.
+            Every session sparks a new connection. Every connection makes the next thought faster.
           </p>
         </div>
 
-        <div className="grid lg:grid-cols-[1.4fr_1fr] gap-8 items-stretch">
-          <SessionConsole phase={phase} tick={tick} />
-
-          <div className="flex flex-col gap-2">
-            {PHASES.map((p, i) => {
-              const isActive = i === phase;
-              return (
-                <button
-                  key={p.key}
-                  type="button"
-                  onClick={() => setPhase(i)}
-                  className={`group text-left rounded-xl border px-5 py-4 transition-all duration-500 ${
-                    isActive
-                      ? "border-foreground/20 bg-foreground/[0.04]"
-                      : "border-border/40 bg-transparent hover:border-border"
-                  }`}
-                  data-testid={`phase-${p.key}`}
-                  style={isActive ? { boxShadow: `0 0 40px -10px ${p.accent}55` } : undefined}
-                >
-                  <div className="flex items-center gap-3 mb-1.5">
-                    <div
-                      className="w-2 h-2 rounded-full transition-all duration-500"
-                      style={{
-                        backgroundColor: p.accent,
-                        boxShadow: isActive ? `0 0 12px ${p.accent}` : "none",
-                        opacity: isActive ? 1 : 0.4,
-                      }}
-                    />
-                    <div className={`font-mono text-[10px] tracking-wider transition-colors ${isActive ? "text-foreground/80" : "text-muted-foreground/50"}`}>
-                      {String(i + 1).padStart(2, "0")} · {p.label.toUpperCase()}
-                    </div>
-                  </div>
-                  <div className={`text-sm font-semibold transition-colors ${isActive ? "text-foreground" : "text-muted-foreground/80"}`}>
-                    {p.capability}
-                  </div>
-                  <div className={`text-[12px] leading-relaxed mt-1 transition-colors ${isActive ? "text-muted-foreground" : "text-muted-foreground/50"}`}>
-                    {p.capBody}
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="mt-10 grid grid-cols-5 gap-2">
-          {PHASES.map((p, i) => (
-            <div key={p.key} className="h-0.5 bg-border/40 overflow-hidden rounded-full">
-              <div
-                className="h-full transition-all"
-                style={{
-                  width: i < phase ? "100%" : i === phase ? `${((tick % 47) / 47) * 100}%` : "0%",
-                  backgroundColor: p.accent,
-                  transitionDuration: i === phase ? "80ms" : "300ms",
-                }}
-              />
-            </div>
-          ))}
-        </div>
-
-        <div className="mt-3 text-center font-mono text-[10px] tracking-wider text-muted-foreground/40">
-          {active.sub}
+        <div className="relative rounded-3xl overflow-hidden" style={{ height: "560px" }}>
+          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" data-testid="canvas-synapse" />
+          <div className="pointer-events-none absolute inset-0" style={{
+            background: "radial-gradient(ellipse 70% 60% at center, transparent 0%, transparent 60%, hsl(var(--background)) 100%)",
+          }} />
         </div>
       </div>
     </section>
-  );
-}
-
-function SessionConsole({ phase, tick }: { phase: number; tick: number }) {
-  const accent = PHASES[phase].accent;
-
-  return (
-    <div className="relative rounded-2xl border border-border/50 bg-card/40 backdrop-blur-sm overflow-hidden min-h-[480px]">
-      <div className="absolute inset-0 opacity-[0.07]" style={{
-        background: `radial-gradient(ellipse at 80% 20%, ${accent} 0%, transparent 60%)`,
-        transition: "background 600ms ease",
-      }} />
-
-      <div className="relative flex items-center justify-between px-5 py-3 border-b border-border/30">
-        <div className="flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-red-400/40" />
-          <div className="w-2 h-2 rounded-full bg-yellow-400/40" />
-          <div className="w-2 h-2 rounded-full bg-green-400/40" />
-        </div>
-        <div className="font-mono text-[10px] text-muted-foreground/50 tracking-wider">
-          session · live
-        </div>
-        <div
-          className="w-1.5 h-1.5 rounded-full transition-all duration-500"
-          style={{ backgroundColor: accent, boxShadow: `0 0 8px ${accent}` }}
-        />
-      </div>
-
-      <div className="relative p-6 space-y-5 font-mono text-[12px] leading-relaxed">
-        <ConsoleLine
-          show={true}
-          prefix=">"
-          accent="#9ece6a"
-        >
-          why is HYPE outperforming this quarter?
-        </ConsoleLine>
-
-        {phase >= 1 && (
-          <ConsoleBlock label="FOUNDATION" accent={PHASES[1].accent} active={phase === 1}>
-            <DataTags
-              tags={["hyperliquid.tvl", "hype.price", "perps.volume", "funding.rate", "buybacks.usd"]}
-              tick={tick}
-              active={phase === 1}
-              accent={PHASES[1].accent}
-            />
-          </ConsoleBlock>
-        )}
-
-        {phase >= 2 && (
-          <ConsoleBlock label="MODEL" accent={PHASES[2].accent} active={phase === 2}>
-            <ModelGrid tick={tick} active={phase === 2} accent={PHASES[2].accent} />
-          </ConsoleBlock>
-        )}
-
-        {phase >= 3 && (
-          <ConsoleBlock label="REPORT" accent={PHASES[3].accent} active={phase === 3}>
-            <ReportLines tick={tick} active={phase === 3} />
-          </ConsoleBlock>
-        )}
-
-        {phase >= 4 && (
-          <ConsoleBlock label="BRAIN" accent={PHASES[4].accent} active={phase === 4}>
-            <BrainCommits tick={tick} active={phase === 4} accent={PHASES[4].accent} />
-          </ConsoleBlock>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function ConsoleLine({ children, prefix, accent, show }: { children: React.ReactNode; prefix: string; accent: string; show: boolean }) {
-  if (!show) return null;
-  return (
-    <div className="flex gap-3">
-      <span style={{ color: accent }}>{prefix}</span>
-      <span className="text-foreground/90">{children}</span>
-    </div>
-  );
-}
-
-function ConsoleBlock({ label, accent, active, children }: { label: string; accent: string; active: boolean; children: React.ReactNode }) {
-  return (
-    <div className={`transition-opacity duration-500 ${active ? "opacity-100" : "opacity-50"}`}>
-      <div className="flex items-center gap-2 mb-2">
-        <div
-          className="w-1 h-1 rounded-full"
-          style={{ backgroundColor: accent, boxShadow: active ? `0 0 6px ${accent}` : "none" }}
-        />
-        <span className="text-[9px] tracking-[0.2em] text-muted-foreground/60">{label}</span>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function DataTags({ tags, tick, active, accent }: { tags: string[]; tick: number; active: boolean; accent: string }) {
-  const visible = active ? Math.min(tags.length, Math.floor((tick % 47) / 9) + 1) : tags.length;
-  return (
-    <div className="flex flex-wrap gap-1.5 pl-3">
-      {tags.map((t, i) => (
-        <span
-          key={t}
-          className="px-2 py-0.5 rounded-md border text-[10px] transition-all duration-300"
-          style={{
-            opacity: i < visible ? 1 : 0,
-            borderColor: i < visible ? `${accent}55` : "transparent",
-            color: i < visible ? accent : "transparent",
-            backgroundColor: i < visible ? `${accent}10` : "transparent",
-            transform: i < visible ? "translateY(0)" : "translateY(4px)",
-          }}
-        >
-          {t}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function ModelGrid({ tick, active, accent }: { tick: number; active: boolean; accent: string }) {
-  const rows = [
-    ["Revenue (TTM)", "$1.42B", "+312%"],
-    ["FCF margin", "68%", "+9pp"],
-    ["P/E (fwd)", "11.2x", "−3.1x"],
-    ["Buyback yield", "4.8%", "+1.2pp"],
-    ["DCF target", "$48.20", "+22%"],
-  ];
-  const visible = active ? Math.min(rows.length, Math.floor((tick % 47) / 9) + 1) : rows.length;
-  return (
-    <div className="pl-3 space-y-1">
-      {rows.map(([k, v, d], i) => (
-        <div
-          key={k}
-          className="grid grid-cols-[1fr_auto_auto] gap-4 text-[11px] transition-all duration-300"
-          style={{
-            opacity: i < visible ? 1 : 0,
-            transform: i < visible ? "translateY(0)" : "translateY(3px)",
-          }}
-        >
-          <span className="text-muted-foreground/70">{k}</span>
-          <span className="text-foreground/90 tabular-nums">{v}</span>
-          <span style={{ color: accent }} className="tabular-nums">{d}</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ReportLines({ tick, active }: { tick: number; active: boolean }) {
-  const lines = [
-    "Executive summary",
-    "  · HYPE outperforms peers on revenue + buyback flywheel",
-    "  · Hyperliquid captures 71% of perp DEX volume",
-    "Risk factors",
-    "  · Concentration risk in core team",
-  ];
-  const visible = active ? Math.min(lines.length, Math.floor((tick % 47) / 9) + 1) : lines.length;
-  return (
-    <div className="pl-3 space-y-0.5">
-      {lines.map((l, i) => (
-        <div
-          key={l}
-          className="text-[11px] transition-all duration-300"
-          style={{
-            opacity: i < visible ? 1 : 0,
-            color: l.startsWith("  ") ? "hsl(var(--muted-foreground))" : "hsl(var(--foreground) / 0.9)",
-            fontWeight: l.startsWith("  ") ? 400 : 600,
-            transform: i < visible ? "translateY(0)" : "translateY(3px)",
-          }}
-        >
-          {l}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function BrainCommits({ tick, active, accent }: { tick: number; active: boolean; accent: string }) {
-  const commits = [
-    "+ entity: Hyperliquid → metric: buyback_yield",
-    "+ entity: HYPE ↔ concept: real_yield",
-    "+ relationship: outperforms(HYPE, GMX, dYdX)",
-  ];
-  const visible = active ? Math.min(commits.length, Math.floor((tick % 47) / 12) + 1) : commits.length;
-  return (
-    <div className="pl-3 space-y-1">
-      {commits.map((c, i) => (
-        <div
-          key={c}
-          className="text-[11px] transition-all duration-300 tabular-nums"
-          style={{
-            opacity: i < visible ? 1 : 0,
-            color: i < visible ? accent : "transparent",
-            transform: i < visible ? "translateX(0)" : "translateX(-4px)",
-          }}
-        >
-          {c}
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -885,7 +795,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <SessionInMotion />
+      <SynapseField />
 
       <section className="py-20 px-6 border-t">
         <div className="max-w-2xl mx-auto text-center">
