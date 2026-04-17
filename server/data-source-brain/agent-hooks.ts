@@ -73,10 +73,23 @@ export async function consultForTool(
   }
 }
 
+const TOOL_ALTERNATIVES: Record<string, (protocol: string) => string> = {
+  query_defillama_tvl: (p) =>
+    `Instead, try: (1) query_defillama_protocol_summary("${p}") for whatever metrics DeFiLlama does track, (2) get_token_snapshot("${p}") for market cap/FDV/price which can proxy for protocol size, (3) execute_dune_query or query_dune_mcp to search for on-chain TVL data directly.`,
+  query_defillama_fees_revenue: (p) =>
+    `Instead, try: (1) query_defillama_volume("${p}", type="derivatives") if this is a perp/derivatives protocol, (2) query_defillama_volume("${p}") if this is a DEX, (3) query_defillama_protocol_summary("${p}") for whatever metrics DeFiLlama does track, (4) execute_dune_query or query_dune_mcp to find on-chain fee/revenue data directly.`,
+  query_defillama_volume: (p) =>
+    `Instead, try: (1) query_defillama_volume("${p}", type="derivatives") if you used type="dexs" or vice versa, (2) query_defillama_protocol_summary("${p}") for a high-level snapshot, (3) execute_dune_query or query_dune_mcp to search for on-chain volume data.`,
+  query_defillama_protocol_summary: (p) =>
+    `Instead, try: (1) get_token_snapshot("${p}") for market cap/FDV/price, (2) execute_dune_query or query_dune_mcp to find on-chain data directly, (3) search_protocols_by_category to find similar protocols that are tracked.`,
+  query_defillama_price_history: (p) =>
+    `Instead, try: (1) get_token_snapshot("${p}") for current price/mcap, (2) execute_dune_query or query_dune_mcp with a price query for historical data.`,
+};
+
 /**
  * Check if the brain has high-confidence knowledge that a specific tool+protocol
- * call will return no data. If so, return a short-circuit result string that the
- * agent sees instead of making the actual API call. Returns null if no
+ * call will return no data. If so, return a short-circuit result string with
+ * concrete alternative tools the agent should call instead. Returns null if no
  * short-circuit applies.
  */
 export async function shouldShortCircuit(
@@ -116,11 +129,15 @@ export async function shouldShortCircuit(
     });
 
     if (!coverageHit) return null;
+
+    const altFn = TOOL_ALTERNATIVES[toolName];
+    const alternatives = altFn ? altFn(protocol) : "Try an alternative tool or data source.";
+
     console.log(
       `[DataSourceBrain] Short-circuit: ${toolName}(${protocol}) — brain says "${coverageHit.fact.content.slice(0, 100)}" (confidence=${coverageHit.fact.confidence}, seen=${coverageHit.fact.observedCount}x)`,
     );
     return JSON.stringify({
-      error: `[Brain short-circuit] ${coverageHit.fact.content}. This call was skipped because the brain has learned this data is unavailable. Try an alternative tool or endpoint.`,
+      error: `[Brain short-circuit] ${coverageHit.fact.content}. This call was SKIPPED — the brain has learned this data is unavailable here. ${alternatives}`,
     });
   } catch (err: any) {
     console.warn(`[DataSourceBrain] shortCircuit check failed for ${toolName}:`, err.message);
