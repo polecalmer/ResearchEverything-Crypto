@@ -660,8 +660,26 @@ export default function LandingPage() {
           </div>
         </section>
 
-        {/* Signal — single editorial statement floating mid-page */}
+        {/* Perspective — positioning statement */}
         <section id="signal" className="py-24 flex flex-col items-center justify-center px-6 text-center">
+          <div className="max-w-3xl flex flex-col items-center">
+            <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-4">
+              ◦ &nbsp;THE&nbsp;THESIS&nbsp; ◦
+            </div>
+            <h2 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.02] mb-5">
+              AI is great.<br />
+              <span className="text-muted-foreground/80">It lacks perspective.</span>
+            </h2>
+            <p className="text-lg text-muted-foreground leading-relaxed max-w-md">
+              Sessions is the perspective layer for AI — your context, your
+              questions, your judgment, compounding on top of every model
+              you call.
+            </p>
+          </div>
+        </section>
+
+        {/* Signal — single editorial statement floating mid-page */}
+        <section className="py-24 flex flex-col items-center justify-center px-6 text-center">
           <div className="max-w-3xl flex flex-col items-center">
             <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-4">
               ◦ &nbsp;THE&nbsp;SIGNAL&nbsp; ◦
