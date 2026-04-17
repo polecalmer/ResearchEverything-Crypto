@@ -25,6 +25,24 @@ export async function seedDataSourceBrain(opts: { force?: boolean } = {}): Promi
       console.error(`[DataSourceBrain] Failed to ensure vector extension — brain will not function: ${err.message}`);
       return { total: 0, inserted: 0 };
     }
+
+    // Hybrid search: ensure a generated tsvector column + GIN index exist for
+    // BM25-style keyword search alongside the vector embedding. This lets
+    // exact-token queries (protocol slugs, endpoint paths, ticker symbols)
+    // surface even when their semantic similarity is mediocre.
+    try {
+      await db.execute(sql`
+        ALTER TABLE data_source_facts
+        ADD COLUMN IF NOT EXISTS content_tsv tsvector
+        GENERATED ALWAYS AS (to_tsvector('english', content)) STORED
+      `);
+      await db.execute(sql`
+        CREATE INDEX IF NOT EXISTS data_source_facts_content_tsv_idx
+        ON data_source_facts USING GIN (content_tsv)
+      `);
+    } catch (err: any) {
+      console.warn(`[DataSourceBrain] tsvector setup failed (hybrid search will fall back to vector-only): ${err.message}`);
+    }
     const facts = getAllSeedFacts();
     let inserted = 0;
     if (!opts.force) {

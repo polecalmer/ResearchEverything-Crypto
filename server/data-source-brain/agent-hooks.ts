@@ -58,10 +58,14 @@ export async function consultForTool(
       minSimilarity: 0.45,
     });
     if (hits.length === 0) return "";
-    const lines = hits.map(
-      (h) =>
-        `  - [${h.fact.confidence}] ${h.fact.content} (sim ${h.similarity.toFixed(2)})`,
-    );
+    const lines = hits.map((h) => {
+      // Annotate which ranker(s) surfaced each hit so the model has a sense
+      // of why the fact is being shown.
+      const v = h.vectorRank != null ? `vec=${h.similarity.toFixed(2)}` : null;
+      const t = h.textRank != null ? `text` : null;
+      const tag = [v, t].filter(Boolean).join(", ") || "match";
+      return `  - [${h.fact.confidence}] ${h.fact.content} (${tag})`;
+    });
     return `Brain hints for ${binding.source}:\n${lines.join("\n")}`;
   } catch (err: any) {
     console.warn(`[DataSourceBrain] consult failed for ${toolName}:`, err.message);

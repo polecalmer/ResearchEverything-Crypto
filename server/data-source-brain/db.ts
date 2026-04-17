@@ -14,7 +14,14 @@ import { embed } from "./embeddings";
 
 export interface ConsultResult {
   fact: DataSourceFact;
+  /** Cosine similarity (0..1). 0 if the fact came in via text-only match. */
   similarity: number;
+  /** Reciprocal-rank-fusion score combining vector + BM25 ranks. */
+  rrfScore: number;
+  /** 1-indexed rank from the vector search, or null if not in vector top-N. */
+  vectorRank: number | null;
+  /** 1-indexed rank from the BM25 text search, or null if not in text top-N. */
+  textRank: number | null;
 }
 
 export interface ObserveInput {
@@ -43,25 +50,105 @@ export async function consult(params: {
   const queryEmbedding = await embed(query, "query");
   const vec = `[${queryEmbedding.join(",")}]`;
 
-  const conditions: any[] = [];
-  if (source) conditions.push(eq(dataSourceFacts.source, source));
-  if (category) conditions.push(eq(dataSourceFacts.category, category));
-  const whereClause = conditions.length > 0 ? and(...conditions) : undefined;
+  // Hybrid search: pull candidate sets from both rankers (vector cosine and
+  // Postgres BM25-equivalent ts_rank_cd), then fuse with reciprocal-rank
+  // fusion (RRF) — score = Σ 1 / (k + rank), k=60 by convention.
+  // Candidate pool is intentionally wide (CAND=20) so the fusion can promote
+  // documents that one ranker buries but the other surfaces.
+  const CAND = 20;
+  const RRF_K = 60;
 
-  // 1 - cosine_distance = cosine_similarity
-  const rows = await db
-    .select({
-      fact: dataSourceFacts,
-      similarity: sql<number>`1 - (${dataSourceFacts.embedding} <=> ${vec}::vector)`,
+  // Build the source/category filter once as a SQL fragment used in both CTEs.
+  const sourceFilter = source ? sql`AND source = ${source}` : sql``;
+  const categoryFilter = category ? sql`AND category = ${category}` : sql``;
+
+  const rows = await db.execute<{
+    id: string;
+    source: string;
+    scope: string;
+    scope_ref: string;
+    category: string;
+    content: string;
+    confidence: string;
+    source_of_fact: string;
+    observed_count: number;
+    created_at: Date;
+    last_seen_at: Date;
+    stale_at: Date | null;
+    dedupe_key: string;
+    embedding: string;
+    vector_sim: number | null;
+    vector_rank: number | null;
+    text_rank: number | null;
+    rrf_score: number;
+  }>(sql`
+    WITH vec AS (
+      SELECT id,
+             1 - (embedding <=> ${vec}::vector) AS sim,
+             ROW_NUMBER() OVER (ORDER BY embedding <=> ${vec}::vector) AS rank
+      FROM data_source_facts
+      WHERE 1=1 ${sourceFilter} ${categoryFilter}
+      ORDER BY embedding <=> ${vec}::vector
+      LIMIT ${CAND}
+    ),
+    txt AS (
+      SELECT id,
+             ROW_NUMBER() OVER (ORDER BY ts_rank_cd(content_tsv, q) DESC) AS rank
+      FROM data_source_facts, plainto_tsquery('english', ${query}) q
+      WHERE content_tsv @@ q ${sourceFilter} ${categoryFilter}
+      ORDER BY ts_rank_cd(content_tsv, q) DESC
+      LIMIT ${CAND}
+    ),
+    fused AS (
+      SELECT
+        COALESCE(v.id, t.id) AS id,
+        v.sim AS vector_sim,
+        v.rank::int AS vector_rank,
+        t.rank::int AS text_rank,
+        COALESCE(1.0 / (${RRF_K} + v.rank), 0) +
+        COALESCE(1.0 / (${RRF_K} + t.rank), 0) AS rrf_score
+      FROM vec v
+      FULL OUTER JOIN txt t ON v.id = t.id
+    )
+    SELECT f.*, fused.vector_sim, fused.vector_rank, fused.text_rank, fused.rrf_score
+    FROM fused
+    JOIN data_source_facts f ON f.id = fused.id
+    ORDER BY fused.rrf_score DESC
+    LIMIT ${topK}
+  `);
+
+  // Drizzle's db.execute returns { rows: [...] } for raw SQL.
+  const raw: any[] = (rows as any).rows ?? rows;
+
+  return raw
+    .filter((r: any) => {
+      // Keep if it's a strong vector match OR it surfaced via text search.
+      const sim = r.vector_sim != null ? Number(r.vector_sim) : 0;
+      const matchedText = r.text_rank != null;
+      return sim >= minSimilarity || matchedText;
     })
-    .from(dataSourceFacts)
-    .where(whereClause)
-    .orderBy(sql`${dataSourceFacts.embedding} <=> ${vec}::vector`)
-    .limit(topK);
-
-  return rows
-    .filter((r) => Number(r.similarity) >= minSimilarity)
-    .map((r) => ({ fact: r.fact, similarity: Number(r.similarity) }));
+    .map((r: any) => ({
+      fact: {
+        id: r.id,
+        source: r.source,
+        scope: r.scope,
+        scopeRef: r.scope_ref,
+        category: r.category,
+        content: r.content,
+        confidence: r.confidence,
+        sourceOfFact: r.source_of_fact,
+        observedCount: r.observed_count,
+        createdAt: r.created_at,
+        lastSeenAt: r.last_seen_at,
+        staleAt: r.stale_at,
+        dedupeKey: r.dedupe_key,
+        embedding: r.embedding,
+      } as DataSourceFact,
+      similarity: r.vector_sim != null ? Number(r.vector_sim) : 0,
+      rrfScore: Number(r.rrf_score),
+      vectorRank: r.vector_rank != null ? Number(r.vector_rank) : null,
+      textRank: r.text_rank != null ? Number(r.text_rank) : null,
+    }));
 }
 
 /**
