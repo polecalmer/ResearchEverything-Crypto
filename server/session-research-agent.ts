@@ -7,16 +7,23 @@ import * as vm from "vm";
 import { retrieveRelevantContext, formatRetrievedContext } from "./brain-retrieval";
 
 export interface ResearchArtifact {
-  type: "chart" | "table" | "metric_cards";
-  title: string;
-  data: any[];
+  type: "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote";
+  title?: string;
+  data?: any[];
   chartConfig?: {
     chartType: "line" | "bar" | "area" | "composed";
     xAxis: { dataKey: string; label?: string; format?: string };
     yAxes: Array<{ dataKey: string; label?: string; format?: string; chartType?: string }>;
   };
   columns?: string[];
+  variant?: "insight" | "risk" | "contrarian" | "catch";
+  text?: string;
+  attribution?: string;
+  left?: { label: string; items: string[] };
+  right?: { label: string; items: string[] };
 }
+
+export type ResearchMode = "quick" | "focused" | "deep";
 
 export interface BrainEntity {
   type: "protocol" | "token" | "chain" | "person" | "fund" | "concept";
@@ -91,6 +98,8 @@ export interface ResearchResponse {
   costBasis: "receipt" | "voucher_estimate";
   toolCalls: string[];
   brainUpdates?: BrainUpdate;
+  mode: ResearchMode;
+  modeReason: string;
 }
 
 export type BrainContext = BrainGraph | null;
@@ -327,119 +336,170 @@ IMPORTANT: Only record facts that came from tool calls (verified data). Mark pro
   },
 ];
 
-const SYSTEM_PROMPT = `You are a Senior DeFi Research Analyst at Sessions — an AI research platform that captures and compounds knowledge. You produce analysis comparable to top-tier crypto research desks (Messari, Delphi Digital, Galaxy Research).
+const BASE_PROMPT = `You are a Senior DeFi Research Analyst at Sessions — an AI research platform that captures and compounds knowledge.
 
-You have access to tools to query live blockchain data, search the web, fetch real-time token metrics, and execute code for financial modeling. Use them aggressively — never guess or hallucinate numbers. Call multiple tools to build comprehensive views.
-
-RESEARCH METHODOLOGY:
-1. PLAN FIRST: Before making any tool calls, outline your research approach and what data you need
-2. GATHER BROADLY: Pull data from multiple sources — DeFiLlama for aggregate metrics, token snapshots for current valuation, web search for qualitative context (governance proposals, ecosystem developments, competitive landscape), Dune for on-chain granularity
-3. COMPUTE WITH CODE: Use execute_code for all financial calculations — growth rates, P/S ratios, scenario models, NTM projections. Never do complex math in your response text
-4. SYNTHESIZE DEEPLY: Don't just present data — analyze what it means for valuation, competitive position, and investment thesis
-
-FINANCIAL MODELING FRAMEWORKS:
-When doing valuation or financial analysis, always consider:
-- **Multiple MCAP definitions**: Circulating MCAP, EV-Adjusted MCAP (subtract treasury/locked tokens), NTM-Diluted MCAP (account for upcoming unlocks minus buybacks), and FDV
-- **Scenario analysis**: Bear / Base / Bull cases with explicit growth rate assumptions and discount factors
-- **Historical context**: Track how P/S, P/F, and other multiples have traded over time to contextualize current levels
-- **Sensitivity matrices**: Show how multiples change across scenarios and MCAP definitions
-- **Catalyst mapping**: Identify specific upcoming events (governance proposals, product launches, token unlocks) that could shift the thesis
-- **Comparable protocol analysis**: Always benchmark against relevant peers
-- **Revenue quality**: Distinguish organic vs incentivized revenue, fee capture rates, take rates
-
-RESPONSE FORMAT:
-- Write thorough, structured analysis in markdown with clear section headers
-- Lead with a snapshot of key metrics using metric cards
-- Embed charts and tables inline using special artifact blocks
-- Every section should have a "so what?" — don't just present data, explain what it means
-
-For metric cards (KPI-style summary at top), use:
-\`\`\`artifact:metric_cards
-{
-  "title": "Snapshot: Current State",
-  "data": [
-    {"label": "Price", "value": "$44.96", "subtitle": "As of Apr 14, 2026"},
-    {"label": "Circ. MCAP", "value": "$10.7B", "subtitle": "238M HYPE circ."},
-    {"label": "LTM Revenue", "value": "$936M", "subtitle": "Trailing 12 months"}
-  ]
-}
-\`\`\`
-
-For charts, use:
-\`\`\`artifact:chart
-{
-  "title": "Chart Title",
-  "chartType": "line|bar|area|composed",
-  "xAxis": { "dataKey": "column_name", "label": "X Label", "format": "date|currency|number|percent" },
-  "yAxes": [{ "dataKey": "column_name", "label": "Y Label", "format": "currency|number|percent", "chartType": "bar|line|area" }],
-  "data": [{"column_name": value, ...}, ...]
-}
-\`\`\`
-
-IMPORTANT CHART RULES:
-- When two Y-axis series have DIFFERENT units (e.g. revenue in $ vs growth rate in %), use chartType: "composed" with different formats per yAxis — the system renders a dual-axis chart automatically
-- For composed charts, specify chartType on each yAxis entry (e.g. first yAxis: {chartType: "bar", format: "currency"}, second yAxis: {chartType: "line", format: "percent"})
-- NEVER plot $ values and % values on the same axis — they will be invisible. Use composed charts or separate charts
-- Keep data arrays under 100 points for bar charts, under 365 for line charts
-
-For tables, use:
-\`\`\`artifact:table
-{
-  "title": "Table Title",
-  "columns": ["col1", "col2"],
-  "data": [{"col1": "val1", "col2": "val2"}, ...]
-}
-\`\`\`
-
-TOOL USAGE GUIDELINES:
-- Start with get_token_snapshot for current price/mcap/supply data
-- Use DeFiLlama for historical metrics (TVL, fees, revenue, volume)
-- Use query_yield_pools for yield/APY data and liquidity pool analysis
-- Use query_stablecoins for stablecoin market landscape
-- Use query_chain_tvl for chain-level TVL trends (L1 vs L2 capital flows)
-- Use web search (built into this model) for qualitative context — governance proposals, ecosystem news, analyst estimates, token unlock schedules
-- Use execute_code for ALL financial calculations — growth rates, projected revenue, P/S ratios, scenario analysis, sensitivity tables
-- Use Dune SQL for on-chain granularity (active users, transaction counts, wallet distributions)
-- Before writing Dune SQL, use discover_dune_tables to find the right tables
-- When comparing protocols, use compare_protocols for quick benchmarks
-- Make 10-20+ tool calls for complex questions — don't satisfice with 3-4 calls
-- THINK DEEPLY before each tool call about what data you actually need
-- If a tool call fails, explain what happened and try an alternative approach
+You have access to tools to query live blockchain data, search the web, fetch real-time token metrics, and execute code for financial modeling. Use them when needed — never guess or hallucinate numbers.
 
 DATA INTEGRITY — ABSOLUTELY CRITICAL:
-- NEVER cite a number for price, TVL, revenue, fees, volume, mcap, FDV, supply, or any live/historical metric unless you fetched it from a tool in THIS conversation
-- Web search is for QUALITATIVE context only (governance proposals, news, ecosystem developments, analyst opinions) — NEVER use web search results as the source for financial numbers
-- If you need a number, CALL THE TOOL. Do not recall numbers from your training data or previous knowledge
-- If a tool call fails and you cannot get a number, SAY SO explicitly — never fill in a "reasonable estimate" for what should be live data
-- ESTIMATES and PROJECTIONS are fine — but they must be clearly labeled as estimates and derived from tool-fetched base data via execute_code, with assumptions listed
-- Every number in metric_cards, charts, and tables must trace back to a specific tool call
+- NEVER cite a number for price, TVL, revenue, fees, volume, mcap, FDV, supply, or any live/historical metric unless either (a) you fetched it from a tool in THIS conversation, or (b) it appears in the RESEARCH BRAIN context as a "verified" fact (NOT marked stale).
+- Brain facts marked "stale" or "estimated" must be re-fetched if you cite them.
+- Web search is for QUALITATIVE context only (governance proposals, news, ecosystem developments, analyst opinions) — NEVER use web search results as the source for financial numbers.
+- If a tool call fails, SAY SO explicitly — never fill in a "reasonable estimate" for what should be live data.
+- Every number in metric_cards, charts, and tables must trace back to a specific tool call OR a verified brain fact.
 
-OUTPUT QUALITY RULES:
-- Format large numbers readably ($1.2B, not $1,200,000,000)
-- Always show your work — make assumptions explicit and number every assumption
-- End with a clear investment thesis or actionable conclusion with a probability-weighted price target
-- Use metric_cards at the TOP of every analysis for the key snapshot numbers — these render as a compact table row, so keep labels short
-- Use tables for scenario analysis and sensitivity matrices — never write them as plain text
-- Use composed charts (dual-axis) when comparing $ values with % values — NEVER on the same axis
-- Every bullet point should have a "so what" — raw data without interpretation is useless
-- Bold key numbers and conclusions — the reader should be able to skim and get the thesis
-- Structure long responses with clear H2 headers: Current State → Historical Analysis → Forward Model → Scenarios → Thesis
-- When using execute_code, always assign a COMPLETE result object with labeled fields, not raw numbers
+ARTIFACT FORMATS:
+For metric cards (compact KPI row):
+\`\`\`artifact:metric_cards
+{"title": "Snapshot", "data": [{"label": "Price", "value": "$44.96", "subtitle": "As of Apr 14"}]}
+\`\`\`
+
+For charts:
+\`\`\`artifact:chart
+{"title": "...", "chartType": "line|bar|area|composed", "xAxis": {"dataKey": "...", "format": "date|currency|number|percent"}, "yAxes": [{"dataKey": "...", "format": "...", "chartType": "..."}], "data": [...]}
+\`\`\`
+- Use "composed" with different formats per yAxis when mixing $ and % series
+- NEVER plot $ and % on same axis. Keep data under 365 points.
+
+For tables:
+\`\`\`artifact:table
+{"title": "...", "columns": ["col1", "col2"], "data": [...]}
+\`\`\`
+
+For callouts (use SPARINGLY to break up density — max 1-2 per response):
+\`\`\`artifact:callout
+{"variant": "insight|risk|contrarian|catch", "title": "Optional headline", "text": "The key takeaway in 1-2 sentences"}
+\`\`\`
+- "insight" = the non-obvious finding worth bolding
+- "risk" = a real downside the analysis surfaces
+- "contrarian" = where you disagree with consensus
+- "catch" = the gotcha most people miss
+
+For two-column comparisons (Bull vs Bear, Market thinks vs Reality, etc):
+\`\`\`artifact:comparison
+{"title": "Optional", "left": {"label": "Market Believes", "items": ["..."]}, "right": {"label": "Reality", "items": ["..."]}}
+\`\`\`
+
+For pull quotes (the one-line takeaway worth highlighting):
+\`\`\`artifact:quote
+{"text": "The bear case is NOT emissions — it's Base ecosystem dependency.", "attribution": "Optional source"}
+\`\`\`
 
 RESEARCH BRAIN — KNOWLEDGE GRAPH:
-You have access to a persistent Research Brain that accumulates intelligence across all sessions. At the END of every analysis, you MUST call update_research_brain to record what you learned.
+You have access to a persistent Research Brain that accumulates intelligence across all sessions. At the END of every analysis (regardless of mode), call update_research_brain to record verified findings.
 
 What to record:
-- entities: Every protocol, token, chain, person, fund, or concept you analyzed — with type, category, chains, competitors, tags, and a 1-sentence summary
-- relationships: How entities connect — competes_with, built_on, invested_in, forked_from, partners_with, related_to
-- facts: Specific verified data points from your tool calls — each fact links to the entities it relates to and names the source tool
-- preferences: Any analysis preferences you inferred about the user (valuation frameworks they prefer, sectors they focus on, etc.)
+- entities: Protocols, tokens, chains, people, funds, concepts you analyzed — with type, category, chains, competitors, tags, 1-sentence summary
+- relationships: How entities connect (competes_with, built_on, invested_in, etc.)
+- facts: Specific verified data points from your tool calls — link to entities, name the source tool
+- preferences: Analysis preferences you inferred (valuation frameworks, sectors, focus areas)
 
-The brain context injected above (if present) shows what you already know from past sessions. USE IT:
-- Reference prior findings when relevant ("In our previous analysis, HYPE revenue was $X — it has since grown to $Y")
-- Note when data has changed significantly from what the brain recorded
-- Build on past research instead of starting from scratch
-- If the brain shows competitors for an entity, include them in your analysis without the user having to ask`;
+The brain context injected below (if present) shows what you already know. USE IT:
+- Reference prior findings when relevant ("Last time HYPE rev was $X — now $Y")
+- Trust facts marked "verified" — don't re-fetch them
+- DO re-fetch facts marked "stale" (live metrics older than 12h) before citing
+- Build on past research instead of restarting
+- If brain has competitors for an entity, include them without the user asking`;
+
+const QUICK_RULES = `RESPONSE MODE: QUICK
+The user asked a clarification, recall, or simple factual question. Match that energy.
+
+- Answer in 1-3 sentences. NO headers, NO sections, NO scenario analysis, NO price targets.
+- Cite numbers from the brain context if available (verified facts only). Only call tools if the answer truly requires fresh data.
+- Maximum 1 tool call (skip if brain context covers it).
+- NO artifacts unless the answer is fundamentally a single number (then use one metric_card).
+- Still call update_research_brain at the end if you learned anything new.
+- Do not lecture. Do not add "additionally" sections. The user wants the answer, not the dissertation.`;
+
+const FOCUSED_RULES = `RESPONSE MODE: FOCUSED
+The user asked a targeted question that needs real analysis but not a full deep-dive.
+
+- 2-5 paragraphs of clear analysis. Use 1-2 H3 headers if it helps structure.
+- Pull data when the brain doesn't have it, or when brain facts are stale. 2-5 tool calls is the right range.
+- 0-2 artifacts: maybe one chart OR table OR comparison. NOT all four.
+- Lead with the answer, then the reasoning. Don't bury the lede behind 6 paragraphs of setup.
+- Use a callout if there's one genuinely non-obvious takeaway.
+- Skip the bear/base/bull scenario unless the question is explicitly about valuation.
+- End with a brief "what this means" — but no probability-weighted price targets unless asked.`;
+
+const DEEP_RULES = `RESPONSE MODE: DEEP
+The user explicitly asked for a deep dive, full analysis, or comprehensive breakdown.
+
+RESEARCH METHODOLOGY:
+1. PLAN FIRST: Outline approach before tool calls
+2. GATHER BROADLY: Multiple sources — DeFiLlama, token snapshots, web search for qualitative context, Dune for on-chain granularity
+3. COMPUTE WITH CODE: execute_code for all financial calculations
+4. SYNTHESIZE DEEPLY: Analyze what data means, don't just present it
+
+FINANCIAL FRAMEWORKS:
+- Multiple MCAP definitions (Circulating, EV-Adjusted, NTM-Diluted, FDV)
+- Bear/Base/Bull scenario analysis with explicit assumptions
+- Historical context for multiples (P/S, P/F over time)
+- Sensitivity matrices, catalyst mapping, comparable protocol analysis
+- Distinguish organic vs incentivized revenue
+
+OUTPUT STRUCTURE:
+- Lead with metric_cards snapshot (key KPIs)
+- Clear H2 sections: Current State → Historical → Forward Model → Scenarios → Thesis
+- Embed charts/tables inline. Use composed charts for $ + % comparisons.
+- Use 1-2 callouts for the non-obvious findings, 1 comparison block for bull/bear or market/reality framings, 1 quote for the punchline takeaway.
+- Every section gets a "so what" — raw data without interpretation is useless.
+- End with probability-weighted thesis and price target with assumptions listed.
+- 10-15 tool calls is normal. Don't satisfice with 3-4.
+
+QUALITY:
+- Format large numbers readably ($1.2B, not $1,200,000,000)
+- Bold key numbers — reader should skim and get the thesis
+- Show your work — assumptions explicit and numbered`;
+
+function buildSystemPrompt(mode: ResearchMode, brainContext: string): string {
+  const modeRules = mode === "quick" ? QUICK_RULES : mode === "focused" ? FOCUSED_RULES : DEEP_RULES;
+  return `${BASE_PROMPT}\n\n${modeRules}${brainContext}`;
+}
+
+const INTENT_CLASSIFIER_PROMPT = `You classify the user's last message into one of three modes for a crypto research assistant.
+
+quick = clarification, fact recall, simple lookup, "what does X mean", "which was higher", "what was the lock rate", short follow-up that doesn't need new analysis
+focused = targeted question needing some research — "show me the TVL trend", "what's the P/S vs UNI", "explain the merger", "compare X and Y at a high level", "how does this affect Z"
+deep = explicit deep-dive, full analysis, comprehensive breakdown — "dive deep into", "deep analysis", "full breakdown", "thorough analysis", "competitive analysis", "build me a model", first message in a new session that asks open-ended "tell me about X"
+
+Output ONLY valid JSON: {"mode": "quick|focused|deep", "reason": "<one short phrase>"}`;
+
+export async function classifyIntent(
+  userMessage: string,
+  recentHistory: Array<{ role: string; content: string }>,
+): Promise<{ mode: ResearchMode; reason: string; cost: number; inputTokens: number; outputTokens: number }> {
+  const lastAssistant = [...recentHistory].reverse().find(m => m.role === "assistant");
+  const contextSnippet = lastAssistant ? `\n\nPrevious assistant response (first 400 chars): "${lastAssistant.content.slice(0, 400)}"` : "";
+  const userMsg = `User's message: "${userMessage}"${contextSnippet}`;
+
+  try {
+    const response = await callAnthropicRaw({
+      model: "claude-opus-4-6",
+      max_tokens: 100,
+      system: INTENT_CLASSIFIER_PROMPT,
+      messages: [{ role: "user", content: userMsg }],
+    });
+    const text = response.content
+      .filter((b: any) => b.type === "text")
+      .map((b: any) => b.text)
+      .join("");
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      const mode: ResearchMode = ["quick", "focused", "deep"].includes(parsed.mode) ? parsed.mode : "focused";
+      return {
+        mode,
+        reason: String(parsed.reason || "").slice(0, 100),
+        cost: response.mppCost,
+        inputTokens: response.usage?.input_tokens || 0,
+        outputTokens: response.usage?.output_tokens || 0,
+      };
+    }
+  } catch (err: any) {
+    console.warn(`[SessionResearch] Intent classification failed: ${err.message}, defaulting to focused`);
+  }
+  return { mode: "focused", reason: "classifier fallback", cost: 0, inputTokens: 0, outputTokens: 0 };
+}
 
 async function executeCode(code: string): Promise<string> {
   try {
@@ -617,11 +677,11 @@ function sampleData(data: any[], maxPoints: number): any[] {
 
 export function parseArtifacts(content: string): ResearchArtifact[] {
   const artifacts: ResearchArtifact[] = [];
-  const regex = /```artifact:(chart|table|metric_cards)\s*\n([\s\S]*?)```/g;
+  const regex = /```artifact:(chart|table|metric_cards|callout|comparison|quote)\s*\n([\s\S]*?)```/g;
   let match;
   while ((match = regex.exec(content)) !== null) {
     try {
-      const type = match[1] as "chart" | "table" | "metric_cards";
+      const type = match[1];
       const json = JSON.parse(match[2].trim());
       if (type === "chart") {
         artifacts.push({
@@ -640,12 +700,33 @@ export function parseArtifacts(content: string): ResearchArtifact[] {
           title: json.title || "Metrics",
           data: json.data || [],
         });
-      } else {
+      } else if (type === "table") {
         artifacts.push({
           type: "table",
           title: json.title || "Table",
           data: json.data || [],
           columns: json.columns || Object.keys(json.data?.[0] || {}),
+        });
+      } else if (type === "callout") {
+        const variant = ["insight", "risk", "contrarian", "catch"].includes(json.variant) ? json.variant : "insight";
+        artifacts.push({
+          type: "callout",
+          variant,
+          title: json.title,
+          text: String(json.text || "").slice(0, 500),
+        });
+      } else if (type === "comparison") {
+        artifacts.push({
+          type: "comparison",
+          title: json.title,
+          left: { label: String(json.left?.label || "Left"), items: (json.left?.items || []).map(String).slice(0, 8) },
+          right: { label: String(json.right?.label || "Right"), items: (json.right?.items || []).map(String).slice(0, 8) },
+        });
+      } else if (type === "quote") {
+        artifacts.push({
+          type: "quote",
+          text: String(json.text || "").slice(0, 400),
+          attribution: json.attribution ? String(json.attribution).slice(0, 100) : undefined,
         });
       }
     } catch {}
@@ -658,11 +739,15 @@ function summarizeHistory(history: Array<{ role: string; content: string }>): Ar
   const recent = history.slice(-20);
   for (const msg of recent) {
     if (msg.role === "assistant") {
-      const cleaned = msg.content.replace(/```artifact:(chart|table|metric_cards)\s*\n[\s\S]*?```/g, (m, type) => {
+      const withoutModeMarker = msg.content.replace(/^<!--\s*mode:(quick|focused|deep)\s*-->\s*\n?/, "");
+      const cleaned = withoutModeMarker.replace(/```artifact:(chart|table|metric_cards|callout|comparison|quote)\s*\n[\s\S]*?```/g, (m, type) => {
         try {
           const jsonStr = m.replace(/```artifact:\w+\s*\n/, "").replace(/```$/, "").trim();
           const json = JSON.parse(jsonStr);
-          return `[${type === "chart" ? "📊" : type === "metric_cards" ? "📈" : "📋"} ${json.title || type}]`;
+          const icon = type === "chart" ? "📊" : type === "metric_cards" ? "📈" : type === "table" ? "📋"
+            : type === "callout" ? "💡" : type === "comparison" ? "⚖️" : "❝";
+          const label = json.title || json.text?.slice(0, 60) || type;
+          return `[${icon} ${label}]`;
         } catch {
           return `[${type}]`;
         }
@@ -723,6 +808,7 @@ export async function runSessionResearchAgent(
   history: Array<{ role: string; content: string }>,
   brain: BrainContext | null,
   onStep?: (step: ThinkingStep) => void,
+  forceMode?: ResearchMode,
 ): Promise<ResearchResponse> {
   const toolCalls: string[] = [];
   let totalCost = 0;
@@ -731,10 +817,27 @@ export async function runSessionResearchAgent(
   let anyCostSourceVoucher = false;
   let pendingBrainUpdate: BrainUpdate | undefined;
 
+  let mode: ResearchMode;
+  let modeReason: string;
+  if (forceMode) {
+    mode = forceMode;
+    modeReason = "user override";
+    console.log(`[SessionResearch] Mode: ${mode} (forced by user)`);
+  } else {
+    onStep?.({ type: "thinking", label: "Reading your question..." });
+    const classified = await classifyIntent(userMessage, history);
+    mode = classified.mode;
+    modeReason = classified.reason;
+    totalCost += classified.cost;
+    totalInputTokens += classified.inputTokens;
+    totalOutputTokens += classified.outputTokens;
+    console.log(`[SessionResearch] Mode: ${mode} (${modeReason})`);
+  }
+
   const retrieved = retrieveRelevantContext(userMessage, brain);
   const brainContext = formatRetrievedContext(retrieved);
   console.log(`[SessionResearch] Brain retrieval: ${retrieved.retrievalSummary}`);
-  const systemPrompt = SYSTEM_PROMPT + brainContext;
+  const systemPrompt = buildSystemPrompt(mode, brainContext);
 
   const messages: Array<{ role: string; content: any }> = summarizeHistory(history);
   messages.push({ role: "user", content: userMessage });
@@ -748,20 +851,21 @@ export async function runSessionResearchAgent(
   anthropicTools.push({
     type: "web_search_20250305",
     name: "web_search",
-    max_uses: 5,
+    max_uses: mode === "quick" ? 1 : mode === "focused" ? 3 : 5,
   });
 
-  const MAX_TOOL_ROUNDS = 15;
+  const MAX_TOOL_ROUNDS = mode === "quick" ? 3 : mode === "focused" ? 6 : 15;
+  const maxTokens = mode === "quick" ? 2000 : mode === "focused" ? 6000 : 16000;
   let finalText = "";
 
-  onStep?.({ type: "thinking", label: "Analyzing research approach..." });
+  onStep?.({ type: "thinking", label: mode === "quick" ? "Composing a quick answer..." : mode === "focused" ? "Working through this..." : "Planning deep analysis..." });
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     console.log(`[SessionResearch] Round ${round + 1}/${MAX_TOOL_ROUNDS}`);
 
     const requestBody: any = {
       model: "claude-opus-4-6",
-      max_tokens: 16000,
+      max_tokens: maxTokens,
       system: systemPrompt,
       messages,
       tools: anthropicTools,
@@ -869,5 +973,7 @@ export async function runSessionResearchAgent(
     costBasis: anyCostSourceVoucher ? "voucher_estimate" : "receipt",
     toolCalls,
     brainUpdates: pendingBrainUpdate,
+    mode,
+    modeReason,
   };
 }

@@ -207,6 +207,10 @@ export function formatRetrievedContext(ctx: RetrievedContext): string {
   }
 
   if (ctx.facts.length > 0) {
+    const LIVE_METRIC_PATTERNS = /\b(price|tvl|mcap|market cap|fdv|fee|fees|revenue|volume|apy|apr|yield|supply|circulating|inflation|holders|active users|dau|wau)\b/i;
+    const STALENESS_HOURS = 12;
+    const now = Date.now();
+
     const byEntity: Record<string, BrainFact[]> = {};
     for (const fact of ctx.facts) {
       for (const ent of fact.entities) {
@@ -218,9 +222,24 @@ export function formatRetrievedContext(ctx: RetrievedContext): string {
     for (const [ent, facts] of Object.entries(byEntity)) {
       factLines.push(`${ent}:`);
       for (const f of facts.slice(-5)) {
-        const conf = f.confidence === "estimated" ? " ⚠️ estimated" : "";
-        const stale = f.supersedes ? " (updated)" : "";
-        factLines.push(`  - [${f.date}] ${f.fact} (via ${f.source})${conf}${stale}`);
+        const factText = `${f.topic} ${f.fact}`;
+        const isLiveMetric = LIVE_METRIC_PATTERNS.test(factText);
+        let ageHours = Infinity;
+        if (f.date) {
+          const factTs = new Date(f.date).getTime();
+          if (!isNaN(factTs)) ageHours = (now - factTs) / 3600000;
+        }
+        const isStale = isLiveMetric && ageHours > STALENESS_HOURS;
+        const isSuperseded = !!f.supersedes;
+        const explicitlyStale = f.confidence === "stale";
+
+        let badge = "";
+        if (explicitlyStale || isSuperseded) badge = " [stale — superseded]";
+        else if (isStale) badge = " [stale — refetch before citing]";
+        else if (f.confidence === "estimated") badge = " [estimated]";
+        else badge = " [verified]";
+
+        factLines.push(`  - [${f.date}] ${f.fact} (via ${f.source})${badge}`);
       }
     }
     sections.push("PRIOR KNOWLEDGE:\n" + factLines.join("\n"));

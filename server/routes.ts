@@ -1957,10 +1957,12 @@ export async function registerRoutes(
         return res.status(404).json({ message: "Session not found" });
       }
 
-      const { message } = req.body;
+      const { message, forceMode, refreshBrain } = req.body;
       if (!message || typeof message !== "string") {
         return res.status(400).json({ message: "Message is required" });
       }
+      const validModes = ["quick", "focused", "deep"];
+      const mode: "quick" | "focused" | "deep" | undefined = validModes.includes(forceMode) ? forceMode : undefined;
 
       res.writeHead(200, {
         "Content-Type": "text/event-stream",
@@ -1998,15 +2000,29 @@ export async function registerRoutes(
       } : null;
 
       const { runSessionResearchAgent, parseArtifacts } = await import("./session-research-agent");
-      const result = await runSessionResearchAgent(message, historyForAgent.slice(0, -1), brain, (step) => {
+
+      let brainForAgent = brain;
+      if (refreshBrain && brain) {
+        const LIVE = /\b(price|tvl|mcap|market cap|fdv|fee|fees|revenue|volume|apy|apr|yield|supply|circulating|inflation|holders|active users|dau|wau)\b/i;
+        const filtered = (brain.knowledge || []).filter((f: any) => {
+          const text = `${f.topic || ""} ${f.fact || ""}`;
+          return !LIVE.test(text);
+        });
+        brainForAgent = { ...brain, knowledge: filtered };
+        console.log(`[SessionResearch] refreshBrain=true → dropped ${(brain.knowledge || []).length - filtered.length} live-metric facts from context`);
+      }
+
+      const result = await runSessionResearchAgent(message, historyForAgent.slice(0, -1), brainForAgent, (step) => {
         sendEvent("step", step);
-      });
+      }, mode);
+      sendEvent("mode", { mode: result.mode, reason: result.modeReason });
 
       const artifacts = parseArtifacts(result.content);
+      const contentWithMode = `<!-- mode:${result.mode} -->\n${result.content}`;
       const assistantMsg = await storage.createMessage({
         conversationId: session.id,
         role: "assistant",
-        content: result.content,
+        content: contentWithMode,
         artifacts: artifacts.length > 0 ? artifacts : undefined,
       });
 
@@ -2019,6 +2035,7 @@ export async function registerRoutes(
         try {
           const existing = brainRecord || { entities: {}, knowledge: [], preferences: {}, relationships: [], contradictions: [], meta: { totalSessions: 0, lastActive: "", topEntities: [] } };
           const today = new Date().toISOString().slice(0, 10);
+          const nowISO = new Date().toISOString();
 
           const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype", "toString", "valueOf"]);
           const mergedEntities = { ...(existing.entities as any || {}) };
@@ -2063,11 +2080,27 @@ export async function registerRoutes(
               existingFact.confidence = "stale";
               existingFact.supersedes = id;
             }
-            acc.push({ ...f, id, date: today });
+            acc.push({ ...f, id, date: nowISO });
             return acc;
           }, []);
 
-          const mergedKnowledge = [...existingFacts, ...newFacts].slice(-200);
+          const LIVE_METRIC_RE = /\b(price|tvl|mcap|market cap|fdv|fee|fees|revenue|volume|apy|apr|yield|supply|circulating|inflation|holders|active users|dau|wau)\b/i;
+          const SEVEN_DAYS_MS = 7 * 24 * 3600 * 1000;
+          const nowMs = Date.now();
+          const combined = [...existingFacts, ...newFacts];
+          const pruned = combined.filter((f: any) => {
+            const text = `${f.topic || ""} ${f.fact || ""}`;
+            if (!LIVE_METRIC_RE.test(text)) return true;
+            if (!f.date) return true;
+            const factTs = new Date(f.date).getTime();
+            if (isNaN(factTs)) return true;
+            return (nowMs - factTs) < SEVEN_DAYS_MS;
+          });
+          const droppedCount = combined.length - pruned.length;
+          if (droppedCount > 0) {
+            console.log(`[SessionResearch] Pruned ${droppedCount} stale live-metric facts (>7d old)`);
+          }
+          const mergedKnowledge = pruned.slice(-200);
 
           const existingRels = (existing.relationships as any[] || []);
           const newRels = (result.brainUpdates.relationships || []).filter((nr: any) =>

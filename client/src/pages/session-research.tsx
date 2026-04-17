@@ -6,7 +6,8 @@ import { useAuth } from "@/hooks/use-auth";
 import {
   Send, Plus, Trash2, Loader2, MessageSquare,
   CheckCircle2, ChevronDown, Brain, Search, BarChart3,
-  Share2, Link2, Check, X,
+  Share2, Link2, Check, X, Lightbulb, AlertTriangle, Zap, Eye,
+  Quote as QuoteIcon, ArrowDown, ArrowUp, RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -23,16 +24,23 @@ const CHART_COLORS = [
   "hsl(189 94% 43%)", "hsl(322 81% 43%)",
 ];
 
+type ResearchMode = "quick" | "focused" | "deep";
+
 interface Artifact {
-  type: "chart" | "table" | "metric_cards";
-  title: string;
-  data: any[];
+  type: "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote";
+  title?: string;
+  data?: any[];
   chartConfig?: {
     chartType: string;
     xAxis: { dataKey: string; label?: string; format?: string };
     yAxes: Array<{ dataKey: string; label?: string; format?: string; chartType?: string }>;
   };
   columns?: string[];
+  variant?: "insight" | "risk" | "contrarian" | "catch";
+  text?: string;
+  attribution?: string;
+  left?: { label: string; items: string[] };
+  right?: { label: string; items: string[] };
 }
 
 interface SessionMessage {
@@ -297,9 +305,11 @@ function MetricCards({ artifact }: { artifact: Artifact }) {
   );
 }
 
-function parseContentAndArtifacts(content: string, artifacts?: Artifact[] | null): Array<{ type: "text" | "chart" | "table" | "metric_cards"; content?: string; artifact?: Artifact }> {
-  const parts: Array<{ type: "text" | "chart" | "table" | "metric_cards"; content?: string; artifact?: Artifact }> = [];
-  const regex = /```artifact:(chart|table|metric_cards)\s*\n([\s\S]*?)```/g;
+type PartType = "text" | "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote";
+
+function parseContentAndArtifacts(content: string, artifacts?: Artifact[] | null): Array<{ type: PartType; content?: string; artifact?: Artifact }> {
+  const parts: Array<{ type: PartType; content?: string; artifact?: Artifact }> = [];
+  const regex = /```artifact:(chart|table|metric_cards|callout|comparison|quote)\s*\n([\s\S]*?)```/g;
   let lastIndex = 0;
   let artifactIndex = 0;
   let match;
@@ -310,7 +320,7 @@ function parseContentAndArtifacts(content: string, artifacts?: Artifact[] | null
       if (textBefore) parts.push({ type: "text", content: textBefore });
     }
 
-    const type = match[1] as "chart" | "table" | "metric_cards";
+    const type = match[1] as PartType;
     if (artifacts && artifactIndex < artifacts.length) {
       parts.push({ type, artifact: artifacts[artifactIndex] });
       artifactIndex++;
@@ -322,8 +332,14 @@ function parseContentAndArtifacts(content: string, artifacts?: Artifact[] | null
           artifact = { type: "chart", title: json.title || "Chart", data: json.data || [], chartConfig: { chartType: json.chartType || "line", xAxis: json.xAxis || { dataKey: "date" }, yAxes: json.yAxes || [] } };
         } else if (type === "metric_cards") {
           artifact = { type: "metric_cards", title: json.title || "Metrics", data: json.data || [] };
-        } else {
+        } else if (type === "table") {
           artifact = { type: "table", title: json.title || "Table", data: json.data || [], columns: json.columns };
+        } else if (type === "callout") {
+          artifact = { type: "callout", variant: json.variant || "insight", title: json.title, text: json.text || "" };
+        } else if (type === "comparison") {
+          artifact = { type: "comparison", title: json.title, left: json.left || { label: "Left", items: [] }, right: json.right || { label: "Right", items: [] } };
+        } else {
+          artifact = { type: "quote", text: json.text || "", attribution: json.attribution };
         }
         parts.push({ type, artifact });
       } catch {}
@@ -341,6 +357,68 @@ function parseContentAndArtifacts(content: string, artifacts?: Artifact[] | null
   }
 
   return parts;
+}
+
+function CalloutBlock({ artifact }: { artifact: Artifact }) {
+  const variant = artifact.variant || "insight";
+  const config = {
+    insight: { icon: Lightbulb, label: "Insight", colors: "border-blue-400/40 bg-blue-400/5 text-blue-300" },
+    risk: { icon: AlertTriangle, label: "Risk", colors: "border-amber-400/40 bg-amber-400/5 text-amber-300" },
+    contrarian: { icon: Zap, label: "Contrarian", colors: "border-purple-400/40 bg-purple-400/5 text-purple-300" },
+    catch: { icon: Eye, label: "The Catch", colors: "border-rose-400/40 bg-rose-400/5 text-rose-300" },
+  }[variant];
+  const Icon = config.icon;
+  return (
+    <div className={`my-3 rounded border ${config.colors} px-3 py-2`} data-testid={`callout-${variant}`}>
+      <div className="flex items-center gap-1.5 mb-1">
+        <Icon className="w-3 h-3" />
+        <span className="text-[9px] uppercase tracking-wider font-semibold">{artifact.title || config.label}</span>
+      </div>
+      <p className="text-[10px] text-foreground/85 leading-relaxed">{artifact.text}</p>
+    </div>
+  );
+}
+
+function ComparisonBlock({ artifact }: { artifact: Artifact }) {
+  const { left, right, title } = artifact;
+  if (!left || !right) return null;
+  return (
+    <div className="my-3 rounded border border-border/40 bg-card/20 overflow-hidden" data-testid="comparison-block">
+      {title && <div className="text-[10px] font-medium text-foreground/80 px-3 pt-2 pb-1">{title}</div>}
+      <div className="grid grid-cols-2 divide-x divide-border/30">
+        <div className="px-3 py-2">
+          <div className="text-[9px] uppercase tracking-wider text-muted-foreground/70 mb-1.5 font-medium">{left.label}</div>
+          <ul className="space-y-1">
+            {left.items.map((item, i) => (
+              <li key={i} className="text-[10px] text-foreground/80 leading-relaxed">• {item}</li>
+            ))}
+          </ul>
+        </div>
+        <div className="px-3 py-2">
+          <div className="text-[9px] uppercase tracking-wider text-muted-foreground/70 mb-1.5 font-medium">{right.label}</div>
+          <ul className="space-y-1">
+            {right.items.map((item, i) => (
+              <li key={i} className="text-[10px] text-foreground/80 leading-relaxed">• {item}</li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QuoteBlock({ artifact }: { artifact: Artifact }) {
+  return (
+    <div className="my-3 border-l-2 border-primary/50 pl-3 py-1" data-testid="quote-block">
+      <div className="flex items-start gap-2">
+        <QuoteIcon className="w-3 h-3 mt-0.5 text-primary/60 flex-shrink-0" />
+        <div>
+          <p className="text-[11px] text-foreground/90 italic leading-relaxed">{artifact.text}</p>
+          {artifact.attribution && <p className="text-[9px] text-muted-foreground/60 mt-1">— {artifact.attribution}</p>}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function InlineFormatted({ text }: { text: string }) {
@@ -382,7 +460,40 @@ function MarkdownText({ text }: { text: string }) {
   );
 }
 
-function MessageBubble({ msg }: { msg: SessionMessage }) {
+const MODE_RE = /^<!--\s*mode:(quick|focused|deep)\s*-->\s*\n?/;
+
+function extractMode(content: string): { mode: ResearchMode | null; cleaned: string } {
+  const m = content.match(MODE_RE);
+  if (m) return { mode: m[1] as ResearchMode, cleaned: content.replace(MODE_RE, "") };
+  return { mode: null, cleaned: content };
+}
+
+function ModeBadge({ mode }: { mode: ResearchMode }) {
+  const config = {
+    quick: { label: "Quick", className: "bg-emerald-400/10 text-emerald-300 border-emerald-400/30" },
+    focused: { label: "Focused", className: "bg-blue-400/10 text-blue-300 border-blue-400/30" },
+    deep: { label: "Deep Dive", className: "bg-purple-400/10 text-purple-300 border-purple-400/30" },
+  }[mode];
+  return (
+    <span className={`inline-block px-1.5 py-0.5 rounded border text-[8px] uppercase tracking-wider font-medium ${config.className}`} data-testid={`mode-badge-${mode}`}>
+      {config.label}
+    </span>
+  );
+}
+
+function MessageBubble({
+  msg,
+  onOverride,
+  isLast,
+  busy,
+  lastUserMessage,
+}: {
+  msg: SessionMessage;
+  onOverride?: (action: { forceMode?: ResearchMode; refreshBrain?: boolean }) => void;
+  isLast?: boolean;
+  busy?: boolean;
+  lastUserMessage?: string;
+}) {
   const isUser = msg.role === "user";
 
   if (isUser) {
@@ -395,10 +506,20 @@ function MessageBubble({ msg }: { msg: SessionMessage }) {
     );
   }
 
-  const parts = parseContentAndArtifacts(msg.content, msg.artifacts as Artifact[] | null);
+  const { mode, cleaned } = extractMode(msg.content);
+  const parts = parseContentAndArtifacts(cleaned, msg.artifacts as Artifact[] | null);
+
+  const showOverrides = isLast && !busy && onOverride && lastUserMessage;
+  const canShorter = mode === "deep" || mode === "focused";
+  const canDeeper = mode === "quick" || mode === "focused";
+  const shorterTo: ResearchMode = mode === "deep" ? "focused" : "quick";
+  const deeperTo: ResearchMode = mode === "quick" ? "focused" : "deep";
 
   return (
     <div className="mb-4" data-testid={`msg-assistant-${msg.id}`}>
+      {mode && (
+        <div className="mb-2"><ModeBadge mode={mode} /></div>
+      )}
       <div className="max-w-full">
         {parts.map((part, i) => {
           if (part.type === "text" && part.content) {
@@ -413,9 +534,47 @@ function MessageBubble({ msg }: { msg: SessionMessage }) {
           if (part.type === "table" && part.artifact) {
             return <InlineTable key={i} artifact={part.artifact} />;
           }
+          if (part.type === "callout" && part.artifact) {
+            return <CalloutBlock key={i} artifact={part.artifact} />;
+          }
+          if (part.type === "comparison" && part.artifact) {
+            return <ComparisonBlock key={i} artifact={part.artifact} />;
+          }
+          if (part.type === "quote" && part.artifact) {
+            return <QuoteBlock key={i} artifact={part.artifact} />;
+          }
           return null;
         })}
       </div>
+      {showOverrides && (
+        <div className="mt-3 flex items-center gap-1.5 flex-wrap" data-testid="mode-overrides">
+          {canShorter && (
+            <button
+              onClick={() => onOverride!({ forceMode: shorterTo })}
+              className="text-[9px] px-2 py-1 rounded border border-border/40 text-muted-foreground/70 hover:text-foreground hover:border-border transition-colors flex items-center gap-1"
+              data-testid="button-shorter"
+            >
+              <ArrowUp className="w-2.5 h-2.5" /> Shorter
+            </button>
+          )}
+          {canDeeper && (
+            <button
+              onClick={() => onOverride!({ forceMode: deeperTo })}
+              className="text-[9px] px-2 py-1 rounded border border-border/40 text-muted-foreground/70 hover:text-foreground hover:border-border transition-colors flex items-center gap-1"
+              data-testid="button-deeper"
+            >
+              <ArrowDown className="w-2.5 h-2.5" /> Deeper
+            </button>
+          )}
+          <button
+            onClick={() => onOverride!({ refreshBrain: true })}
+            className="text-[9px] px-2 py-1 rounded border border-border/40 text-muted-foreground/70 hover:text-foreground hover:border-border transition-colors flex items-center gap-1"
+            data-testid="button-refresh-data"
+          >
+            <RefreshCw className="w-2.5 h-2.5" /> Refresh data
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -611,7 +770,7 @@ export default function SessionResearch() {
     },
   });
 
-  const sendStreamingMessage = useCallback(async (sessionId: number, message: string) => {
+  const sendStreamingMessage = useCallback(async (sessionId: number, message: string, opts?: { forceMode?: ResearchMode; refreshBrain?: boolean }) => {
     setIsSending(true);
     setThinkingSteps([]);
 
@@ -623,7 +782,7 @@ export default function SessionResearch() {
         method: "POST",
         headers,
         credentials: "include",
-        body: JSON.stringify({ message }),
+        body: JSON.stringify({ message, forceMode: opts?.forceMode, refreshBrain: opts?.refreshBrain }),
       });
 
       if (!res.ok) {
@@ -794,9 +953,23 @@ export default function SessionResearch() {
             </div>
           ) : (
             <div className="max-w-2xl mx-auto">
-              {messages.map(msg => (
-                <MessageBubble key={msg.id} msg={msg} />
-              ))}
+              {messages.map((msg, idx) => {
+                const isLast = idx === messages.length - 1 && msg.role === "assistant";
+                const lastUserMsg = [...messages].reverse().find(m => m.role === "user")?.content;
+                return (
+                  <MessageBubble
+                    key={msg.id}
+                    msg={msg}
+                    isLast={isLast}
+                    busy={isSending}
+                    lastUserMessage={lastUserMsg}
+                    onOverride={(action) => {
+                      if (!activeSessionId || !lastUserMsg) return;
+                      sendStreamingMessage(activeSessionId, lastUserMsg, action);
+                    }}
+                  />
+                );
+              })}
               {pendingUserMsg && isSending && (
                 <div className="flex justify-end mb-4" data-testid="msg-user-pending">
                   <div className="max-w-[80%] bg-primary/10 rounded-lg px-3 py-2">
