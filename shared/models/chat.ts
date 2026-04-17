@@ -34,6 +34,11 @@ export const messages = pgTable("messages", {
   // assistant responses as "deep_model" so they can be surfaced in a saved-
   // models list independently of which conversation they live in.
   kind: text("kind"),
+  // Structured ResearchPlan emitted by the planner pre-step. Stored on the
+  // user message that triggered planning so a bad assistant response can be
+  // traced back to the plan that produced it. Null for quick-mode or
+  // pre-planner messages.
+  plan: jsonb("plan"),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 
