@@ -514,7 +514,6 @@ export default function LandingPage() {
         </div>
 
         <div className="relative max-w-6xl mx-auto flex flex-col items-center text-center pointer-events-none">
-          <img src={sessionsLogo} alt="Sessions" className="w-20 h-20 sm:w-24 sm:h-24 object-contain rounded-2xl mb-8 pointer-events-auto" />
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.12] mb-5">
             Research that<br />
             <span className="text-muted-foreground">learns with you.</span>
