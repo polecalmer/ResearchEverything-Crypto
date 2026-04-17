@@ -632,9 +632,6 @@ export default function LandingPage() {
         <section className="min-h-[88vh] flex items-center px-8 lg:px-16 py-24">
           <div className="w-full max-w-[1440px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-10 items-end">
             <div className="lg:col-span-7">
-              <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/60 mb-6">
-                01 &nbsp;/&nbsp; SESSIONS
-              </div>
               <h1 className="text-5xl sm:text-6xl lg:text-[88px] font-bold tracking-tight leading-[0.96] mb-6 whitespace-nowrap">
                 Research that<br />
                 <span className="text-muted-foreground/75">learns with you.</span>
@@ -665,11 +662,7 @@ export default function LandingPage() {
         {/* 02 — Thesis: section number in margin, headline left */}
         <section id="thesis" className="py-32 px-8 lg:px-16">
           <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10">
-            <div className="hidden lg:block lg:col-span-2 font-mono text-[10px] tracking-[0.32em] text-muted-foreground/55 pt-3">
-              02 / THESIS
-            </div>
             <div className="col-span-12 lg:col-span-9">
-              <div className="lg:hidden font-mono text-[10px] tracking-[0.32em] text-muted-foreground/55 mb-4">02 / THESIS</div>
               <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-bold tracking-tight leading-[0.96] mb-6">
                 AI is great.<br />
                 <span className="text-muted-foreground/75">It lacks perspective.</span>
@@ -687,9 +680,6 @@ export default function LandingPage() {
         <section className="py-32 px-8 lg:px-16">
           <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10">
             <div className="col-span-12 lg:col-span-9 lg:col-start-3 lg:text-right">
-              <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/55 mb-4">
-                03 / SIGNAL
-              </div>
               <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-bold tracking-tight leading-[0.96] mb-6">
                 Every session<br />leaves a trace.
               </h2>
@@ -704,11 +694,7 @@ export default function LandingPage() {
         {/* 04 — Compound: left again */}
         <section className="py-32 px-8 lg:px-16">
           <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10">
-            <div className="hidden lg:block lg:col-span-2 font-mono text-[10px] tracking-[0.32em] text-muted-foreground/55 pt-3">
-              04 / COMPOUND
-            </div>
             <div className="col-span-12 lg:col-span-9">
-              <div className="lg:hidden font-mono text-[10px] tracking-[0.32em] text-muted-foreground/55 mb-4">04 / COMPOUND</div>
               <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-bold tracking-tight leading-[0.96] mb-6">
                 Tomorrow's research<br />stands on today's.
               </h2>
@@ -724,9 +710,6 @@ export default function LandingPage() {
         <section className="py-32 px-8 lg:px-16">
           <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10 items-end">
             <div className="col-span-12 lg:col-span-8">
-              <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/55 mb-4">
-                05 / BEGIN
-              </div>
               <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-bold tracking-tight leading-[0.96] mb-6">
                 Start your first<br />session.
               </h2>
