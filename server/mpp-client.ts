@@ -280,12 +280,13 @@ async function callAnthropic(request: AnthropicRequest): Promise<AnthropicRespon
         }
       }
 
-      const isRetryableError = errMsg.includes("fetch") ||
-        errMsg.includes("524") || errMsg.includes("502") || errMsg.includes("503") ||
-        errMsg.includes("timeout") || errMsg.includes("ECONNRESET") ||
+      const is524 = errMsg.includes("524") || errMsg.includes("timeout");
+      const isRetryableError = errMsg.includes("fetch") || is524 ||
+        errMsg.includes("502") || errMsg.includes("503") ||
+        errMsg.includes("ECONNRESET") ||
         errMsg.includes("429") || errMsg.includes("paymentauth");
       if (attempt < MAX_RETRIES && isRetryableError) {
-        const delay = RETRY_DELAY_MS * (attempt + 1);
+        const delay = is524 ? Math.min(30000, 10000 * (attempt + 1)) : RETRY_DELAY_MS * (attempt + 1);
         console.log(`[MPP-Channel] Error: "${errMsg.slice(0, 80)}", retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
         await new Promise((r) => setTimeout(r, delay));
         continue;
@@ -329,7 +330,8 @@ export async function callAnthropicRaw(request: any): Promise<AnthropicRawRespon
       if (!response.ok) {
         const errorText = await response.text().catch(() => "Unknown error");
         if (isRetryable(response.status) && attempt < MAX_RETRIES) {
-          const delay = RETRY_DELAY_MS * (attempt + 1);
+          const delay = (response.status === 524 || response.status === 408) ? Math.min(30000, 10000 * (attempt + 1)) : RETRY_DELAY_MS * (attempt + 1);
+          console.log(`[MPP-Channel] Retryable error ${response.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
           await new Promise((r) => setTimeout(r, delay));
           continue;
         }
@@ -372,9 +374,12 @@ export async function callAnthropicRaw(request: any): Promise<AnthropicRawRespon
           continue;
         }
       }
-      const isRetryableError = errMsg.includes("fetch") || errMsg.includes("524") || errMsg.includes("502") || errMsg.includes("503") || errMsg.includes("timeout") || errMsg.includes("ECONNRESET") || errMsg.includes("429");
+      const is524 = errMsg.includes("524") || errMsg.includes("timeout");
+      const isRetryableError = errMsg.includes("fetch") || is524 || errMsg.includes("502") || errMsg.includes("503") || errMsg.includes("ECONNRESET") || errMsg.includes("429");
       if (attempt < MAX_RETRIES && isRetryableError) {
-        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)));
+        const delay = is524 ? Math.min(30000, 10000 * (attempt + 1)) : RETRY_DELAY_MS * (attempt + 1);
+        console.log(`[MPP-Channel] Error: "${errMsg.slice(0, 80)}", retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
+        await new Promise((r) => setTimeout(r, delay));
         continue;
       }
       throw err;
