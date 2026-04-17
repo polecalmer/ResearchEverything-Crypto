@@ -626,7 +626,7 @@ function SessionsMark({ size = 20, strokeWidth = 1.7, ringWidth = 1, pulseRadius
           <circle r={pulseRadius * 2.2} fill={`url(#${pulseGradId})`} opacity="0">
             <animate attributeName="cx" values={`${p.x};12`} dur="2.4s" begin={p.d} repeatCount="indefinite" />
             <animate attributeName="cy" values={`${p.y};12`} dur="2.4s" begin={p.d} repeatCount="indefinite" />
-            <animate attributeName="opacity" values="0;0.7;0.7;0" keyTimes="0;0.15;0.8;1" dur="2.4s" begin={p.d} repeatCount="indefinite" />
+            <animate attributeName="opacity" values="0;0.35;0.35;0" keyTimes="0;0.15;0.8;1" dur="2.4s" begin={p.d} repeatCount="indefinite" />
           </circle>
           <circle r={pulseRadius} fill="#ffffff" opacity="0">
             <animate attributeName="cx" values={`${p.x};12`} dur="2.4s" begin={p.d} repeatCount="indefinite" />
