@@ -401,13 +401,14 @@ The brain context injected below (if present) shows what you already know. USE I
 - If brain has competitors for an entity, include them without the user asking`;
 
 const QUICK_RULES = `RESPONSE MODE: QUICK
-The user asked a clarification, recall, or simple factual question. Match that energy.
+The user asked a clarification, recall, confirmation, or simple factual question. Match that energy.
 
 - Answer in 1-3 sentences. NO headers, NO sections, NO scenario analysis, NO price targets.
-- Cite numbers from the brain context if available (verified facts only). Only call tools if the answer truly requires fresh data.
-- Maximum 1 tool call (skip if brain context covers it).
+- For confirmation questions ("are you sure?", "really?", "is that right?"): just answer based on the prior conversation. DO NOT call any tools — the analysis is already done above.
+- For recall questions ("what was X?", "remind me of Y"): cite the brain context if available, no tools needed.
+- Only call tools if the question fundamentally cannot be answered without fresh data — and even then, max 1 tool call.
 - NO artifacts unless the answer is fundamentally a single number (then use one metric_card).
-- Still call update_research_brain at the end if you learned anything new.
+- update_research_brain is OPTIONAL in quick mode — only call it if you learned a genuinely new fact, otherwise skip it.
 - Do not lecture. Do not add "additionally" sections. The user wants the answer, not the dissertation.`;
 
 const FOCUSED_RULES = `RESPONSE MODE: FOCUSED
@@ -959,7 +960,31 @@ export async function runSessionResearchAgent(
   }
 
   if (!finalText) {
-    finalText = "I wasn't able to complete the analysis. Please try rephrasing your question.";
+    console.log(`[SessionResearch] No final text after ${MAX_TOOL_ROUNDS} rounds — forcing wrap-up call without tools`);
+    onStep?.({ type: "thinking", label: "Wrapping up..." });
+    try {
+      const wrapUp = await callAnthropicRaw({
+        model: "claude-opus-4-6",
+        max_tokens: maxTokens,
+        system: systemPrompt + "\n\nIMPORTANT: You have used all available tool budget for this turn. Synthesize what you learned from the tool results above into your response now. Do not call any more tools.",
+        messages,
+      });
+      totalCost += wrapUp.mppCost;
+      totalInputTokens += wrapUp.usage?.input_tokens || 0;
+      totalOutputTokens += wrapUp.usage?.output_tokens || 0;
+      if (wrapUp.costSource === "voucher_estimate") anyCostSourceVoucher = true;
+      finalText = wrapUp.content
+        .filter((b: any) => b.type === "text")
+        .map((b: any) => b.text)
+        .join("");
+    } catch (err: any) {
+      console.warn(`[SessionResearch] Wrap-up call failed: ${err.message}`);
+    }
+    if (!finalText) {
+      finalText = "I wasn't able to complete the analysis. Please try rephrasing your question.";
+    } else {
+      onStep?.({ type: "complete", label: "Composing final analysis" });
+    }
   }
 
   const artifacts = parseArtifacts(finalText);
