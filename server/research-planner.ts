@@ -9,6 +9,7 @@ export interface QuestionTypeDef {
   description: string;
   example_prompts: string[];
   required_tools: string[];
+  recommended_tools?: string[];
   banned_tools: string[];
   default_artifact: string;
   typical_sub_shape: string;
@@ -31,20 +32,24 @@ export interface PlaybookDef {
   nodes: PlaybookNode[];
 }
 
+export interface ResolvedFramework {
+  analyst: string;
+  name: string;
+  description: string;
+  steps: string[];
+}
+
 export interface SubQuestion {
   id: string;
   text: string;
-  // Multi-label: a sub-question can legitimately be two types at once
-  // (e.g. "how does sUSDe yield flow to holders" is flow + tokenomics + valuation).
-  // The planner is encouraged to emit 1-3 types per sub-question.
   types: string[];
   depends_on: string[];
   suggested_tools: string[];
   artifact_hint: string;
   lens?: string;
-  // Filled in during reflection if this sub-Q needs revision
   status?: "pending" | "answered" | "needs_revision";
   notes?: string;
+  resolvedFramework?: ResolvedFramework;
 }
 
 export interface ResearchPlan {
@@ -122,6 +127,7 @@ export const KNOWN_AGENT_TOOLS = new Set<string>([
   "query_chain_tvl",
   "query_analyst_corpus",
   "query_analyst_frameworks",
+  "analyst_perspective",
   "update_research_brain",
   "web_search",
 ]);
@@ -157,7 +163,7 @@ function buildPlannerSystemPrompt(): string {
 You do NOT answer the user. You ONLY decompose and classify.
 
 # Question type catalog (v${types.version})
-${types.types.map(t => `- ${t.id}: ${t.description}\n  required_tools: ${JSON.stringify(t.required_tools)}\n  default_artifact: ${t.default_artifact}${t.lens_hint ? `\n  lens_hint: ${t.lens_hint}` : ""}`).join("\n")}
+${types.types.map(t => `- ${t.id}: ${t.description}\n  required_tools: ${JSON.stringify(t.required_tools)}${t.recommended_tools?.length ? `\n  recommended_tools: ${JSON.stringify(t.recommended_tools)}` : ""}\n  default_artifact: ${t.default_artifact}${t.lens_hint ? `\n  lens_hint: ${t.lens_hint}` : ""}`).join("\n")}
 
 # Playbook catalog (v${playbooks.version})
 ${playbooks.playbooks.map(p => `- ${p.id} (${p.name}): ${p.description}\n  trigger: ${p.trigger_pattern}\n  nodes: ${p.nodes.map(n => `${n.id}[${n.types.join("+")}]`).join(" → ")}`).join("\n")}
@@ -167,7 +173,7 @@ ${playbooks.playbooks.map(p => `- ${p.id} (${p.name}): ${p.description}\n  trigg
 2. Classify each sub-question with 1-3 types from the catalog (multi-label is encouraged; e.g. "how does sUSDe yield accrue to holders" = ["flow-analysis","tokenomics-mechanics","valuation-ask"]).
 3. If a playbook fits, set playbook_used to its id and instantiate its nodes against the user's specific subject. If no playbook fits, set playbook_used to null and freelance the decomposition.
 4. depends_on lists sub-question ids that must be answered first. No cycles. Leaf sub-questions have empty depends_on.
-5. suggested_tools should be the union of required_tools across the assigned types. Add others only when clearly justified.
+5. suggested_tools should be the union of required_tools and recommended_tools across the assigned types. Add others only when clearly justified. analyst_perspective is particularly powerful for valuation, tokenomics, and narrative questions — suggest it when a sub-question could benefit from an analyst's reasoning perspective.
 6. artifact_hint is the single artifact type the execution agent should produce for this sub-question.
 7. lens (optional) names an analyst slug ("TopherGMI", "shaundadevens", "thiccyth0t") whose framework should be queried for this sub-question.
 8. synthesis_required = true when there are 3+ sub-questions or the prompt asks for a "view"/"thesis"/"recommendation".
@@ -300,6 +306,99 @@ export function validatePlan(plan: ResearchPlan): { valid: boolean; warnings: st
 
   plan.warnings = warnings;
   return { valid: !fatal, warnings, fatal };
+}
+
+// ─── Framework resolution ────────────────────────────────────────────────────
+
+export async function resolveFrameworkProcedures(plan: ResearchPlan): Promise<{
+  plan: ResearchPlan;
+  cost: number;
+  inputTokens: number;
+  outputTokens: number;
+}> {
+  const subQsWithLens = plan.sub_questions.filter(q => q.lens);
+  if (subQsWithLens.length === 0) return { plan, cost: 0, inputTokens: 0, outputTokens: 0 };
+
+  const { searchAnalystFrameworks } = await import("./analyst-corpus");
+
+  const frameworksBySubQ: Record<string, { analyst: string; name: string; description: string }> = {};
+  await Promise.all(subQsWithLens.map(async (q) => {
+    try {
+      const hits = await searchAnalystFrameworks({
+        query: q.text,
+        analyst: q.lens,
+        limit: 1,
+        minSimilarity: 0.25,
+      });
+      if (hits.length > 0) {
+        frameworksBySubQ[q.id] = {
+          analyst: hits[0].analyst,
+          name: hits[0].name,
+          description: hits[0].description,
+        };
+      }
+    } catch (e: any) {
+      console.warn(`[ResearchPlanner] Framework resolve failed for ${q.id}:`, e.message);
+    }
+  }));
+
+  const toResolve = Object.entries(frameworksBySubQ);
+  if (toResolve.length === 0) return { plan, cost: 0, inputTokens: 0, outputTokens: 0 };
+
+  const batchPrompt = toResolve.map(([qId, fw]) => {
+    const subQ = subQsWithLens.find(q => q.id === qId)!;
+    return `SUB_Q "${qId}": "${subQ.text}"
+FRAMEWORK: "${fw.name}" by ${fw.analyst}
+DESCRIPTION: ${fw.description}`;
+  }).join("\n\n");
+
+  const response = await callAnthropicRaw({
+    model: PLANNER_MODEL,
+    max_tokens: 1500,
+    system: `You convert analyst framework descriptions into procedural reasoning steps for a crypto research agent.
+
+For each SUB_Q + FRAMEWORK pair, produce 3-5 numbered steps the agent should follow to reason USING that framework (not just cite it). Steps should be concrete and actionable — tell the agent what to calculate, compare, or evaluate at each step.
+
+Respond with JSON: { "procedures": { "<qId>": ["step 1...", "step 2...", ...], ... } }
+Only JSON, no other text.`,
+    messages: [{ role: "user", content: batchPrompt }],
+  });
+
+  const text = response.content
+    .filter((b: any) => b.type === "text")
+    .map((b: any) => b.text)
+    .join("");
+
+  try {
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      const procedures: Record<string, string[]> = parsed.procedures || parsed;
+
+      for (const [qId, steps] of Object.entries(procedures)) {
+        if (!Array.isArray(steps) || !frameworksBySubQ[qId]) continue;
+        const fw = frameworksBySubQ[qId];
+        const sq = plan.sub_questions.find(q => q.id === qId);
+        if (sq) {
+          sq.resolvedFramework = {
+            analyst: fw.analyst,
+            name: fw.name,
+            description: fw.description,
+            steps: steps.map(String).slice(0, 5),
+          };
+        }
+      }
+    }
+  } catch (e: any) {
+    console.warn("[ResearchPlanner] Framework procedure parse failed:", e.message);
+  }
+
+  return {
+    plan,
+    cost: response.mppCost,
+    inputTokens: response.usage?.input_tokens || 0,
+    outputTokens: response.usage?.output_tokens || 0,
+  };
 }
 
 // ─── Plan call ───────────────────────────────────────────────────────────────
@@ -477,6 +576,12 @@ export function renderPlanForSystemPrompt(plan: ResearchPlan): string {
     lines.push(`     types: ${q.types.join(", ") || "(none assigned)"}`);
     lines.push(`     suggested tools: ${q.suggested_tools.join(", ") || "(none)"}`);
     lines.push(`     artifact: ${q.artifact_hint}`);
+    if (q.resolvedFramework) {
+      const rf = q.resolvedFramework;
+      lines.push(`     >>> PROCEDURE — Apply ${rf.analyst}'s "${rf.name}" framework (${rf.description}):`);
+      rf.steps.forEach((s, i) => lines.push(`         ${i + 1}. ${s}`));
+      lines.push(`     You MUST follow these steps as your reasoning scaffold for this sub-question. Structure your analysis around them — do not merely cite the framework.`);
+    }
   }
   if (plan.warnings && plan.warnings.length) {
     lines.push("");

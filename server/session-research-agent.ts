@@ -331,6 +331,19 @@ Use this for QUALITATIVE perspective: what these analysts have actually written 
     },
   },
   {
+    name: "analyst_perspective",
+    description: `Get a specific analyst's REASONING on a question — not just citations, but how they would actually think through the problem using their frameworks and analytical patterns. Returns a structured reasoning trace showing the analyst's chain of thought applied to your specific question. Use this when you want an analyst to "think" about something, not just retrieve what they've written. Much more powerful than query_analyst_corpus for generating novel analysis.`,
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        analyst: { type: "string" as const, enum: ["TopherGMI", "shaundadevens", "thiccyth0t"], description: "Which analyst's perspective to generate." },
+        question: { type: "string" as const, description: "The specific question you want this analyst to reason through. Be precise — e.g. 'Is HYPE overvalued at $28 given its fee trajectory and upcoming token unlocks?'" },
+        context: { type: "string" as const, description: "Optional: relevant data or findings from your research so far that the analyst should consider in their reasoning." },
+      },
+      required: ["analyst", "question"],
+    },
+  },
+  {
     name: "update_research_brain",
     description: `Record findings to the persistent Research Brain (knowledge graph). Call this ONCE at the END of every research session to save what you learned. The brain persists across all sessions and builds compounding intelligence.
 
@@ -638,6 +651,110 @@ async function executeCode(code: string): Promise<string> {
   }
 }
 
+const ANALYST_PERSONAS: Record<string, { role: string; style: string }> = {
+  TopherGMI: {
+    role: "You are TopherGMI, CIO of Arca — a crypto fund manager with deep expertise in macro, market structure, and tokenomics.",
+    style: "You think in cycles and capital rotation. You evaluate tokens through the lens of: (1) macro regime positioning, (2) tokenomics quality (buybacks, burns, fee accrual, supply concentration), (3) fundamental valuation using EV-adjusted metrics, and (4) relative value across crypto asset classes. You are quantitative but also narrative-aware — you understand how stories drive capital flows.",
+  },
+  shaundadevens: {
+    role: "You are shaundadevens, a Blockworks research columnist specializing in DeFi protocol economics.",
+    style: "You focus on the microstructure of protocols: fee switches, governance dynamics, value accrual mechanisms, and competitive moats. You analyze whether protocols actually capture the value they generate. Your signature move is decomposing take rates — who pays fees, where do they flow, are they sustainable or incentive-driven? You are skeptical of vanity metrics and always ask 'who is the marginal buyer of this token?'",
+  },
+  thiccyth0t: {
+    role: "You are thiccyth0t from Scimitar Capital — a quantitative crypto strategist specializing in derivatives, market making, and on-chain flow analysis.",
+    style: "You think in terms of reflexivity loops, funding rates, OI dynamics, and supply-side pressure. You decompose market moves into their mechanical drivers: forced liquidations, basis compression, spot-perp divergence, dealer gamma. You are comfortable with math and frequently reason about PnL decomposition, concentration metrics, and statistical edge. You are blunt and data-driven — you call out narrative-driven narratives that don't have flow support.",
+  },
+};
+
+interface PerspectiveResult {
+  payload: string;
+  cost: number;
+  inputTokens: number;
+  outputTokens: number;
+  costSource?: string;
+}
+
+let _subCallCostAccum = { cost: 0, inputTokens: 0, outputTokens: 0, anyCostSourceVoucher: false };
+function resetSubCallCosts() { _subCallCostAccum = { cost: 0, inputTokens: 0, outputTokens: 0, anyCostSourceVoucher: false }; }
+function addSubCallCost(r: PerspectiveResult) {
+  _subCallCostAccum.cost += r.cost;
+  _subCallCostAccum.inputTokens += r.inputTokens;
+  _subCallCostAccum.outputTokens += r.outputTokens;
+  if (r.costSource === "voucher_estimate") _subCallCostAccum.anyCostSourceVoucher = true;
+}
+function drainSubCallCosts() {
+  const c = { ..._subCallCostAccum };
+  resetSubCallCosts();
+  return c;
+}
+
+async function generateAnalystPerspective(
+  analyst: string,
+  question: string,
+  userContext?: string,
+): Promise<PerspectiveResult> {
+  const persona = ANALYST_PERSONAS[analyst];
+  if (!persona) return { payload: JSON.stringify({ error: `Unknown analyst: ${analyst}` }), cost: 0, inputTokens: 0, outputTokens: 0 };
+
+  const [corpusHits, frameworkHits] = await Promise.all([
+    searchAnalystCorpus({ query: question, analyst, limit: 4 }),
+    searchAnalystFrameworks({ query: question, analyst, limit: 3, minSimilarity: 0.2 }),
+  ]);
+
+  const corpusContext = corpusHits.length > 0
+    ? `\n\nRELEVANT PAST WRITINGS:\n${corpusHits.map(h => `[${h.source} ${h.date || ""}] ${h.content.slice(0, 600)}`).join("\n\n")}`
+    : "";
+
+  const frameworkContext = frameworkHits.length > 0
+    ? `\n\nYOUR ANALYTICAL FRAMEWORKS:\n${frameworkHits.map(h => `- "${h.name}" (${h.category || "general"}): ${h.description}`).join("\n")}`
+    : "";
+
+  const dataContext = userContext
+    ? `\n\nDATA THE RESEARCHER HAS GATHERED:\n${userContext.slice(0, 2000)}`
+    : "";
+
+  const systemPrompt = `${persona.role}
+
+${persona.style}
+
+You are being asked to REASON THROUGH a specific question from your analytical perspective. This is NOT a retrieval task — you must THINK about the question using your frameworks, style, and analytical patterns.
+
+Structure your response as a reasoning trace:
+1. Frame the question through your lens — what matters here from YOUR perspective?
+2. Apply your relevant framework(s) step-by-step
+3. Identify what data you'd need and what the data tells you
+4. Reach a conclusion or identify the key uncertainty
+
+Be specific, opinionated, and analytical. Use your signature style. Do not hedge excessively — take a clear analytical position and explain your reasoning.${frameworkContext}${corpusContext}${dataContext}`;
+
+  const response = await callAnthropicRaw({
+    model: "claude-haiku-4-5",
+    max_tokens: 1200,
+    system: systemPrompt,
+    messages: [{ role: "user", content: `Reason through this question from your analytical perspective:\n\n${question}` }],
+  });
+
+  const perspectiveText = response.content
+    .filter((b: any) => b.type === "text")
+    .map((b: any) => b.text)
+    .join("");
+
+  return {
+    payload: JSON.stringify({
+      analyst,
+      perspective_type: "reasoning_trace",
+      reasoning: perspectiveText,
+      frameworks_applied: frameworkHits.map(h => h.name),
+      corpus_references: corpusHits.length,
+      note: "This is the analyst's REASONING, not a citation. Integrate it as an analytical perspective — attribute the reasoning to the analyst and evaluate whether you agree.",
+    }),
+    cost: response.mppCost,
+    inputTokens: response.usage?.input_tokens || 0,
+    outputTokens: response.usage?.output_tokens || 0,
+    costSource: response.costSource,
+  };
+}
+
 async function executeTool(name: string, input: any): Promise<string> {
   try {
     switch (name) {
@@ -855,6 +972,15 @@ async function executeTool(name: string, input: any): Promise<string> {
           })),
         });
       }
+      case "analyst_perspective": {
+        const perspResult = await generateAnalystPerspective(
+          String(input.analyst || "TopherGMI"),
+          String(input.question || ""),
+          input.context ? String(input.context) : undefined,
+        );
+        addSubCallCost(perspResult);
+        return perspResult.payload;
+      }
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
@@ -986,6 +1112,7 @@ const TOOL_LABELS: Record<string, string> = {
   query_chain_tvl: "Querying chain TVL data",
   query_analyst_corpus: "Searching analyst writings",
   query_analyst_frameworks: "Looking up analyst frameworks",
+  analyst_perspective: "Getting analyst's reasoning",
   update_research_brain: "Saving to knowledge graph",
 };
 
@@ -1003,6 +1130,7 @@ function toolLabel(name: string, input: any): string {
   if (name === "execute_code") return `${base}: ${input.description || "computation"}`;
   if (name === "query_yield_pools") return `${base} for ${input.protocol || "pools"}`;
   if (name === "query_chain_tvl") return input.chain ? `${base} for ${input.chain}` : base;
+  if (name === "analyst_perspective") return `${base}: ${input.analyst || "analyst"} on "${(input.question || "").slice(0, 60)}"`;
   return base;
 }
 
@@ -1059,6 +1187,22 @@ export async function runSessionResearchAgent(
       const subQs = plan.sub_questions.length;
       const playbook = plan.playbook_used ? ` via ${plan.playbook_used}` : "";
       console.log(`[SessionResearch] Plan: ${subQs} sub-questions${playbook}, confidence=${plan.confidence.toFixed(2)}, warnings=${(plan.warnings || []).length}`);
+
+      try {
+        const { resolveFrameworkProcedures } = await import("./research-planner");
+        const fwResult = await resolveFrameworkProcedures(plan);
+        plan = fwResult.plan;
+        totalCost += fwResult.cost;
+        totalInputTokens += fwResult.inputTokens;
+        totalOutputTokens += fwResult.outputTokens;
+        const resolved = plan.sub_questions.filter(q => q.resolvedFramework).length;
+        if (resolved > 0) {
+          console.log(`[SessionResearch] Resolved ${resolved} framework procedure(s) for plan sub-questions`);
+        }
+      } catch (fwErr: any) {
+        console.warn("[SessionResearch] Framework resolution failed (non-fatal):", fwErr.message);
+      }
+
       onStep?.({
         type: "thinking",
         label: `Planned ${subQs} sub-question${subQs === 1 ? "" : "s"}${playbook}`,
@@ -1283,6 +1427,16 @@ export async function runSessionResearchAgent(
     if (toolResults.length > 0) {
       messages.push({ role: "user", content: toolResults });
     }
+
+    const subCosts = drainSubCallCosts();
+    if (subCosts.cost > 0) {
+      totalCost += subCosts.cost;
+      totalInputTokens += subCosts.inputTokens;
+      totalOutputTokens += subCosts.outputTokens;
+      if (subCosts.anyCostSourceVoucher) anyCostSourceVoucher = true;
+      console.log(`[SessionResearch] Sub-call costs this round: $${subCosts.cost.toFixed(4)}`);
+    }
+
     onStep?.({ type: "analyzing", label: "Analyzing results", round: round + 1, totalRounds: MAX_TOOL_ROUNDS });
 
     if (repeatedFailureDetected) {
@@ -1297,6 +1451,51 @@ export async function runSessionResearchAgent(
     }
   }
 
+  let perspectiveAddendum = "";
+  if (mode === "deep" && !budgetExceeded) {
+    try {
+      onStep?.({ type: "thinking", label: "Gathering multi-perspective analysis..." });
+      const analysts = ["TopherGMI", "shaundadevens", "thiccyth0t"] as const;
+      const perspectiveResults = await Promise.allSettled(
+        analysts.map(async (a) => {
+          const result = await generateAnalystPerspective(a, userMessage);
+          return { analyst: a, result };
+        })
+      );
+
+      const perspectives: string[] = [];
+      for (const r of perspectiveResults) {
+        if (r.status === "fulfilled") {
+          totalCost += r.value.result.cost;
+          totalInputTokens += r.value.result.inputTokens;
+          totalOutputTokens += r.value.result.outputTokens;
+          if (r.value.result.costSource === "voucher_estimate") anyCostSourceVoucher = true;
+          try {
+            const parsed = JSON.parse(r.value.result.payload);
+            if (parsed.reasoning) {
+              perspectives.push(`### ${r.value.analyst}'s Perspective\n${parsed.reasoning}`);
+            }
+          } catch {}
+        }
+      }
+
+      if (perspectives.length > 0) {
+        perspectiveAddendum = `\n\n# MULTI-PERSPECTIVE ANALYSIS
+The following are reasoning traces from three analyst perspectives on the user's question. Each analyst has applied their own frameworks and analytical style. You MUST:
+1. Integrate these perspectives into your synthesis — do not ignore them
+2. Note where they agree (convergent signal) and where they disagree (key uncertainties)
+3. Attribute reasoning to the analyst when using their insights (e.g. "TopherGMI's cycle-positioning lens suggests...")
+4. Take a final synthesized position that weighs these perspectives against the data you gathered
+
+${perspectives.join("\n\n")}`;
+        console.log(`[SessionResearch] Multi-perspective debate: ${perspectives.length}/3 analyst perspectives generated`);
+        onStep?.({ type: "thinking", label: `Synthesizing ${perspectives.length} analyst perspectives...` });
+      }
+    } catch (err: any) {
+      console.warn(`[SessionResearch] Multi-perspective debate failed (non-fatal):`, err.message);
+    }
+  }
+
   if (!finalText) {
     const wrapReason = budgetExceeded
       ? `Spend budget of $${SPEND_BUDGET_USD} for ${mode} mode reached ($${totalCost.toFixed(2)} used)`
@@ -1307,7 +1506,7 @@ export async function runSessionResearchAgent(
       const wrapUp = await callAnthropicRaw({
         model: "claude-opus-4-6",
         max_tokens: maxTokens,
-        system: activeSystemPrompt + `\n\nIMPORTANT: ${wrapReason}. Synthesize what you learned from the tool results above into your response now. Do not call any more tools.`,
+        system: activeSystemPrompt + perspectiveAddendum + `\n\nIMPORTANT: ${wrapReason}. Synthesize what you learned from the tool results above into your response now. Do not call any more tools.`,
         messages,
       });
       totalCost += wrapUp.mppCost;
@@ -1325,6 +1524,36 @@ export async function runSessionResearchAgent(
       finalText = "I wasn't able to complete the analysis. Please try rephrasing your question.";
     } else {
       onStep?.({ type: "complete", label: "Composing final analysis" });
+    }
+  } else if (mode === "deep" && perspectiveAddendum) {
+    try {
+      onStep?.({ type: "thinking", label: "Integrating analyst perspectives into final synthesis..." });
+      messages.push({ role: "assistant", content: finalText });
+      messages.push({
+        role: "user",
+        content: "Now integrate the multi-perspective analysis from the three analyst lenses below into your response. Revise and enrich your analysis with their reasoning — note agreements, disagreements, and take a synthesized position. Do not repeat yourself, but ADD the perspectives where they strengthen or challenge your analysis." + perspectiveAddendum,
+      });
+      const debateWrap = await callAnthropicRaw({
+        model: "claude-opus-4-6",
+        max_tokens: maxTokens,
+        system: activeSystemPrompt,
+        messages,
+      });
+      totalCost += debateWrap.mppCost;
+      totalInputTokens += debateWrap.usage?.input_tokens || 0;
+      totalOutputTokens += debateWrap.usage?.output_tokens || 0;
+      if (debateWrap.costSource === "voucher_estimate") anyCostSourceVoucher = true;
+      const debateText = debateWrap.content
+        .filter((b: any) => b.type === "text")
+        .map((b: any) => b.text)
+        .join("");
+      if (debateText.length > 100) {
+        finalText = debateText;
+        console.log(`[SessionResearch] Multi-perspective synthesis replaced final text (${debateText.length} chars)`);
+      }
+      onStep?.({ type: "complete", label: "Composing final analysis" });
+    } catch (err: any) {
+      console.warn(`[SessionResearch] Perspective synthesis pass failed (non-fatal):`, err.message);
     }
   }
 

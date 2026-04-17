@@ -50,6 +50,7 @@
         "Compare LDO and JTO P/F to peers"
       ],
       "required_tools": ["query_defillama_fees_revenue", "execute_code"],
+      "recommended_tools": ["analyst_perspective"],
       "banned_tools": [],
       "default_artifact": "model_table",
       "typical_sub_shape": "State assumptions explicitly; project forward metric; apply comparable multiple; render scenario table.",
@@ -64,6 +65,7 @@
         "What's the unlock schedule for JTO over the next year?"
       ],
       "required_tools": [],
+      "recommended_tools": ["analyst_perspective"],
       "banned_tools": [],
       "default_artifact": "structured_doc",
       "typical_sub_shape": "Map the full path from protocol activity → token holder; flag every leak (treasury, foundation, LM)."
@@ -90,6 +92,7 @@
         "What's the bear thesis on ENA right now?"
       ],
       "required_tools": ["query_analyst_corpus"],
+      "recommended_tools": ["analyst_perspective"],
       "banned_tools": [],
       "default_artifact": "structured_doc",
       "typical_sub_shape": "Find prevailing narratives in analyst corpus + brain; steelman each side; attribute claims.",
