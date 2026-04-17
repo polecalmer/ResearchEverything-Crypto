@@ -32,6 +32,347 @@ interface AggNode {
 }
 interface AggEdge { from: string; to: string; weight: number; }
 
+const PHASES = [
+  {
+    key: "input",
+    label: "Drop a question",
+    sub: "Paste a link, a ticker, or just ask",
+    capability: "Conversational research",
+    capBody: "Plain-English questions. The session understands context and asks follow-ups.",
+    accent: "#7dcfff",
+  },
+  {
+    key: "data",
+    label: "Pull live data",
+    sub: "DeFiLlama · Allium · Dune · on-chain",
+    capability: "On-chain data & charts",
+    capBody: "Revenue, TVL, funding rates, holder distribution — fetched and rendered instantly.",
+    accent: "#7aa2f7",
+  },
+  {
+    key: "model",
+    label: "Build the model",
+    sub: "DCF · scenarios · comparables",
+    capability: "Financial models",
+    capBody: "DCF valuations, P/E ratios, bear/base/bull cases assembled from live numbers.",
+    accent: "#9ece6a",
+  },
+  {
+    key: "report",
+    label: "Draft the report",
+    sub: "Sourced. Structured. Publishable.",
+    capability: "Deep research reports",
+    capBody: "Long-form analysis with cited sources, risk assessments, and clear next steps.",
+    accent: "#f7c97a",
+  },
+  {
+    key: "brain",
+    label: "Commit to brain",
+    sub: "Entities · relationships · facts",
+    capability: "It remembers",
+    capBody: "Each session compounds. Tomorrow's research starts smarter than today's.",
+    accent: "#bb9af7",
+  },
+];
+
+function SessionInMotion() {
+  const [phase, setPhase] = useState(0);
+  const [tick, setTick] = useState(0);
+
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 80);
+    return () => clearInterval(id);
+  }, []);
+
+  useEffect(() => {
+    const id = setInterval(() => setPhase(p => (p + 1) % PHASES.length), 3800);
+    return () => clearInterval(id);
+  }, []);
+
+  const active = PHASES[phase];
+
+  return (
+    <section id="what-you-get" className="relative py-24 px-6 overflow-hidden">
+      <div className="max-w-6xl mx-auto">
+        <div className="text-center mb-14">
+          <div className="font-mono text-[10px] tracking-[0.2em] text-muted-foreground/50 mb-3">
+            HOW A SESSION UNFOLDS
+          </div>
+          <h2 className="text-3xl sm:text-4xl font-bold tracking-tight leading-snug mb-4">
+            Question in. Verified research out.
+          </h2>
+          <p className="text-base text-muted-foreground max-w-xl mx-auto leading-relaxed">
+            Every session moves through the same loop — pulling data, building models,
+            drafting reports, and growing a brain that gets sharper every time.
+          </p>
+        </div>
+
+        <div className="grid lg:grid-cols-[1.4fr_1fr] gap-8 items-stretch">
+          <SessionConsole phase={phase} tick={tick} />
+
+          <div className="flex flex-col gap-2">
+            {PHASES.map((p, i) => {
+              const isActive = i === phase;
+              return (
+                <button
+                  key={p.key}
+                  type="button"
+                  onClick={() => setPhase(i)}
+                  className={`group text-left rounded-xl border px-5 py-4 transition-all duration-500 ${
+                    isActive
+                      ? "border-foreground/20 bg-foreground/[0.04]"
+                      : "border-border/40 bg-transparent hover:border-border"
+                  }`}
+                  data-testid={`phase-${p.key}`}
+                  style={isActive ? { boxShadow: `0 0 40px -10px ${p.accent}55` } : undefined}
+                >
+                  <div className="flex items-center gap-3 mb-1.5">
+                    <div
+                      className="w-2 h-2 rounded-full transition-all duration-500"
+                      style={{
+                        backgroundColor: p.accent,
+                        boxShadow: isActive ? `0 0 12px ${p.accent}` : "none",
+                        opacity: isActive ? 1 : 0.4,
+                      }}
+                    />
+                    <div className={`font-mono text-[10px] tracking-wider transition-colors ${isActive ? "text-foreground/80" : "text-muted-foreground/50"}`}>
+                      {String(i + 1).padStart(2, "0")} · {p.label.toUpperCase()}
+                    </div>
+                  </div>
+                  <div className={`text-sm font-semibold transition-colors ${isActive ? "text-foreground" : "text-muted-foreground/80"}`}>
+                    {p.capability}
+                  </div>
+                  <div className={`text-[12px] leading-relaxed mt-1 transition-colors ${isActive ? "text-muted-foreground" : "text-muted-foreground/50"}`}>
+                    {p.capBody}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="mt-10 grid grid-cols-5 gap-2">
+          {PHASES.map((p, i) => (
+            <div key={p.key} className="h-0.5 bg-border/40 overflow-hidden rounded-full">
+              <div
+                className="h-full transition-all"
+                style={{
+                  width: i < phase ? "100%" : i === phase ? `${((tick % 47) / 47) * 100}%` : "0%",
+                  backgroundColor: p.accent,
+                  transitionDuration: i === phase ? "80ms" : "300ms",
+                }}
+              />
+            </div>
+          ))}
+        </div>
+
+        <div className="mt-3 text-center font-mono text-[10px] tracking-wider text-muted-foreground/40">
+          {active.sub}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SessionConsole({ phase, tick }: { phase: number; tick: number }) {
+  const accent = PHASES[phase].accent;
+
+  return (
+    <div className="relative rounded-2xl border border-border/50 bg-card/40 backdrop-blur-sm overflow-hidden min-h-[480px]">
+      <div className="absolute inset-0 opacity-[0.07]" style={{
+        background: `radial-gradient(ellipse at 80% 20%, ${accent} 0%, transparent 60%)`,
+        transition: "background 600ms ease",
+      }} />
+
+      <div className="relative flex items-center justify-between px-5 py-3 border-b border-border/30">
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-red-400/40" />
+          <div className="w-2 h-2 rounded-full bg-yellow-400/40" />
+          <div className="w-2 h-2 rounded-full bg-green-400/40" />
+        </div>
+        <div className="font-mono text-[10px] text-muted-foreground/50 tracking-wider">
+          session · live
+        </div>
+        <div
+          className="w-1.5 h-1.5 rounded-full transition-all duration-500"
+          style={{ backgroundColor: accent, boxShadow: `0 0 8px ${accent}` }}
+        />
+      </div>
+
+      <div className="relative p-6 space-y-5 font-mono text-[12px] leading-relaxed">
+        <ConsoleLine
+          show={true}
+          prefix=">"
+          accent="#9ece6a"
+        >
+          why is HYPE outperforming this quarter?
+        </ConsoleLine>
+
+        {phase >= 1 && (
+          <ConsoleBlock label="FOUNDATION" accent={PHASES[1].accent} active={phase === 1}>
+            <DataTags
+              tags={["hyperliquid.tvl", "hype.price", "perps.volume", "funding.rate", "buybacks.usd"]}
+              tick={tick}
+              active={phase === 1}
+              accent={PHASES[1].accent}
+            />
+          </ConsoleBlock>
+        )}
+
+        {phase >= 2 && (
+          <ConsoleBlock label="MODEL" accent={PHASES[2].accent} active={phase === 2}>
+            <ModelGrid tick={tick} active={phase === 2} accent={PHASES[2].accent} />
+          </ConsoleBlock>
+        )}
+
+        {phase >= 3 && (
+          <ConsoleBlock label="REPORT" accent={PHASES[3].accent} active={phase === 3}>
+            <ReportLines tick={tick} active={phase === 3} />
+          </ConsoleBlock>
+        )}
+
+        {phase >= 4 && (
+          <ConsoleBlock label="BRAIN" accent={PHASES[4].accent} active={phase === 4}>
+            <BrainCommits tick={tick} active={phase === 4} accent={PHASES[4].accent} />
+          </ConsoleBlock>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ConsoleLine({ children, prefix, accent, show }: { children: React.ReactNode; prefix: string; accent: string; show: boolean }) {
+  if (!show) return null;
+  return (
+    <div className="flex gap-3">
+      <span style={{ color: accent }}>{prefix}</span>
+      <span className="text-foreground/90">{children}</span>
+    </div>
+  );
+}
+
+function ConsoleBlock({ label, accent, active, children }: { label: string; accent: string; active: boolean; children: React.ReactNode }) {
+  return (
+    <div className={`transition-opacity duration-500 ${active ? "opacity-100" : "opacity-50"}`}>
+      <div className="flex items-center gap-2 mb-2">
+        <div
+          className="w-1 h-1 rounded-full"
+          style={{ backgroundColor: accent, boxShadow: active ? `0 0 6px ${accent}` : "none" }}
+        />
+        <span className="text-[9px] tracking-[0.2em] text-muted-foreground/60">{label}</span>
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function DataTags({ tags, tick, active, accent }: { tags: string[]; tick: number; active: boolean; accent: string }) {
+  const visible = active ? Math.min(tags.length, Math.floor((tick % 47) / 9) + 1) : tags.length;
+  return (
+    <div className="flex flex-wrap gap-1.5 pl-3">
+      {tags.map((t, i) => (
+        <span
+          key={t}
+          className="px-2 py-0.5 rounded-md border text-[10px] transition-all duration-300"
+          style={{
+            opacity: i < visible ? 1 : 0,
+            borderColor: i < visible ? `${accent}55` : "transparent",
+            color: i < visible ? accent : "transparent",
+            backgroundColor: i < visible ? `${accent}10` : "transparent",
+            transform: i < visible ? "translateY(0)" : "translateY(4px)",
+          }}
+        >
+          {t}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ModelGrid({ tick, active, accent }: { tick: number; active: boolean; accent: string }) {
+  const rows = [
+    ["Revenue (TTM)", "$1.42B", "+312%"],
+    ["FCF margin", "68%", "+9pp"],
+    ["P/E (fwd)", "11.2x", "−3.1x"],
+    ["Buyback yield", "4.8%", "+1.2pp"],
+    ["DCF target", "$48.20", "+22%"],
+  ];
+  const visible = active ? Math.min(rows.length, Math.floor((tick % 47) / 9) + 1) : rows.length;
+  return (
+    <div className="pl-3 space-y-1">
+      {rows.map(([k, v, d], i) => (
+        <div
+          key={k}
+          className="grid grid-cols-[1fr_auto_auto] gap-4 text-[11px] transition-all duration-300"
+          style={{
+            opacity: i < visible ? 1 : 0,
+            transform: i < visible ? "translateY(0)" : "translateY(3px)",
+          }}
+        >
+          <span className="text-muted-foreground/70">{k}</span>
+          <span className="text-foreground/90 tabular-nums">{v}</span>
+          <span style={{ color: accent }} className="tabular-nums">{d}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ReportLines({ tick, active }: { tick: number; active: boolean }) {
+  const lines = [
+    "Executive summary",
+    "  · HYPE outperforms peers on revenue + buyback flywheel",
+    "  · Hyperliquid captures 71% of perp DEX volume",
+    "Risk factors",
+    "  · Concentration risk in core team",
+  ];
+  const visible = active ? Math.min(lines.length, Math.floor((tick % 47) / 9) + 1) : lines.length;
+  return (
+    <div className="pl-3 space-y-0.5">
+      {lines.map((l, i) => (
+        <div
+          key={l}
+          className="text-[11px] transition-all duration-300"
+          style={{
+            opacity: i < visible ? 1 : 0,
+            color: l.startsWith("  ") ? "hsl(var(--muted-foreground))" : "hsl(var(--foreground) / 0.9)",
+            fontWeight: l.startsWith("  ") ? 400 : 600,
+            transform: i < visible ? "translateY(0)" : "translateY(3px)",
+          }}
+        >
+          {l}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function BrainCommits({ tick, active, accent }: { tick: number; active: boolean; accent: string }) {
+  const commits = [
+    "+ entity: Hyperliquid → metric: buyback_yield",
+    "+ entity: HYPE ↔ concept: real_yield",
+    "+ relationship: outperforms(HYPE, GMX, dYdX)",
+  ];
+  const visible = active ? Math.min(commits.length, Math.floor((tick % 47) / 12) + 1) : commits.length;
+  return (
+    <div className="pl-3 space-y-1">
+      {commits.map((c, i) => (
+        <div
+          key={c}
+          className="text-[11px] transition-all duration-300 tabular-nums"
+          style={{
+            opacity: i < visible ? 1 : 0,
+            color: i < visible ? accent : "transparent",
+            transform: i < visible ? "translateX(0)" : "translateX(-4px)",
+          }}
+        >
+          {c}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 function BrainGraphHero() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const nodesRef = useRef<AggNode[]>([]);
@@ -544,91 +885,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <section id="what-you-get" className="py-24 px-6 border-t">
-        <div className="max-w-6xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight leading-snug mb-4">
-              What you get
-            </h2>
-            <p className="text-base text-muted-foreground max-w-xl mx-auto leading-relaxed">
-              Institutional-quality research output, without the team.
-            </p>
-          </div>
-
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-8">
-            {[
-              {
-                title: "Deep research reports",
-                body: "Long-form, verified analysis with cited sources. Executive summaries, competitive landscapes, risk assessments, and actionable next steps.",
-              },
-              {
-                title: "Financial models",
-                body: "DCF valuations, scenario analysis, protocol economics comparisons. Bear/base/bull cases built from live data.",
-              },
-              {
-                title: "On-chain data & charts",
-                body: "Ask any question in plain English. Revenue over time, P/E ratios, buyback analysis — rendered as charts instantly.",
-              },
-              {
-                title: "Conversational research",
-                body: "Go beyond static reports. Have back-and-forth sessions where the AI pulls live data, builds models, and iterates on your analysis.",
-              },
-              {
-                title: "Verified intelligence",
-                body: "Every claim is checked against primary sources. No hallucinated numbers. No fabricated citations. Research you can actually use.",
-              },
-              {
-                title: "It remembers",
-                body: "Your research compounds. Previous work informs future sessions. Your platform gets sharper the more you use it.",
-              },
-            ].map(({ title, body }) => (
-              <div key={title} data-testid={`feature-${title.toLowerCase().replace(/\s+/g, "-")}`}>
-                <h3 className="text-sm font-semibold mb-2">{title}</h3>
-                <p className="text-[13px] text-muted-foreground leading-relaxed">{body}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <section className="py-24 px-6 border-t">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl sm:text-4xl font-bold tracking-tight leading-snug mb-4">
-              Built for how researchers actually work
-            </h2>
-            <p className="text-base text-muted-foreground max-w-xl mx-auto leading-relaxed">
-              Not another chatbot. A research environment where analysis, data, and memory work together.
-            </p>
-          </div>
-
-          <div className="grid sm:grid-cols-2 gap-x-16 gap-y-10">
-            {[
-              {
-                title: "Drop a link, get a foundation",
-                body: "Paste a website, a tweet, a token ticker — the platform builds a verified research foundation automatically.",
-              },
-              {
-                title: "Go deep in sessions",
-                body: "Ask follow-up questions, request charts, build models, challenge assumptions. It's a conversation, not a one-shot query.",
-              },
-              {
-                title: "Generate publishable reports",
-                body: "Multi-section research reports with sourced claims, quantitative analysis, and structured risk assessments.",
-              },
-              {
-                title: "Everything compounds",
-                body: "Work from one session carries into the next. Insights accumulate. Your research environment adapts to your standards over time.",
-              },
-            ].map(({ title, body }) => (
-              <div key={title} data-testid={`workflow-${title.toLowerCase().replace(/\s+/g, "-")}`}>
-                <h3 className="text-sm font-semibold mb-1.5">{title}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">{body}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-      </section>
+      <SessionInMotion />
 
       <section className="py-20 px-6 border-t">
         <div className="max-w-2xl mx-auto text-center">
