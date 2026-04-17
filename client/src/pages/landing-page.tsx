@@ -137,33 +137,12 @@ function FlowField() {
   }, []);
 
   return (
-    <section id="what-you-get" className="relative w-full overflow-hidden">
-      <div className="relative" style={{ height: "min(88vh, 760px)" }}>
-        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" data-testid="canvas-flow" />
-
-        <div className="pointer-events-none absolute inset-0" style={{
-          background: "radial-gradient(ellipse 75% 70% at center, transparent 25%, hsl(var(--background) / 0.55) 70%, hsl(var(--background)) 100%)",
-        }} />
-        <div className="pointer-events-none absolute inset-x-0 top-0 h-40" style={{
-          background: "linear-gradient(to bottom, hsl(var(--background)) 0%, transparent 100%)",
-        }} />
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40" style={{
-          background: "linear-gradient(to top, hsl(var(--background)) 0%, transparent 100%)",
-        }} />
-
-        <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center pointer-events-none">
-          <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/60 mb-6">
-            ◦ &nbsp;THE&nbsp;SIGNAL&nbsp; ◦
-          </div>
-          <h2 className="text-4xl sm:text-5xl lg:text-[64px] font-bold tracking-tight leading-[1.02] mb-6 max-w-3xl">
-            Every session<br />leaves a trace.
-          </h2>
-          <p className="text-base sm:text-lg text-muted-foreground/90 max-w-md leading-relaxed">
-            Knowledge doesn't disappear at logout. It compounds, connects, and waits for the next question.
-          </p>
-        </div>
-      </div>
-    </section>
+    <canvas
+      ref={canvasRef}
+      className="fixed inset-0 w-screen h-screen block pointer-events-none"
+      style={{ zIndex: 0 }}
+      data-testid="canvas-flow"
+    />
   );
 }
 
@@ -626,9 +605,17 @@ export default function LandingPage() {
   const { login } = usePrivy();
 
   return (
-    <div className="min-h-screen bg-background" data-testid="landing-page">
-      <nav className="fixed top-0 left-0 right-0 z-50 bg-background/90 backdrop-blur-lg border-b border-border/50">
-        <div className="max-w-6xl mx-auto px-6 h-12 flex items-center justify-between">
+    <div className="relative min-h-screen bg-background overflow-x-hidden" data-testid="landing-page">
+      <FlowField />
+
+      {/* Soft global vignette over the canvas to keep edges readable */}
+      <div className="fixed inset-0 pointer-events-none" style={{
+        zIndex: 1,
+        background: "radial-gradient(ellipse 70% 60% at 50% 40%, transparent 0%, hsl(var(--background) / 0.55) 70%, hsl(var(--background) / 0.85) 100%)",
+      }} />
+
+      <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-background/40">
+        <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <img src={sessionsLogo} alt="Sessions" className="w-5 h-5 object-contain" />
             <span className="text-sm font-semibold tracking-tight">Sessions</span>
@@ -640,73 +627,94 @@ export default function LandingPage() {
         </div>
       </nav>
 
-      <section className="relative pt-28 pb-12 px-6 overflow-hidden">
-        <div className="absolute inset-0 pointer-events-none" aria-hidden>
-          <div className="absolute inset-0 pointer-events-auto opacity-90">
-            <BrainGraphHero />
+      <main className="relative" style={{ zIndex: 10 }}>
+        {/* Hero — text floats over the field */}
+        <section className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
+          <div className="max-w-3xl flex flex-col items-center">
+            <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-8">
+              ◦ &nbsp;SESSIONS&nbsp; ◦
+            </div>
+            <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.04] mb-7">
+              Research that<br />
+              <span className="text-muted-foreground/80">learns with you.</span>
+            </h1>
+            <p className="text-lg text-muted-foreground leading-relaxed max-w-lg mb-10">
+              An AI research platform for crypto. Run deep analysis, build
+              financial models, generate reports, and have conversations with
+              AI that remembers your work.
+            </p>
+
+            <TypingDemo />
+
+            <div className="flex items-center gap-3 mt-10">
+              <Button size="lg" className="h-11 px-6 gap-2 text-sm" onClick={() => login()} data-testid="button-cta-start">
+                Start a session
+                <ArrowRight className="w-4 h-4" />
+              </Button>
+              <a href="#signal">
+                <Button variant="ghost" size="lg" className="h-11 px-4 text-sm text-muted-foreground" data-testid="button-how-it-works">
+                  Learn more
+                </Button>
+              </a>
+            </div>
           </div>
-          <div className="absolute inset-0" style={{
-            background: "radial-gradient(ellipse 50% 70% at center 55%, hsl(var(--background) / 0.95) 0%, hsl(var(--background) / 0.85) 30%, hsl(var(--background) / 0.4) 55%, transparent 80%)",
-          }} />
-        </div>
+        </section>
 
-        <div className="relative max-w-6xl mx-auto flex flex-col items-center text-center pointer-events-none">
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.12] mb-5">
-            Research that<br />
-            <span className="text-muted-foreground">learns with you.</span>
-          </h1>
-          <p className="text-lg text-muted-foreground leading-relaxed max-w-lg mb-8">
-            An AI research platform for crypto. Run deep analysis, build
-            financial models, generate reports, and have conversations with
-            AI that remembers your work.
-          </p>
+        {/* Signal — single editorial statement floating mid-page */}
+        <section id="signal" className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
+          <div className="max-w-3xl flex flex-col items-center">
+            <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-8">
+              ◦ &nbsp;THE&nbsp;SIGNAL&nbsp; ◦
+            </div>
+            <h2 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.02] mb-7">
+              Every session<br />leaves a trace.
+            </h2>
+            <p className="text-lg text-muted-foreground leading-relaxed max-w-md">
+              Knowledge doesn't disappear at logout. It compounds, connects,
+              and waits for the next question.
+            </p>
+          </div>
+        </section>
 
-          <div className="pointer-events-auto"><TypingDemo /></div>
+        {/* Compounding — second editorial beat */}
+        <section className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
+          <div className="max-w-3xl flex flex-col items-center">
+            <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-8">
+              ◦ &nbsp;THE&nbsp;COMPOUND&nbsp; ◦
+            </div>
+            <h2 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.02] mb-7">
+              Tomorrow's research<br />stands on today's.
+            </h2>
+            <p className="text-lg text-muted-foreground leading-relaxed max-w-md">
+              Models, reports, and on-chain data layer onto a brain that
+              remembers what you've already learned.
+            </p>
+          </div>
+        </section>
 
-          <div className="flex items-center gap-3 mt-8 pointer-events-auto">
-            <Button size="lg" className="h-11 px-6 gap-2 text-sm" onClick={() => login()} data-testid="button-cta-start">
-              Start a session
+        {/* Final CTA — quiet, no card */}
+        <section className="min-h-[80vh] flex flex-col items-center justify-center px-6 text-center">
+          <div className="max-w-2xl flex flex-col items-center">
+            <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-8">
+              ◦ &nbsp;BEGIN&nbsp; ◦
+            </div>
+            <h2 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.05] mb-7">
+              Start your first<br />session.
+            </h2>
+            <p className="text-base text-muted-foreground mb-10 max-w-md">
+              Sign in with email or wallet. Paste your first link and see
+              what comes back.
+            </p>
+            <Button size="lg" className="h-12 px-8 gap-2" onClick={() => login()} data-testid="button-cta-bottom">
+              Get started free
               <ArrowRight className="w-4 h-4" />
             </Button>
-            <a href="#what-you-get">
-              <Button variant="ghost" size="lg" className="h-11 px-4 text-sm text-muted-foreground" data-testid="button-how-it-works">
-                Learn more
-              </Button>
-            </a>
+            <p className="mt-16 text-[10px] text-muted-foreground/50 font-mono tracking-[0.25em]">
+              SESSIONS.XYZ
+            </p>
           </div>
-
-          <p className="mt-12 text-xs text-muted-foreground/60 font-mono tracking-wider">
-            Every session adds to the brain. Every researcher makes it sharper.
-          </p>
-        </div>
-      </section>
-
-      <FlowField />
-
-      <section className="py-20 px-6 border-t">
-        <div className="max-w-2xl mx-auto text-center">
-          <h2 className="text-2xl sm:text-3xl font-bold tracking-tight mb-4">
-            Start your first session
-          </h2>
-          <p className="text-sm text-muted-foreground mb-8 max-w-md mx-auto">
-            Sign in with email or wallet. Paste your first link and see what comes back.
-          </p>
-          <Button size="lg" className="h-12 px-8 gap-2" onClick={() => login()} data-testid="button-cta-bottom">
-            Get started free
-            <ArrowRight className="w-4 h-4" />
-          </Button>
-        </div>
-      </section>
-
-      <footer className="border-t py-6 px-6">
-        <div className="max-w-6xl mx-auto flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-            <img src={sessionsLogo} alt="Sessions" className="w-4 h-4 object-contain" />
-            <span>Sessions</span>
-          </div>
-          <p className="text-[10px] text-muted-foreground/40 font-mono">sessions.xyz</p>
-        </div>
-      </footer>
+        </section>
+      </main>
     </div>
   );
 }
