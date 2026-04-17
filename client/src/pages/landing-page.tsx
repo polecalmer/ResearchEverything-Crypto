@@ -628,108 +628,122 @@ export default function LandingPage() {
       </nav>
 
       <main className="relative" style={{ zIndex: 10 }}>
-        {/* Hero — text floats over the field */}
-        <section className="py-24 flex flex-col items-center justify-center px-6 text-center">
-          <div className="max-w-3xl flex flex-col items-center">
-            <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-4">
-              ◦ &nbsp;SESSIONS&nbsp; ◦
+        {/* 01 — Hero: split, huge left headline, right column with demo + CTA */}
+        <section className="min-h-[88vh] flex items-center px-8 lg:px-16 py-24">
+          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-10 items-end">
+            <div className="lg:col-span-7">
+              <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/60 mb-6">
+                01 &nbsp;/&nbsp; SESSIONS
+              </div>
+              <h1 className="text-5xl sm:text-6xl lg:text-[88px] font-bold tracking-tight leading-[0.96] mb-6 whitespace-nowrap">
+                Research that<br />
+                <span className="text-muted-foreground/75">learns with you.</span>
+              </h1>
+              <p className="text-lg text-muted-foreground leading-relaxed max-w-xl">
+                An AI research platform for crypto. Run deep analysis, build
+                financial models, generate reports, and have conversations with
+                AI that remembers your work.
+              </p>
             </div>
-            <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.04] mb-5">
-              Research that<br />
-              <span className="text-muted-foreground/80">learns with you.</span>
-            </h1>
-            <p className="text-lg text-muted-foreground leading-relaxed max-w-lg mb-7">
-              An AI research platform for crypto. Run deep analysis, build
-              financial models, generate reports, and have conversations with
-              AI that remembers your work.
-            </p>
+            <div className="lg:col-span-5 flex flex-col items-start lg:items-end gap-5">
+              <TypingDemo />
+              <div className="flex items-center gap-2">
+                <Button size="lg" className="h-11 px-6 gap-2 text-sm" onClick={() => login()} data-testid="button-cta-start">
+                  Start a session
+                  <ArrowRight className="w-4 h-4" />
+                </Button>
+                <a href="#thesis">
+                  <Button variant="ghost" size="lg" className="h-11 px-4 text-sm text-muted-foreground" data-testid="button-how-it-works">
+                    Learn more
+                  </Button>
+                </a>
+              </div>
+            </div>
+          </div>
+        </section>
 
-            <TypingDemo />
+        {/* 02 — Thesis: section number in margin, headline left */}
+        <section id="thesis" className="py-32 px-8 lg:px-16">
+          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10">
+            <div className="hidden lg:block lg:col-span-2 font-mono text-[10px] tracking-[0.32em] text-muted-foreground/55 pt-3">
+              02 / THESIS
+            </div>
+            <div className="col-span-12 lg:col-span-9">
+              <div className="lg:hidden font-mono text-[10px] tracking-[0.32em] text-muted-foreground/55 mb-4">02 / THESIS</div>
+              <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-bold tracking-tight leading-[0.96] mb-6">
+                AI is great.<br />
+                <span className="text-muted-foreground/75">It lacks perspective.</span>
+              </h2>
+              <p className="text-lg text-muted-foreground leading-relaxed max-w-xl">
+                Sessions is the perspective layer for AI — your context, your
+                questions, your judgment, compounding on top of every model
+                you call.
+              </p>
+            </div>
+          </div>
+        </section>
 
-            <div className="flex items-center gap-3 mt-10">
-              <Button size="lg" className="h-11 px-6 gap-2 text-sm" onClick={() => login()} data-testid="button-cta-start">
-                Start a session
+        {/* 03 — Signal: mirrored right */}
+        <section className="py-32 px-8 lg:px-16">
+          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10">
+            <div className="col-span-12 lg:col-span-9 lg:col-start-3 lg:text-right">
+              <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/55 mb-4">
+                03 / SIGNAL
+              </div>
+              <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-bold tracking-tight leading-[0.96] mb-6">
+                Every session<br />leaves a trace.
+              </h2>
+              <p className="text-lg text-muted-foreground leading-relaxed max-w-xl lg:ml-auto">
+                Knowledge doesn't disappear at logout. It compounds, connects,
+                and waits for the next question.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* 04 — Compound: left again */}
+        <section className="py-32 px-8 lg:px-16">
+          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10">
+            <div className="hidden lg:block lg:col-span-2 font-mono text-[10px] tracking-[0.32em] text-muted-foreground/55 pt-3">
+              04 / COMPOUND
+            </div>
+            <div className="col-span-12 lg:col-span-9">
+              <div className="lg:hidden font-mono text-[10px] tracking-[0.32em] text-muted-foreground/55 mb-4">04 / COMPOUND</div>
+              <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-bold tracking-tight leading-[0.96] mb-6">
+                Tomorrow's research<br />stands on today's.
+              </h2>
+              <p className="text-lg text-muted-foreground leading-relaxed max-w-xl">
+                Models, reports, and on-chain data layer onto a brain that
+                remembers what you've already learned.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* 05 — Begin: CTA + wordmark in opposite corners */}
+        <section className="py-32 px-8 lg:px-16">
+          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10 items-end">
+            <div className="col-span-12 lg:col-span-8">
+              <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/55 mb-4">
+                05 / BEGIN
+              </div>
+              <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-bold tracking-tight leading-[0.96] mb-6">
+                Start your first<br />session.
+              </h2>
+              <p className="text-lg text-muted-foreground leading-relaxed max-w-md mb-8">
+                Sign in with email or wallet. Paste your first link and see
+                what comes back.
+              </p>
+              <Button size="lg" className="h-12 px-8 gap-2" onClick={() => login()} data-testid="button-cta-bottom">
+                Get started free
                 <ArrowRight className="w-4 h-4" />
               </Button>
-              <a href="#signal">
-                <Button variant="ghost" size="lg" className="h-11 px-4 text-sm text-muted-foreground" data-testid="button-how-it-works">
-                  Learn more
-                </Button>
-              </a>
             </div>
-          </div>
-        </section>
-
-        {/* Perspective — positioning statement */}
-        <section id="signal" className="py-24 flex flex-col items-center justify-center px-6 text-center">
-          <div className="max-w-3xl flex flex-col items-center">
-            <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-4">
-              ◦ &nbsp;THE&nbsp;THESIS&nbsp; ◦
+            <div className="hidden lg:block lg:col-span-4 text-right pb-2">
+              <p className="text-[10px] text-muted-foreground/50 font-mono tracking-[0.25em]">
+                SESSIONS.XYZ
+              </p>
             </div>
-            <h2 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.02] mb-5">
-              AI is great.<br />
-              <span className="text-muted-foreground/80">It lacks perspective.</span>
-            </h2>
-            <p className="text-lg text-muted-foreground leading-relaxed max-w-md">
-              Sessions is the perspective layer for AI — your context, your
-              questions, your judgment, compounding on top of every model
-              you call.
-            </p>
-          </div>
-        </section>
-
-        {/* Signal — single editorial statement floating mid-page */}
-        <section className="py-24 flex flex-col items-center justify-center px-6 text-center">
-          <div className="max-w-3xl flex flex-col items-center">
-            <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-4">
-              ◦ &nbsp;THE&nbsp;SIGNAL&nbsp; ◦
-            </div>
-            <h2 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.02] mb-5">
-              Every session<br />leaves a trace.
-            </h2>
-            <p className="text-lg text-muted-foreground leading-relaxed max-w-md">
-              Knowledge doesn't disappear at logout. It compounds, connects,
-              and waits for the next question.
-            </p>
-          </div>
-        </section>
-
-        {/* Compounding — second editorial beat */}
-        <section className="py-24 flex flex-col items-center justify-center px-6 text-center">
-          <div className="max-w-3xl flex flex-col items-center">
-            <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-4">
-              ◦ &nbsp;THE&nbsp;COMPOUND&nbsp; ◦
-            </div>
-            <h2 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.02] mb-5">
-              Tomorrow's research<br />stands on today's.
-            </h2>
-            <p className="text-lg text-muted-foreground leading-relaxed max-w-md">
-              Models, reports, and on-chain data layer onto a brain that
-              remembers what you've already learned.
-            </p>
-          </div>
-        </section>
-
-        {/* Final CTA — quiet, no card */}
-        <section className="py-24 flex flex-col items-center justify-center px-6 text-center">
-          <div className="max-w-2xl flex flex-col items-center">
-            <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-4">
-              ◦ &nbsp;BEGIN&nbsp; ◦
-            </div>
-            <h2 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.05] mb-5">
-              Start your first<br />session.
-            </h2>
-            <p className="text-base text-muted-foreground mb-6 max-w-md">
-              Sign in with email or wallet. Paste your first link and see
-              what comes back.
-            </p>
-            <Button size="lg" className="h-12 px-8 gap-2" onClick={() => login()} data-testid="button-cta-bottom">
-              Get started free
-              <ArrowRight className="w-4 h-4" />
-            </Button>
-            <p className="mt-16 text-[10px] text-muted-foreground/50 font-mono tracking-[0.25em]">
-              SESSIONS.XYZ
-            </p>
           </div>
         </section>
       </main>
