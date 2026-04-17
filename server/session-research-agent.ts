@@ -422,7 +422,13 @@ The user asked a targeted question that needs real analysis but not a full deep-
 - Lead with the answer, then the reasoning. Don't bury the lede behind 6 paragraphs of setup.
 - Use a callout if there's one genuinely non-obvious takeaway.
 - Skip the bear/base/bull scenario unless the question is explicitly about valuation.
-- End with a brief "what this means" — but no probability-weighted price targets unless asked.`;
+- End with a brief "what this means" — but no probability-weighted price targets unless asked.
+
+WHEN THE REQUEST IS A CHART/VISUALIZATION ("show me a chart of X", "pull up Y over Z", "graph the take rate"):
+- Fetch the underlying data (1-2 tool calls), do the trivial transform inline in the chart artifact's "data" array, and ship the chart with a 2-3 sentence summary above it.
+- DO NOT call execute_code for simple ratios, percentages, or rolling averages — write those numbers directly into the chart data using the values you got back from the data tools.
+- Only use execute_code in focused mode if the math is genuinely non-trivial (regressions, correlations, multi-variable models). Computing P/E = mcap/revenue or take_rate = fees/volume does NOT need a code sandbox round.
+- No scenario tables, no sensitivity matrices, no thesis section. Just the chart + brief context.`;
 
 const DEEP_RULES = `RESPONSE MODE: DEEP
 The user explicitly asked for a deep dive, full analysis, or comprehensive breakdown.
@@ -462,8 +468,8 @@ function buildSystemPrompt(mode: ResearchMode, brainContext: string): string {
 const INTENT_CLASSIFIER_PROMPT = `You classify the user's last message into one of three modes for a crypto research assistant.
 
 quick = clarification, fact recall, simple lookup, "what does X mean", "which was higher", "what was the lock rate", short follow-up that doesn't need new analysis
-focused = targeted question needing some research — "show me the TVL trend", "what's the P/S vs UNI", "explain the merger", "compare X and Y at a high level", "how does this affect Z"
-deep = explicit deep-dive, full analysis, comprehensive breakdown — "dive deep into", "deep analysis", "full breakdown", "thorough analysis", "competitive analysis", "build me a model", first message in a new session that asks open-ended "tell me about X"
+focused = targeted question needing some research — "show me the TVL trend", "what's the P/S vs UNI", "explain the merger", "compare X and Y at a high level", "how does this affect Z", AND any pure data-visualization request like "pull up a chart of X", "show me a chart of Y over Z", "graph the take rate", "plot HYPE P/E ratios" — these need data fetching + a chart artifact, NOT a full model.
+deep = explicit deep-dive, full analysis, comprehensive breakdown, scenario modeling — "dive deep into", "deep analysis", "full breakdown", "thorough analysis", "competitive analysis", "build me a model", "run a model", "model the NTM revenue", first message in a new session that asks open-ended "tell me about X". Modeling/scenarios/probability-weighted targets = deep. A request that just asks to SEE a chart of existing data = focused, not deep.
 
 Output ONLY valid JSON: {"mode": "quick|focused|deep", "reason": "<one short phrase>"}`;
 
