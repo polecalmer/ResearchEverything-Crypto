@@ -640,6 +640,11 @@ async function executeTool(name: string, input: any): Promise<string> {
       }
       case "execute_code": {
         console.log(`[SessionResearch] Executing code: ${input.description}`);
+        if (!input.code || typeof input.code !== "string" || !input.code.trim()) {
+          return JSON.stringify({
+            error: "MISSING_CODE: You called execute_code without a 'code' field. The 'code' parameter must contain the actual JavaScript source as a string. For chart/visualization requests you almost never need execute_code at all — just compute simple ratios inline (e.g. revenue/mcap) and put the numbers directly into the chart's data array. Do NOT retry this tool with the same empty input.",
+          });
+        }
         const result = await executeCode(input.code);
         return result;
       }
@@ -820,6 +825,7 @@ export async function runSessionResearchAgent(
   forceMode?: ResearchMode,
 ): Promise<ResearchResponse> {
   const toolCalls: string[] = [];
+  const toolCallSignatures: string[] = [];
   let totalCost = 0;
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
@@ -851,11 +857,14 @@ export async function runSessionResearchAgent(
   const messages: Array<{ role: string; content: any }> = summarizeHistory(history);
   messages.push({ role: "user", content: userMessage });
 
-  const anthropicTools: any[] = TOOLS.map(t => ({
-    name: t.name,
-    description: t.description,
-    input_schema: t.input_schema,
-  }));
+  const FOCUSED_TOOL_BLOCKLIST = new Set(["execute_code"]);
+  const anthropicTools: any[] = TOOLS
+    .filter(t => mode !== "focused" || !FOCUSED_TOOL_BLOCKLIST.has(t.name))
+    .map(t => ({
+      name: t.name,
+      description: t.description,
+      input_schema: t.input_schema,
+    }));
 
   anthropicTools.push({
     type: "web_search_20250305",
@@ -915,12 +924,28 @@ export async function runSessionResearchAgent(
     messages.push({ role: "assistant", content: response.content });
 
     const toolResults: any[] = [];
+    let repeatedFailureDetected = false;
     for (const block of response.content) {
       if (block.type === "tool_use") {
         const label = toolLabel(block.name, block.input);
         onStep?.({ type: "tool_start", label, detail: block.name, round: round + 1 });
-        console.log(`[SessionResearch] Tool: ${block.name}(${JSON.stringify(block.input).slice(0, 120)})`);
+        const inputStr = JSON.stringify(block.input);
+        console.log(`[SessionResearch] Tool: ${block.name}(${inputStr.slice(0, 120)})`);
         toolCalls.push(block.name);
+
+        const callSig = `${block.name}:${inputStr}`;
+        toolCallSignatures.push(callSig);
+        const sameCallCount = toolCallSignatures.filter(s => s === callSig).length;
+        if (sameCallCount >= 3) {
+          console.log(`[SessionResearch] Detected ${sameCallCount}x repeat of ${block.name} with identical input — breaking loop`);
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: JSON.stringify({ error: `LOOP_DETECTED: You have called ${block.name} with the exact same input ${sameCallCount} times in a row. Stop retrying. Synthesize whatever you have and respond now.` }),
+          });
+          repeatedFailureDetected = true;
+          continue;
+        }
 
         if (block.name === "update_research_brain") {
           pendingBrainUpdate = block.input as BrainUpdate;
@@ -965,6 +990,11 @@ export async function runSessionResearchAgent(
       messages.push({ role: "user", content: toolResults });
     }
     onStep?.({ type: "analyzing", label: "Analyzing results", round: round + 1, totalRounds: MAX_TOOL_ROUNDS });
+
+    if (repeatedFailureDetected) {
+      console.log(`[SessionResearch] Breaking loop early due to repeated identical tool calls`);
+      break;
+    }
   }
 
   if (!finalText) {
