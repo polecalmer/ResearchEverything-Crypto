@@ -10,6 +10,8 @@ import {
 } from "./schema";
 import { embed } from "./embeddings";
 
+/** Dimension change requires recreating the table — handled by seeder via DROP. */
+
 export interface ConsultResult {
   fact: DataSourceFact;
   similarity: number;
@@ -38,7 +40,7 @@ export async function consult(params: {
   minSimilarity?: number;
 }): Promise<ConsultResult[]> {
   const { query, source, category, topK = 3, minSimilarity = 0.4 } = params;
-  const queryEmbedding = await embed(query);
+  const queryEmbedding = await embed(query, "query");
   const vec = `[${queryEmbedding.join(",")}]`;
 
   const conditions: any[] = [];
@@ -80,6 +82,7 @@ export async function observe(input: ObserveInput): Promise<{
   // Try exact dedupe first via atomic upsert
   const embedding = await embed(
     factEmbeddingText({ source: input.source, scope_ref: input.scope_ref, content: input.content }),
+    "document",
   );
   const vec = `[${embedding.join(",")}]`;
 
@@ -195,6 +198,7 @@ export async function insertSeedFact(seed: SeedFact): Promise<{ inserted: boolea
 
   const embedding = await embed(
     factEmbeddingText({ source: seed.source, scope_ref: seed.scope_ref, content: seed.content }),
+    "document",
   );
   await db
     .insert(dataSourceFacts)

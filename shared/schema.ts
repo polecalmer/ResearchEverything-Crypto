@@ -536,7 +536,7 @@ export const dataSourceFacts = pgTable("data_source_facts", {
   lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
   staleAt: timestamp("stale_at"),
   dedupeKey: text("dedupe_key").notNull().unique(),
-  embedding: vector("embedding", { dimensions: 384 }).notNull(),
+  embedding: vector("embedding", { dimensions: 1024 }).notNull(),
 }, (table) => ({
   embeddingIdx: index("data_source_facts_embedding_idx").using("hnsw", table.embedding.op("vector_cosine_ops")),
   sourceIdx: index("data_source_facts_source_idx").on(table.source),
