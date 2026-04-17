@@ -5,7 +5,13 @@ import { fetchTokenSnapshot } from "./allium-client";
 import * as defillama from "./defillama-client";
 import * as vm from "vm";
 import { retrieveRelevantContext, formatRetrievedContext } from "./brain-retrieval";
-import { consultForTool, observeToolError, getBinding } from "./data-source-brain/agent-hooks";
+import {
+  consultForTool,
+  observeToolError,
+  getBinding,
+  registerToolBindings,
+  type ToolBrainBinding,
+} from "./data-source-brain/agent-hooks";
 
 export interface ResearchArtifact {
   type: "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote";
@@ -105,7 +111,14 @@ export interface ResearchResponse {
 
 export type BrainContext = BrainGraph | null;
 
-const TOOLS = [
+interface ToolDef {
+  name: string;
+  description: string;
+  input_schema: any;
+  brainBinding?: ToolBrainBinding;
+}
+
+const TOOLS: ToolDef[] = [
   {
     name: "query_defillama_tvl",
     description: "Get TVL history for a protocol. Returns daily TVL values over time.",
@@ -116,6 +129,7 @@ const TOOLS = [
       },
       required: ["protocol"],
     },
+    brainBinding: { source: "defillama", scopeRef: "defillama:/protocol/{slug}", observationCategory: "coverage" },
   },
   {
     name: "query_defillama_fees_revenue",
@@ -127,6 +141,7 @@ const TOOLS = [
       },
       required: ["protocol"],
     },
+    brainBinding: { source: "defillama", scopeRef: "defillama:/summary/fees/{slug}", observationCategory: "coverage" },
   },
   {
     name: "query_defillama_volume",
@@ -139,6 +154,7 @@ const TOOLS = [
       },
       required: ["protocol"],
     },
+    brainBinding: { source: "defillama", scopeRef: "defillama:/summary/dexs/{slug}", observationCategory: "coverage" },
   },
   {
     name: "query_defillama_protocol_summary",
@@ -150,6 +166,7 @@ const TOOLS = [
       },
       required: ["protocol"],
     },
+    brainBinding: { source: "defillama", scopeRef: "defillama:/protocol/{slug}", observationCategory: "coverage" },
   },
   {
     name: "query_defillama_price_history",
@@ -162,6 +179,7 @@ const TOOLS = [
       },
       required: ["coinId"],
     },
+    brainBinding: { source: "defillama", scopeRef: "defillama:coins/prices/chart", observationCategory: "coverage" },
   },
   {
     name: "list_defi_protocols",
@@ -174,6 +192,7 @@ const TOOLS = [
       },
       required: ["search"],
     },
+    brainBinding: { source: "defillama", scopeRef: "defillama:/protocols", observationCategory: "coverage" },
   },
   {
     name: "execute_dune_sql",
@@ -186,6 +205,7 @@ const TOOLS = [
       },
       required: ["sql", "description"],
     },
+    brainBinding: { source: "dune", scopeRef: "dune:/query/execute", observationCategory: "reliability" },
   },
   {
     name: "discover_dune_tables",
@@ -198,6 +218,7 @@ const TOOLS = [
       },
       required: ["protocol"],
     },
+    brainBinding: { source: "dune", scopeRef: "dune:mcp/v1", observationCategory: "schema" },
   },
   {
     name: "compare_protocols",
@@ -226,6 +247,7 @@ const TOOLS = [
       },
       required: ["ticker"],
     },
+    brainBinding: { source: "allium", scopeRef: "allium:token-snapshot", observationCategory: "coverage" },
   },
   {
     name: "execute_code",
@@ -336,6 +358,10 @@ IMPORTANT: Only record facts that came from tool calls (verified data). Mark pro
     },
   },
 ];
+
+// Register the brain bindings carried by each tool definition above.
+// Module-level call: runs once on import.
+registerToolBindings(TOOLS);
 
 const BASE_PROMPT = `You are a Senior DeFi Research Analyst at Sessions — an AI research platform that captures and compounds knowledge.
 

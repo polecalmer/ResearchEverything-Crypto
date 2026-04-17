@@ -1,11 +1,9 @@
 /**
  * Agent hooks: wrap tool execution with consult-before / observe-on-error.
  *
- * The mapping below tells the brain WHICH source/scope_ref a given tool name
- * touches. Tools not listed are passed through with no brain interaction.
- *
- * Adding a new tool here is the single integration point — no annotation
- * changes needed in the tool definition itself.
+ * Bindings are registered by the agent module that owns the tool definitions
+ * (via `registerToolBindings` at module init). This keeps the binding next to
+ * the tool definition itself — no parallel map to drift out of sync.
  */
 import type { Source } from "./schema";
 import { consult, observe } from "./db";
@@ -17,59 +15,26 @@ export interface ToolBrainBinding {
   observationCategory: "rate_limit" | "auth" | "coverage" | "reliability" | "schema";
 }
 
-const TOOL_BINDINGS: Record<string, ToolBrainBinding> = {
-  // DeFiLlama
-  query_defillama_tvl: {
-    source: "defillama",
-    scopeRef: "defillama:/protocol/{slug}",
-    observationCategory: "coverage",
-  },
-  query_defillama_fees_revenue: {
-    source: "defillama",
-    scopeRef: "defillama:/summary/fees/{slug}",
-    observationCategory: "coverage",
-  },
-  query_defillama_volume: {
-    source: "defillama",
-    scopeRef: "defillama:/summary/dexs/{slug}",
-    observationCategory: "coverage",
-  },
-  query_defillama_protocol_summary: {
-    source: "defillama",
-    scopeRef: "defillama:/protocol/{slug}",
-    observationCategory: "coverage",
-  },
-  query_defillama_price_history: {
-    source: "defillama",
-    scopeRef: "defillama:coins/prices/chart",
-    observationCategory: "coverage",
-  },
-  list_defi_protocols: {
-    source: "defillama",
-    scopeRef: "defillama:/protocols",
-    observationCategory: "coverage",
-  },
-  // Allium
-  get_token_snapshot: {
-    source: "allium",
-    scopeRef: "allium:token-snapshot",
-    observationCategory: "coverage",
-  },
-  // Dune
-  query_dune_sql: {
-    source: "dune",
-    scopeRef: "dune:/query/execute",
-    observationCategory: "reliability",
-  },
-  discover_dune_tables: {
-    source: "dune",
-    scopeRef: "dune:mcp/v1",
-    observationCategory: "schema",
-  },
-};
+/** Tool descriptors carry an optional brainBinding co-located with the tool. */
+export interface ToolWithBinding {
+  name: string;
+  brainBinding?: ToolBrainBinding;
+}
+
+const BINDINGS = new Map<string, ToolBrainBinding>();
+
+/**
+ * Register tool→binding associations. Idempotent. Call once at module init
+ * with the full tool array; later calls overwrite (useful for hot reload).
+ */
+export function registerToolBindings(tools: readonly ToolWithBinding[]): void {
+  for (const t of tools) {
+    if (t.brainBinding) BINDINGS.set(t.name, t.brainBinding);
+  }
+}
 
 export function getBinding(toolName: string): ToolBrainBinding | null {
-  return TOOL_BINDINGS[toolName] ?? null;
+  return BINDINGS.get(toolName) ?? null;
 }
 
 /**
@@ -83,7 +48,7 @@ export async function consultForTool(
 ): Promise<string> {
   const binding = getBinding(toolName);
   if (!binding) return "";
-  const protocol = input?.protocol || input?.coinId || input?.slug || "";
+  const protocol = input?.protocol || input?.coinId || input?.slug || input?.ticker || "";
   const query = `${toolName} ${protocol}`.trim();
   try {
     const hits = await consult({
@@ -126,7 +91,7 @@ export async function observeToolError(
     else if (lower.includes("not tracked") || lower.includes("no data") || lower.includes("not found"))
       category = "coverage";
 
-    const protocol = input?.protocol || input?.coinId || input?.slug || "unknown";
+    const protocol = input?.protocol || input?.coinId || input?.slug || input?.ticker || "unknown";
     const content =
       `Runtime observation: ${toolName}(${protocol}) returned: ` +
       errorText.slice(0, 240);
