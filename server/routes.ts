@@ -1343,14 +1343,14 @@ export async function registerRoutes(
     `);
 
     const userListResult = await db.execute(sql`
-      SELECT u.id, u.username, u.email, u.wallet_address, u.credits, u.created_at,
+      SELECT u.id, u.username, u.email, u.wallet_address, u.credits, NULL as created_at,
              COUNT(DISTINCT c.id) as company_count,
              COUNT(DISTINCT ue.id) as event_count
       FROM users u
       LEFT JOIN companies c ON c.user_id = u.id
       LEFT JOIN usage_events ue ON ue.user_id = u.id
-      GROUP BY u.id, u.username, u.email, u.wallet_address, u.credits, u.created_at
-      ORDER BY u.created_at DESC
+      GROUP BY u.id, u.username, u.email, u.wallet_address, u.credits
+      ORDER BY u.username
     `);
 
     res.json({
