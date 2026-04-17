@@ -1,5 +1,16 @@
-const DEFILLAMA_BASE = "https://api.llama.fi";
-const DEFILLAMA_COINS = "https://coins.llama.fi";
+const PRO_KEY = process.env.DEFILLAMA_PRO_API_KEY?.trim() || "";
+const PRO_BASE = PRO_KEY ? `https://pro-api.llama.fi/${PRO_KEY}` : "";
+
+if (PRO_KEY) {
+  console.log("[DeFiLlama] Pro API key detected — routing through pro-api.llama.fi");
+} else {
+  console.warn("[DeFiLlama] DEFILLAMA_PRO_API_KEY not set — falling back to free public endpoints (rate-limited).");
+}
+
+const DEFILLAMA_BASE = PRO_KEY ? `${PRO_BASE}/api` : "https://api.llama.fi";
+const DEFILLAMA_COINS = PRO_KEY ? `${PRO_BASE}/coins` : "https://coins.llama.fi";
+const DEFILLAMA_YIELDS = PRO_KEY ? `${PRO_BASE}/yields` : "https://yields.llama.fi";
+const DEFILLAMA_STABLES = PRO_KEY ? `${PRO_BASE}/stablecoins` : "https://stablecoins.llama.fi";
 
 export interface DefiLlamaProtocol {
   name: string;
@@ -286,7 +297,7 @@ export async function getProtocolSummary(slug: string): Promise<{
 }
 
 export async function getYieldPools(protocol?: string): Promise<any[]> {
-  const data = await fetchJson("https://yields.llama.fi/pools");
+  const data = await fetchJson(`${DEFILLAMA_YIELDS}/pools`);
   let pools = data.data || [];
   if (protocol) {
     const lower = protocol.toLowerCase();
@@ -306,7 +317,7 @@ export async function getYieldPools(protocol?: string): Promise<any[]> {
 }
 
 export async function getStablecoins(): Promise<any[]> {
-  const data = await fetchJson("https://stablecoins.llama.fi/stablecoins?includePrices=true");
+  const data = await fetchJson(`${DEFILLAMA_STABLES}/stablecoins?includePrices=true`);
   const pegged = data.peggedAssets || [];
   return pegged.slice(0, 30).map((s: any) => ({
     name: s.name,
