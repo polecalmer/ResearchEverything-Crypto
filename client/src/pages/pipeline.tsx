@@ -7,12 +7,12 @@ import { Search, Sparkles, Plus } from "lucide-react";
 import { useState, useMemo, useRef, useEffect } from "react";
 
 const STAGE_ACCENT: Record<PipelineStage, string> = {
-  discovered: "#3b82f6",
-  researching: "#f59e0b",
-  reaching_out: "#a855f7",
-  in_diligence: "#10b981",
-  passed: "#6b7280",
-  invested: "#22c55e",
+  discovered: "#7dcfff",
+  researching: "#f7c97a",
+  reaching_out: "#bb9af7",
+  in_diligence: "#9ece6a",
+  passed: "#565f89",
+  invested: "#f7768e",
 };
 
 function excitementFill(score: number | null | undefined, isDark: boolean, base: string, isToken: boolean): string {
@@ -273,28 +273,78 @@ export default function Pipeline() {
     </div>
   );
 
+  const stageCounts = PIPELINE_STAGES.map((s) => ({
+    stage: s,
+    label: STAGE_LABELS[s],
+    count: byStage[s].length,
+    color: STAGE_ACCENT[s],
+  }));
+
   return (
     <div className="h-full flex flex-col">
-      <div className="px-6 pt-5 pb-3 flex items-end justify-between gap-4 flex-shrink-0">
-        <div>
-          <h2 className="text-sm font-medium tracking-tight text-foreground" data-testid="text-page-title">Pipeline</h2>
-          <span className="text-[10px] font-mono text-muted-foreground">
-            {filtered.length} deal{filtered.length !== 1 ? "s" : ""}
-          </span>
+      <div className="px-6 pt-6 pb-4 flex-shrink-0 border-b border-border/30">
+        <div className="flex items-end justify-between gap-4 mb-4">
+          <div className="space-y-2">
+            <div className="flex items-center gap-2.5">
+              <span className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground/55">
+                <span className="text-cyan-400/80">01</span> &nbsp; Surface
+              </span>
+              <span className="h-px w-8 bg-border/50" />
+            </div>
+            <div className="flex items-baseline gap-3">
+              <h1
+                className="text-[28px] font-semibold tracking-[-0.025em] leading-none bg-gradient-to-b from-foreground to-foreground/65 bg-clip-text text-transparent"
+                data-testid="text-page-title"
+              >
+                Pipeline
+              </h1>
+              <span className="text-xs font-mono tabular-nums text-muted-foreground/60" data-testid="text-deal-count">
+                {filtered.length} deal{filtered.length !== 1 ? "s" : ""} tracked
+              </span>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground/50" />
+              <input
+                type="search"
+                placeholder="filter…"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                className="h-8 pl-8 pr-3 text-xs bg-transparent border border-border/50 rounded-md font-mono text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:border-cyan-400/50 focus:shadow-[0_0_0_3px_rgba(125,207,255,0.08)] transition-all w-44"
+                data-testid="input-search-pipeline"
+              />
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => navigate("/add")}
+              className="h-8 text-xs gap-1.5 border-border/50 hover:border-cyan-400/40 hover:text-cyan-400/90"
+              data-testid="button-add-deal"
+            >
+              <Plus className="w-3 h-3" />
+              Add deal
+            </Button>
+          </div>
         </div>
-        <div className="relative">
-          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-muted-foreground" />
-          <input
-            type="search"
-            placeholder="Filter…"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            className="h-7 pl-7 pr-2 text-xs bg-transparent border border-border/50 rounded font-mono text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-muted-foreground/50 w-36"
-            data-testid="input-search-pipeline"
-          />
+        <div className="flex items-center gap-1 flex-wrap">
+          {stageCounts.map(({ stage, label, count, color }) => (
+            <div
+              key={stage}
+              className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] font-mono text-muted-foreground/65 hover:text-foreground/85 hover:bg-accent/30 transition-colors cursor-default"
+              data-testid={`legend-stage-${stage}`}
+            >
+              <span
+                className="w-1.5 h-1.5 rounded-full"
+                style={{ backgroundColor: color, boxShadow: `0 0 6px ${color}66` }}
+              />
+              <span className="uppercase tracking-[0.12em]">{label}</span>
+              <span className="tabular-nums text-muted-foreground/40">{count}</span>
+            </div>
+          ))}
         </div>
       </div>
-      <div className="flex-1 px-6 pb-6 flex flex-col min-h-0">
+      <div className="flex-1 px-6 py-5 flex flex-col min-h-0">
         <TreemapView byStage={byStage} />
       </div>
     </div>

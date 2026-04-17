@@ -61,35 +61,77 @@ export function AppSidebar() {
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
+          <div className="px-3 pt-1 pb-2 flex items-center gap-2">
+            <span className="text-[9px] uppercase tracking-[0.32em] text-muted-foreground/45">
+              Navigate
+            </span>
+            <span className="flex-1 h-px bg-border/40" />
+          </div>
           <SidebarGroupContent>
-            <SidebarMenu>
-              {navItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    data-active={location === item.url}
-                    className="data-[active=true]:bg-sidebar-accent data-[active=true]:text-foreground text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase().replace(' ', '-')}`}>
-                      <item.icon className="w-4 h-4" />
-                      <span className="text-sm">{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
+            <SidebarMenu className="gap-0.5">
+              {navItems.map((item, i) => {
+                const active = location === item.url;
+                return (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      data-active={active}
+                      className="group relative h-8 rounded-md text-muted-foreground/75 hover:text-foreground hover:bg-sidebar-accent/40 data-[active=true]:bg-sidebar-accent/60 data-[active=true]:text-foreground transition-all"
+                    >
+                      <Link href={item.url} data-testid={`link-nav-${item.title.toLowerCase().replace(' ', '-')}`}>
+                        <span
+                          className={`absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-full transition-all ${
+                            active
+                              ? "bg-cyan-400/80 shadow-[0_0_8px_rgba(125,207,255,0.6)]"
+                              : "bg-transparent group-hover:bg-cyan-400/20"
+                          }`}
+                        />
+                        <item.icon
+                          className={`w-3.5 h-3.5 transition-colors ${
+                            active ? "text-cyan-400/90" : "text-muted-foreground/60 group-hover:text-foreground/80"
+                          }`}
+                        />
+                        <span className="text-[13px] tracking-tight">{item.title}</span>
+                        <span className="ml-auto text-[9px] tabular-nums font-mono text-muted-foreground/30">
+                          0{i + 1}
+                        </span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                );
+              })}
               {isAdmin && (
-                <SidebarMenuItem>
-                  <SidebarMenuButton
-                    asChild
-                    data-active={location === "/admin"}
-                    className="data-[active=true]:bg-sidebar-accent data-[active=true]:text-foreground text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    <Link href="/admin" data-testid="link-nav-admin">
-                      <Activity className="w-4 h-4" />
-                      <span className="text-sm">Status</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
+                <>
+                  <div className="px-3 pt-4 pb-2 flex items-center gap-2">
+                    <span className="text-[9px] uppercase tracking-[0.32em] text-muted-foreground/45">
+                      Admin
+                    </span>
+                    <span className="flex-1 h-px bg-border/40" />
+                  </div>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      data-active={location === "/admin"}
+                      className="group relative h-8 rounded-md text-muted-foreground/75 hover:text-foreground hover:bg-sidebar-accent/40 data-[active=true]:bg-sidebar-accent/60 data-[active=true]:text-foreground transition-all"
+                    >
+                      <Link href="/admin" data-testid="link-nav-admin">
+                        <span
+                          className={`absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-full transition-all ${
+                            location === "/admin"
+                              ? "bg-fuchsia-400/80 shadow-[0_0_8px_rgba(187,154,247,0.6)]"
+                              : "bg-transparent group-hover:bg-fuchsia-400/20"
+                          }`}
+                        />
+                        <Activity
+                          className={`w-3.5 h-3.5 ${
+                            location === "/admin" ? "text-fuchsia-400/90" : "text-muted-foreground/60 group-hover:text-foreground/80"
+                          }`}
+                        />
+                        <span className="text-[13px] tracking-tight">Status</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                </>
               )}
             </SidebarMenu>
           </SidebarGroupContent>
