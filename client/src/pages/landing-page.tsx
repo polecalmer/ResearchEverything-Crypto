@@ -32,7 +32,7 @@ interface AggNode {
 }
 interface AggEdge { from: string; to: string; weight: number; }
 
-function SynapseField() {
+function FlowField() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const animRef = useRef<number>(0);
 
@@ -42,213 +42,92 @@ function SynapseField() {
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    const PALETTE = ["#7aa2f7", "#bb9af7", "#7dcfff", "#9ece6a", "#f7c97a", "#f7768e"];
-    const NODE_COUNT = 60;
+    const PALETTE = ["#7dcfff", "#bb9af7", "#f7768e"];
+    const PARTICLES = 420;
 
-    type N = { x: number; y: number; vx: number; vy: number; color: string; flash: number; baseR: number };
-    type E = { a: number; b: number; len: number };
-    type P = { e: number; from: number; to: number; t: number; speed: number; color: string };
+    type P = { x: number; y: number; px: number; py: number; age: number; maxAge: number; color: string; speed: number };
+    let particles: P[] = [];
+    let w = 0, h = 0, t = 0;
+    let dpr = 1;
 
-    let nodes: N[] = [];
-    let edges: E[] = [];
-    let pulses: P[] = [];
+    function noise(x: number, y: number, time: number): number {
+      const tt = time * 0.0006;
+      const a = Math.sin(x * 0.0028 + tt * 0.9) * Math.cos(y * 0.0024 - tt * 0.7);
+      const b = Math.cos(x * 0.0017 - tt * 1.1) * Math.sin(y * 0.0021 + tt * 0.6);
+      const c = Math.sin((x + y) * 0.0014 + tt * 1.4);
+      return (a + b + c * 0.6) / 2.6;
+    }
+
+    function spawn(p: P, randomAge = false) {
+      const angle = Math.random() * Math.PI * 2;
+      const r = Math.pow(Math.random(), 0.6) * Math.min(w, h) * 0.55;
+      p.x = w / 2 + Math.cos(angle) * r;
+      p.y = h / 2 + Math.sin(angle) * r * 0.7;
+      p.px = p.x;
+      p.py = p.y;
+      p.maxAge = 220 + Math.random() * 380;
+      p.age = randomAge ? Math.random() * p.maxAge : 0;
+      p.color = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+      p.speed = 0.45 + Math.random() * 0.9;
+    }
 
     function init() {
       const rect = canvas!.getBoundingClientRect();
-      nodes = [];
-      for (let i = 0; i < NODE_COUNT; i++) {
-        const angle = Math.random() * Math.PI * 2;
-        const r = Math.random() * Math.min(rect.width, rect.height) * 0.42;
-        nodes.push({
-          x: Math.cos(angle) * r,
-          y: Math.sin(angle) * r * 0.7,
-          vx: (Math.random() - 0.5) * 0.08,
-          vy: (Math.random() - 0.5) * 0.08,
-          color: PALETTE[Math.floor(Math.random() * PALETTE.length)],
-          flash: 0,
-          baseR: 1.5 + Math.random() * 1.8,
-        });
-      }
-      edges = [];
-      for (let i = 0; i < nodes.length; i++) {
-        const dists: Array<[number, number]> = [];
-        for (let j = 0; j < nodes.length; j++) {
-          if (i === j) continue;
-          const dx = nodes[j].x - nodes[i].x;
-          const dy = nodes[j].y - nodes[i].y;
-          dists.push([j, dx * dx + dy * dy]);
-        }
-        dists.sort((a, b) => a[1] - b[1]);
-        const k = 2 + Math.floor(Math.random() * 2);
-        for (let m = 0; m < k; m++) {
-          const j = dists[m][0];
-          if (i < j) edges.push({ a: i, b: j, len: Math.sqrt(dists[m][1]) });
-          else if (!edges.some(e => (e.a === j && e.b === i))) edges.push({ a: j, b: i, len: Math.sqrt(dists[m][1]) });
-        }
+      dpr = window.devicePixelRatio || 1;
+      canvas!.width = rect.width * dpr;
+      canvas!.height = rect.height * dpr;
+      ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
+      w = rect.width;
+      h = rect.height;
+
+      ctx!.fillStyle = "#0a0a0c";
+      ctx!.fillRect(0, 0, w, h);
+
+      particles = [];
+      for (let i = 0; i < PARTICLES; i++) {
+        const p = {} as P;
+        spawn(p, true);
+        particles.push(p);
       }
     }
-
-    function neighbors(nodeIdx: number): number[] {
-      const out: number[] = [];
-      for (const e of edges) {
-        if (e.a === nodeIdx) out.push(e.b);
-        else if (e.b === nodeIdx) out.push(e.a);
-      }
-      return out;
-    }
-
-    function findEdge(a: number, b: number): number {
-      for (let i = 0; i < edges.length; i++) {
-        if ((edges[i].a === a && edges[i].b === b) || (edges[i].a === b && edges[i].b === a)) return i;
-      }
-      return -1;
-    }
-
-    function spawnPulse(from: number, to: number, color: string) {
-      if (pulses.length > 120) return;
-      const e = findEdge(from, to);
-      if (e === -1) return;
-      pulses.push({
-        e, from, to, t: 0,
-        speed: 0.006 + Math.random() * 0.008,
-        color,
-      });
-    }
-
-    function spawnRandom() {
-      const i = Math.floor(Math.random() * nodes.length);
-      const ns = neighbors(i);
-      if (!ns.length) return;
-      const j = ns[Math.floor(Math.random() * ns.length)];
-      nodes[i].flash = Math.max(nodes[i].flash, 0.6);
-      spawnPulse(i, j, nodes[i].color);
-    }
-
-    init();
-    let frame = 0;
-    let lastSpawn = 0;
 
     function draw() {
-      const rect = canvas!.getBoundingClientRect();
-      const dpr = window.devicePixelRatio || 1;
-      if (canvas!.width !== rect.width * dpr || canvas!.height !== rect.height * dpr) {
-        canvas!.width = rect.width * dpr;
-        canvas!.height = rect.height * dpr;
-      }
-      ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
+      t++;
 
-      ctx!.fillStyle = "rgba(10, 10, 12, 0.18)";
-      ctx!.fillRect(0, 0, rect.width, rect.height);
+      ctx!.fillStyle = "rgba(10, 10, 12, 0.035)";
+      ctx!.fillRect(0, 0, w, h);
 
-      const cx = rect.width / 2;
-      const cy = rect.height / 2;
+      for (const p of particles) {
+        const n = noise(p.x, p.y, t);
+        const angle = n * Math.PI * 2;
 
-      for (const n of nodes) {
-        n.x += n.vx;
-        n.y += n.vy;
-        n.vx -= n.x * 0.0001;
-        n.vy -= n.y * 0.0001;
-        if (Math.abs(n.x) > rect.width * 0.5) n.vx *= -0.8;
-        if (Math.abs(n.y) > rect.height * 0.5) n.vy *= -0.8;
-        n.flash *= 0.93;
-      }
+        p.px = p.x;
+        p.py = p.y;
+        p.x += Math.cos(angle) * p.speed;
+        p.y += Math.sin(angle) * p.speed;
+        p.age++;
 
-      ctx!.save();
-      ctx!.translate(cx, cy);
-
-      for (const e of edges) {
-        const a = nodes[e.a], b = nodes[e.b];
-        ctx!.beginPath();
-        ctx!.moveTo(a.x, a.y);
-        ctx!.lineTo(b.x, b.y);
-        ctx!.strokeStyle = "rgba(150, 170, 220, 0.06)";
-        ctx!.lineWidth = 0.6;
-        ctx!.stroke();
-      }
-
-      const survivingPulses: P[] = [];
-      for (const p of pulses) {
-        const e = edges[p.e];
-        if (!e) continue;
-        const fromN = nodes[p.from];
-        const toN = nodes[p.to];
-        p.t += p.speed;
-
-        const px = fromN.x + (toN.x - fromN.x) * p.t;
-        const py = fromN.y + (toN.y - fromN.y) * p.t;
-
-        const grad = ctx!.createRadialGradient(px, py, 0, px, py, 14);
-        grad.addColorStop(0, p.color + "ff");
-        grad.addColorStop(0.4, p.color + "55");
-        grad.addColorStop(1, p.color + "00");
-        ctx!.fillStyle = grad;
-        ctx!.beginPath();
-        ctx!.arc(px, py, 14, 0, Math.PI * 2);
-        ctx!.fill();
+        const lifeT = p.age / p.maxAge;
+        const alpha = lifeT < 0.12 ? lifeT / 0.12 : lifeT > 0.75 ? Math.max(0, (1 - lifeT) / 0.25) : 1;
 
         ctx!.beginPath();
-        ctx!.moveTo(fromN.x, fromN.y);
-        ctx!.lineTo(px, py);
-        const lineGrad = ctx!.createLinearGradient(fromN.x, fromN.y, px, py);
-        lineGrad.addColorStop(0, p.color + "00");
-        lineGrad.addColorStop(1, p.color + "88");
-        ctx!.strokeStyle = lineGrad;
-        ctx!.lineWidth = 1.2;
+        ctx!.moveTo(p.px, p.py);
+        ctx!.lineTo(p.x, p.y);
+        ctx!.strokeStyle = p.color + toHex2(alpha * 0.55);
+        ctx!.lineWidth = 0.7;
         ctx!.stroke();
 
-        if (p.t >= 1) {
-          toN.flash = Math.min(1, toN.flash + 0.85);
-          if (Math.random() < 0.55) {
-            const ns = neighbors(p.to).filter(n => n !== p.from);
-            if (ns.length) {
-              const next = ns[Math.floor(Math.random() * ns.length)];
-              spawnPulse(p.to, next, toN.color);
-            }
-          }
-          if (Math.random() < 0.18) {
-            const ns = neighbors(p.to).filter(n => n !== p.from);
-            if (ns.length) {
-              const next = ns[Math.floor(Math.random() * ns.length)];
-              spawnPulse(p.to, next, toN.color);
-            }
-          }
-        } else {
-          survivingPulses.push(p);
+        if (p.age > p.maxAge || p.x < -80 || p.x > w + 80 || p.y < -80 || p.y > h + 80) {
+          spawn(p);
         }
-      }
-      pulses = survivingPulses;
-
-      for (const n of nodes) {
-        const r = n.baseR + n.flash * 3;
-        if (n.flash > 0.05) {
-          const glowR = r * (4 + n.flash * 4);
-          const grad = ctx!.createRadialGradient(n.x, n.y, 0, n.x, n.y, glowR);
-          grad.addColorStop(0, n.color + toHex2(0.35 * n.flash));
-          grad.addColorStop(1, n.color + "00");
-          ctx!.fillStyle = grad;
-          ctx!.beginPath();
-          ctx!.arc(n.x, n.y, glowR, 0, Math.PI * 2);
-          ctx!.fill();
-        }
-        ctx!.beginPath();
-        ctx!.arc(n.x, n.y, r, 0, Math.PI * 2);
-        ctx!.fillStyle = n.flash > 0.1 ? n.color : n.color + toHex2(0.55);
-        ctx!.fill();
-      }
-
-      ctx!.restore();
-
-      frame++;
-      if (frame - lastSpawn > 14 || pulses.length < 6) {
-        spawnRandom();
-        if (Math.random() < 0.4) spawnRandom();
-        lastSpawn = frame;
       }
 
       animRef.current = requestAnimationFrame(draw);
     }
 
+    init();
     animRef.current = requestAnimationFrame(draw);
+
     const onResize = () => init();
     window.addEventListener("resize", onResize);
     return () => {
@@ -258,30 +137,37 @@ function SynapseField() {
   }, []);
 
   return (
-    <section id="what-you-get" className="relative py-24 px-6 overflow-hidden">
-      <div className="max-w-5xl mx-auto">
-        <div className="text-center mb-10">
-          <div className="font-mono text-[10px] tracking-[0.2em] text-muted-foreground/50 mb-3">
-            ⌁ THE SIGNAL
-          </div>
-          <h2 className="text-3xl sm:text-4xl font-bold tracking-tight leading-snug mb-4">
-            A brain that fires with you.
-          </h2>
-          <p className="text-base text-muted-foreground max-w-xl mx-auto leading-relaxed">
-            Every session sparks a new connection. Every connection makes the next thought faster.
-          </p>
-        </div>
+    <section id="what-you-get" className="relative w-full overflow-hidden">
+      <div className="relative" style={{ height: "min(88vh, 760px)" }}>
+        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full block" data-testid="canvas-flow" />
 
-        <div className="relative rounded-3xl overflow-hidden" style={{ height: "560px" }}>
-          <canvas ref={canvasRef} className="absolute inset-0 w-full h-full" data-testid="canvas-synapse" />
-          <div className="pointer-events-none absolute inset-0" style={{
-            background: "radial-gradient(ellipse 70% 60% at center, transparent 0%, transparent 60%, hsl(var(--background)) 100%)",
-          }} />
+        <div className="pointer-events-none absolute inset-0" style={{
+          background: "radial-gradient(ellipse 75% 70% at center, transparent 25%, hsl(var(--background) / 0.55) 70%, hsl(var(--background)) 100%)",
+        }} />
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-40" style={{
+          background: "linear-gradient(to bottom, hsl(var(--background)) 0%, transparent 100%)",
+        }} />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-40" style={{
+          background: "linear-gradient(to top, hsl(var(--background)) 0%, transparent 100%)",
+        }} />
+
+        <div className="absolute inset-0 flex flex-col items-center justify-center px-6 text-center pointer-events-none">
+          <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/60 mb-6">
+            ◦ &nbsp;THE&nbsp;SIGNAL&nbsp; ◦
+          </div>
+          <h2 className="text-4xl sm:text-5xl lg:text-[64px] font-bold tracking-tight leading-[1.02] mb-6 max-w-3xl">
+            Every session<br />leaves a trace.
+          </h2>
+          <p className="text-base sm:text-lg text-muted-foreground/90 max-w-md leading-relaxed">
+            Knowledge doesn't disappear at logout. It compounds, connects, and waits for the next question.
+          </p>
         </div>
       </div>
     </section>
   );
 }
+
+// legacy SynapseField (kept as no-op so older HMR snapshots don't error)
 
 function BrainGraphHero() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -795,7 +681,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <SynapseField />
+      <FlowField />
 
       <section className="py-20 px-6 border-t">
         <div className="max-w-2xl mx-auto text-center">
