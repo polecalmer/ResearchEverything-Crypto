@@ -551,6 +551,35 @@ function buildBigDemoGraph(): { nodes: AggNode[]; edges: AggEdge[] } {
   return { nodes: allNodes, edges };
 }
 
+function SessionsMark({ size = 20, strokeWidth = 1.7, ringWidth = 1, pulseRadius = 0.95, className = "" }: { size?: number; strokeWidth?: number; ringWidth?: number; pulseRadius?: number; className?: string }) {
+  const tips = [
+    { x: 12,   y: 3.5,  d: "0s"   },
+    { x: 18.4, y: 8.3,  d: "0.4s" },
+    { x: 18.4, y: 15.7, d: "0.8s" },
+    { x: 12,   y: 20.5, d: "1.2s" },
+    { x: 5.6,  y: 15.7, d: "1.6s" },
+    { x: 5.6,  y: 8.3,  d: "2.0s" },
+  ];
+  return (
+    <svg viewBox="0 0 24 24" width={size} height={size} className={`text-foreground ${className}`} aria-label="Sessions" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="12" r="10.25" fill="none" stroke="currentColor" strokeOpacity="0.3" strokeWidth={ringWidth} />
+      <g stroke="currentColor" strokeOpacity="0.85" strokeWidth={strokeWidth} strokeLinecap="round">
+        <line x1="12" y1="3.5" x2="12" y2="20.5" />
+        <line x1="5.6" y1="8.3" x2="18.4" y2="15.7" />
+        <line x1="5.6" y1="15.7" x2="18.4" y2="8.3" />
+      </g>
+      <circle cx="12" cy="12" r={pulseRadius * 1.7} fill="currentColor" />
+      {tips.map((p, i) => (
+        <circle key={i} r={pulseRadius} fill="#7dcfff">
+          <animate attributeName="cx" values={`${p.x};12`} dur="2.4s" begin={p.d} repeatCount="indefinite" />
+          <animate attributeName="cy" values={`${p.y};12`} dur="2.4s" begin={p.d} repeatCount="indefinite" />
+          <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.8;1" dur="2.4s" begin={p.d} repeatCount="indefinite" />
+        </circle>
+      ))}
+    </svg>
+  );
+}
+
 function TypingDemo() {
   const inputs = [
     "What's Hyperliquid's real P/E ratio?",
@@ -616,31 +645,7 @@ export default function LandingPage() {
       <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-background/40">
         <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <svg viewBox="0 0 24 24" className="w-[20px] h-[20px] text-foreground" aria-label="Sessions" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="12" cy="12" r="10.25" fill="none" stroke="currentColor" strokeOpacity="0.3" strokeWidth="1" />
-              <g stroke="currentColor" strokeOpacity="0.85" strokeWidth="1.7" strokeLinecap="round">
-                <line x1="12" y1="3.5" x2="12" y2="20.5" />
-                <line x1="5.6" y1="8.3" x2="18.4" y2="15.7" />
-                <line x1="5.6" y1="15.7" x2="18.4" y2="8.3" />
-              </g>
-              <circle cx="12" cy="12" r="1.6" fill="currentColor" />
-
-              {/* Neurons — pulses fire from each arm tip into the center */}
-              {[
-                { x: 12,   y: 3.5,  d: "0s"   },
-                { x: 18.4, y: 8.3,  d: "0.4s" },
-                { x: 18.4, y: 15.7, d: "0.8s" },
-                { x: 12,   y: 20.5, d: "1.2s" },
-                { x: 5.6,  y: 15.7, d: "1.6s" },
-                { x: 5.6,  y: 8.3,  d: "2.0s" },
-              ].map((p, i) => (
-                <circle key={i} r="0.95" fill="#7dcfff">
-                  <animate attributeName="cx" values={`${p.x};12`} dur="2.4s" begin={p.d} repeatCount="indefinite" />
-                  <animate attributeName="cy" values={`${p.y};12`} dur="2.4s" begin={p.d} repeatCount="indefinite" />
-                  <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.8;1" dur="2.4s" begin={p.d} repeatCount="indefinite" />
-                </circle>
-              ))}
-            </svg>
+            <SessionsMark size={20} />
             <span className="text-sm font-semibold tracking-tight">Sessions</span>
           </div>
           <div className="flex items-center gap-1">
@@ -666,6 +671,9 @@ export default function LandingPage() {
               </p>
             </div>
             <div className="lg:col-span-5 flex flex-col items-start lg:items-end gap-5">
+              <div className="w-full flex justify-start lg:justify-end mb-2">
+                <SessionsMark size={220} strokeWidth={1.1} ringWidth={0.7} pulseRadius={0.7} className="opacity-95" />
+              </div>
               <TypingDemo />
               <div className="flex items-center gap-2">
                 <Button size="lg" className="h-11 px-6 gap-2 text-sm" onClick={() => login()} data-testid="button-cta-start">
