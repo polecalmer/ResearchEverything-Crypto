@@ -74,6 +74,61 @@ export async function consultForTool(
 }
 
 /**
+ * Check if the brain has high-confidence knowledge that a specific tool+protocol
+ * call will return no data. If so, return a short-circuit result string that the
+ * agent sees instead of making the actual API call. Returns null if no
+ * short-circuit applies.
+ */
+export async function shouldShortCircuit(
+  toolName: string,
+  input: any,
+): Promise<string | null> {
+  const binding = getBinding(toolName);
+  if (!binding) return null;
+  const protocol = input?.protocol || input?.coinId || input?.slug || input?.ticker || "";
+  if (!protocol) return null;
+
+  const query = `${toolName} ${protocol}`;
+  try {
+    const hits = await consult({
+      query,
+      source: binding.source,
+      category: "coverage",
+      topK: 3,
+      minSimilarity: 0.55,
+    });
+
+    const coverageHit = hits.find((h) => {
+      const c = h.fact.confidence;
+      const isHighConfidence = c === "verified_runtime" || c === "verified_doc";
+      const isPromoted = c === "observed_once" && h.fact.observedCount >= 2;
+      if (!isHighConfidence && !isPromoted) return false;
+      const content = h.fact.content.toLowerCase();
+      return (
+        (content.includes("no data") ||
+          content.includes("not found") ||
+          content.includes("not tracked") ||
+          content.includes("no tvl") ||
+          content.includes("no fees") ||
+          content.includes("no revenue")) &&
+        content.includes(protocol.toLowerCase())
+      );
+    });
+
+    if (!coverageHit) return null;
+    console.log(
+      `[DataSourceBrain] Short-circuit: ${toolName}(${protocol}) — brain says "${coverageHit.fact.content.slice(0, 100)}" (confidence=${coverageHit.fact.confidence}, seen=${coverageHit.fact.observedCount}x)`,
+    );
+    return JSON.stringify({
+      error: `[Brain short-circuit] ${coverageHit.fact.content}. This call was skipped because the brain has learned this data is unavailable. Try an alternative tool or endpoint.`,
+    });
+  } catch (err: any) {
+    console.warn(`[DataSourceBrain] shortCircuit check failed for ${toolName}:`, err.message);
+    return null;
+  }
+}
+
+/**
  * Observe a tool failure or empty-result event. The error string is parsed
  * for known patterns (rate limit, auth, missing coverage). Best-effort —
  * never throws.

@@ -7,6 +7,7 @@ import * as vm from "vm";
 import { retrieveRelevantContext, formatRetrievedContext } from "./brain-retrieval";
 import {
   consultForTool,
+  shouldShortCircuit,
   observeToolError,
   getBinding,
   registerToolBindings,
@@ -1379,13 +1380,28 @@ export async function runSessionResearchAgent(
           continue;
         }
 
-        // Brain consult — inject any relevant prior knowledge as a prefix the model
-        // sees together with the tool result. Best-effort, never blocks.
-        const brainHint = getBinding(block.name)
+        const shortCircuit = getBinding(block.name)
+          ? await shouldShortCircuit(block.name, block.input).catch(() => null)
+          : null;
+
+        let brainHint = "";
+        let result: string;
+        if (shortCircuit) {
+          result = shortCircuit;
+          onStep?.({ type: "tool_result", label: "Skipped — brain knows no data", detail: block.name, round: round + 1 });
+          toolResults.push({
+            type: "tool_result",
+            tool_use_id: block.id,
+            content: result,
+          });
+          continue;
+        }
+
+        brainHint = getBinding(block.name)
           ? await consultForTool(block.name, block.input).catch(() => "")
           : "";
 
-        const result = await executeTool(block.name, block.input);
+        result = await executeTool(block.name, block.input);
 
         let resultSummary = "";
         let parsedError: string | null = null;
