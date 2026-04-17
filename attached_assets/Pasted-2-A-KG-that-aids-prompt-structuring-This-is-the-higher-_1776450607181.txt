@@ -1,0 +1,21 @@
+2) A KG that aids prompt structuring
+This is the higher-leverage one for the problem we just patched. Probably the bigger unlock of the two.
+
+What we did this morning to fix the template-collapse problem was write more rules in English and hope the model follows them. That works partially. It will drift back. The reason it drifts is that "decompose the question → classify each sub-Q → pick the right tools → pick the right artifact" is a structured process being expressed as natural language in a 700-token prompt block. KGs are the right shape for that exact thing.
+
+A question-structure KG would encode something like:
+
+Question-type taxonomy: roadmap-inquiry, product-shipped-inquiry, flow-analysis, valuation-ask, team-evaluation, narrative-inquiry, comp-analysis, tokenomics-mechanics, etc.
+For each type: required tools, optional tools, banned artifacts, recommended artifacts, typical sub-question shape.
+Analyst playbooks as graphs. Hasu's "evaluate an L1" might be a 12-node sub-question DAG. When the user asks "evaluate Monad," the agent walks the playbook instead of improvising.
+Composition rules: a multi-part prompt is just a sequence of typed nodes; the planner emits an explicit decomposition object before the agent loop runs.
+The right architecture is a planner pre-step: before the main agent loop, a small/fast call (Haiku-tier) takes the user prompt, classifies sub-questions against the KG, and emits a structured plan — {sub_questions: [{text, type, tools, artifact}], synthesis_required: bool}. The main agent then receives the plan and executes against it. This is dramatically more reliable than trusting the model to remember rules from the system prompt, because the structure is now data, not text.
+
+Bonus: this also makes responses inspectable and improvable. When a deep response is bad, you can look at the plan that produced it and see exactly which sub-question got mis-classified or which tool got skipped. Right now we're guessing.
+
+How they interact
+These compose well:
+
+Question-structure KG drives how the agent works (decomposition + tool routing + artifact choice).
+Analyst KGs drive what content gets pulled in (entities, comps, lenses, history).
+A valuation-ask node in the structure KG might say "required: financial data; recommended-lens: analyst with strongest valuation track record" — wiring the two graphs together.
