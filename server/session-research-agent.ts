@@ -471,7 +471,8 @@ You have indexed access to the writings of three crypto analysts via query_analy
 - TopherGMI (Arca CIO): macro, market structure, ETF/regulatory, tokenomics
 - shaundadevens (Blockworks): DeFi mechanics, fee switches, governance, microstructure
 - thiccyth0t (Scimitar): derivatives, market making, on-chain quant, airdrop game theory
-Treat these as PERSPECTIVES, not data. When you cite them, name the analyst ("shaundadevens has argued…", "per TopherGMI's recap…"). They are most useful for qualitative context, contrarian framings, and applying established frameworks to new assets. Do NOT use them as the source for live numbers — that's what the data tools are for.
+Treat these as PERSPECTIVES, not data. They are most useful for qualitative context, contrarian framings, and applying established frameworks to new assets. Do NOT use them as the source for live numbers — that's what the data tools are for.
+IMPORTANT: Do NOT name individual analysts in your output. Never write "TopherGMI says…", "shaundadevens has argued…", "per thiccyth0t…" or similar. Instead, absorb their reasoning into your own analysis seamlessly. You may reference the analytical lens generically (e.g. "from a macro-structural perspective…", "a derivatives-focused view suggests…") but never reveal the names of the underlying analysts. The user should experience this as the platform's own integrated analysis.
 
 RESEARCH BRAIN — KNOWLEDGE GRAPH:
 You have access to a persistent Research Brain that accumulates intelligence across all sessions. At the END of every analysis (regardless of mode), call update_research_brain to record verified findings.
@@ -746,7 +747,7 @@ Be specific, opinionated, and analytical. Use your signature style. Do not hedge
       reasoning: perspectiveText,
       frameworks_applied: frameworkHits.map(h => h.name),
       corpus_references: corpusHits.length,
-      note: "This is the analyst's REASONING, not a citation. Integrate it as an analytical perspective — attribute the reasoning to the analyst and evaluate whether you agree.",
+      note: "This is analytical REASONING, not a citation. Integrate it seamlessly into your own analysis — do NOT name the analyst in your output. Absorb the reasoning and present it as part of your own synthesis.",
     }),
     cost: response.mppCost,
     inputTokens: response.usage?.input_tokens || 0,
@@ -934,7 +935,7 @@ async function executeTool(name: string, input: any): Promise<string> {
             similarity: h.similarity.toFixed(3),
             excerpt: h.content.length > 1600 ? h.content.slice(0, 1600) + "…" : h.content,
           })),
-          attribution_note: "Cite analyst by name when using these views (e.g. 'shaundadevens has argued…'). These are perspectives, not live data.",
+          attribution_note: "These are analytical perspectives, not live data. Absorb the reasoning into your own analysis — do NOT name the individual analysts in your output.",
         });
       }
       case "query_analyst_frameworks": {
@@ -1112,7 +1113,7 @@ const TOOL_LABELS: Record<string, string> = {
   query_chain_tvl: "Querying chain TVL data",
   query_analyst_corpus: "Searching analyst writings",
   query_analyst_frameworks: "Looking up analyst frameworks",
-  analyst_perspective: "Getting analyst's reasoning",
+  analyst_perspective: "Reasoning through a different lens",
   update_research_brain: "Saving to knowledge graph",
 };
 
@@ -1130,7 +1131,7 @@ function toolLabel(name: string, input: any): string {
   if (name === "execute_code") return `${base}: ${input.description || "computation"}`;
   if (name === "query_yield_pools") return `${base} for ${input.protocol || "pools"}`;
   if (name === "query_chain_tvl") return input.chain ? `${base} for ${input.chain}` : base;
-  if (name === "analyst_perspective") return `${base}: ${input.analyst || "analyst"} on "${(input.question || "").slice(0, 60)}"`;
+  if (name === "analyst_perspective") return `${base}: "${(input.question || "").slice(0, 80)}"`;
   return base;
 }
 
@@ -1473,7 +1474,10 @@ export async function runSessionResearchAgent(
           try {
             const parsed = JSON.parse(r.value.result.payload);
             if (parsed.reasoning) {
-              perspectives.push(`### ${r.value.analyst}'s Perspective\n${parsed.reasoning}`);
+              const lensLabel = r.value.analyst === "TopherGMI" ? "Macro & Market Structure Lens"
+                : r.value.analyst === "shaundadevens" ? "Protocol Economics & DeFi Mechanics Lens"
+                : "Derivatives & Quantitative Lens";
+              perspectives.push(`### ${lensLabel}\n${parsed.reasoning}`);
             }
           } catch {}
         }
@@ -1481,10 +1485,10 @@ export async function runSessionResearchAgent(
 
       if (perspectives.length > 0) {
         perspectiveAddendum = `\n\n# MULTI-PERSPECTIVE ANALYSIS
-The following are reasoning traces from three analyst perspectives on the user's question. Each analyst has applied their own frameworks and analytical style. You MUST:
+The following are reasoning traces from three different analytical perspectives on the user's question. Each applies different frameworks and analytical styles. You MUST:
 1. Integrate these perspectives into your synthesis — do not ignore them
-2. Note where they agree (convergent signal) and where they disagree (key uncertainties)
-3. Attribute reasoning to the analyst when using their insights (e.g. "TopherGMI's cycle-positioning lens suggests...")
+2. Note where they converge (strong signal) and where they diverge (key uncertainties)
+3. Absorb the reasoning seamlessly — do NOT name the individual analysts. Reference perspectives generically (e.g. "from a macro-structural lens…", "a derivatives-focused analysis suggests…", "examining the protocol economics…")
 4. Take a final synthesized position that weighs these perspectives against the data you gathered
 
 ${perspectives.join("\n\n")}`;
@@ -1531,7 +1535,7 @@ ${perspectives.join("\n\n")}`;
       messages.push({ role: "assistant", content: finalText });
       messages.push({
         role: "user",
-        content: "Now integrate the multi-perspective analysis from the three analyst lenses below into your response. Revise and enrich your analysis with their reasoning — note agreements, disagreements, and take a synthesized position. Do not repeat yourself, but ADD the perspectives where they strengthen or challenge your analysis." + perspectiveAddendum,
+        content: "Now integrate the multi-perspective analysis below into your response. Absorb the reasoning seamlessly into your own analysis — do NOT name any individual analysts. Reference perspectives generically (e.g. 'from a macro lens…', 'a derivatives-focused view suggests…'). Note agreements and disagreements, and take a synthesized position. Do not repeat yourself, but ADD the perspectives where they strengthen or challenge your analysis." + perspectiveAddendum,
       });
       const debateWrap = await callAnthropicRaw({
         model: "claude-opus-4-6",
