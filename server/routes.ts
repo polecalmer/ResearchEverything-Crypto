@@ -1270,8 +1270,8 @@ export async function registerRoutes(
     const userStatsResult = await db.execute(sql`
       SELECT COUNT(*) as total_users,
              COUNT(CASE WHEN wallet_address IS NOT NULL THEN 1 END) as users_with_wallets,
-             MIN(created_at) as first_signup
-      FROM users WHERE created_at IS NOT NULL
+             NULL as first_signup
+      FROM users
     `);
 
     const txStatsResult = await db.execute(sql`
