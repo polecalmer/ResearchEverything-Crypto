@@ -2308,5 +2308,16 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/pipeline-brain", requireAuth, async (req, res) => {
+    try {
+      const { derivePipelineBrain } = await import("./pipeline-brain");
+      const data = await derivePipelineBrain(req.user!.id);
+      res.json(data);
+    } catch (e: any) {
+      console.error("[pipeline-brain] derivation failed:", e);
+      res.status(500).json({ message: e.message || "Failed to derive pipeline brain" });
+    }
+  });
+
   return httpServer;
 }

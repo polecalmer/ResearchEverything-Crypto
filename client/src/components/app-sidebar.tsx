@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { LayoutDashboard, Building2, Chrome, BarChart3, LogOut, User, Wallet, Activity, FlaskConical, Brain } from "lucide-react";
+import { LayoutDashboard, Building2, Chrome, BarChart3, LogOut, User, Wallet, Activity, FlaskConical, Brain, Network } from "lucide-react";
 import { SessionsMark } from "@/components/sessions-mark";
 import {
   Sidebar,
@@ -18,6 +18,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 
 const navItems = [
   { title: "Pipeline", url: "/", icon: LayoutDashboard },
+  { title: "Map", url: "/map", icon: Network },
   { title: "Companies", url: "/companies", icon: Building2 },
   { title: "Research", url: "/research", icon: FlaskConical },
   { title: "Brain", url: "/brain", icon: Brain },
