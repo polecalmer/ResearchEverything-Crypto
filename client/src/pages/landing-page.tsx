@@ -638,9 +638,9 @@ export default function LandingPage() {
                 <span className="text-muted-foreground/55">learns with you.</span>
               </h1>
               <p className="text-lg text-muted-foreground leading-relaxed max-w-xl">
-                An AI research platform for crypto. Run deep analysis, build
-                financial models, generate reports, and have conversations with
-                AI that remembers your work.
+                An interactive and iterative research platform powered by AI.
+                Run deep analysis, build financial models, generate reports, and
+                have conversations that remember your work.
               </p>
             </div>
             <div className="lg:col-span-5 flex flex-col items-start lg:items-end gap-5">
