@@ -616,14 +616,30 @@ export default function LandingPage() {
       <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-background/40">
         <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <svg viewBox="0 0 24 24" className="w-[19px] h-[19px] text-foreground" aria-label="Sessions" xmlns="http://www.w3.org/2000/svg">
-              <circle cx="12" cy="12" r="10.25" fill="none" stroke="currentColor" strokeOpacity="0.35" strokeWidth="1" />
-              <g stroke="currentColor" strokeWidth="1.9" strokeLinecap="round">
+            <svg viewBox="0 0 24 24" className="w-[20px] h-[20px] text-foreground" aria-label="Sessions" xmlns="http://www.w3.org/2000/svg">
+              <circle cx="12" cy="12" r="10.25" fill="none" stroke="currentColor" strokeOpacity="0.3" strokeWidth="1" />
+              <g stroke="currentColor" strokeOpacity="0.85" strokeWidth="1.7" strokeLinecap="round">
                 <line x1="12" y1="3.5" x2="12" y2="20.5" />
                 <line x1="5.6" y1="8.3" x2="18.4" y2="15.7" />
                 <line x1="5.6" y1="15.7" x2="18.4" y2="8.3" />
               </g>
-              <circle cx="12" cy="12" r="1.55" fill="currentColor" />
+              <circle cx="12" cy="12" r="1.6" fill="currentColor" />
+
+              {/* Neurons — pulses fire from each arm tip into the center */}
+              {[
+                { x: 12,   y: 3.5,  d: "0s"   },
+                { x: 18.4, y: 8.3,  d: "0.4s" },
+                { x: 18.4, y: 15.7, d: "0.8s" },
+                { x: 12,   y: 20.5, d: "1.2s" },
+                { x: 5.6,  y: 15.7, d: "1.6s" },
+                { x: 5.6,  y: 8.3,  d: "2.0s" },
+              ].map((p, i) => (
+                <circle key={i} r="0.95" fill="#7dcfff">
+                  <animate attributeName="cx" values={`${p.x};12`} dur="2.4s" begin={p.d} repeatCount="indefinite" />
+                  <animate attributeName="cy" values={`${p.y};12`} dur="2.4s" begin={p.d} repeatCount="indefinite" />
+                  <animate attributeName="opacity" values="0;1;1;0" keyTimes="0;0.15;0.8;1" dur="2.4s" begin={p.d} repeatCount="indefinite" />
+                </circle>
+              ))}
             </svg>
             <span className="text-sm font-semibold tracking-tight">Sessions</span>
           </div>
