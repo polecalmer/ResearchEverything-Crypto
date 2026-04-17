@@ -503,9 +503,18 @@ export default function LandingPage() {
         </div>
       </nav>
 
-      <section className="pt-28 pb-8 px-6">
-        <div className="max-w-6xl mx-auto flex flex-col items-center text-center">
-          <img src={sessionsLogo} alt="Sessions" className="w-20 h-20 sm:w-24 sm:h-24 object-contain rounded-2xl mb-8" />
+      <section className="relative pt-28 pb-12 px-6 overflow-hidden">
+        <div className="absolute inset-0 pointer-events-none" aria-hidden>
+          <div className="absolute inset-0 pointer-events-auto opacity-90">
+            <BrainGraphHero />
+          </div>
+          <div className="absolute inset-0" style={{
+            background: "radial-gradient(ellipse 50% 70% at center 55%, hsl(var(--background) / 0.95) 0%, hsl(var(--background) / 0.85) 30%, hsl(var(--background) / 0.4) 55%, transparent 80%)",
+          }} />
+        </div>
+
+        <div className="relative max-w-6xl mx-auto flex flex-col items-center text-center pointer-events-none">
+          <img src={sessionsLogo} alt="Sessions" className="w-20 h-20 sm:w-24 sm:h-24 object-contain rounded-2xl mb-8 pointer-events-auto" />
           <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.12] mb-5">
             Research that<br />
             <span className="text-muted-foreground">learns with you.</span>
@@ -516,9 +525,9 @@ export default function LandingPage() {
             AI that remembers your work.
           </p>
 
-          <TypingDemo />
+          <div className="pointer-events-auto"><TypingDemo /></div>
 
-          <div className="flex items-center gap-3 mt-8">
+          <div className="flex items-center gap-3 mt-8 pointer-events-auto">
             <Button size="lg" className="h-11 px-6 gap-2 text-sm" onClick={() => login()} data-testid="button-cta-start">
               Start a session
               <ArrowRight className="w-4 h-4" />
@@ -529,13 +538,8 @@ export default function LandingPage() {
               </Button>
             </a>
           </div>
-        </div>
-      </section>
 
-      <section className="py-8 px-6">
-        <div className="max-w-6xl mx-auto">
-          <BrainGraphHero />
-          <p className="text-center text-xs text-muted-foreground/60 mt-2 font-mono tracking-wider">
+          <p className="mt-12 text-xs text-muted-foreground/60 font-mono tracking-wider">
             Every session adds to the brain. Every researcher makes it sharper.
           </p>
         </div>
