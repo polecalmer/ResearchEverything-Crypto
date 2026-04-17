@@ -583,11 +583,12 @@ async function executeTool(name: string, input: any): Promise<string> {
       }
       case "query_defillama_price_history": {
         const days = input.days || 365;
-        const data = await defillama.getCoinPriceHistory(input.coinId, days);
-        if (!data || data.length === 0) return JSON.stringify({ error: `No price data found for "${input.coinId}"` });
-        const formatted = data.map(d => ({
-          date: new Date(d.timestamp * 1000).toISOString().slice(0, 10),
-          price: d.price,
+        const result = await defillama.getCoinPriceHistory(input.coinId, days);
+        const prices = result?.prices || [];
+        if (prices.length === 0) return JSON.stringify({ error: `No price data found for "${input.coinId}". Try a different coinId — common ones: "ethereum", "bitcoin", "hyperliquid", "solana".` });
+        const formatted = prices.map(p => ({
+          date: new Date(p.date * 1000).toISOString().slice(0, 10),
+          price: p.price,
         }));
         return JSON.stringify({ coinId: input.coinId, points: formatted.length, data: sampleData(formatted, 365) });
       }
