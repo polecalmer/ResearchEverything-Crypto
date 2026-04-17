@@ -5,6 +5,7 @@ import { fetchTokenSnapshot } from "./allium-client";
 import * as defillama from "./defillama-client";
 import * as vm from "vm";
 import { retrieveRelevantContext, formatRetrievedContext } from "./brain-retrieval";
+import { consultForTool, observeToolError, getBinding } from "./data-source-brain/agent-hooks";
 
 export interface ResearchArtifact {
   type: "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote";
@@ -993,13 +994,21 @@ export async function runSessionResearchAgent(
           continue;
         }
 
+        // Brain consult — inject any relevant prior knowledge as a prefix the model
+        // sees together with the tool result. Best-effort, never blocks.
+        const brainHint = getBinding(block.name)
+          ? await consultForTool(block.name, block.input).catch(() => "")
+          : "";
+
         const result = await executeTool(block.name, block.input);
 
         let resultSummary = "";
+        let parsedError: string | null = null;
         try {
           const parsed = JSON.parse(result);
           if (parsed.error) {
-            const short = String(parsed.error).split(".")[0].slice(0, 80);
+            parsedError = String(parsed.error);
+            const short = parsedError.split(".")[0].slice(0, 80);
             resultSummary = `No data — ${short}`;
           }
           else if (typeof parsed.points === "number") {
@@ -1020,10 +1029,18 @@ export async function runSessionResearchAgent(
 
         onStep?.({ type: "tool_result", label: resultSummary, detail: block.name, round: round + 1 });
 
+        // Observe runtime errors to grow the brain. Fire-and-forget.
+        if (parsedError) {
+          void observeToolError(block.name, block.input, parsedError);
+        }
+
+        const finalContent = brainHint
+          ? `<brain_context>\n${brainHint}\n</brain_context>\n<tool_output>\n${result}\n</tool_output>`
+          : result;
         toolResults.push({
           type: "tool_result",
           tool_use_id: block.id,
-          content: result.slice(0, 80000),
+          content: finalContent.slice(0, 80000),
         });
       } else if (block.type === "web_search_tool_result" || block.type === "server_tool_use") {
         onStep?.({ type: "tool_start", label: "Searching the web", detail: "web_search", round: round + 1 });

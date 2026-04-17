@@ -2308,6 +2308,32 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/admin/data-source-brain/stats", requireAuth, async (req, res) => {
+    try {
+      const isAdmin = await storage.checkIsAdmin(req.user!.id);
+      if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+      const { getStats } = await import("./data-source-brain/db");
+      const stats = await getStats();
+      res.json(stats);
+    } catch (e: any) {
+      console.error("[data-source-brain] stats failed:", e);
+      res.status(500).json({ message: e.message || "Failed to load brain stats" });
+    }
+  });
+
+  app.post("/api/admin/data-source-brain/reseed", requireAuth, async (req, res) => {
+    try {
+      const isAdmin = await storage.checkIsAdmin(req.user!.id);
+      if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+      const { seedDataSourceBrain } = await import("./data-source-brain/seeder");
+      const result = await seedDataSourceBrain({ force: true });
+      res.json(result);
+    } catch (e: any) {
+      console.error("[data-source-brain] reseed failed:", e);
+      res.status(500).json({ message: e.message || "Failed to reseed brain" });
+    }
+  });
+
   app.get("/api/pipeline-brain", requireAuth, async (req, res) => {
     try {
       const { derivePipelineBrain } = await import("./pipeline-brain");

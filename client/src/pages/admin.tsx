@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Users, Activity, DollarSign, Building2, TrendingUp, Radio, Wallet, RefreshCw, XCircle, ArrowDownCircle, ExternalLink, BarChart3, Calendar, Clock, Scale, AlertTriangle, CheckCircle2, HelpCircle, Flag, Bell, BellOff, Settings, Send } from "lucide-react";
+import { Loader2, Users, Activity, DollarSign, Building2, TrendingUp, Radio, Wallet, RefreshCw, XCircle, ArrowDownCircle, ExternalLink, BarChart3, Calendar, Clock, Scale, AlertTriangle, CheckCircle2, HelpCircle, Flag, Bell, BellOff, Settings, Send, Brain } from "lucide-react";
 import { format } from "date-fns";
 import { useState, useMemo } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -880,6 +880,129 @@ function ReconciliationPanel() {
   );
 }
 
+function DataSourceBrainPanel() {
+  const { data, isLoading, refetch, isFetching } = useQuery<any>({
+    queryKey: ["/api/admin/data-source-brain/stats"],
+    refetchInterval: false,
+  });
+
+  const reseed = async () => {
+    await fetch("/api/admin/data-source-brain/reseed", { method: "POST", credentials: "include" });
+    refetch();
+  };
+
+  if (isLoading) {
+    return (
+      <div className="rounded border border-border/40 bg-card/30 p-6 flex items-center justify-center">
+        <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+        <span className="text-xs text-muted-foreground/60 ml-2">Loading brain stats...</span>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const sources = Object.entries(data.bySource || {}) as [string, number][];
+  const categories = Object.entries(data.byCategory || {}) as [string, number][];
+  const confidences = Object.entries(data.byConfidence || {}) as [string, number][];
+  const confidenceColor: Record<string, string> = {
+    verified_doc: "text-emerald-400",
+    verified_runtime: "text-cyan-400",
+    observed_once: "text-amber-400",
+    inferred: "text-fuchsia-400",
+    unverified: "text-muted-foreground/60",
+  };
+
+  return (
+    <div className="rounded border border-border/40 bg-card/30 overflow-hidden" data-testid="data-source-brain-panel">
+      <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
+        <Brain className="w-3.5 h-3.5 text-cyan-400" />
+        <h2 className="text-[12px] font-medium text-foreground/80 tracking-tight">Data-Source Brain</h2>
+        <span className="ml-auto flex items-center gap-3">
+          <span className="text-[10px] text-muted-foreground/40" data-testid="text-brain-total">{data.total} facts</span>
+          <button
+            onClick={reseed}
+            className="text-[10px] text-muted-foreground/60 hover:text-foreground/70 transition-colors"
+            data-testid="button-reseed-brain"
+          >
+            Reseed
+          </button>
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="text-[10px] text-muted-foreground/60 hover:text-foreground/70 transition-colors flex items-center gap-1"
+            data-testid="button-refresh-brain"
+          >
+            <RefreshCw className={`w-3 h-3 ${isFetching ? "animate-spin" : ""}`} />
+          </button>
+        </span>
+      </div>
+      <div className="p-4 space-y-4">
+        <div className="grid grid-cols-3 gap-4">
+          <div>
+            <p className="text-[10px] text-muted-foreground/50 mb-1.5 uppercase tracking-wide">By Source</p>
+            <div className="space-y-1">
+              {sources.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground/40 italic">No facts yet</p>
+              ) : sources.map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between text-[11px]" data-testid={`brain-source-${k}`}>
+                  <span className="text-foreground/70">{k}</span>
+                  <span className="font-mono text-foreground/60">{v}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground/50 mb-1.5 uppercase tracking-wide">By Category</p>
+            <div className="space-y-1">
+              {categories.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground/40 italic">—</p>
+              ) : categories.map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between text-[11px]" data-testid={`brain-cat-${k}`}>
+                  <span className="text-foreground/70">{k}</span>
+                  <span className="font-mono text-foreground/60">{v}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div>
+            <p className="text-[10px] text-muted-foreground/50 mb-1.5 uppercase tracking-wide">By Confidence</p>
+            <div className="space-y-1">
+              {confidences.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground/40 italic">—</p>
+              ) : confidences.map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between text-[11px]" data-testid={`brain-conf-${k}`}>
+                  <span className={confidenceColor[k] || "text-foreground/70"}>{k}</span>
+                  <span className="font-mono text-foreground/60">{v}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <p className="text-[10px] text-muted-foreground/50 mb-1.5 uppercase tracking-wide">Most-Recent Observations</p>
+          <div className="space-y-1.5 max-h-72 overflow-y-auto">
+            {(data.recent || []).length === 0 ? (
+              <p className="text-[11px] text-muted-foreground/40 italic">No observations yet</p>
+            ) : (data.recent as any[]).map((f) => (
+              <div key={f.id} className="text-[11px] border-l-2 border-border/40 pl-2 py-0.5" data-testid={`brain-fact-${f.id}`}>
+                <div className="flex items-center gap-2 mb-0.5">
+                  <span className="text-cyan-400/80 font-mono text-[10px]">{f.source}</span>
+                  <span className="text-muted-foreground/40 font-mono text-[10px]">{f.scopeRef}</span>
+                  <span className={`${confidenceColor[f.confidence] || "text-foreground/60"} text-[10px]`}>{f.confidence}</span>
+                  <span className="ml-auto text-muted-foreground/40 text-[10px] font-mono">×{f.observedCount}</span>
+                </div>
+                <p className="text-foreground/70 leading-snug">{f.content}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const { data, isLoading, isError } = useQuery<any>({
     queryKey: ["/api/admin/analytics"],
@@ -923,6 +1046,8 @@ export default function AdminPage() {
         <CostAlertSettingsPanel />
 
         <CostReportPanel />
+
+        <DataSourceBrainPanel />
 
         <ReconciliationPanel />
 

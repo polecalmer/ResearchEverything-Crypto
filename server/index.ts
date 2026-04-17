@@ -152,6 +152,14 @@ app.use((req, res, next) => {
   await registerRoutes(httpServer, app);
   await seedDatabase();
   runSeedMigration().catch(e => console.error("[seed] Migration failed:", e.message));
+  (async () => {
+    try {
+      const { seedDataSourceBrain } = await import("./data-source-brain/seeder");
+      await seedDataSourceBrain();
+    } catch (e: any) {
+      console.error("[DataSourceBrain] Seed-on-startup failed:", e.message);
+    }
+  })();
   try { startTelegramBot(); } catch (e: any) { console.log("[Telegram] Bot startup skipped:", e.message); }
 
   app.use((err: any, _req: Request, res: Response, next: NextFunction) => {

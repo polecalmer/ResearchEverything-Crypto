@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, integer, jsonb, boolean, doublePrecision } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, integer, jsonb, boolean, doublePrecision, vector, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -504,6 +504,46 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;
 export type UsageEvent = typeof usageEvents.$inferSelect;
+
+export const DATA_SOURCES = ["defillama", "coingecko", "dune", "allium", "stonksonchain"] as const;
+export type DataSource = typeof DATA_SOURCES[number];
+
+export const FACT_SCOPES = ["source", "endpoint", "field", "cross-source"] as const;
+export type FactScope = typeof FACT_SCOPES[number];
+
+export const FACT_CATEGORIES = [
+  "rate_limit", "auth", "coverage", "definition", "freshness",
+  "reliability", "schema", "disagreement", "other",
+] as const;
+export type FactCategory = typeof FACT_CATEGORIES[number];
+
+export const FACT_CONFIDENCE = [
+  "verified_doc", "verified_runtime", "observed_once", "inferred", "unverified",
+] as const;
+export type FactConfidence = typeof FACT_CONFIDENCE[number];
+
+export const dataSourceFacts = pgTable("data_source_facts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  source: text("source").notNull(),
+  scope: text("scope").notNull(),
+  scopeRef: text("scope_ref").notNull(),
+  category: text("category").notNull(),
+  content: text("content").notNull(),
+  confidence: text("confidence").notNull(),
+  sourceOfFact: text("source_of_fact").notNull(),
+  observedCount: integer("observed_count").notNull().default(1),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  lastSeenAt: timestamp("last_seen_at").notNull().defaultNow(),
+  staleAt: timestamp("stale_at"),
+  dedupeKey: text("dedupe_key").notNull().unique(),
+  embedding: vector("embedding", { dimensions: 384 }).notNull(),
+}, (table) => ({
+  embeddingIdx: index("data_source_facts_embedding_idx").using("hnsw", table.embedding.op("vector_cosine_ops")),
+  sourceIdx: index("data_source_facts_source_idx").on(table.source),
+  scopeRefIdx: index("data_source_facts_scope_ref_idx").on(table.scopeRef),
+}));
+
+export type DataSourceFact = typeof dataSourceFacts.$inferSelect;
 
 export { sessions } from "./models/auth";
 
