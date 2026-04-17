@@ -650,7 +650,7 @@ export default function LandingPage() {
                   Sessions
                 </div>
                 <div className="mt-1.5 text-[10px] uppercase tracking-[0.32em] text-muted-foreground/60">
-                  the perspective layer
+                  the perspective layer for crypto research
                 </div>
               </div>
               <TypingDemo />
