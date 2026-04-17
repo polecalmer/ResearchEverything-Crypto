@@ -2106,6 +2106,8 @@ export async function registerRoutes(
         description: `Research: "${message.slice(0, 80)}"`,
         amount: result.mppCost.toFixed(4),
         apiCost: result.mppCost.toFixed(4),
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
         costBasis: result.costBasis,
       });
 
