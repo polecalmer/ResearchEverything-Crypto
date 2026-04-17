@@ -631,14 +631,14 @@ export default function LandingPage() {
         {/* Hero — text floats over the field */}
         <section className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
           <div className="max-w-3xl flex flex-col items-center">
-            <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-8">
+            <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-4">
               ◦ &nbsp;SESSIONS&nbsp; ◦
             </div>
-            <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.04] mb-7">
+            <h1 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.04] mb-5">
               Research that<br />
               <span className="text-muted-foreground/80">learns with you.</span>
             </h1>
-            <p className="text-lg text-muted-foreground leading-relaxed max-w-lg mb-10">
+            <p className="text-lg text-muted-foreground leading-relaxed max-w-lg mb-7">
               An AI research platform for crypto. Run deep analysis, build
               financial models, generate reports, and have conversations with
               AI that remembers your work.
@@ -663,10 +663,10 @@ export default function LandingPage() {
         {/* Signal — single editorial statement floating mid-page */}
         <section id="signal" className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
           <div className="max-w-3xl flex flex-col items-center">
-            <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-8">
+            <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-4">
               ◦ &nbsp;THE&nbsp;SIGNAL&nbsp; ◦
             </div>
-            <h2 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.02] mb-7">
+            <h2 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.02] mb-5">
               Every session<br />leaves a trace.
             </h2>
             <p className="text-lg text-muted-foreground leading-relaxed max-w-md">
@@ -679,10 +679,10 @@ export default function LandingPage() {
         {/* Compounding — second editorial beat */}
         <section className="min-h-screen flex flex-col items-center justify-center px-6 text-center">
           <div className="max-w-3xl flex flex-col items-center">
-            <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-8">
+            <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-4">
               ◦ &nbsp;THE&nbsp;COMPOUND&nbsp; ◦
             </div>
-            <h2 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.02] mb-7">
+            <h2 className="text-5xl sm:text-6xl lg:text-7xl font-bold tracking-tight leading-[1.02] mb-5">
               Tomorrow's research<br />stands on today's.
             </h2>
             <p className="text-lg text-muted-foreground leading-relaxed max-w-md">
@@ -695,13 +695,13 @@ export default function LandingPage() {
         {/* Final CTA — quiet, no card */}
         <section className="min-h-[80vh] flex flex-col items-center justify-center px-6 text-center">
           <div className="max-w-2xl flex flex-col items-center">
-            <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-8">
+            <div className="font-mono text-[10px] tracking-[0.32em] text-muted-foreground/70 mb-4">
               ◦ &nbsp;BEGIN&nbsp; ◦
             </div>
-            <h2 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.05] mb-7">
+            <h2 className="text-4xl sm:text-5xl lg:text-6xl font-bold tracking-tight leading-[1.05] mb-5">
               Start your first<br />session.
             </h2>
-            <p className="text-base text-muted-foreground mb-10 max-w-md">
+            <p className="text-base text-muted-foreground mb-6 max-w-md">
               Sign in with email or wallet. Paste your first link and see
               what comes back.
             </p>
