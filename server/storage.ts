@@ -25,6 +25,8 @@ import {
   queryTemplates,
   protocolRevenueModels,
   conversations, messages, researchBrains,
+  costAlertSettings,
+  type CostAlertSettings,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, ne, desc, asc, and, isNull, isNotNull, sql } from "drizzle-orm";
@@ -155,6 +157,14 @@ export interface IStorage {
   createMessage(data: { conversationId: number; role: string; content: string; artifacts?: any }): Promise<Message>;
   getResearchBrain(userId: string): Promise<any | null>;
   upsertResearchBrain(userId: string, brain: { entities?: any; knowledge?: any; preferences?: any; relationships?: any; contradictions?: any; meta?: any }): Promise<void>;
+
+  getAllUsers(): Promise<User[]>;
+  getAdminTelegramChatIds(): Promise<string[]>;
+
+  getCostAlertSettings(): Promise<CostAlertSettings | undefined>;
+  upsertCostAlertSettings(data: { dailyThreshold: number; enabled: boolean; telegramEnabled: boolean }): Promise<CostAlertSettings>;
+  updateCostAlertLastAlertDate(id: string, date: string): Promise<void>;
+  getTodayApiCost(): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -365,7 +375,19 @@ export class DatabaseStorage implements IStorage {
 
   async logTransaction(data: { userId: string; type: string; description: string; amount: string; apiCost?: string; companyName?: string; inputTokens?: number; outputTokens?: number; txHash?: string; status?: string; costBasis?: string }): Promise<Transaction> {
     const [tx] = await db.insert(transactions).values(data).returning();
+    if (data.apiCost && data.status !== "failed") {
+      this.runCostAlertCheck().catch(() => {});
+    }
     return tx;
+  }
+
+  private async runCostAlertCheck(): Promise<void> {
+    try {
+      const { checkCostAlert } = await import("./cost-alert");
+      await checkCostAlert();
+    } catch (err: any) {
+      console.error("[CostAlert] Post-transaction check failed:", err?.message || err);
+    }
   }
 
   async getTransactions(userId: string, limit: number = 50): Promise<Transaction[]> {
@@ -963,6 +985,57 @@ export class DatabaseStorage implements IStorage {
         meta: brain.meta || {},
       });
     }
+  }
+
+  async getAllUsers(): Promise<User[]> {
+    return db.select().from(users);
+  }
+
+  async getAdminTelegramChatIds(): Promise<string[]> {
+    const allWithTelegram = await db.select({ id: users.id, telegramChatId: users.telegramChatId })
+      .from(users)
+      .where(isNotNull(users.telegramChatId));
+    const adminChatIds: string[] = [];
+    for (const u of allWithTelegram) {
+      if (u.telegramChatId?.trim() && await this.isAdminUser(u.id)) {
+        adminChatIds.push(u.telegramChatId.trim());
+      }
+    }
+    return adminChatIds;
+  }
+
+  async getCostAlertSettings(): Promise<CostAlertSettings | undefined> {
+    const [settings] = await db.select().from(costAlertSettings).limit(1);
+    return settings;
+  }
+
+  async upsertCostAlertSettings(data: { dailyThreshold: number; enabled: boolean; telegramEnabled: boolean }): Promise<CostAlertSettings> {
+    const existing = await this.getCostAlertSettings();
+    if (existing) {
+      const [updated] = await db.update(costAlertSettings)
+        .set({ ...data, updatedAt: new Date() })
+        .where(eq(costAlertSettings.id, existing.id))
+        .returning();
+      return updated;
+    }
+    const [created] = await db.insert(costAlertSettings).values(data).returning();
+    return created;
+  }
+
+  async updateCostAlertLastAlertDate(id: string, date: string): Promise<void> {
+    await db.update(costAlertSettings)
+      .set({ lastAlertDate: date })
+      .where(eq(costAlertSettings.id, id));
+  }
+
+  async getTodayApiCost(): Promise<number> {
+    const result = await db.execute(sql`
+      SELECT COALESCE(SUM(CAST(api_cost AS NUMERIC)), 0) as today_cost
+      FROM transactions
+      WHERE status = 'success'
+        AND DATE(created_at) = CURRENT_DATE
+    `);
+    return Number(result.rows[0]?.today_cost || 0);
   }
 }
 

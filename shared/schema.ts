@@ -482,6 +482,24 @@ export const insertProtocolRevenueModelSchema = createInsertSchema(protocolReven
 export type ProtocolRevenueModel = typeof protocolRevenueModels.$inferSelect;
 export type InsertProtocolRevenueModel = z.infer<typeof insertProtocolRevenueModelSchema>;
 
+export const costAlertSettings = pgTable("cost_alert_settings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  dailyThreshold: doublePrecision("daily_threshold").notNull().default(5.0),
+  enabled: boolean("enabled").notNull().default(true),
+  telegramEnabled: boolean("telegram_enabled").notNull().default(false),
+  lastAlertDate: text("last_alert_date"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertCostAlertSettingsSchema = createInsertSchema(costAlertSettings).omit({
+  id: true,
+  lastAlertDate: true,
+  updatedAt: true,
+});
+
+export type CostAlertSettings = typeof costAlertSettings.$inferSelect;
+export type InsertCostAlertSettings = z.infer<typeof insertCostAlertSettingsSchema>;
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;

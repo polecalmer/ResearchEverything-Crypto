@@ -329,6 +329,30 @@ export function startTelegramBot() {
   });
 }
 
+export async function sendAdminCostAlert(todayCost: number, threshold: number): Promise<boolean> {
+  if (!bot) return false;
+  try {
+    const adminChatIds = await storage.getAdminTelegramChatIds();
+
+    if (adminChatIds.length === 0) return false;
+
+    const message =
+      `⚠️ *Cost Alert*\n\n` +
+      `Daily API spend has exceeded your threshold.\n\n` +
+      `Today's Cost: *$${todayCost.toFixed(4)}*\n` +
+      `Threshold: *$${threshold.toFixed(2)}*\n` +
+      `Date: ${new Date().toISOString().split("T")[0]}`;
+
+    for (const chatId of adminChatIds) {
+      await bot.api.sendMessage(chatId, message, { parse_mode: "Markdown" });
+    }
+    return true;
+  } catch (err: any) {
+    console.error("[Telegram] Failed to send cost alert:", err?.message || err);
+    return false;
+  }
+}
+
 export function stopTelegramBot() {
   if (bot) {
     bot.stop();

@@ -1,8 +1,8 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Users, Activity, DollarSign, Building2, TrendingUp, Radio, Wallet, RefreshCw, XCircle, ArrowDownCircle, ExternalLink, BarChart3, Calendar, Clock, Scale, AlertTriangle, CheckCircle2, HelpCircle, Flag } from "lucide-react";
+import { Loader2, Users, Activity, DollarSign, Building2, TrendingUp, Radio, Wallet, RefreshCw, XCircle, ArrowDownCircle, ExternalLink, BarChart3, Calendar, Clock, Scale, AlertTriangle, CheckCircle2, HelpCircle, Flag, Bell, BellOff, Settings, Send } from "lucide-react";
 import { format } from "date-fns";
 import { useState, useMemo } from "react";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 const EVENT_LABELS: Record<string, string> = {
   user_signup: "Sign Up",
@@ -251,6 +251,142 @@ function CostTrendBar({ items, maxValue, valueKey, formatLabel }: {
   );
 }
 
+function CostAlertSettingsPanel() {
+  const { data: settings, isLoading } = useQuery<any>({
+    queryKey: ["/api/admin/cost-alert-settings"],
+  });
+  const [editing, setEditing] = useState(false);
+  const [threshold, setThreshold] = useState("");
+  const [enabled, setEnabled] = useState(true);
+  const [telegramEnabled, setTelegramEnabled] = useState(false);
+
+  const mutation = useMutation({
+    mutationFn: (data: { dailyThreshold: number; enabled: boolean; telegramEnabled: boolean }) =>
+      apiRequest("PUT", "/api/admin/cost-alert-settings", data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/cost-alert-settings"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/cost-report"] });
+      setEditing(false);
+    },
+  });
+
+  const startEditing = () => {
+    setThreshold(String(settings?.dailyThreshold ?? 5));
+    setEnabled(settings?.enabled !== false);
+    setTelegramEnabled(settings?.telegramEnabled === true);
+    setEditing(true);
+  };
+
+  const handleSave = () => {
+    const val = parseFloat(threshold);
+    if (isNaN(val) || val < 0) return;
+    mutation.mutate({ dailyThreshold: val, enabled, telegramEnabled });
+  };
+
+  if (isLoading) return null;
+
+  return (
+    <div className="rounded border border-border/40 bg-card/30 overflow-hidden" data-testid="cost-alert-settings-panel">
+      <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
+        <Bell className="w-3.5 h-3.5 text-foreground/60" />
+        <h2 className="text-[12px] font-medium text-foreground/80 tracking-tight">Cost Alert Settings</h2>
+        <span className="ml-auto">
+          {!editing ? (
+            <button
+              onClick={startEditing}
+              className="text-[10px] text-muted-foreground/60 hover:text-foreground/70 transition-colors flex items-center gap-1"
+              data-testid="button-edit-cost-alert"
+            >
+              <Settings className="w-3 h-3" /> Configure
+            </button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSave}
+                disabled={mutation.isPending}
+                className="text-[10px] px-2 py-0.5 rounded bg-foreground/10 hover:bg-foreground/20 text-foreground/70 transition-colors"
+                data-testid="button-save-cost-alert"
+              >
+                {mutation.isPending ? "Saving..." : "Save"}
+              </button>
+              <button
+                onClick={() => setEditing(false)}
+                className="text-[10px] text-muted-foreground/50 hover:text-foreground/60 transition-colors"
+                data-testid="button-cancel-cost-alert"
+              >
+                Cancel
+              </button>
+            </div>
+          )}
+        </span>
+      </div>
+      <div className="p-4">
+        {editing ? (
+          <div className="space-y-3">
+            <div className="flex items-center gap-3">
+              <label className="text-[11px] text-muted-foreground/60 w-28">Daily Threshold</label>
+              <div className="flex items-center gap-1">
+                <span className="text-[11px] text-muted-foreground/50">$</span>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  value={threshold}
+                  onChange={(e) => setThreshold(e.target.value)}
+                  className="w-24 px-2 py-1 text-[11px] bg-background/50 border border-border/40 rounded text-foreground/80 font-mono"
+                  data-testid="input-cost-threshold"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="text-[11px] text-muted-foreground/60 w-28">Alerts Enabled</label>
+              <button
+                onClick={() => setEnabled(!enabled)}
+                className={`text-[10px] px-2 py-0.5 rounded transition-colors ${enabled ? "bg-green-500/20 text-green-400" : "bg-muted/30 text-muted-foreground/50"}`}
+                data-testid="button-toggle-alerts"
+              >
+                {enabled ? "On" : "Off"}
+              </button>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="text-[11px] text-muted-foreground/60 w-28">Telegram Notify</label>
+              <button
+                onClick={() => setTelegramEnabled(!telegramEnabled)}
+                className={`text-[10px] px-2 py-0.5 rounded transition-colors flex items-center gap-1 ${telegramEnabled ? "bg-blue-500/20 text-blue-400" : "bg-muted/30 text-muted-foreground/50"}`}
+                data-testid="button-toggle-telegram"
+              >
+                <Send className="w-3 h-3" />
+                {telegramEnabled ? "On" : "Off"}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex items-center gap-6 text-[11px]">
+            <div className="flex items-center gap-1.5">
+              {settings?.enabled !== false ? (
+                <Bell className="w-3 h-3 text-green-400" />
+              ) : (
+                <BellOff className="w-3 h-3 text-muted-foreground/40" />
+              )}
+              <span className={settings?.enabled !== false ? "text-green-400" : "text-muted-foreground/40"}>
+                {settings?.enabled !== false ? "Active" : "Disabled"}
+              </span>
+            </div>
+            <span className="text-muted-foreground/50">
+              Threshold: <span className="font-mono text-foreground/70">${Number(settings?.dailyThreshold ?? 5).toFixed(2)}</span>
+            </span>
+            {settings?.telegramEnabled && (
+              <span className="text-blue-400/70 flex items-center gap-1">
+                <Send className="w-3 h-3" /> Telegram
+              </span>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function CostReportPanel() {
   const { data, isLoading, refetch, isFetching } = useQuery<any>({
     queryKey: ["/api/admin/cost-report"],
@@ -278,11 +414,22 @@ function CostReportPanel() {
 
   if (!data) return null;
 
-  const { onChain, transactionBreakdown, tokenUsage, sessionBreakdown } = data;
+  const { onChain, transactionBreakdown, tokenUsage, sessionBreakdown, costAlert } = data;
   const sessionsToShow = sessionExpanded ? (sessionBreakdown || []) : (sessionBreakdown || []).slice(0, 10);
 
   return (
     <div className="space-y-4">
+      {costAlert?.exceeded && (
+        <div className="rounded border border-red-500/40 bg-red-500/10 p-3 flex items-center gap-3" data-testid="cost-alert-banner">
+          <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+          <div className="flex-1">
+            <p className="text-[12px] font-medium text-red-400">Daily Cost Alert</p>
+            <p className="text-[11px] text-red-300/70">
+              Today's API spend of <span className="font-mono font-semibold">${costAlert.todayCost.toFixed(4)}</span> has exceeded the threshold of <span className="font-mono font-semibold">${costAlert.threshold.toFixed(2)}</span>
+            </p>
+          </div>
+        </div>
+      )}
       <div className="rounded border border-border/40 bg-card/30 overflow-hidden" data-testid="cost-report-panel">
         <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
           <BarChart3 className="w-3.5 h-3.5 text-foreground/60" />
@@ -772,6 +919,8 @@ export default function AdminPage() {
         </div>
 
         <WalletPanel />
+
+        <CostAlertSettingsPanel />
 
         <CostReportPanel />
 

@@ -20,6 +20,7 @@ import { executeDuneQuery, getLatestDuneResults, isDuneConfigured } from "./dune
 import { runTokenAnalysis } from "./token-agent";
 import { callAnthropicServer, callAnthropicServerHeavy, isServerMppReady, getChannelStats } from "./mpp-client";
 import { generateTelegramLinkCode } from "./telegram";
+import { checkCostAlert } from "./cost-alert";
 import { getWalletInfo, closeAllChannels, requestCloseChannel, withdrawChannel, getOnChainCostReport } from "./wallet-manager";
 import { getUncachableStripeClient, getStripePublishableKey } from "./stripeClient";
 import { db } from "./db";
@@ -1449,6 +1450,8 @@ export async function registerRoutes(
         GROUP BY DATE_TRUNC('week', created_at)
         ORDER BY week_start ASC
       `);
+      const alertStatus = await checkCostAlert();
+
       res.json({
         onChain: report,
         transactionBreakdown: txSummary.rows,
@@ -1456,7 +1459,41 @@ export async function registerRoutes(
         sessionBreakdown: sessionBreakdown.rows,
         dailyCosts: dailyCosts.rows,
         weeklyCosts: weeklyCosts.rows,
+        costAlert: alertStatus,
       });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/admin/cost-alert-settings", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      let settings = await storage.getCostAlertSettings();
+      if (!settings) {
+        settings = await storage.upsertCostAlertSettings({ dailyThreshold: 5.0, enabled: true, telegramEnabled: false });
+      }
+      res.json(settings);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.put("/api/admin/cost-alert-settings", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const { dailyThreshold, enabled, telegramEnabled } = req.body;
+      if (typeof dailyThreshold !== "number" || dailyThreshold < 0) {
+        return res.status(400).json({ message: "dailyThreshold must be a non-negative number" });
+      }
+      const settings = await storage.upsertCostAlertSettings({
+        dailyThreshold,
+        enabled: enabled !== false,
+        telegramEnabled: telegramEnabled === true,
+      });
+      res.json(settings);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
