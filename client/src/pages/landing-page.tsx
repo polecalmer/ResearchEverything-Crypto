@@ -94,7 +94,7 @@ function FlowField() {
     function draw() {
       t++;
 
-      ctx!.fillStyle = "rgba(10, 10, 12, 0.035)";
+      ctx!.fillStyle = "rgba(10, 10, 12, 0.10)";
       ctx!.fillRect(0, 0, w, h);
 
       for (const p of particles) {
