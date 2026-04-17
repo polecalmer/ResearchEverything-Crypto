@@ -12,6 +12,8 @@ import {
   registerToolBindings,
   type ToolBrainBinding,
 } from "./data-source-brain/agent-hooks";
+import { searchAnalystCorpus, searchAnalystFrameworks } from "./analyst-corpus";
+import { ANALYST_NAMES } from "@shared/schema";
 
 export interface ResearchArtifact {
   type: "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote";
@@ -291,6 +293,37 @@ const TOOLS: ToolDef[] = [
     },
   },
   {
+    name: "query_analyst_corpus",
+    description: `Search the writings of three crypto analysts whose work is indexed into Sessions:
+- TopherGMI (Arca CIO) — macro, market structure, market recaps, tokenomics critiques, ETF/regulatory
+- shaundadevens (Blockworks columnist) — DeFi mechanics, fee switches, governance, market microstructure
+- thiccyth0t (Scimitar Capital) — derivatives, market making, on-chain quant, airdrop game theory
+
+Use this for QUALITATIVE perspective: what these analysts have actually written about a topic, in their own words. Returns specific passages with date, source URL, and analyst attribution. Do NOT use as a source for live numbers — for those use the data tools. Use early in deep-mode research to surface contrarian takes, historical context, and the analysts' frameworks before forming your own view.`,
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: { type: "string" as const, description: "Natural-language query — what perspective/passage are you looking for? E.g. 'how does fee accrual work for L2 sequencers' or 'thiccyth0t views on Hyperliquid'." },
+        analyst: { type: "string" as const, enum: ["TopherGMI", "shaundadevens", "thiccyth0t", "all"], description: "Restrict to one analyst, or 'all' to surface across all three lenses (default 'all')." },
+        limit: { type: "number" as const, description: "Max passages to return (default 6, max 12)." },
+      },
+      required: ["query"],
+    },
+  },
+  {
+    name: "query_analyst_frameworks",
+    description: `Look up named analytical frameworks each analyst has developed over time — e.g. shaundadevens' "Fee Switch Analysis", thiccyth0t's market making models. Each framework has a description, a category, version history (showing how the framework evolved across articles), and date range. Use this when you want the SHAPE of an analyst's reasoning rather than a specific passage. Especially useful for deep questions where you want to apply an established lens to a new asset.`,
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        query: { type: "string" as const, description: "What kind of framework are you looking for? E.g. 'how to evaluate token fee accrual', 'market making PnL decomposition'." },
+        analyst: { type: "string" as const, enum: ["TopherGMI", "shaundadevens", "thiccyth0t", "all"], description: "Restrict to one analyst, or 'all' (default 'all')." },
+        limit: { type: "number" as const, description: "Max frameworks to return (default 4, max 8)." },
+      },
+      required: ["query"],
+    },
+  },
+  {
     name: "update_research_brain",
     description: `Record findings to the persistent Research Brain (knowledge graph). Call this ONCE at the END of every research session to save what you learned. The brain persists across all sessions and builds compounding intelligence.
 
@@ -412,6 +445,13 @@ For pull quotes (the one-line takeaway worth highlighting):
 \`\`\`artifact:quote
 {"text": "The bear case is NOT emissions — it's Base ecosystem dependency.", "attribution": "Optional source"}
 \`\`\`
+
+ANALYST CORPUS — THIRD-PARTY LENSES:
+You have indexed access to the writings of three crypto analysts via query_analyst_corpus and query_analyst_frameworks:
+- TopherGMI (Arca CIO): macro, market structure, ETF/regulatory, tokenomics
+- shaundadevens (Blockworks): DeFi mechanics, fee switches, governance, microstructure
+- thiccyth0t (Scimitar): derivatives, market making, on-chain quant, airdrop game theory
+Treat these as PERSPECTIVES, not data. When you cite them, name the analyst ("shaundadevens has argued…", "per TopherGMI's recap…"). They are most useful for qualitative context, contrarian framings, and applying established frameworks to new assets. Do NOT use them as the source for live numbers — that's what the data tools are for.
 
 RESEARCH BRAIN — KNOWLEDGE GRAPH:
 You have access to a persistent Research Brain that accumulates intelligence across all sessions. At the END of every analysis (regardless of mode), call update_research_brain to record verified findings.
@@ -745,6 +785,69 @@ async function executeTool(name: string, input: any): Promise<string> {
         const chains = await defillama.getChainTvls();
         return JSON.stringify({ count: chains.length, chains });
       }
+      case "query_analyst_corpus": {
+        const limit = Math.min(Math.max(Number(input.limit) || 6, 1), 12);
+        const hits = await searchAnalystCorpus({
+          query: String(input.query || ""),
+          analyst: input.analyst,
+          limit,
+        });
+        if (hits.length === 0) {
+          return JSON.stringify({
+            count: 0,
+            message: "No analyst passages matched. Try a broader query, a different analyst, or fall back to web_search for the same topic.",
+          });
+        }
+        return JSON.stringify({
+          count: hits.length,
+          analyst_filter: input.analyst || "all",
+          passages: hits.map((h) => ({
+            analyst: h.analyst,
+            source: h.source,
+            date: h.date,
+            title: h.title,
+            url: h.url,
+            similarity: h.similarity.toFixed(3),
+            excerpt: h.content.length > 1600 ? h.content.slice(0, 1600) + "…" : h.content,
+          })),
+          attribution_note: "Cite analyst by name when using these views (e.g. 'shaundadevens has argued…'). These are perspectives, not live data.",
+        });
+      }
+      case "query_analyst_frameworks": {
+        const limit = Math.min(Math.max(Number(input.limit) || 4, 1), 8);
+        const hits = await searchAnalystFrameworks({
+          query: String(input.query || ""),
+          analyst: input.analyst,
+          limit,
+        });
+        if (hits.length === 0) {
+          return JSON.stringify({
+            count: 0,
+            message: "No matching frameworks. Try query_analyst_corpus for raw passages instead.",
+          });
+        }
+        return JSON.stringify({
+          count: hits.length,
+          analyst_filter: input.analyst || "all",
+          frameworks: hits.map((h) => ({
+            analyst: h.analyst,
+            slug: h.frameworkSlug,
+            name: h.name,
+            description: h.description,
+            category: h.category,
+            version_count: h.versionCount,
+            first_seen: h.firstSeenDate,
+            last_seen: h.lastSeenDate,
+            similarity: h.similarity.toFixed(3),
+            recent_versions: h.versions.slice(-3).map((v) => ({
+              version: v.version,
+              date: v.date,
+              description: v.description,
+              source_article: v.source_article,
+            })),
+          })),
+        });
+      }
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
@@ -874,6 +977,8 @@ const TOOL_LABELS: Record<string, string> = {
   query_yield_pools: "Fetching yield/APY data",
   query_stablecoins: "Loading stablecoin market data",
   query_chain_tvl: "Querying chain TVL data",
+  query_analyst_corpus: "Searching analyst writings",
+  query_analyst_frameworks: "Looking up analyst frameworks",
   update_research_brain: "Saving to knowledge graph",
 };
 

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, integer, jsonb, boolean, doublePrecision, vector, index, customType } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, integer, jsonb, boolean, doublePrecision, vector, index, uniqueIndex, customType } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -554,6 +554,78 @@ export const dataSourceFacts = pgTable("data_source_facts", {
 }));
 
 export type DataSourceFact = typeof dataSourceFacts.$inferSelect;
+
+// ─── Analyst Corpus ──────────────────────────────────────────────────────────
+// Markdown corpora from third-party crypto analysts (TopherGMI, shaundadevens,
+// thiccyth0t). Documents are chunked + embedded via Voyage; agent queries them
+// through the analyst-corpus tools to surface specific lenses on a topic.
+export const ANALYST_NAMES = ["TopherGMI", "shaundadevens", "thiccyth0t"] as const;
+export type AnalystName = typeof ANALYST_NAMES[number];
+
+export const ANALYST_DISPLAY: Record<AnalystName, string> = {
+  TopherGMI: "TopherGMI (Arca CIO — macro, market structure, tokenomics)",
+  shaundadevens: "shaundadevens (Blockworks columnist — fees, governance, market microstructure)",
+  thiccyth0t: "thiccyth0t (Scimitar Capital — derivatives, MM, on-chain quant)",
+};
+
+export const analystDocuments = pgTable("analyst_documents", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  analyst: text("analyst").notNull(),
+  source: text("source").notNull(),
+  url: text("url"),
+  date: text("date"),
+  title: text("title"),
+  body: text("body").notNull(),
+  type: text("type"),
+  tags: text("tags").array().default(sql`'{}'::text[]`),
+  filePath: text("file_path").notNull().unique(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (t) => ({
+  analystIdx: index("analyst_documents_analyst_idx").on(t.analyst),
+  dateIdx: index("analyst_documents_date_idx").on(t.date),
+}));
+
+export const analystChunks = pgTable("analyst_chunks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  documentId: varchar("document_id").notNull(),
+  analyst: text("analyst").notNull(),
+  source: text("source").notNull(),
+  date: text("date"),
+  title: text("title"),
+  url: text("url"),
+  chunkIndex: integer("chunk_index").notNull(),
+  content: text("content").notNull(),
+  embedding: vector("embedding", { dimensions: 1024 }).notNull(),
+  contentTsv: tsvector("content_tsv").generatedAlwaysAs(sql`to_tsvector('english', content)`, { mode: "stored" as any }),
+}, (t) => ({
+  embeddingIdx: index("analyst_chunks_embedding_idx").using("hnsw", t.embedding.op("vector_cosine_ops")),
+  analystIdx: index("analyst_chunks_analyst_idx").on(t.analyst),
+  docIdx: index("analyst_chunks_document_idx").on(t.documentId),
+  docChunkUnique: uniqueIndex("analyst_chunks_doc_chunk_unique").on(t.documentId, t.chunkIndex),
+}));
+
+export const analystFrameworks = pgTable("analyst_frameworks", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  analyst: text("analyst").notNull(),
+  frameworkSlug: text("framework_slug").notNull(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  category: text("category"),
+  versions: jsonb("versions").notNull(),
+  versionCount: integer("version_count").notNull().default(1),
+  firstSeenDate: text("first_seen_date"),
+  lastSeenDate: text("last_seen_date"),
+  embedding: vector("embedding", { dimensions: 1024 }).notNull(),
+  contentTsv: tsvector("content_tsv").generatedAlwaysAs(sql`to_tsvector('english', name || ' ' || description)`, { mode: "stored" as any }),
+}, (t) => ({
+  embeddingIdx: index("analyst_frameworks_embedding_idx").using("hnsw", t.embedding.op("vector_cosine_ops")),
+  analystIdx: index("analyst_frameworks_analyst_idx").on(t.analyst),
+  analystSlugUnique: uniqueIndex("analyst_frameworks_analyst_slug_unique").on(t.analyst, t.frameworkSlug),
+}));
+
+export type AnalystDocument = typeof analystDocuments.$inferSelect;
+export type AnalystChunk = typeof analystChunks.$inferSelect;
+export type AnalystFramework = typeof analystFrameworks.$inferSelect;
 
 export { sessions } from "./models/auth";
 
