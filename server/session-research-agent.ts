@@ -428,7 +428,18 @@ WHEN THE REQUEST IS A CHART/VISUALIZATION ("show me a chart of X", "pull up Y ov
 - Fetch the underlying data (1-2 tool calls), do the trivial transform inline in the chart artifact's "data" array, and ship the chart with a 2-3 sentence summary above it.
 - DO NOT call execute_code for simple ratios, percentages, or rolling averages — write those numbers directly into the chart data using the values you got back from the data tools.
 - Only use execute_code in focused mode if the math is genuinely non-trivial (regressions, correlations, multi-variable models). Computing P/E = mcap/revenue or take_rate = fees/volume does NOT need a code sandbox round.
-- No scenario tables, no sensitivity matrices, no thesis section. Just the chart + brief context.`;
+- No scenario tables, no sensitivity matrices, no thesis section. Just the chart + brief context.
+
+CHART REQUESTS — ABSOLUTE DELIVERY RULE:
+If the user explicitly asked for a chart/graph/plot, your response MUST contain at least one \`\`\`artifact:chart\`\`\` block. update_research_brain is supplementary record-keeping — it is NEVER a substitute for the requested chart. If the primary data source returned empty (e.g. fees/revenue endpoint has no series for this protocol), you must:
+  1. Try an alternative source FIRST (query_defillama_volume with type:"derivatives" for perp DEXes, query_defillama_protocol_summary, get_token_snapshot for live mcap/FDV/supply, query_dune for on-chain metrics).
+  2. If you can compute the requested metric from any combination of available data, ship the chart.
+  3. Only if every relevant source is exhausted: state plainly which endpoints returned empty and what alternative chart you CAN deliver — then ship that alternative chart. Do not silently end with a brain-update message.
+
+VALUATION RATIO CHARTS (P/E, P/S, P/F, FDV/Rev, MCAP/Rev, ADJ MCAP/Rev):
+- For protocols with their own buyback/burn model where standard fees/revenue adapters are empty (HYPE, dYdX, etc.), derive revenue from query_defillama_volume + the protocol's known take rate (in the brain or stated in the prompt), or pull buyback flows from query_dune.
+- ADJ MCAP = circulating mcap minus protocol-owned tokens (treasury, foundation locked); use brain context for the adjustment if known, otherwise note the assumption inline.
+- FDV uses total supply; MCAP uses circulating supply — both come from get_token_snapshot.`;
 
 const DEEP_RULES = `RESPONSE MODE: DEEP
 The user explicitly asked for a deep dive, full analysis, or comprehensive breakdown.
@@ -547,12 +558,26 @@ async function executeTool(name: string, input: any): Promise<string> {
       }
       case "query_defillama_fees_revenue": {
         const slug = await defillama.resolveSlug(input.protocol);
-        const [fees, revenue] = await Promise.all([
-          defillama.getProtocolFees(slug).catch(() => null),
-          defillama.getProtocolRevenue(slug).catch(() => null),
+        const [feesRes, revenueRes] = await Promise.allSettled([
+          defillama.getProtocolFees(slug),
+          defillama.getProtocolRevenue(slug),
         ]);
+        const fees = feesRes.status === "fulfilled" ? feesRes.value : null;
+        const revenue = revenueRes.status === "fulfilled" ? revenueRes.value : null;
+        const feesErr = feesRes.status === "rejected" ? String(feesRes.reason?.message || feesRes.reason) : null;
+        const revenueErr = revenueRes.status === "rejected" ? String(revenueRes.reason?.message || revenueRes.reason) : null;
         const feeData = fees?.totalDataChart || [];
         const revData = revenue?.totalDataChart || [];
+        if (feeData.length === 0 && revData.length === 0) {
+          return JSON.stringify({
+            error: `No fees or revenue series available on DeFiLlama for "${slug}". This protocol may not be tracked by the fees/revenue adapters (common for perpetuals, AMMs without fee splits, or new protocols). For perp DEXes use query_defillama_volume with type:"derivatives". For a high-level snapshot of any tracked metrics use query_defillama_protocol_summary. For live mcap/FDV/circulating supply use get_token_snapshot.`,
+            protocol: slug,
+            feesEndpointError: feesErr,
+            revenueEndpointError: revenueErr,
+            feesPoints: 0,
+            revenuePoints: 0,
+          });
+        }
         const merged: Record<string, any> = {};
         for (const [ts, val] of feeData) {
           const d = new Date(ts * 1000).toISOString().slice(0, 10);
@@ -564,7 +589,13 @@ async function executeTool(name: string, input: any): Promise<string> {
           else merged[d] = { date: d, revenue: Math.round(val) };
         }
         const result = sampleData(Object.values(merged).sort((a: any, b: any) => a.date.localeCompare(b.date)), 365);
-        return JSON.stringify({ protocol: slug, points: result.length, data: result });
+        return JSON.stringify({
+          protocol: slug,
+          points: result.length,
+          feesPoints: feeData.length,
+          revenuePoints: revData.length,
+          data: result,
+        });
       }
       case "query_defillama_volume": {
         const slug = await defillama.resolveSlug(input.protocol);
@@ -967,11 +998,22 @@ export async function runSessionResearchAgent(
         let resultSummary = "";
         try {
           const parsed = JSON.parse(result);
-          if (parsed.error) resultSummary = `Error: ${parsed.error}`;
-          else if (parsed.points) resultSummary = `Got ${parsed.points} data points`;
-          else if (parsed.rowCount) resultSummary = `Got ${parsed.rowCount} rows`;
-          else if (parsed.count) resultSummary = `Found ${parsed.count} results`;
-          else if (parsed.data?.length) resultSummary = `Got ${parsed.data.length} records`;
+          if (parsed.error) {
+            const short = String(parsed.error).split(".")[0].slice(0, 80);
+            resultSummary = `No data — ${short}`;
+          }
+          else if (typeof parsed.points === "number") {
+            resultSummary = parsed.points === 0 ? "No data returned" : `Got ${parsed.points} data points`;
+          }
+          else if (typeof parsed.rowCount === "number") {
+            resultSummary = parsed.rowCount === 0 ? "No rows returned" : `Got ${parsed.rowCount} rows`;
+          }
+          else if (typeof parsed.count === "number") {
+            resultSummary = parsed.count === 0 ? "No results found" : `Found ${parsed.count} results`;
+          }
+          else if (Array.isArray(parsed.data)) {
+            resultSummary = parsed.data.length === 0 ? "No records returned" : `Got ${parsed.data.length} records`;
+          }
           else if (parsed.price) resultSummary = `Price: $${parsed.price}`;
           else resultSummary = "Data received";
         } catch { resultSummary = "Data received"; }
