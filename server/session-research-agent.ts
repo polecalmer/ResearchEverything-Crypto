@@ -875,7 +875,9 @@ export async function runSessionResearchAgent(
 
   const MAX_TOOL_ROUNDS = mode === "quick" ? 3 : mode === "focused" ? 6 : 15;
   const maxTokens = mode === "quick" ? 2000 : mode === "focused" ? 6000 : 16000;
+  const SPEND_BUDGET_USD = mode === "quick" ? 5 : mode === "focused" ? 15 : 50;
   let finalText = "";
+  let budgetExceeded = false;
 
   onStep?.({ type: "thinking", label: mode === "quick" ? "Composing a quick answer..." : mode === "focused" ? "Working through this..." : "Planning deep analysis..." });
 
@@ -996,16 +998,25 @@ export async function runSessionResearchAgent(
       console.log(`[SessionResearch] Breaking loop early due to repeated identical tool calls`);
       break;
     }
+
+    if (totalCost >= SPEND_BUDGET_USD) {
+      console.log(`[SessionResearch] Spend budget exceeded ($${totalCost.toFixed(4)} >= $${SPEND_BUDGET_USD} for ${mode} mode) — breaking loop`);
+      budgetExceeded = true;
+      break;
+    }
   }
 
   if (!finalText) {
-    console.log(`[SessionResearch] No final text after ${MAX_TOOL_ROUNDS} rounds — forcing wrap-up call without tools`);
-    onStep?.({ type: "thinking", label: "Wrapping up..." });
+    const wrapReason = budgetExceeded
+      ? `Spend budget of $${SPEND_BUDGET_USD} for ${mode} mode reached ($${totalCost.toFixed(2)} used)`
+      : `${MAX_TOOL_ROUNDS} tool rounds exhausted`;
+    console.log(`[SessionResearch] No final text — ${wrapReason} — forcing wrap-up call without tools`);
+    onStep?.({ type: "thinking", label: budgetExceeded ? "Budget reached, wrapping up..." : "Wrapping up..." });
     try {
       const wrapUp = await callAnthropicRaw({
         model: "claude-opus-4-6",
         max_tokens: maxTokens,
-        system: systemPrompt + "\n\nIMPORTANT: You have used all available tool budget for this turn. Synthesize what you learned from the tool results above into your response now. Do not call any more tools.",
+        system: systemPrompt + `\n\nIMPORTANT: ${wrapReason}. Synthesize what you learned from the tool results above into your response now. Do not call any more tools.`,
         messages,
       });
       totalCost += wrapUp.mppCost;
