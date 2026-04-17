@@ -30,6 +30,10 @@ export const messages = pgTable("messages", {
   role: text("role").notNull(),
   content: text("content").notNull(),
   artifacts: jsonb("artifacts"),
+  // Optional classification of this message. Currently used to mark deep-mode
+  // assistant responses as "deep_model" so they can be surfaced in a saved-
+  // models list independently of which conversation they live in.
+  kind: text("kind"),
   createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
 });
 

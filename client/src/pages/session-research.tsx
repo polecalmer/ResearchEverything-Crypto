@@ -7,7 +7,7 @@ import {
   Send, Plus, Trash2, Loader2, MessageSquare,
   CheckCircle2, ChevronDown, Brain, Search, BarChart3,
   Share2, Link2, Check, X, Lightbulb, AlertTriangle, Zap, Eye,
-  Quote as QuoteIcon, ArrowDown, ArrowUp, RefreshCw,
+  Quote as QuoteIcon, ArrowDown, ArrowUp, RefreshCw, FileText,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -747,6 +747,10 @@ export default function SessionResearch() {
   const [pendingUserMsg, setPendingUserMsg] = useState<string | null>(null);
   const [thinkingSteps, setThinkingSteps] = useState<ThinkingStep[]>([]);
   const [isSending, setIsSending] = useState(false);
+  const [sidebarTab, setSidebarTab] = useState<"sessions" | "models">("sessions");
+  // When a saved-model is clicked we set this so the messages effect can
+  // scroll to that specific message after the session's messages load.
+  const [targetMessageId, setTargetMessageId] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
@@ -755,10 +759,40 @@ export default function SessionResearch() {
     enabled: !!user,
   });
 
+  const savedModelsQuery = useQuery<Array<{
+    id: number;
+    conversationId: number;
+    conversationTitle: string;
+    createdAt: string;
+    preview: string;
+  }>>({
+    queryKey: ["/api/research/saved-models"],
+    enabled: !!user,
+  });
+
   const messagesQuery = useQuery<SessionMessage[]>({
     queryKey: [`/api/research/sessions/${activeSessionId}/messages`],
     enabled: !!activeSessionId,
   });
+
+  // After loading a session triggered by a saved-model click, scroll to that
+  // message and pulse-highlight it briefly. The DOM hook is the existing
+  // data-testid="msg-assistant-{id}" attribute on MessageBubble.
+  // Important: wait until the query has finished fetching AND the loaded
+  // messages actually contain the target — otherwise we could fire against
+  // the previous session's stale message list.
+  useEffect(() => {
+    if (!targetMessageId || messagesQuery.isFetching) return;
+    const data = messagesQuery.data;
+    if (!data?.some((m) => m.id === targetMessageId)) return;
+    const el = document.querySelector(`[data-testid="msg-assistant-${targetMessageId}"]`) as HTMLElement | null;
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      el.classList.add("ring-2", "ring-purple-400/40", "rounded");
+      setTimeout(() => el.classList.remove("ring-2", "ring-purple-400/40", "rounded"), 2000);
+      setTargetMessageId(null);
+    }
+  }, [targetMessageId, messagesQuery.data, messagesQuery.isFetching]);
 
   const createSessionMutation = useMutation({
     mutationFn: async () => {
@@ -889,6 +923,7 @@ export default function SessionResearch() {
   };
 
   const sessions = sessionsQuery.data || [];
+  const savedModels = savedModelsQuery.data || [];
   const messages = messagesQuery.data || [];
 
   const suggestedQueries = [
@@ -906,36 +941,84 @@ export default function SessionResearch() {
             variant="outline"
             size="sm"
             className="w-full text-[10px] h-7 gap-1.5"
-            onClick={() => { setActiveSessionId(null); }}
+            onClick={() => { setActiveSessionId(null); setSidebarTab("sessions"); }}
             data-testid="button-new-session"
           >
             <Plus className="h-3 w-3" />
             New Session
           </Button>
         </div>
-        <div className="flex-1 overflow-y-auto">
-          {sessions.map(s => (
-            <div
-              key={s.id}
-              className={`group flex items-center gap-1.5 px-3 py-2 cursor-pointer border-b border-border/10 transition-colors ${
-                activeSessionId === s.id ? "bg-primary/5" : "hover:bg-muted/30"
+        <div className="flex border-b border-border/30 text-[9px] uppercase tracking-wider">
+          {(["sessions", "models"] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setSidebarTab(tab)}
+              className={`flex-1 py-2 transition-colors ${
+                sidebarTab === tab
+                  ? "text-foreground/90 border-b-2 border-primary/60 -mb-px bg-muted/20"
+                  : "text-muted-foreground/50 hover:text-foreground/70"
               }`}
-              onClick={() => setActiveSessionId(s.id)}
-              data-testid={`session-item-${s.id}`}
+              data-testid={`sidebar-tab-${tab}`}
             >
-              <MessageSquare className="h-3 w-3 text-muted-foreground/50 shrink-0" />
-              <span className="text-[10px] text-foreground/70 truncate flex-1">{s.title}</span>
-              <button
-                className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-destructive transition-opacity"
-                onClick={(e) => { e.stopPropagation(); deleteSessionMutation.mutate(s.id); }}
-                data-testid={`button-delete-session-${s.id}`}
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
-            </div>
+              {tab === "sessions" ? `Sessions (${sessions.length})` : `Models (${savedModels.length})`}
+            </button>
           ))}
-          {sessions.length === 0 && !sessionsQuery.isLoading && (
-            <p className="text-[9px] text-muted-foreground/40 text-center py-8 px-3">No sessions yet. Start a new research session.</p>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {sidebarTab === "sessions" && (
+            <>
+              {sessions.map(s => (
+                <div
+                  key={s.id}
+                  className={`group flex items-center gap-1.5 px-3 py-2 cursor-pointer border-b border-border/10 transition-colors ${
+                    activeSessionId === s.id ? "bg-primary/5" : "hover:bg-muted/30"
+                  }`}
+                  onClick={() => setActiveSessionId(s.id)}
+                  data-testid={`session-item-${s.id}`}
+                >
+                  <MessageSquare className="h-3 w-3 text-muted-foreground/50 shrink-0" />
+                  <span className="text-[10px] text-foreground/70 truncate flex-1">{s.title}</span>
+                  <button
+                    className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-destructive transition-opacity"
+                    onClick={(e) => { e.stopPropagation(); deleteSessionMutation.mutate(s.id); }}
+                    data-testid={`button-delete-session-${s.id}`}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+              {sessions.length === 0 && !sessionsQuery.isLoading && (
+                <p className="text-[9px] text-muted-foreground/40 text-center py-8 px-3">No sessions yet. Start a new research session.</p>
+              )}
+            </>
+          )}
+          {sidebarTab === "models" && (
+            <>
+              {savedModels.map((m) => (
+                <button
+                  key={m.id}
+                  className="group w-full text-left flex items-start gap-1.5 px-3 py-2 cursor-pointer border-b border-border/10 hover:bg-muted/30 transition-colors"
+                  onClick={() => {
+                    setActiveSessionId(m.conversationId);
+                    setTargetMessageId(m.id);
+                  }}
+                  data-testid={`saved-model-item-${m.id}`}
+                >
+                  <FileText className="h-3 w-3 text-purple-400/60 shrink-0 mt-0.5" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] text-foreground/85 truncate">{m.preview || m.conversationTitle}</p>
+                    <p className="text-[8px] text-muted-foreground/50 mt-0.5">
+                      {format(new Date(m.createdAt), "MMM d, yyyy")}
+                    </p>
+                  </div>
+                </button>
+              ))}
+              {savedModels.length === 0 && !savedModelsQuery.isLoading && (
+                <p className="text-[9px] text-muted-foreground/40 text-center py-8 px-3">
+                  No saved models yet. Run a deep dive — "build me a model on X" — and it'll show up here.
+                </p>
+              )}
+            </>
           )}
         </div>
       </div>

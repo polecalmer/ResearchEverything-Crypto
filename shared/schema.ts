@@ -1,7 +1,13 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, integer, jsonb, boolean, doublePrecision, vector, index } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, integer, jsonb, boolean, doublePrecision, vector, index, customType } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
+// Postgres tsvector type — used by hybrid search on data_source_facts.
+// Declared so Drizzle's schema diff doesn't try to drop the column on push.
+const tsvector = customType<{ data: string; driverData: string }>({
+  dataType() { return "tsvector"; },
+});
 
 export const PIPELINE_STAGES = [
   "discovered",
@@ -537,6 +543,10 @@ export const dataSourceFacts = pgTable("data_source_facts", {
   staleAt: timestamp("stale_at"),
   dedupeKey: text("dedupe_key").notNull().unique(),
   embedding: vector("embedding", { dimensions: 1024 }).notNull(),
+  // Generated STORED column populated from `content` via the seeder's setup
+  // (`to_tsvector('english', content)`). Declared here so Drizzle keeps it
+  // on push; the GENERATED ALWAYS AS clause is managed in raw SQL.
+  contentTsv: tsvector("content_tsv").generatedAlwaysAs(sql`to_tsvector('english', content)`, { mode: "stored" as any }),
 }, (table) => ({
   embeddingIdx: index("data_source_facts_embedding_idx").using("hnsw", table.embedding.op("vector_cosine_ops")),
   sourceIdx: index("data_source_facts_source_idx").on(table.source),

@@ -1865,6 +1865,19 @@ export async function registerRoutes(
     }
   });
 
+  // Saved deep-mode models, scoped to the user. These are assistant messages
+  // tagged kind='deep_model' at creation time (see streaming endpoint below).
+  // Surfaced in the research sidebar so users can find their full models
+  // without having to remember which session they were generated in.
+  app.get("/api/research/saved-models", requireAuth, async (req, res) => {
+    try {
+      const models = await storage.getSavedModelsByUser(req.user!.id);
+      res.json(models);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   let aggregateBrainCache: { data: any; expires: number } | null = null;
   app.get("/api/brain/aggregate", async (_req, res) => {
     try {
@@ -2093,6 +2106,10 @@ export async function registerRoutes(
         role: "assistant",
         content: contentWithMode,
         artifacts: artifacts.length > 0 ? artifacts : undefined,
+        // Tag deep-mode responses so they surface in the user's saved-models
+        // list regardless of which conversation they live in. Quick/focused
+        // responses are not promoted — they're chat, not artifacts.
+        kind: result.mode === "deep" ? "deep_model" : undefined,
       });
 
       if (history.length <= 2) {

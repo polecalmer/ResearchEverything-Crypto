@@ -154,7 +154,14 @@ export interface IStorage {
   getConversationByShareToken(shareToken: string): Promise<Conversation | undefined>;
   deleteConversation(id: number): Promise<void>;
   getMessages(conversationId: number): Promise<Message[]>;
-  createMessage(data: { conversationId: number; role: string; content: string; artifacts?: any }): Promise<Message>;
+  createMessage(data: { conversationId: number; role: string; content: string; artifacts?: any; kind?: string }): Promise<Message>;
+  getSavedModelsByUser(userId: string): Promise<Array<{
+    id: number;
+    conversationId: number;
+    conversationTitle: string;
+    createdAt: Date;
+    preview: string;
+  }>>;
   getResearchBrain(userId: string): Promise<any | null>;
   upsertResearchBrain(userId: string, brain: { entities?: any; knowledge?: any; preferences?: any; relationships?: any; contradictions?: any; meta?: any }): Promise<void>;
   getAllResearchBrains(): Promise<Array<{ entities: any; relationships: any }>>;
@@ -954,9 +961,52 @@ export class DatabaseStorage implements IStorage {
       .orderBy(asc(messages.createdAt));
   }
 
-  async createMessage(data: { conversationId: number; role: string; content: string; artifacts?: any }): Promise<Message> {
+  async createMessage(data: { conversationId: number; role: string; content: string; artifacts?: any; kind?: string }): Promise<Message> {
     const [msg] = await db.insert(messages).values(data).returning();
     return msg;
+  }
+
+  async getSavedModelsByUser(userId: string): Promise<Array<{
+    id: number;
+    conversationId: number;
+    conversationTitle: string;
+    createdAt: Date;
+    preview: string;
+  }>> {
+    // Join messages → conversations and scope to this user. We pull a short
+    // preview from the message content so the list can show a meaningful title
+    // even before the user clicks into the session.
+    const rows = await db
+      .select({
+        id: messages.id,
+        conversationId: messages.conversationId,
+        conversationTitle: conversations.title,
+        createdAt: messages.createdAt,
+        content: messages.content,
+      })
+      .from(messages)
+      .innerJoin(conversations, eq(messages.conversationId, conversations.id))
+      .where(and(eq(messages.kind, "deep_model"), eq(conversations.userId, userId)))
+      .orderBy(desc(messages.createdAt));
+
+    return rows.map((r) => {
+      // Strip the "<!-- mode:X -->" prefix and grab the first non-empty,
+      // non-fenced line as the preview/title.
+      const stripped = r.content.replace(/^<!--\s*mode:[^>]*-->\s*/i, "");
+      const firstLine =
+        stripped
+          .split("\n")
+          .map((l) => l.trim())
+          .find((l) => l.length > 0 && !l.startsWith("```") && !l.startsWith("---")) || "";
+      const preview = firstLine.replace(/^#+\s*/, "").slice(0, 120);
+      return {
+        id: r.id,
+        conversationId: r.conversationId,
+        conversationTitle: r.conversationTitle,
+        createdAt: r.createdAt,
+        preview,
+      };
+    });
   }
 
   async getResearchBrain(userId: string): Promise<any | null> {
