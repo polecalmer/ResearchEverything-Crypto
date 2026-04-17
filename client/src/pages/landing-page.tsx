@@ -2,7 +2,34 @@ import { Button } from "@/components/ui/button";
 import { ArrowRight, Brain } from "lucide-react";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { usePrivy } from "@privy-io/react-auth";
-import sessionsLogo from "@assets/sessions_logo.png";
+function SessionsMark({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className={className}
+      aria-label="Sessions"
+    >
+      <defs>
+        <linearGradient id="sm-stroke" x1="0" y1="0" x2="24" y2="24" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="currentColor" stopOpacity="0.35" />
+          <stop offset="55%" stopColor="currentColor" stopOpacity="1" />
+          <stop offset="100%" stopColor="currentColor" stopOpacity="0.35" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M5 7.5 C 9 7.5, 9 12, 12 12 S 15 16.5, 19 16.5"
+        stroke="url(#sm-stroke)"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        fill="none"
+      />
+      <circle cx="5" cy="7.5" r="1.4" fill="currentColor" />
+      <circle cx="19" cy="16.5" r="1.4" fill="currentColor" />
+    </svg>
+  );
+}
 
 const TYPE_COLORS: Record<string, string> = {
   protocol: "#7aa2f7",
@@ -617,7 +644,7 @@ export default function LandingPage() {
       <nav className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-background/40">
         <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <img src={sessionsLogo} alt="Sessions" className="w-5 h-5 object-contain" />
+            <SessionsMark className="w-5 h-5 text-foreground" />
             <span className="text-sm font-semibold tracking-tight">Sessions</span>
           </div>
           <div className="flex items-center gap-1">
