@@ -777,8 +777,8 @@ async function executeTool(name: string, input: any): Promise<string> {
         const revenue = revenueRes.status === "fulfilled" ? revenueRes.value : null;
         const feesErr = feesRes.status === "rejected" ? String(feesRes.reason?.message || feesRes.reason) : null;
         const revenueErr = revenueRes.status === "rejected" ? String(revenueRes.reason?.message || revenueRes.reason) : null;
-        const feeData = fees?.totalDataChart || [];
-        const revData = revenue?.totalDataChart || [];
+        const feeData = fees?.dailyFees?.map((d: any) => [d.date, d.fees]) || [];
+        const revData = revenue?.dailyRevenue?.map((d: any) => [d.date, d.revenue]) || [];
         if (feeData.length === 0 && revData.length === 0) {
           return JSON.stringify({
             error: `No fees or revenue series available on DeFiLlama for "${slug}". This protocol may not be tracked by the fees/revenue adapters (common for perpetuals, AMMs without fee splits, or new protocols). For perp DEXes use query_defillama_volume with type:"derivatives". For a high-level snapshot of any tracked metrics use query_defillama_protocol_summary. For live mcap/FDV/circulating supply use get_token_snapshot.`,
@@ -805,6 +805,16 @@ async function executeTool(name: string, input: any): Promise<string> {
           points: result.length,
           feesPoints: feeData.length,
           revenuePoints: revData.length,
+          summary: {
+            fees24h: fees?.total24h ?? null,
+            fees7d: fees?.total7d ?? null,
+            fees30d: fees?.total30d ?? null,
+            feesAllTime: fees?.totalAllTime ?? null,
+            revenue24h: revenue?.total24h ?? null,
+            revenue7d: revenue?.total7d ?? null,
+            revenue30d: revenue?.total30d ?? null,
+            revenueAllTime: revenue?.totalAllTime ?? null,
+          },
           data: result,
         });
       }
@@ -812,11 +822,16 @@ async function executeTool(name: string, input: any): Promise<string> {
         const slug = await defillama.resolveSlug(input.protocol);
         const volFn = input.type === "derivatives" ? defillama.getProtocolDerivativesVolume : defillama.getProtocolDexVolume;
         const vol = await volFn(slug);
-        const data = (vol?.totalDataChart || []).map(([ts, val]: [number, number]) => ({
-          date: new Date(ts * 1000).toISOString().slice(0, 10),
-          volume: Math.round(val),
+        const data = (vol?.dailyVolume || []).map((d: any) => ({
+          date: new Date(d.date * 1000).toISOString().slice(0, 10),
+          volume: Math.round(d.volume),
         }));
-        return JSON.stringify({ protocol: slug, points: data.length, data: sampleData(data, 365) });
+        return JSON.stringify({
+          protocol: slug,
+          points: data.length,
+          summary: { volume24h: vol?.total24h ?? null, volume7d: vol?.total7d ?? null, volumeAllTime: vol?.totalAllTime ?? null },
+          data: sampleData(data, 365),
+        });
       }
       case "query_defillama_protocol_summary": {
         const slug = await defillama.resolveSlug(input.protocol);
