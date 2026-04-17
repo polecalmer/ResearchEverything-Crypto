@@ -1268,6 +1268,7 @@ export async function runSessionResearchAgent(
   // 0-indexed loop; round index 3 is the 4th iteration.
   const REFLECTION_ROUND_IDX = mode === "deep" ? 3 : -1;
 
+  let loopError: string | null = null;
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     console.log(`[SessionResearch] Round ${round + 1}/${MAX_TOOL_ROUNDS}`);
 
@@ -1301,7 +1302,14 @@ export async function runSessionResearchAgent(
       tools: anthropicTools,
     };
 
-    const response: AnthropicRawResponse = await callAnthropicRaw(requestBody);
+    let response: AnthropicRawResponse;
+    try {
+      response = await callAnthropicRaw(requestBody);
+    } catch (apiErr: any) {
+      console.error(`[SessionResearch] API call failed at round ${round + 1}: ${apiErr.message}`);
+      loopError = apiErr.message;
+      break;
+    }
 
     totalCost += response.mppCost;
     totalInputTokens += response.usage?.input_tokens || 0;
@@ -1501,11 +1509,13 @@ ${perspectives.join("\n\n")}`;
   }
 
   if (!finalText) {
-    const wrapReason = budgetExceeded
-      ? `Spend budget of $${SPEND_BUDGET_USD} for ${mode} mode reached ($${totalCost.toFixed(2)} used)`
-      : `${MAX_TOOL_ROUNDS} tool rounds exhausted`;
+    const wrapReason = loopError
+      ? `API error during research (${loopError.slice(0, 100)}). Synthesize everything gathered so far`
+      : budgetExceeded
+        ? `Spend budget of $${SPEND_BUDGET_USD} for ${mode} mode reached ($${totalCost.toFixed(2)} used)`
+        : `${MAX_TOOL_ROUNDS} tool rounds exhausted`;
     console.log(`[SessionResearch] No final text — ${wrapReason} — forcing wrap-up call without tools`);
-    onStep?.({ type: "thinking", label: budgetExceeded ? "Budget reached, wrapping up..." : "Wrapping up..." });
+    onStep?.({ type: "thinking", label: loopError ? "Recovering — synthesizing results gathered so far..." : budgetExceeded ? "Budget reached, wrapping up..." : "Wrapping up..." });
     try {
       const wrapUp = await callAnthropicRaw({
         model: "claude-opus-4-6",
@@ -1524,7 +1534,11 @@ ${perspectives.join("\n\n")}`;
     } catch (err: any) {
       console.warn(`[SessionResearch] Wrap-up call failed: ${err.message}`);
     }
-    if (!finalText) {
+    if (!finalText && toolCalls.length > 0) {
+      console.log(`[SessionResearch] Both main loop and wrap-up failed — constructing partial response from ${toolCalls.length} tool calls`);
+      const toolSummary = toolCalls.map((t, i) => `${i + 1}. ${t}`).join("\n");
+      finalText = `The analysis was interrupted before completion, but here is a summary of the research conducted so far:\n\n**Tools executed (${toolCalls.length}):**\n${toolSummary}\n\nPlease send a follow-up message in this session to continue — all the data gathered above is preserved in the conversation context and will be used to complete the analysis.`;
+    } else if (!finalText) {
       finalText = "I wasn't able to complete the analysis. Please try rephrasing your question.";
     } else {
       onStep?.({ type: "complete", label: "Composing final analysis" });
