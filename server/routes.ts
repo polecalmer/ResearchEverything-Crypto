@@ -2367,6 +2367,45 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/analyst/overview", requireAuth, async (_req, res) => {
+    try {
+      const { getAnalystOverviews } = await import("./analyst-corpus");
+      const { ANALYST_DISPLAY } = await import("@shared/schema");
+      const overviews = await getAnalystOverviews();
+      res.json({
+        analysts: overviews.map((o) => ({ ...o, displayName: ANALYST_DISPLAY[o.analyst] })),
+      });
+    } catch (e: any) {
+      console.error("[analyst/overview] failed:", e);
+      res.status(500).json({ message: e.message || "Failed to load analyst overview" });
+    }
+  });
+
+  app.get("/api/analyst/:name/frameworks", requireAuth, async (req, res) => {
+    try {
+      const { listAnalystFrameworks } = await import("./analyst-corpus");
+      const items = await listAnalystFrameworks(req.params.name);
+      res.json({ items });
+    } catch (e: any) {
+      console.error("[analyst/frameworks] failed:", e);
+      res.status(500).json({ message: e.message || "Failed to load frameworks" });
+    }
+  });
+
+  app.get("/api/analyst/:name/documents", requireAuth, async (req, res) => {
+    try {
+      const { listAnalystDocuments } = await import("./analyst-corpus");
+      const q = typeof req.query.q === "string" ? req.query.q : "";
+      const limit = req.query.limit ? Math.max(1, parseInt(String(req.query.limit), 10) || 30) : 30;
+      const offset = req.query.offset ? Math.max(0, parseInt(String(req.query.offset), 10) || 0) : 0;
+      const data = await listAnalystDocuments({ analyst: req.params.name, q, limit, offset });
+      res.json(data);
+    } catch (e: any) {
+      console.error("[analyst/documents] failed:", e);
+      res.status(500).json({ message: e.message || "Failed to load documents" });
+    }
+  });
+
   app.get("/api/pipeline-brain", requireAuth, async (req, res) => {
     try {
       const { derivePipelineBrain } = await import("./pipeline-brain");

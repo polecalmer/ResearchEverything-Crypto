@@ -3,7 +3,9 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Loader2, Brain, X, ArrowRight, AlertTriangle, Clock, Zap, Upload, Plus, Trash2, Database, Sparkles, Target, Settings } from "lucide-react";
+import { Loader2, Brain, X, ArrowRight, AlertTriangle, Clock, Zap, Upload, Plus, Trash2, Database, Sparkles, Target, Settings, Users } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { AnalystLensesView } from "@/components/analyst-lenses";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -488,38 +490,48 @@ export default function BrainGraphPage() {
 
   return (
     <div className="flex flex-col h-full overflow-hidden" data-testid="page-brain-graph">
-      <div className="px-6 py-4 border-b border-border flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Brain className="w-5 h-5 text-muted-foreground" />
-          <div>
-            <h1 className="text-sm font-semibold" data-testid="text-brain-title">Research Brain</h1>
-            <p className="text-xs text-muted-foreground" data-testid="text-brain-subtitle">
-              {isEmpty
-                ? "Start researching to build your knowledge graph"
-                : `${entityNames.length} entities, ${(data?.knowledge || []).length} facts, ${(data?.relationships || []).length} relationships`}
-            </p>
+      <Tabs defaultValue="mine" className="flex-1 flex flex-col overflow-hidden">
+        <div className="px-6 py-4 border-b border-border flex items-center justify-between gap-4 flex-wrap">
+          <div className="flex items-center gap-3">
+            <Brain className="w-5 h-5 text-muted-foreground" />
+            <div>
+              <h1 className="text-sm font-semibold" data-testid="text-brain-title">Research Brain</h1>
+              <p className="text-xs text-muted-foreground" data-testid="text-brain-subtitle">
+                {isEmpty
+                  ? "Start researching to build your knowledge graph"
+                  : `${entityNames.length} entities, ${(data?.knowledge || []).length} facts, ${(data?.relationships || []).length} relationships`}
+              </p>
+            </div>
+          </div>
+          <TabsList data-testid="tabs-brain-scope">
+            <TabsTrigger value="mine" className="text-xs" data-testid="tab-my-brain">
+              <Brain className="w-3 h-3 mr-1.5" />My Brain
+            </TabsTrigger>
+            <TabsTrigger value="analysts" className="text-xs" data-testid="tab-analyst-lenses">
+              <Users className="w-3 h-3 mr-1.5" />Analyst Lenses
+            </TabsTrigger>
+          </TabsList>
+          <div className="flex items-center gap-3">
+            {data?.meta && data.meta.totalSessions > 0 && (
+              <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                <span data-testid="text-total-sessions">{data.meta.totalSessions} sessions</span>
+                {data.meta.lastActive && <span data-testid="text-last-active">Last: {data.meta.lastActive}</span>}
+              </div>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setShowImport(true)}
+              className="text-xs h-7"
+              data-testid="button-import-brain"
+            >
+              <Upload className="w-3 h-3 mr-1.5" />
+              Import Into Brain
+            </Button>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          {data?.meta && data.meta.totalSessions > 0 && (
-            <div className="flex items-center gap-4 text-xs text-muted-foreground">
-              <span data-testid="text-total-sessions">{data.meta.totalSessions} sessions</span>
-              {data.meta.lastActive && <span data-testid="text-last-active">Last: {data.meta.lastActive}</span>}
-            </div>
-          )}
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setShowImport(true)}
-            className="text-xs h-7"
-            data-testid="button-import-brain"
-          >
-            <Upload className="w-3 h-3 mr-1.5" />
-            Import Into Brain
-          </Button>
-        </div>
-      </div>
 
+        <TabsContent value="mine" className="flex-1 overflow-hidden mt-0 data-[state=active]:flex data-[state=active]:flex-col">
       {isEmpty ? (
         <div className="flex-1 flex items-center justify-center">
           {hasPreferences ? (
@@ -627,6 +639,13 @@ export default function BrainGraphPage() {
           )}
         </div>
       )}
+
+        </TabsContent>
+
+        <TabsContent value="analysts" className="flex-1 overflow-hidden mt-0 data-[state=active]:flex data-[state=active]:flex-col">
+          <AnalystLensesView />
+        </TabsContent>
+      </Tabs>
 
       {showImport && (
         <BrainImportPanel
