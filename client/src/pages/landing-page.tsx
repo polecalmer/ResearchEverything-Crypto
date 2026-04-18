@@ -333,7 +333,7 @@ function BrainGraphHero() {
   const types = TYPE_ORDER;
 
   return (
-    <div className="relative w-full" style={{ height: "720px" }}>
+    <div className="relative w-full h-[400px] sm:h-[560px] lg:h-[720px]">
       <canvas
         ref={canvasRef}
         className="w-full h-full cursor-crosshair"
@@ -589,10 +589,10 @@ function TypingDemo() {
   }, [charIdx, phase, current.length]);
 
   return (
-    <div className="rounded-lg border border-border/40 bg-card/40 px-4 py-3 max-w-md">
+    <div className="rounded-lg border border-border/40 bg-card/40 px-3 sm:px-4 py-3 max-w-[calc(100vw-3rem)] sm:max-w-md">
       <div className="flex items-center gap-2">
-        <Brain className="w-3.5 h-3.5 text-muted-foreground/40" />
-        <div className="font-mono text-sm">
+        <Brain className="w-3.5 h-3.5 text-muted-foreground/40 shrink-0" />
+        <div className="font-mono text-xs sm:text-sm truncate">
           <span className="text-foreground">{current.slice(0, charIdx)}</span>
           <span className="inline-block w-[2px] h-[14px] bg-foreground animate-pulse ml-[1px] align-middle" />
         </div>
@@ -630,14 +630,14 @@ export default function LandingPage() {
 
       <main className="relative" style={{ zIndex: 10 }}>
         {/* 01 — Hero: split, huge left headline, right column with demo + CTA */}
-        <section className="min-h-[88vh] flex items-center px-8 lg:px-16 py-24">
-          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-10 items-end">
+        <section className="min-h-[88vh] flex items-center px-5 sm:px-8 lg:px-16 py-16 sm:py-24">
+          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-end">
             <div className="lg:col-span-7">
-              <h1 className="text-5xl sm:text-6xl lg:text-[88px] font-semibold tracking-[-0.025em] leading-[0.96] mb-6 whitespace-nowrap">
+              <h1 className="text-[40px] sm:text-6xl lg:text-[88px] font-semibold tracking-[-0.025em] leading-[0.96] mb-6">
                 <span className="bg-gradient-to-b from-foreground to-foreground/70 bg-clip-text text-transparent">Research that</span><br />
                 <span className="text-muted-foreground/55">learns with you.</span>
               </h1>
-              <p className="text-lg text-muted-foreground leading-relaxed max-w-xl">
+              <p className="text-base sm:text-lg text-muted-foreground leading-relaxed max-w-xl">
                 An interactive and iterative research platform powered by AI.
                 Run deep analysis, build financial models, generate reports, and
                 have conversations that remember your work.
@@ -645,8 +645,9 @@ export default function LandingPage() {
             </div>
             <div className="lg:col-span-5 flex flex-col items-start lg:items-end gap-5">
               <div className="w-full flex flex-col items-start lg:items-end mb-2">
-                <SessionsMark size={200} strokeWidth={1.1} ringWidth={0.7} pulseRadius={0.7} className="opacity-95 -mr-1" />
-                <div className="mt-3 text-3xl font-semibold tracking-tight leading-none bg-gradient-to-b from-foreground to-foreground/60 bg-clip-text text-transparent">
+                <SessionsMark size={200} strokeWidth={1.1} ringWidth={0.7} pulseRadius={0.7} className="opacity-95 -mr-1 hidden sm:block" />
+                <SessionsMark size={120} strokeWidth={1.1} ringWidth={0.7} pulseRadius={0.7} className="opacity-95 sm:hidden" />
+                <div className="mt-3 text-2xl sm:text-3xl font-semibold tracking-tight leading-none bg-gradient-to-b from-foreground to-foreground/60 bg-clip-text text-transparent">
                   Sessions
                 </div>
                 <div className="mt-1.5 text-[10px] uppercase tracking-[0.32em] text-muted-foreground/60">
@@ -654,7 +655,7 @@ export default function LandingPage() {
                 </div>
               </div>
               <TypingDemo />
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <Button size="lg" className="h-11 px-6 gap-2 text-sm" onClick={() => login()} data-testid="button-cta-start">
                   Start a session
                   <ArrowRight className="w-4 h-4" />
@@ -670,18 +671,18 @@ export default function LandingPage() {
         </section>
 
         {/* 02 — Thesis */}
-        <section id="thesis" className="py-24 px-8 lg:px-16">
-          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10 items-end">
-            <div className="col-span-12 lg:col-span-8">
+        <section id="thesis" className="py-16 sm:py-24 px-5 sm:px-8 lg:px-16">
+          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-end">
+            <div className="lg:col-span-8">
               <div className="flex items-center gap-3 mb-6 text-[10px] uppercase tracking-[0.32em] text-muted-foreground/60">
                 <SessionsMark size={12} halo={false} pulseRadius={0.55} ringWidth={0.6} strokeWidth={1.2} />
                 <span>01 — Thesis</span>
               </div>
-              <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-semibold tracking-[-0.025em] leading-[0.96] mb-6">
+              <h2 className="text-[36px] sm:text-6xl lg:text-[88px] font-semibold tracking-[-0.025em] leading-[0.96] mb-6">
                 <span className="bg-gradient-to-b from-foreground to-foreground/70 bg-clip-text text-transparent">AI is great.</span><br />
                 <span className="text-muted-foreground/55">It lacks perspective.</span>
               </h2>
-              <p className="text-lg text-muted-foreground leading-relaxed max-w-xl">
+              <p className="text-base sm:text-lg text-muted-foreground leading-relaxed max-w-xl">
                 Sessions is the perspective layer for AI — your context, your
                 questions, your judgment, compounding on top of every model
                 you call.
@@ -706,8 +707,8 @@ export default function LandingPage() {
         </section>
 
         {/* 03 — Signal */}
-        <section className="py-24 px-8 lg:px-16">
-          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10 items-end">
+        <section className="py-16 sm:py-24 px-5 sm:px-8 lg:px-16">
+          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-end">
             <div className="hidden lg:flex lg:col-span-4 flex-col items-start gap-4">
               <div className="text-[10px] uppercase tracking-[0.32em] text-muted-foreground/45">A trace looks like</div>
               <div className="space-y-2.5 font-mono text-[11px] leading-relaxed text-muted-foreground/75">
@@ -728,16 +729,16 @@ export default function LandingPage() {
                 <span>compounding</span>
               </div>
             </div>
-            <div className="col-span-12 lg:col-span-8 lg:text-right">
+            <div className="lg:col-span-8 lg:text-right">
               <div className="flex items-center gap-3 mb-6 text-[10px] uppercase tracking-[0.32em] text-muted-foreground/60 lg:justify-end">
                 <span>02 — Signal</span>
                 <SessionsMark size={12} halo={false} pulseRadius={0.55} ringWidth={0.6} strokeWidth={1.2} />
               </div>
-              <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-semibold tracking-[-0.025em] leading-[0.96] mb-6">
+              <h2 className="text-[36px] sm:text-6xl lg:text-[88px] font-semibold tracking-[-0.025em] leading-[0.96] mb-6">
                 <span className="bg-gradient-to-b from-foreground to-foreground/70 bg-clip-text text-transparent">Every session</span><br />
                 <span className="text-muted-foreground/55">leaves a trace.</span>
               </h2>
-              <p className="text-lg text-muted-foreground leading-relaxed max-w-xl lg:ml-auto">
+              <p className="text-base sm:text-lg text-muted-foreground leading-relaxed max-w-xl lg:ml-auto">
                 Knowledge doesn't disappear at logout. It compounds, connects,
                 and waits for the next question.
               </p>
@@ -746,18 +747,18 @@ export default function LandingPage() {
         </section>
 
         {/* 04 — Compound */}
-        <section className="py-24 px-8 lg:px-16">
-          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10 items-end">
-            <div className="col-span-12 lg:col-span-8">
+        <section className="py-16 sm:py-24 px-5 sm:px-8 lg:px-16">
+          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-end">
+            <div className="lg:col-span-8">
               <div className="flex items-center gap-3 mb-6 text-[10px] uppercase tracking-[0.32em] text-muted-foreground/60">
                 <SessionsMark size={12} halo={false} pulseRadius={0.55} ringWidth={0.6} strokeWidth={1.2} />
                 <span>03 — Compound</span>
               </div>
-              <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-semibold tracking-[-0.025em] leading-[0.96] mb-6">
+              <h2 className="text-[36px] sm:text-6xl lg:text-[88px] font-semibold tracking-[-0.025em] leading-[0.96] mb-6">
                 <span className="bg-gradient-to-b from-foreground to-foreground/70 bg-clip-text text-transparent">Tomorrow's research</span><br />
                 <span className="text-muted-foreground/55">stands on today's.</span>
               </h2>
-              <p className="text-lg text-muted-foreground leading-relaxed max-w-xl">
+              <p className="text-base sm:text-lg text-muted-foreground leading-relaxed max-w-xl">
                 Models, reports, and on-chain data layer onto a brain that
                 remembers what you've already learned.
               </p>
@@ -784,14 +785,14 @@ export default function LandingPage() {
         </section>
 
         {/* 05 — Begin: CTA + wordmark in opposite corners */}
-        <section className="py-32 px-8 lg:px-16">
-          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-12 gap-10 items-end">
-            <div className="col-span-12 lg:col-span-8">
-              <h2 className="text-5xl sm:text-6xl lg:text-[88px] font-semibold tracking-[-0.025em] leading-[0.96] mb-6">
+        <section className="py-20 sm:py-32 px-5 sm:px-8 lg:px-16">
+          <div className="w-full max-w-[1440px] mx-auto grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-end">
+            <div className="lg:col-span-8">
+              <h2 className="text-[36px] sm:text-6xl lg:text-[88px] font-semibold tracking-[-0.025em] leading-[0.96] mb-6">
                 <span className="bg-gradient-to-b from-foreground to-foreground/70 bg-clip-text text-transparent">Start your first</span><br />
                 <span className="text-muted-foreground/55">session.</span>
               </h2>
-              <p className="text-lg text-muted-foreground leading-relaxed max-w-md mb-8">
+              <p className="text-base sm:text-lg text-muted-foreground leading-relaxed max-w-md mb-8">
                 Sign in with email or wallet. Paste your first link and see
                 what comes back.
               </p>
