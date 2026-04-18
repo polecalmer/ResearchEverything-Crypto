@@ -1,0 +1,670 @@
+{
+  "analyst": "RyanWatkins_",
+  "generated_at": "2026-04-18T10:46:05.112Z",
+  "embed_model": "voyage-3-lite",
+  "thresholds": {
+    "refinement": 0.85,
+    "shift": 0.6,
+    "dormancy_days": 183
+  },
+  "frameworks": [
+    {
+      "id": "protocol-revenue-and-fee-analysis",
+      "name": "Protocol Revenue And Fee Analysis",
+      "description": "Analytical framework applied across: Base, Coinbase, Ethereum, Hyperliquid, MakerDAO",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Protocol Revenue And Fee Analysis framework with 16 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Base",
+            "Coinbase",
+            "Ethereum",
+            "Hyperliquid",
+            "MakerDAO",
+            "PancakeSwap",
+            "Solana",
+            "Uniswap"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 16,
+      "entities_connected": [
+        "Base",
+        "Coinbase",
+        "Ethereum",
+        "Hyperliquid",
+        "MakerDAO",
+        "PancakeSwap",
+        "Solana",
+        "Uniswap",
+        "Yearn",
+        "dYdX",
+        "fw::RyanWatkins_::protocol-revenue-and-fee-analysis",
+        "fw::defi_monk::real-yield-100-revenue-to-community"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "market-share-and-category-dominance-analysis",
+      "name": "Market Share And Category Dominance Analysis",
+      "description": "Analytical framework applied across: Curve, DAI, DeFi, Hyperliquid, Metaplex",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Market Share And Category Dominance Analysis framework with 13 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Curve",
+            "DAI",
+            "DeFi",
+            "Hyperliquid",
+            "Metaplex",
+            "Perpetual Protocol",
+            "Solana",
+            "USDC"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 13,
+      "entities_connected": [
+        "Curve",
+        "DAI",
+        "DeFi",
+        "Hyperliquid",
+        "Metaplex",
+        "Perpetual Protocol",
+        "Solana",
+        "USDC",
+        "USDT",
+        "Uniswap",
+        "Yearn",
+        "fw::RyanWatkins_::market-share-and-category-dominance-analysis"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "stablecoin-disruption-thesis",
+      "name": "Stablecoin Disruption Thesis",
+      "description": "Analytical framework applied across: Aave, Compound, DAI, Fei, Frax",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Stablecoin Disruption Thesis framework with 9 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Aave",
+            "Compound",
+            "DAI",
+            "Fei",
+            "Frax",
+            "MakerDAO",
+            "Terra",
+            "USDC"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 9,
+      "entities_connected": [
+        "Aave",
+        "Compound",
+        "DAI",
+        "Fei",
+        "Frax",
+        "MakerDAO",
+        "Terra",
+        "USDC",
+        "USDT"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "structural-advantages-of-permissionless-systems",
+      "name": "Structural Advantages Of Permissionless Systems",
+      "description": "Analytical framework applied across: Binance, Crypto, DeFi, Hyperliquid, Stablecoins",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Structural Advantages Of Permissionless Systems framework with 8 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Binance",
+            "Crypto",
+            "DeFi",
+            "Hyperliquid",
+            "Stablecoins",
+            "fw::RyanWatkins_::structural-advantages-of-permissionless-systems"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 8,
+      "entities_connected": [
+        "Binance",
+        "Crypto",
+        "DeFi",
+        "Hyperliquid",
+        "Stablecoins",
+        "fw::RyanWatkins_::structural-advantages-of-permissionless-systems"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "institutional-adoption-catalyst",
+      "name": "Institutional Adoption Catalyst",
+      "description": "Analytical framework applied across: Aave, Apollo, Bitcoin, BlackRock, Citadel",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Institutional Adoption Catalyst framework with 8 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Aave",
+            "Apollo",
+            "Bitcoin",
+            "BlackRock",
+            "Citadel",
+            "Compound",
+            "Twitter",
+            "Wall Street"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 8,
+      "entities_connected": [
+        "Aave",
+        "Apollo",
+        "Bitcoin",
+        "BlackRock",
+        "Citadel",
+        "Compound",
+        "Twitter",
+        "Wall Street"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "thesis-driven-concentrated-investing",
+      "name": "Thesis Driven Concentrated Investing",
+      "description": "Analytical framework applied across: Hyperliquid, MakerDAO, Pangea Fund Management, Solana, Syncracy Capital",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Thesis Driven Concentrated Investing framework with 6 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Hyperliquid",
+            "MakerDAO",
+            "Pangea Fund Management",
+            "Solana",
+            "Syncracy Capital",
+            "fw::RyanWatkins_::thesis-driven-concentrated-investing"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 6,
+      "entities_connected": [
+        "Hyperliquid",
+        "MakerDAO",
+        "Pangea Fund Management",
+        "Solana",
+        "Syncracy Capital",
+        "fw::RyanWatkins_::thesis-driven-concentrated-investing"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "network-effects-and-compounding-ecosystem",
+      "name": "Network Effects And Compounding Ecosystem",
+      "description": "Analytical framework applied across: Base, Bitcoin, Coinbase, Ethereum, Hyperliquid",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Network Effects And Compounding Ecosystem framework with 6 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Base",
+            "Bitcoin",
+            "Coinbase",
+            "Ethereum",
+            "Hyperliquid",
+            "Solana"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 6,
+      "entities_connected": [
+        "Base",
+        "Bitcoin",
+        "Coinbase",
+        "Ethereum",
+        "Hyperliquid",
+        "Solana"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "token-design-value-accrual-analysis",
+      "name": "Token Design Value Accrual Analysis",
+      "description": "Analytical framework applied across: Crypto, Gaming tokens, L1 tokens, fw::AustinBarack::token-buyback-value-accrual-analysis, fw::RyanWatkins_::token-design-value-accrual-analysis",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Token Design Value Accrual Analysis framework with 5 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Crypto",
+            "Gaming tokens",
+            "L1 tokens",
+            "fw::AustinBarack::token-buyback-value-accrual-analysis",
+            "fw::RyanWatkins_::token-design-value-accrual-analysis"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 5,
+      "entities_connected": [
+        "Crypto",
+        "Gaming tokens",
+        "L1 tokens",
+        "fw::AustinBarack::token-buyback-value-accrual-analysis",
+        "fw::RyanWatkins_::token-design-value-accrual-analysis"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "digital-asset-treasury-dat-flywheel",
+      "name": "Digital Asset Treasury Dat Flywheel",
+      "description": "Analytical framework applied across: Bitmine, Digital Asset Treasuries, MicroStrategy, Solana, Wall Street",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Digital Asset Treasury Dat Flywheel framework with 5 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Bitmine",
+            "Digital Asset Treasuries",
+            "MicroStrategy",
+            "Solana",
+            "Wall Street"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 5,
+      "entities_connected": [
+        "Bitmine",
+        "Digital Asset Treasuries",
+        "MicroStrategy",
+        "Solana",
+        "Wall Street"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "cycle-positioning-bear-market-accumulation",
+      "name": "Cycle Positioning Bear Market Accumulation",
+      "description": "Analytical framework applied across: Crypto, Syncracy Capital, fw::AustinBarack::capital-flows-in-bear-markets-reveal-conviction, fw::RyanWatkins_::cycle-positioning-bear-market-accumulation",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Cycle Positioning Bear Market Accumulation framework with 5 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Crypto",
+            "Syncracy Capital",
+            "fw::AustinBarack::capital-flows-in-bear-markets-reveal-conviction",
+            "fw::RyanWatkins_::cycle-positioning-bear-market-accumulation"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 5,
+      "entities_connected": [
+        "Crypto",
+        "Syncracy Capital",
+        "fw::AustinBarack::capital-flows-in-bear-markets-reveal-conviction",
+        "fw::RyanWatkins_::cycle-positioning-bear-market-accumulation"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "reflexivity-narrative-driven-capital-flows",
+      "name": "Reflexivity Narrative Driven Capital Flows",
+      "description": "Analytical framework applied across: Ethereum, Smart contract platforms, Solana, Terra, UST",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Reflexivity Narrative Driven Capital Flows framework with 5 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Ethereum",
+            "Smart contract platforms",
+            "Solana",
+            "Terra",
+            "UST"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 5,
+      "entities_connected": [
+        "Ethereum",
+        "Smart contract platforms",
+        "Solana",
+        "Terra",
+        "UST"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "app-vs-infrastructure-value-capture",
+      "name": "App Vs Infrastructure Value Capture",
+      "description": "Analytical framework applied across: Base, Coinbase, Ethereum, Hyperliquid, Solana",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "App Vs Infrastructure Value Capture framework with 5 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Base",
+            "Coinbase",
+            "Ethereum",
+            "Hyperliquid",
+            "Solana"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 5,
+      "entities_connected": [
+        "Base",
+        "Coinbase",
+        "Ethereum",
+        "Hyperliquid",
+        "Solana"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "monetary-premium-store-of-value-tam",
+      "name": "Monetary Premium Store Of Value Tam",
+      "description": "Analytical framework applied across: Bitcoin, Ethereum, Gold, Solana",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Monetary Premium Store Of Value Tam framework with 4 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Bitcoin",
+            "Ethereum",
+            "Gold",
+            "Solana"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 4,
+      "entities_connected": [
+        "Bitcoin",
+        "Ethereum",
+        "Gold",
+        "Solana"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "integrated-vs-modular-architecture-trade-off",
+      "name": "Integrated Vs Modular Architecture Trade Off",
+      "description": "Analytical framework applied across: Celestia, Ethereum, Hyperliquid, Solana",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Integrated Vs Modular Architecture Trade Off framework with 4 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Celestia",
+            "Ethereum",
+            "Hyperliquid",
+            "Solana"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 4,
+      "entities_connected": [
+        "Celestia",
+        "Ethereum",
+        "Hyperliquid",
+        "Solana"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "token-unlock-supply-overhang-analysis",
+      "name": "Token Unlock Supply Overhang Analysis",
+      "description": "Analytical framework applied across: Crypto, MicroStrategy, Solana, fw::AustinBarack::token-unlock-supply-absorption-analysis",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Token Unlock Supply Overhang Analysis framework with 4 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Crypto",
+            "MicroStrategy",
+            "Solana",
+            "fw::AustinBarack::token-unlock-supply-absorption-analysis"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 4,
+      "entities_connected": [
+        "Crypto",
+        "MicroStrategy",
+        "Solana",
+        "fw::AustinBarack::token-unlock-supply-absorption-analysis"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "forward-looking-fundamentals-valuation",
+      "name": "Forward Looking Fundamentals Valuation",
+      "description": "Analytical framework applied across: Ethereum, MakerDAO, Solana, fw::RyanWatkins_::forward-looking-fundamentals-valuation",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Forward Looking Fundamentals Valuation framework with 4 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Ethereum",
+            "MakerDAO",
+            "Solana",
+            "fw::RyanWatkins_::forward-looking-fundamentals-valuation"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 4,
+      "entities_connected": [
+        "Ethereum",
+        "MakerDAO",
+        "Solana",
+        "fw::RyanWatkins_::forward-looking-fundamentals-valuation"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "power-law-winner-take-most-market-structure",
+      "name": "Power Law Winner Take Most Market Structure",
+      "description": "Analytical framework applied across: DeFi, Ethereum, Solana",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Power Law Winner Take Most Market Structure framework with 3 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "DeFi",
+            "Ethereum",
+            "Solana"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 3,
+      "entities_connected": [
+        "DeFi",
+        "Ethereum",
+        "Solana"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "everything-exchange-financial-aggregator-thesis",
+      "name": "Everything Exchange Financial Aggregator Thesis",
+      "description": "Analytical framework applied across: Hyperliquid, Kalshi, Polymarket",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Everything Exchange Financial Aggregator Thesis framework with 3 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "Hyperliquid",
+            "Kalshi",
+            "Polymarket"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 3,
+      "entities_connected": [
+        "Hyperliquid",
+        "Kalshi",
+        "Polymarket"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    }
+  ],
+  "stats": {
+    "total_frameworks": 18,
+    "active": 18,
+    "dormant": 0,
+    "refinements_detected": 0,
+    "shifts_detected": 0
+  }
+}

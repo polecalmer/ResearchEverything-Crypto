@@ -1,0 +1,814 @@
+{
+  "analyst": "CryptoHayes",
+  "generated_at": "2026-04-18T10:46:05.113Z",
+  "embed_model": "voyage-3-lite",
+  "thresholds": {
+    "refinement": 0.85,
+    "shift": 0.6,
+    "dormancy_days": 183
+  },
+  "frameworks": [
+    {
+      "id": "usd-liquidity-index-dollar-liquidity-conditions",
+      "name": "Usd Liquidity Index Dollar Liquidity Conditions",
+      "description": "Analytical framework applied across: Bank reserves, Bitcoin, Bloomberg, Fed, Nasdaq",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Usd Liquidity Index Dollar Liquidity Conditions framework with 8 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Bank reserves",
+            "Bitcoin",
+            "Bloomberg",
+            "Fed",
+            "Nasdaq",
+            "RRP",
+            "TGA",
+            "Treasury"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 8,
+      "entities_connected": [
+        "Bank reserves",
+        "Bitcoin",
+        "Bloomberg",
+        "Fed",
+        "Nasdaq",
+        "RRP",
+        "TGA",
+        "Treasury"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "fiscal-dominance-bbc-big-bessent-cock",
+      "name": "Fiscal Dominance Bbc Big Bessent Cock",
+      "description": "Analytical framework applied across: Bessent, Fed, Fed board, Powell, SRF",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Fiscal Dominance Bbc Big Bessent Cock framework with 7 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Bessent",
+            "Fed",
+            "Fed board",
+            "Powell",
+            "SRF",
+            "Treasury",
+            "Trump"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 7,
+      "entities_connected": [
+        "Bessent",
+        "Fed",
+        "Fed board",
+        "Powell",
+        "SRF",
+        "Treasury",
+        "Trump"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "de-dollarization-via-gold-yuan-rail",
+      "name": "De Dollarization Via Gold Yuan Rail",
+      "description": "Analytical framework applied across: CIPS, China, Iran, PBoC, Swiss refineries",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "De Dollarization Via Gold Yuan Rail framework with 7 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "CIPS",
+            "China",
+            "Iran",
+            "PBoC",
+            "Swiss refineries",
+            "gold",
+            "yuan"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 7,
+      "entities_connected": [
+        "CIPS",
+        "China",
+        "Iran",
+        "PBoC",
+        "Swiss refineries",
+        "gold",
+        "yuan"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "capital-controls-boiling-frog",
+      "name": "Capital Controls Boiling Frog",
+      "description": "Analytical framework applied across: ECB, France, SWIFT, Section 899, TARGET2",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Capital Controls Boiling Frog framework with 7 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "ECB",
+            "France",
+            "SWIFT",
+            "Section 899",
+            "TARGET2",
+            "Treasury",
+            "US Treasury"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 7,
+      "entities_connected": [
+        "ECB",
+        "France",
+        "SWIFT",
+        "Section 899",
+        "TARGET2",
+        "Treasury",
+        "US Treasury"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "treasury-basis-trade-rv-hedge-fund-arbitrage",
+      "name": "Treasury Basis Trade Rv Hedge Fund Arbitrage",
+      "description": "Analytical framework applied across: Bitcoin ETFs, CME, Fed, RV funds, RV hedge funds",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Treasury Basis Trade Rv Hedge Fund Arbitrage framework with 7 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Bitcoin ETFs",
+            "CME",
+            "Fed",
+            "RV funds",
+            "RV hedge funds",
+            "SRF",
+            "Treasury"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 7,
+      "entities_connected": [
+        "Bitcoin ETFs",
+        "CME",
+        "Fed",
+        "RV funds",
+        "RV hedge funds",
+        "SRF",
+        "Treasury"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "stablecoin-t-bill-flywheel",
+      "name": "Stablecoin T Bill Flywheel",
+      "description": "Analytical framework applied across: Fed, Global South, JPM, Treasury, USDC",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Stablecoin T Bill Flywheel framework with 7 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Fed",
+            "Global South",
+            "JPM",
+            "Treasury",
+            "USDC",
+            "USDT",
+            "stablecoins"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 7,
+      "entities_connected": [
+        "Fed",
+        "Global South",
+        "JPM",
+        "Treasury",
+        "USDC",
+        "USDT",
+        "stablecoins"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "move-index-policy-trigger-130-140",
+      "name": "Move Index Policy Trigger 130 140",
+      "description": "Analytical framework applied across: 10Y, Fed, MOVE Index, SRF, Trump",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Move Index Policy Trigger 130 140 framework with 6 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "10Y",
+            "Fed",
+            "MOVE Index",
+            "SRF",
+            "Trump",
+            "basis trade"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 6,
+      "entities_connected": [
+        "10Y",
+        "Fed",
+        "MOVE Index",
+        "SRF",
+        "Trump",
+        "basis trade"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "qe-4-poor-people-fascist-credit-policy",
+      "name": "Qe 4 Poor People Fascist Credit Policy",
+      "description": "Analytical framework applied across: DOD, Intel, MP Materials, Treasury, Trump",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Qe 4 Poor People Fascist Credit Policy framework with 6 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "DOD",
+            "Intel",
+            "MP Materials",
+            "Treasury",
+            "Trump",
+            "Venezuela"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 6,
+      "entities_connected": [
+        "DOD",
+        "Intel",
+        "MP Materials",
+        "Treasury",
+        "Trump",
+        "Venezuela"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "re-election-primacy-law",
+      "name": "Re Election Primacy Law",
+      "description": "Analytical framework applied across: ECB, France, Trump, fw::CryptoHayes::re-election-primacy-law, midterms",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Re Election Primacy Law framework with 6 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "ECB",
+            "France",
+            "Trump",
+            "fw::CryptoHayes::re-election-primacy-law",
+            "midterms"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 6,
+      "entities_connected": [
+        "ECB",
+        "France",
+        "Trump",
+        "fw::CryptoHayes::re-election-primacy-law",
+        "midterms"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "yield-curve-control-ycc",
+      "name": "Yield Curve Control Ycc",
+      "description": "Analytical framework applied across: Fed, Fed board, SRF, Treasury, Trump nominees",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Yield Curve Control Ycc framework with 5 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Fed",
+            "Fed board",
+            "SRF",
+            "Treasury",
+            "Trump nominees"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 5,
+      "entities_connected": [
+        "Fed",
+        "Fed board",
+        "SRF",
+        "Treasury",
+        "Trump nominees"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "recession-fed-response-law-fed-always-cuts",
+      "name": "Recession Fed Response Law Fed Always Cuts",
+      "description": "Analytical framework applied across: Bessent, DOGE, Fed, Powell, banks",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Recession Fed Response Law Fed Always Cuts framework with 5 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Bessent",
+            "DOGE",
+            "Fed",
+            "Powell",
+            "banks"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 5,
+      "entities_connected": [
+        "Bessent",
+        "DOGE",
+        "Fed",
+        "Powell",
+        "banks"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "activist-treasury-issuance-ati",
+      "name": "Activist Treasury Issuance Ati",
+      "description": "Analytical framework applied across: Bessent, RRP, SRF, Treasury, Yellen",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Activist Treasury Issuance Ati framework with 5 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Bessent",
+            "RRP",
+            "SRF",
+            "Treasury",
+            "Yellen"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 5,
+      "entities_connected": [
+        "Bessent",
+        "RRP",
+        "SRF",
+        "Treasury",
+        "Yellen"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "common-knowledge-game-political-memecoins",
+      "name": "Common Knowledge Game Political Memecoins",
+      "description": "Analytical framework applied across: AI, TRUMP token, banks, memecoins",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Common Knowledge Game Political Memecoins framework with 4 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "AI",
+            "TRUMP token",
+            "banks",
+            "memecoins"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 4,
+      "entities_connected": [
+        "AI",
+        "TRUMP token",
+        "banks",
+        "memecoins"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "bitcoin-as-fiat-liquidity-fire-alarm",
+      "name": "Bitcoin As Fiat Liquidity Fire Alarm",
+      "description": "Analytical framework applied across: Bitcoin, Fed, IGV, Nasdaq",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Bitcoin As Fiat Liquidity Fire Alarm framework with 4 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Bitcoin",
+            "Fed",
+            "IGV",
+            "Nasdaq"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 4,
+      "entities_connected": [
+        "Bitcoin",
+        "Fed",
+        "IGV",
+        "Nasdaq"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "gasoline-10-rule-election-model",
+      "name": "Gasoline 10 Rule Election Model",
+      "description": "Analytical framework applied across: Brent, Trump, US elections, WTI",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Gasoline 10 Rule Election Model framework with 4 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Brent",
+            "Trump",
+            "US elections",
+            "WTI"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 4,
+      "entities_connected": [
+        "Brent",
+        "Trump",
+        "US elections",
+        "WTI"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "perpetual-swap-socialized-loss-margin-system",
+      "name": "Perpetual Swap Socialized Loss Margin System",
+      "description": "Analytical framework applied across: BitMEX, HIP-4, Hyperliquid, Polymarket",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Perpetual Swap Socialized Loss Margin System framework with 4 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "BitMEX",
+            "HIP-4",
+            "Hyperliquid",
+            "Polymarket"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 4,
+      "entities_connected": [
+        "BitMEX",
+        "HIP-4",
+        "Hyperliquid",
+        "Polymarket"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "ai-deflation-bomb-knowledge-worker-default-cascade",
+      "name": "Ai Deflation Bomb Knowledge Worker Default Cascade",
+      "description": "Analytical framework applied across: AI, Fed, banks, knowledge workers",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Ai Deflation Bomb Knowledge Worker Default Cascade framework with 4 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "AI",
+            "Fed",
+            "banks",
+            "knowledge workers"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 4,
+      "entities_connected": [
+        "AI",
+        "Fed",
+        "banks",
+        "knowledge workers"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "bitcoin-value-technology-fiat-liquidity",
+      "name": "Bitcoin Value Technology Fiat Liquidity",
+      "description": "Analytical framework applied across: Bitcoin, Fed, PBoC",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Bitcoin Value Technology Fiat Liquidity framework with 3 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "Bitcoin",
+            "Fed",
+            "PBoC"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 3,
+      "entities_connected": [
+        "Bitcoin",
+        "Fed",
+        "PBoC"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "tbtf-vs-cockroach-bank-divergence",
+      "name": "Tbtf Vs Cockroach Bank Divergence",
+      "description": "Analytical framework applied across: BofA, JPM, regional banks",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Tbtf Vs Cockroach Bank Divergence framework with 3 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "BofA",
+            "JPM",
+            "regional banks"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 3,
+      "entities_connected": [
+        "BofA",
+        "JPM",
+        "regional banks"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "trade-account-capital-account-identity",
+      "name": "Trade Account Capital Account Identity",
+      "description": "Analytical framework applied across: China, US, gold",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Trade Account Capital Account Identity framework with 3 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "China",
+            "US",
+            "gold"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 3,
+      "entities_connected": [
+        "China",
+        "US",
+        "gold"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "stealth-qe-via-standing-repo-facility-srf",
+      "name": "Stealth Qe Via Standing Repo Facility Srf",
+      "description": "Analytical framework applied across: Fed, RV funds, SRF",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Stealth Qe Via Standing Repo Facility Srf framework with 3 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "Fed",
+            "RV funds",
+            "SRF"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 3,
+      "entities_connected": [
+        "Fed",
+        "RV funds",
+        "SRF"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "ski-cut-market-test",
+      "name": "Ski Cut Market Test",
+      "description": "Analytical framework applied across: Trump, tariffs",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Ski Cut Market Test framework with 2 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "Trump",
+            "tariffs"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 2,
+      "entities_connected": [
+        "Trump",
+        "tariffs"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "convexity-long-only-asymmetry",
+      "name": "Convexity Long Only Asymmetry",
+      "description": "Analytical framework applied across: Maelstrom",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Convexity Long Only Asymmetry framework with 1 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "Maelstrom"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 1,
+      "entities_connected": [
+        "Maelstrom"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    }
+  ],
+  "stats": {
+    "total_frameworks": 23,
+    "active": 23,
+    "dormant": 0,
+    "refinements_detected": 0,
+    "shifts_detected": 0
+  }
+}

@@ -1,0 +1,614 @@
+{
+  "analyst": "AustinBarack",
+  "generated_at": "2026-04-18T10:46:05.112Z",
+  "embed_model": "voyage-3-lite",
+  "thresholds": {
+    "refinement": 0.85,
+    "shift": 0.6,
+    "dormancy_days": 183
+  },
+  "frameworks": [
+    {
+      "id": "relative-revenue-multiple-valuation",
+      "name": "Relative Revenue Multiple Valuation",
+      "description": "Analytical framework applied across: AAVE, AERO, Boros, GRASS, Maple",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Relative Revenue Multiple Valuation framework with 15 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "AAVE",
+            "AERO",
+            "Boros",
+            "GRASS",
+            "Maple",
+            "PENDLE",
+            "SYRUP",
+            "UNI"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 15,
+      "entities_connected": [
+        "AAVE",
+        "AERO",
+        "Boros",
+        "GRASS",
+        "Maple",
+        "PENDLE",
+        "SYRUP",
+        "UNI",
+        "WLFI",
+        "fw::AustinBarack::relative-revenue-multiple-valuation",
+        "fw::defi_monk::top-down-revenue-multiple-valuation"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "token-buyback-value-accrual-analysis",
+      "name": "Token Buyback Value Accrual Analysis",
+      "description": "Analytical framework applied across: AERO, ETHFI, LIT, MNDE, MOBY",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Token Buyback Value Accrual Analysis framework with 11 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "AERO",
+            "ETHFI",
+            "LIT",
+            "MNDE",
+            "MOBY",
+            "ORE",
+            "UNI",
+            "fw::AustinBarack::token-buyback-value-accrual-analysis"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 11,
+      "entities_connected": [
+        "AERO",
+        "ETHFI",
+        "LIT",
+        "MNDE",
+        "MOBY",
+        "ORE",
+        "UNI",
+        "fw::AustinBarack::token-buyback-value-accrual-analysis",
+        "fw::RyanWatkins_::token-design-value-accrual-analysis"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "insider-conviction-signal",
+      "name": "Insider Conviction Signal",
+      "description": "Analytical framework applied across: AERO, ETHFI, FWDind, MORPHO, ORE",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Insider Conviction Signal framework with 10 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "AERO",
+            "ETHFI",
+            "FWDind",
+            "MORPHO",
+            "ORE",
+            "SOL",
+            "Sanctum",
+            "fw::AustinBarack::insider-conviction-signal"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 10,
+      "entities_connected": [
+        "AERO",
+        "ETHFI",
+        "FWDind",
+        "MORPHO",
+        "ORE",
+        "SOL",
+        "Sanctum",
+        "fw::AustinBarack::insider-conviction-signal"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "technical-level-moving-average-analysis",
+      "name": "Technical Level Moving Average Analysis",
+      "description": "Analytical framework applied across: BTC, HNT, HYPE, LIT, ORE",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Technical Level Moving Average Analysis framework with 10 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "BTC",
+            "HNT",
+            "HYPE",
+            "LIT",
+            "ORE",
+            "ZEC",
+            "fw::AustinBarack::technical-level-moving-average-analysis"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 10,
+      "entities_connected": [
+        "BTC",
+        "HNT",
+        "HYPE",
+        "LIT",
+        "ORE",
+        "ZEC",
+        "fw::AustinBarack::technical-level-moving-average-analysis"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "product-market-fit-signals",
+      "name": "Product Market Fit Signals",
+      "description": "Analytical framework applied across: DIEM, Maple, NEAR, ORE, SYRUP",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Product Market Fit Signals framework with 7 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "DIEM",
+            "Maple",
+            "NEAR",
+            "ORE",
+            "SYRUP",
+            "VVV",
+            "Venice"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 7,
+      "entities_connected": [
+        "DIEM",
+        "Maple",
+        "NEAR",
+        "ORE",
+        "SYRUP",
+        "VVV",
+        "Venice"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "contrarian-overlooked-data-thesis",
+      "name": "Contrarian Overlooked Data Thesis",
+      "description": "Analytical framework applied across: CAKE, PancakeSwap, RedStone, SN3, Templar",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Contrarian Overlooked Data Thesis framework with 6 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "CAKE",
+            "PancakeSwap",
+            "RedStone",
+            "SN3",
+            "Templar",
+            "fw::AustinBarack::contrarian-overlooked-data-thesis"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 6,
+      "entities_connected": [
+        "CAKE",
+        "PancakeSwap",
+        "RedStone",
+        "SN3",
+        "Templar",
+        "fw::AustinBarack::contrarian-overlooked-data-thesis"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "team-quality-shipping-velocity",
+      "name": "Team Quality Shipping Velocity",
+      "description": "Analytical framework applied across: LIT, MOBY, Maple, RedStone, SYRUP",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Team Quality Shipping Velocity framework with 6 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "LIT",
+            "MOBY",
+            "Maple",
+            "RedStone",
+            "SYRUP",
+            "fw::AustinBarack::team-quality-shipping-velocity"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 6,
+      "entities_connected": [
+        "LIT",
+        "MOBY",
+        "Maple",
+        "RedStone",
+        "SYRUP",
+        "fw::AustinBarack::team-quality-shipping-velocity"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "forward-revenue-growth-extrapolation",
+      "name": "Forward Revenue Growth Extrapolation",
+      "description": "Analytical framework applied across: AAVE, GRASS, SYRUP, fw::AustinBarack::forward-revenue-growth-extrapolation",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Forward Revenue Growth Extrapolation framework with 5 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "AAVE",
+            "GRASS",
+            "SYRUP",
+            "fw::AustinBarack::forward-revenue-growth-extrapolation"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 5,
+      "entities_connected": [
+        "AAVE",
+        "GRASS",
+        "SYRUP",
+        "fw::AustinBarack::forward-revenue-growth-extrapolation"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "cycle-narrative-vertical-leader-identification",
+      "name": "Cycle Narrative Vertical Leader Identification",
+      "description": "Analytical framework applied across: AERO, ALPHA, AVAX, Base, HNT",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Cycle Narrative Vertical Leader Identification framework with 5 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "AERO",
+            "ALPHA",
+            "AVAX",
+            "Base",
+            "HNT"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 5,
+      "entities_connected": [
+        "AERO",
+        "ALPHA",
+        "AVAX",
+        "Base",
+        "HNT"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "token-unlock-supply-absorption-analysis",
+      "name": "Token Unlock Supply Absorption Analysis",
+      "description": "Analytical framework applied across: AERO, ETHFI, GRASS, fw::AustinBarack::token-unlock-supply-absorption-analysis, fw::RyanWatkins_::token-unlock-supply-overhang-analysis",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Token Unlock Supply Absorption Analysis framework with 5 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "AERO",
+            "ETHFI",
+            "GRASS",
+            "fw::AustinBarack::token-unlock-supply-absorption-analysis",
+            "fw::RyanWatkins_::token-unlock-supply-overhang-analysis"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 5,
+      "entities_connected": [
+        "AERO",
+        "ETHFI",
+        "GRASS",
+        "fw::AustinBarack::token-unlock-supply-absorption-analysis",
+        "fw::RyanWatkins_::token-unlock-supply-overhang-analysis"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "distribution-as-moat-analysis",
+      "name": "Distribution As Moat Analysis",
+      "description": "Analytical framework applied across: AssetDash, LIT, MOBY, pp_trading",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Distribution As Moat Analysis framework with 4 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "AssetDash",
+            "LIT",
+            "MOBY",
+            "pp_trading"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 4,
+      "entities_connected": [
+        "AssetDash",
+        "LIT",
+        "MOBY",
+        "pp_trading"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "value-to-rails-analogy-payments-infra-framing",
+      "name": "Value To Rails Analogy Payments Infra Framing",
+      "description": "Analytical framework applied across: GAME, NEAR, Pipe Network, Virtuals",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Value To Rails Analogy Payments Infra Framing framework with 4 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "GAME",
+            "NEAR",
+            "Pipe Network",
+            "Virtuals"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 4,
+      "entities_connected": [
+        "GAME",
+        "NEAR",
+        "Pipe Network",
+        "Virtuals"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "capital-flows-in-bear-markets-reveal-conviction",
+      "name": "Capital Flows In Bear Markets Reveal Conviction",
+      "description": "Analytical framework applied across: AERO, VVV, fw::RyanWatkins_::cycle-positioning-bear-market-accumulation",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Capital Flows In Bear Markets Reveal Conviction framework with 3 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "AERO",
+            "VVV",
+            "fw::RyanWatkins_::cycle-positioning-bear-market-accumulation"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 3,
+      "entities_connected": [
+        "AERO",
+        "VVV",
+        "fw::RyanWatkins_::cycle-positioning-bear-market-accumulation"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "fundamentals-vs-flows-divergence",
+      "name": "Fundamentals Vs Flows Divergence",
+      "description": "Analytical framework applied across: LIT, MORPHO, WLFI",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Fundamentals Vs Flows Divergence framework with 3 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "LIT",
+            "MORPHO",
+            "WLFI"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 3,
+      "entities_connected": [
+        "LIT",
+        "MORPHO",
+        "WLFI"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "utilization-unit-economics-reflexivity",
+      "name": "Utilization Unit Economics Reflexivity",
+      "description": "Analytical framework applied across: Maple, SYRUP",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Utilization Unit Economics Reflexivity framework with 2 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "Maple",
+            "SYRUP"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 2,
+      "entities_connected": [
+        "Maple",
+        "SYRUP"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "coinbase-premium-regional-flow-analysis",
+      "name": "Coinbase Premium Regional Flow Analysis",
+      "description": "Analytical framework applied across: BTC, ZEC",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Coinbase Premium Regional Flow Analysis framework with 2 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "BTC",
+            "ZEC"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 2,
+      "entities_connected": [
+        "BTC",
+        "ZEC"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "policy-regulatory-tailwind-analysis",
+      "name": "Policy Regulatory Tailwind Analysis",
+      "description": "Analytical framework applied across: fw::AustinBarack::policy-regulatory-tailwind-analysis",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Policy Regulatory Tailwind Analysis framework with 1 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "fw::AustinBarack::policy-regulatory-tailwind-analysis"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 1,
+      "entities_connected": [
+        "fw::AustinBarack::policy-regulatory-tailwind-analysis"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    }
+  ],
+  "stats": {
+    "total_frameworks": 17,
+    "active": 17,
+    "dormant": 0,
+    "refinements_detected": 0,
+    "shifts_detected": 0
+  }
+}

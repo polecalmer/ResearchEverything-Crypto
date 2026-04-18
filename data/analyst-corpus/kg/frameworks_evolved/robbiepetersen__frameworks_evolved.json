@@ -1,0 +1,448 @@
+{
+  "analyst": "robbiepetersen_",
+  "generated_at": "2026-04-18T10:46:05.102Z",
+  "embed_model": "voyage-3-lite",
+  "thresholds": {
+    "refinement": 0.85,
+    "shift": 0.6,
+    "dormancy_days": 183
+  },
+  "frameworks": [
+    {
+      "id": "owning-the-end-user",
+      "name": "Owning The End User",
+      "description": "Analytical framework applied across: Axiom, Blockchains, Circle, Coinbase, Stablecoin distributors",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Owning The End User framework with 14 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Axiom",
+            "Blockchains",
+            "Circle",
+            "Coinbase",
+            "Stablecoin distributors",
+            "Stablecoin orchestrators",
+            "Tether",
+            "Tokens"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 14,
+      "entities_connected": [
+        "Axiom",
+        "Blockchains",
+        "Circle",
+        "Coinbase",
+        "Stablecoin distributors",
+        "Stablecoin orchestrators",
+        "Tether",
+        "Tokens",
+        "Wallets",
+        "fw::robbiepetersen_::owning-the-end-user",
+        "pump.fun"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "first-principles-reconstruction",
+      "name": "First Principles Reconstruction",
+      "description": "Analytical framework applied across: Institutions, L1s, Perps, Public blockchains, Stablecoins",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "First Principles Reconstruction framework with 8 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Institutions",
+            "L1s",
+            "Perps",
+            "Public blockchains",
+            "Stablecoins",
+            "fw::robbiepetersen_::first-principles-reconstruction"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 8,
+      "entities_connected": [
+        "Institutions",
+        "L1s",
+        "Perps",
+        "Public blockchains",
+        "Stablecoins",
+        "fw::robbiepetersen_::first-principles-reconstruction"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "stablecoin-stack-value-redistribution",
+      "name": "Stablecoin Stack Value Redistribution",
+      "description": "Analytical framework applied across: AUSD, M0, Paxos, Stablecoin infrastructure, Stablecoin issuers",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Stablecoin Stack Value Redistribution framework with 8 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "AUSD",
+            "M0",
+            "Paxos",
+            "Stablecoin infrastructure",
+            "Stablecoin issuers",
+            "Stablecoin orchestrators",
+            "Tether",
+            "USDG"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 8,
+      "entities_connected": [
+        "AUSD",
+        "M0",
+        "Paxos",
+        "Stablecoin infrastructure",
+        "Stablecoin issuers",
+        "Stablecoin orchestrators",
+        "Tether",
+        "USDG"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "nuance-over-naive-cost-comparison",
+      "name": "Nuance Over Naive Cost Comparison",
+      "description": "Analytical framework applied across: Blockchains, Card networks, Credit cards, Solana, Stablecoins",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Nuance Over Naive Cost Comparison framework with 6 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Blockchains",
+            "Card networks",
+            "Credit cards",
+            "Solana",
+            "Stablecoins",
+            "Traditional payments"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 6,
+      "entities_connected": [
+        "Blockchains",
+        "Card networks",
+        "Credit cards",
+        "Solana",
+        "Stablecoins",
+        "Traditional payments"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "commoditization-moves-value-to-adjacent-layers",
+      "name": "Commoditization Moves Value To Adjacent Layers",
+      "description": "Analytical framework applied across: Crypto apps, Orchestrators, Stablecoin infrastructure, Stablecoin startups, fw::robbiepetersen_::commoditization-moves-value-to-adjacent-layers",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Commoditization Moves Value To Adjacent Layers framework with 6 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Crypto apps",
+            "Orchestrators",
+            "Stablecoin infrastructure",
+            "Stablecoin startups",
+            "fw::robbiepetersen_::commoditization-moves-value-to-adjacent-layers"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 6,
+      "entities_connected": [
+        "Crypto apps",
+        "Orchestrators",
+        "Stablecoin infrastructure",
+        "Stablecoin startups",
+        "fw::robbiepetersen_::commoditization-moves-value-to-adjacent-layers"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "wallet-as-aggregator",
+      "name": "Wallet As Aggregator",
+      "description": "Analytical framework applied across: Coinbase, Fuse, Gearbox, Jupiter, Raydium",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Wallet As Aggregator framework with 6 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Coinbase",
+            "Fuse",
+            "Gearbox",
+            "Jupiter",
+            "Raydium",
+            "Wallets"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 6,
+      "entities_connected": [
+        "Coinbase",
+        "Fuse",
+        "Gearbox",
+        "Jupiter",
+        "Raydium",
+        "Wallets"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "tokens-as-l1-moat",
+      "name": "Tokens As L1 Moat",
+      "description": "Analytical framework applied across: Blockchains, L1s, Raydium, Solana, Tokens",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Tokens As L1 Moat framework with 6 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Blockchains",
+            "L1s",
+            "Raydium",
+            "Solana",
+            "Tokens",
+            "Uniswap"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 6,
+      "entities_connected": [
+        "Blockchains",
+        "L1s",
+        "Raydium",
+        "Solana",
+        "Tokens",
+        "Uniswap"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "take-rate-pricing-power-test",
+      "name": "Take Rate Pricing Power Test",
+      "description": "Analytical framework applied across: Axiom, DEXs, Front-ends, Jupiter, Raydium",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Take Rate Pricing Power Test framework with 5 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Axiom",
+            "DEXs",
+            "Front-ends",
+            "Jupiter",
+            "Raydium"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 5,
+      "entities_connected": [
+        "Axiom",
+        "DEXs",
+        "Front-ends",
+        "Jupiter",
+        "Raydium"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "decentralization-as-means-to-an-end",
+      "name": "Decentralization As Means To An End",
+      "description": "Analytical framework applied across: Blockchains, Crypto industry, Institutions, Public blockchains, fw::robbiepetersen_::decentralization-as-means-to-an-end",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Decentralization As Means To An End framework with 5 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Blockchains",
+            "Crypto industry",
+            "Institutions",
+            "Public blockchains",
+            "fw::robbiepetersen_::decentralization-as-means-to-an-end"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 5,
+      "entities_connected": [
+        "Blockchains",
+        "Crypto industry",
+        "Institutions",
+        "Public blockchains",
+        "fw::robbiepetersen_::decentralization-as-means-to-an-end"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "reflexivity-narrative-price-loop",
+      "name": "Reflexivity Narrative Price Loop",
+      "description": "Analytical framework applied across: Crypto markets, Equities, Trump administration",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Reflexivity Narrative Price Loop framework with 3 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "Crypto markets",
+            "Equities",
+            "Trump administration"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 3,
+      "entities_connected": [
+        "Crypto markets",
+        "Equities",
+        "Trump administration"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "opportunity-cost-capital-allocation",
+      "name": "Opportunity Cost Capital Allocation",
+      "description": "Analytical framework applied across: Circle, Protocols, Tokenholders",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Opportunity Cost Capital Allocation framework with 3 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "Circle",
+            "Protocols",
+            "Tokenholders"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 3,
+      "entities_connected": [
+        "Circle",
+        "Protocols",
+        "Tokenholders"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "non-linear-upside-pmf",
+      "name": "Non Linear Upside Pmf",
+      "description": "Analytical framework applied across: Blockchains, Crypto apps",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Non Linear Upside Pmf framework with 2 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "Blockchains",
+            "Crypto apps"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 2,
+      "entities_connected": [
+        "Blockchains",
+        "Crypto apps"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    }
+  ],
+  "stats": {
+    "total_frameworks": 12,
+    "active": 12,
+    "dormant": 0,
+    "refinements_detected": 0,
+    "shifts_detected": 0
+  }
+}
