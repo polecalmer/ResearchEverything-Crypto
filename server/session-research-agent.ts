@@ -1401,8 +1401,20 @@ export async function runSessionResearchAgent(
       response = await callAnthropicRaw(requestBody);
     } catch (apiErr: any) {
       console.error(`[SessionResearch] API call failed at round ${round + 1}: ${apiErr.message}`);
-      loopError = apiErr.message;
-      break;
+      if (round === 0 && !apiErr.message.includes("InsufficientBalance") && !apiErr.message.includes("shutting down")) {
+        console.log(`[SessionResearch] First-round failure — retrying once after 3s...`);
+        await new Promise(r => setTimeout(r, 3000));
+        try {
+          response = await callAnthropicRaw(requestBody);
+        } catch (retryErr: any) {
+          console.error(`[SessionResearch] Retry also failed: ${retryErr.message}`);
+          loopError = retryErr.message;
+          break;
+        }
+      } else {
+        loopError = apiErr.message;
+        break;
+      }
     }
 
     totalCost += response.mppCost;
@@ -1648,7 +1660,17 @@ ${perspectives.join("\n\n")}`;
       const toolSummary = toolCalls.map((t, i) => `${i + 1}. ${t}`).join("\n");
       finalText = `The analysis was interrupted before completion, but here is a summary of the research conducted so far:\n\n**Tools executed (${toolCalls.length}):**\n${toolSummary}\n\nPlease send a follow-up message in this session to continue — all the data gathered above is preserved in the conversation context and will be used to complete the analysis.`;
     } else if (!finalText) {
-      finalText = "I wasn't able to complete the analysis. Please try rephrasing your question.";
+      const isPaymentIssue = loopError && (loopError.includes("InsufficientBalance") || loopError.includes("insufficient funds") || loopError.includes("payment"));
+      const isTimeout = loopError && (loopError.includes("524") || loopError.includes("timeout") || loopError.includes("ECONNRESET"));
+      if (isPaymentIssue) {
+        finalText = "The AI service is temporarily unavailable due to a payment channel issue. This usually resolves automatically — please try again in a minute or two.";
+      } else if (isTimeout) {
+        finalText = "The request timed out while connecting to the AI service. This is a transient issue — please try sending the same question again.";
+      } else if (loopError) {
+        finalText = `The analysis encountered a service error and couldn't complete. Please try again — this is usually a temporary issue.\n\n*Technical detail: ${loopError.slice(0, 150)}*`;
+      } else {
+        finalText = "The AI service wasn't able to generate a response for this query. Please try again — if the issue persists, try rephrasing your question.";
+      }
     } else {
       onStep?.({ type: "complete", label: "Composing final analysis" });
     }
