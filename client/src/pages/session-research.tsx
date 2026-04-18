@@ -766,57 +766,54 @@ function MessageBubble({
             {reportState === "saving" ? "Saving..." : reportState === "saved" ? "Saved" : "Add to Reports"}
           </button>
         )}
-        {onSaveAsModel && hasTableArtifacts && (
-          <button
-            disabled={modelState !== "idle"}
-            onClick={async () => {
-              setModelState("saving");
-              try {
-                await onSaveAsModel(msg.id);
-                setModelState("saved");
-                setTimeout(() => setModelState("idle"), 3000);
-              } catch {
-                setModelState("idle");
-              }
-            }}
-            className={`text-xs px-2.5 py-1 rounded-md border flex items-center gap-1.5 transition-colors ${
-              modelState === "saved"
-                ? "border-green-400/40 text-green-400 bg-green-400/5"
-                : modelState === "saving"
-                  ? "border-border/40 text-muted-foreground/40 cursor-wait"
-                  : "border-border/40 text-muted-foreground/60 hover:text-foreground hover:border-border/60 hover:bg-muted/20"
-            }`}
-            data-testid={`button-save-model-${msg.id}`}
-          >
-            {modelState === "saving" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : modelState === "saved" ? <Check className="w-3.5 h-3.5" /> : <Table2 className="w-3.5 h-3.5" />}
-            {modelState === "saving" ? "Saving..." : modelState === "saved" ? "Saved as Model" : "Save as Model"}
-          </button>
-        )}
       </div>
       <div className="max-w-full">
         {parts.map((part, i) => {
-          if (part.type === "text" && part.content) {
-            return <MarkdownText key={i} text={part.content} />;
+          const isArtifact = part.type === "table" || part.type === "chart" || part.type === "metric_cards" || part.type === "comparison";
+          const artifactEl = (() => {
+            if (part.type === "text" && part.content) return <MarkdownText key={i} text={part.content} />;
+            if (part.type === "metric_cards" && part.artifact) return <MetricCards key={i} artifact={part.artifact} />;
+            if (part.type === "chart" && part.artifact) return <InlineChart key={i} artifact={part.artifact} />;
+            if (part.type === "table" && part.artifact) return <InlineTable key={i} artifact={part.artifact} />;
+            if (part.type === "callout" && part.artifact) return <CalloutBlock key={i} artifact={part.artifact} />;
+            if (part.type === "comparison" && part.artifact) return <ComparisonBlock key={i} artifact={part.artifact} />;
+            if (part.type === "quote" && part.artifact) return <QuoteBlock key={i} artifact={part.artifact} />;
+            return null;
+          })();
+          if (isArtifact && onSaveAsModel) {
+            return (
+              <div key={i}>
+                {artifactEl}
+                <div className="flex items-center gap-2 mt-1.5 mb-3">
+                  <button
+                    disabled={modelState !== "idle"}
+                    onClick={async () => {
+                      setModelState("saving");
+                      try {
+                        await onSaveAsModel(msg.id);
+                        setModelState("saved");
+                        setTimeout(() => setModelState("idle"), 3000);
+                      } catch {
+                        setModelState("idle");
+                      }
+                    }}
+                    className={`text-[10px] px-2 py-0.5 rounded border flex items-center gap-1 transition-colors ${
+                      modelState === "saved"
+                        ? "border-green-400/40 text-green-400 bg-green-400/5"
+                        : modelState === "saving"
+                          ? "border-border/30 text-muted-foreground/40 cursor-wait"
+                          : "border-border/30 text-muted-foreground/50 hover:text-foreground hover:border-border/50 hover:bg-muted/20"
+                    }`}
+                    data-testid={`button-save-model-${msg.id}-${i}`}
+                  >
+                    {modelState === "saving" ? <Loader2 className="w-3 h-3 animate-spin" /> : modelState === "saved" ? <Check className="w-3 h-3" /> : <Table2 className="w-3 h-3" />}
+                    {modelState === "saving" ? "Saving..." : modelState === "saved" ? "Saved" : "Save as Model"}
+                  </button>
+                </div>
+              </div>
+            );
           }
-          if (part.type === "metric_cards" && part.artifact) {
-            return <MetricCards key={i} artifact={part.artifact} />;
-          }
-          if (part.type === "chart" && part.artifact) {
-            return <InlineChart key={i} artifact={part.artifact} />;
-          }
-          if (part.type === "table" && part.artifact) {
-            return <InlineTable key={i} artifact={part.artifact} />;
-          }
-          if (part.type === "callout" && part.artifact) {
-            return <CalloutBlock key={i} artifact={part.artifact} />;
-          }
-          if (part.type === "comparison" && part.artifact) {
-            return <ComparisonBlock key={i} artifact={part.artifact} />;
-          }
-          if (part.type === "quote" && part.artifact) {
-            return <QuoteBlock key={i} artifact={part.artifact} />;
-          }
-          return null;
+          return artifactEl;
         })}
       </div>
       {showOverrides && (
