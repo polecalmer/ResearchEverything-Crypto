@@ -2398,6 +2398,167 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/research/messages/:msgId/save-as-model", requireAuth, async (req, res) => {
+    try {
+      const msgId = parseInt(req.params.msgId);
+      if (isNaN(msgId)) return res.status(400).json({ message: "Invalid message ID" });
+      const userId = req.user!.id;
+
+      const msg = await storage.getMessage(msgId);
+      if (!msg) return res.status(404).json({ message: "Message not found" });
+
+      const conversation = await storage.getConversation(msg.conversationId);
+      if (!conversation || conversation.userId !== userId) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const content = msg.content.replace(/^<!--\s*mode:\w+\s*-->\s*\n?/, "");
+      const artifacts: any[] = Array.isArray(msg.artifacts) ? msg.artifacts : [];
+
+      const firstLine = content.split("\n").find(l => l.trim())?.replace(/^#+\s*/, "").slice(0, 100) || "Financial Model";
+      const title = req.body.title || firstLine;
+
+      const sections: any[] = [];
+      const assumptions: any[] = [];
+      const sources: any[] = [];
+
+      for (const artifact of artifacts) {
+        if (artifact.type === "table") {
+          sections.push({
+            type: "table",
+            title: artifact.title || "Data",
+            columns: artifact.columns || [],
+            data: artifact.data || [],
+          });
+        } else if (artifact.type === "metric_cards") {
+          sections.push({
+            type: "metrics",
+            title: artifact.title || "Key Metrics",
+            data: artifact.data || [],
+          });
+        } else if (artifact.type === "chart") {
+          sections.push({
+            type: "chart",
+            title: artifact.title || "Chart",
+            chartConfig: artifact.chartConfig || {},
+            data: artifact.data || [],
+          });
+        } else if (artifact.type === "comparison") {
+          sections.push({
+            type: "comparison",
+            title: artifact.title || "Comparison",
+            left: artifact.left,
+            right: artifact.right,
+          });
+        } else if (artifact.type === "callout") {
+          if (artifact.variant === "insight" || artifact.variant === "catch") {
+            assumptions.push({ text: artifact.text, title: artifact.title, variant: artifact.variant });
+          } else {
+            sections.push({ type: "callout", title: artifact.title, text: artifact.text, variant: artifact.variant });
+          }
+        }
+      }
+
+      const urlRegex = /\bhttps?:\/\/[^\s\)]+/g;
+      const linkRegex = /\[([^\]]+)\]\((https?:\/\/[^\)]+)\)/g;
+      const seenUrls = new Set<string>();
+      let match;
+      while ((match = linkRegex.exec(content)) !== null) {
+        if (!seenUrls.has(match[2])) {
+          sources.push({ label: match[1], url: match[2] });
+          seenUrls.add(match[2]);
+        }
+      }
+      while ((match = urlRegex.exec(content)) !== null) {
+        if (!seenUrls.has(match[0])) {
+          sources.push({ label: match[0], url: match[0] });
+          seenUrls.add(match[0]);
+        }
+      }
+
+      const assumptionPatterns = [
+        /(?:assum|key assumption|we assume|our assumption|baseline assumption)[:\s]+([^\n]+)/gi,
+        /(?:bear case|base case|bull case)[:\s]+([^\n]+)/gi,
+      ];
+      for (const pattern of assumptionPatterns) {
+        let aMatch;
+        while ((aMatch = pattern.exec(content)) !== null) {
+          const text = aMatch[1].trim();
+          if (text.length > 10 && text.length < 500) {
+            const existing = assumptions.find(a => a.text === text);
+            if (!existing) assumptions.push({ text, title: "Assumption", variant: "assumption" });
+          }
+        }
+      }
+
+      const scenarioRegex = /###?\s*(bear|base|bull)\s*(case|scenario)/gi;
+      const scenarioMatches: { type: string; startIdx: number; headerLen: number }[] = [];
+      let sMatch;
+      while ((sMatch = scenarioRegex.exec(content)) !== null) {
+        scenarioMatches.push({ type: sMatch[1].toLowerCase(), startIdx: sMatch.index, headerLen: sMatch[0].length });
+      }
+      if (scenarioMatches.length > 0) {
+        const scenarioSection = { type: "scenarios" as const, title: "Scenario Analysis", scenarios: [] as any[] };
+        for (let si = 0; si < scenarioMatches.length; si++) {
+          const sm = scenarioMatches[si];
+          const bodyStart = sm.startIdx + sm.headerLen;
+          const bodyEnd = si + 1 < scenarioMatches.length ? scenarioMatches[si + 1].startIdx : Math.min(bodyStart + 1000, content.length);
+          const nextHeaderInSlice = content.slice(bodyStart, bodyEnd).match(/^###?\s/m);
+          const actualEnd = nextHeaderInSlice && nextHeaderInSlice.index !== undefined ? bodyStart + nextHeaderInSlice.index : bodyEnd;
+          const scenarioContent = content.slice(bodyStart, actualEnd).trim().split("\n").filter(l => l.trim()).slice(0, 10);
+          scenarioSection.scenarios.push({ type: sm.type, lines: scenarioContent });
+        }
+        if (scenarioSection.scenarios.length > 0) sections.push(scenarioSection);
+      }
+
+      const model = await storage.createFinancialModel({
+        userId,
+        title,
+        subtitle: conversation.title || undefined,
+        sourceMessageId: msgId,
+        sourceConversationId: msg.conversationId,
+        sections,
+        assumptions,
+        sources,
+      });
+
+      res.json({ id: model.id, title: model.title });
+    } catch (e: any) {
+      console.error("[save-as-model] failed:", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/models", requireAuth, async (req, res) => {
+    try {
+      const models = await storage.getFinancialModels(req.user!.id);
+      res.json({ models });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/models/:id", requireAuth, async (req, res) => {
+    try {
+      const model = await storage.getFinancialModel(req.params.id);
+      if (!model) return res.status(404).json({ message: "Model not found" });
+      if (model.userId !== req.user!.id) return res.status(403).json({ message: "Not authorized" });
+      res.json(model);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/models/:id", requireAuth, async (req, res) => {
+    try {
+      const deleted = await storage.deleteFinancialModel(req.params.id, req.user!.id);
+      if (!deleted) return res.status(404).json({ message: "Model not found" });
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.get("/api/admin/data-source-brain/stats", requireAuth, async (req, res) => {
     try {
       const isAdmin = await storage.checkIsAdmin(req.user!.id);

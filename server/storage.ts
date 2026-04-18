@@ -18,6 +18,7 @@ import {
   type QueryTemplate, type InsertQueryTemplate,
   type ProtocolRevenueModel, type InsertProtocolRevenueModel,
   type Conversation, type Message,
+  type FinancialModel,
   users, companies, founders, notes, reports, transactions,
   tokenProfiles, masterDuneQueries, duneQueries, tokenAnalyses, dashboardCharts,
   provenQueries, systemLearnings,
@@ -25,6 +26,7 @@ import {
   queryTemplates,
   protocolRevenueModels,
   conversations, messages, researchBrains,
+  financialModels,
   costAlertSettings,
   type CostAlertSettings,
 } from "@shared/schema";
@@ -66,6 +68,11 @@ export interface IStorage {
   updateReport(id: string, data: { content?: string; status?: string }): Promise<Report | undefined>;
   getReport(id: string): Promise<Report | undefined>;
   getReportsByCompany(companyId: string, userId: string): Promise<Report[]>;
+
+  createFinancialModel(data: { userId: string; title: string; subtitle?: string; sourceMessageId?: number; sourceConversationId?: number; sections: any[]; assumptions: any[]; sources: any[] }): Promise<FinancialModel>;
+  getFinancialModel(id: string): Promise<FinancialModel | undefined>;
+  getFinancialModels(userId: string): Promise<FinancialModel[]>;
+  deleteFinancialModel(id: string, userId: string): Promise<boolean>;
 
   claimOrphanedCompanies(userId: string): Promise<number>;
 
@@ -372,6 +379,27 @@ export class DatabaseStorage implements IStorage {
       deletedReportCount: sql`${companies.deletedReportCount} + 1`,
     }).where(eq(companies.id, report.companyId));
     return { companyId: report.companyId };
+  }
+
+  async createFinancialModel(data: { userId: string; title: string; subtitle?: string; sourceMessageId?: number; sourceConversationId?: number; sections: any[]; assumptions: any[]; sources: any[] }): Promise<FinancialModel> {
+    const [model] = await db.insert(financialModels).values(data).returning();
+    return model;
+  }
+
+  async getFinancialModel(id: string): Promise<FinancialModel | undefined> {
+    const [model] = await db.select().from(financialModels).where(eq(financialModels.id, id));
+    return model;
+  }
+
+  async getFinancialModels(userId: string): Promise<FinancialModel[]> {
+    return db.select().from(financialModels).where(eq(financialModels.userId, userId)).orderBy(desc(financialModels.createdAt));
+  }
+
+  async deleteFinancialModel(id: string, userId: string): Promise<boolean> {
+    const [model] = await db.select().from(financialModels).where(and(eq(financialModels.id, id), eq(financialModels.userId, userId)));
+    if (!model) return false;
+    await db.delete(financialModels).where(eq(financialModels.id, id));
+    return true;
   }
 
   async claimOrphanedCompanies(userId: string): Promise<number> {

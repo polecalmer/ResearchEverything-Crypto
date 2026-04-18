@@ -8,7 +8,7 @@ import {
   CheckCircle2, ChevronDown, Brain, Search, BarChart3,
   Share2, Link2, Check, X, Lightbulb, AlertTriangle, Zap, Eye,
   Quote as QuoteIcon, ArrowDown, ArrowUp, RefreshCw, FileText,
-  Bookmark, Microscope,
+  Bookmark, Microscope, Table2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -671,6 +671,7 @@ function MessageBubble({
   onOverride,
   onDiveDeep,
   onAddToReport,
+  onSaveAsModel,
   isLast,
   busy,
   lastUserMessage,
@@ -679,12 +680,14 @@ function MessageBubble({
   onOverride?: (action: { forceMode?: ResearchMode; refreshBrain?: boolean }) => void;
   onDiveDeep?: (text: string) => void;
   onAddToReport?: (msgId: number) => Promise<void>;
+  onSaveAsModel?: (msgId: number) => Promise<void>;
   isLast?: boolean;
   busy?: boolean;
   lastUserMessage?: string;
 }) {
   const isUser = msg.role === "user";
   const [reportState, setReportState] = useState<"idle" | "saving" | "saved">("idle");
+  const [modelState, setModelState] = useState<"idle" | "saving" | "saved">("idle");
 
   if (isUser) {
     return (
@@ -698,6 +701,9 @@ function MessageBubble({
 
   const { mode, cleaned } = extractMode(msg.content);
   const parts = parseContentAndArtifacts(cleaned, msg.artifacts as Artifact[] | null);
+
+  const artifacts: any[] = Array.isArray(msg.artifacts) ? msg.artifacts : [];
+  const hasTableArtifacts = artifacts.some((a: any) => a.type === "table" || a.type === "metric_cards" || a.type === "chart" || a.type === "comparison");
 
   const showOverrides = isLast && !busy && onOverride && lastUserMessage;
   const canShorter = mode === "deep" || mode === "focused";
@@ -734,6 +740,32 @@ function MessageBubble({
           >
             {reportState === "saving" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : reportState === "saved" ? <Check className="w-3.5 h-3.5" /> : <Bookmark className="w-3.5 h-3.5" />}
             {reportState === "saving" ? "Saving..." : reportState === "saved" ? "Saved" : "Add to Reports"}
+          </button>
+        )}
+        {onSaveAsModel && hasTableArtifacts && (
+          <button
+            disabled={modelState !== "idle"}
+            onClick={async () => {
+              setModelState("saving");
+              try {
+                await onSaveAsModel(msg.id);
+                setModelState("saved");
+                setTimeout(() => setModelState("idle"), 3000);
+              } catch {
+                setModelState("idle");
+              }
+            }}
+            className={`opacity-0 group-hover/msg:opacity-100 transition-opacity text-xs px-2.5 py-1 rounded-md border flex items-center gap-1.5 ${
+              modelState === "saved"
+                ? "border-green-400/40 text-green-400 bg-green-400/5 !opacity-100"
+                : modelState === "saving"
+                  ? "border-border/40 text-muted-foreground/40 cursor-wait !opacity-100"
+                  : "border-border/40 text-muted-foreground/60 hover:text-foreground hover:border-border/60 hover:bg-muted/20"
+            }`}
+            data-testid={`button-save-model-${msg.id}`}
+          >
+            {modelState === "saving" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : modelState === "saved" ? <Check className="w-3.5 h-3.5" /> : <Table2 className="w-3.5 h-3.5" />}
+            {modelState === "saving" ? "Saving..." : modelState === "saved" ? "Saved as Model" : "Save as Model"}
           </button>
         )}
       </div>
@@ -1142,6 +1174,27 @@ export default function SessionResearch() {
     }
   }, [toast]);
 
+  const handleSaveAsModel = useCallback(async (msgId: number) => {
+    try {
+      const authHeaders = await getAuthHeaders();
+      const res = await fetch(`/api/research/messages/${msgId}/save-as-model`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        credentials: "include",
+        body: JSON.stringify({}),
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Failed to save" }));
+        throw new Error(err.message);
+      }
+      const data = await res.json();
+      toast({ title: "Saved as Model", description: `Model "${data.title}" created.` });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+      throw e;
+    }
+  }, [toast]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -1292,6 +1345,7 @@ export default function SessionResearch() {
                     lastUserMessage={lastUserMsg}
                     onDiveDeep={handleDiveDeep}
                     onAddToReport={handleAddToReport}
+                    onSaveAsModel={handleSaveAsModel}
                     onOverride={(action) => {
                       if (!activeSessionId || !lastUserMsg) return;
                       sendStreamingMessage(activeSessionId, lastUserMsg, action);

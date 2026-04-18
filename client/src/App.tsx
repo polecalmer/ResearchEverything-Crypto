@@ -23,6 +23,7 @@ import ReportViewer from "@/pages/report-viewer";
 import AdminPage from "@/pages/admin";
 import SessionResearch from "@/pages/session-research";
 import BrainGraph from "@/pages/brain-graph";
+import ModelViewer from "@/pages/model-viewer";
 import PipelineBrain from "@/pages/pipeline-brain";
 import LandingPage from "@/pages/landing-page";
 import AuthPage from "@/pages/auth-page";
@@ -118,6 +119,7 @@ function AuthenticatedApp() {
               <Route path="/shared/research/:token" component={SharedResearch} />
               <Route path="/brain" component={BrainGraph} />
               <Route path="/map" component={PipelineBrain} />
+              <Route path="/models/:id" component={ModelViewer} />
               <Route path="/admin" component={AdminPage} />
               <Route component={NotFound} />
             </Switch>

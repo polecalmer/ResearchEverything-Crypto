@@ -627,6 +627,23 @@ export type AnalystDocument = typeof analystDocuments.$inferSelect;
 export type AnalystChunk = typeof analystChunks.$inferSelect;
 export type AnalystFramework = typeof analystFrameworks.$inferSelect;
 
+export const financialModels = pgTable("financial_models", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  title: text("title").notNull(),
+  subtitle: text("subtitle"),
+  sourceMessageId: integer("source_message_id"),
+  sourceConversationId: integer("source_conversation_id"),
+  sections: jsonb("sections").notNull().default(sql`'[]'::jsonb`),
+  assumptions: jsonb("assumptions").notNull().default(sql`'[]'::jsonb`),
+  sources: jsonb("sources").notNull().default(sql`'[]'::jsonb`),
+  status: text("status").notNull().default("complete"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type FinancialModel = typeof financialModels.$inferSelect;
+
 export const brainFacts = pgTable("brain_facts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: text("user_id").notNull(),
