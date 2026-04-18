@@ -1,0 +1,15 @@
+What I'd suggest doing first, concretely
+In order, smallest useful increment first:
+
+Add the production proven_queries table with the schema I sketched. Write-only for now from both agents on execution success. Ship it. Observe what gets captured over a week of real traffic.
+Look at what you captured. Specifically: how often do queries recur, what does the long tail look like, is the normalized_signature capturing the right structure. This determines whether the retrieval layer will actually help. If traffic is highly repetitive, cache hits will be high and this is a big win. If every query is novel, you'll need pattern abstraction (Layer 2) sooner than I thought.
+Add retrieval (exact-match first, vector fallback). Wire into both agents' pre-generation step. Measure cache hit rate and accuracy impact.
+Add vectorized retrieval over system_learnings (still the lowest-hanging fruit independently).
+At this point pause and re-assess. You'll have real data on whether pattern abstraction is needed, whether KG is needed, whether orchestration capture is needed. Much better position to make those calls than now.
+
+Where I'm genuinely uncertain
+
+Whether your traffic has enough repetition to make proven_queries high-value. This is the single biggest unknown. If users mostly ask highly novel questions, the cache hit rate will be low and the value is mostly in the few-shot examples the retrieval provides. Still useful but less dramatic than if traffic is 80% recurring patterns. I can't know this without looking at actual traffic.
+Whether the adaptation step (take a near-miss template, modify it) introduces more errors than it saves. My gut says it doesn't, because the agent is already generating SQL — giving it a working starting point should strictly reduce error surface. But I've seen retrieval-augmented generation sometimes underperform cold generation when the retrieved context is subtly wrong and the model anchors on it. Worth watching in benchmarks.
+Whether the canonicalization step is going to be good enough on first pass. If two semantically-identical queries get different signatures, your cache hit rate craters. I suspect the planner is already doing most of this work but I don't know its output schema. This is a risk worth de-risking before committing to the design.
+Whether there's something about your session agent's context-compression behavior that makes retrieval injection harder than it sounds. You mentioned earlier the session agent has its own context management. Injecting retrieved templates into its prompt should work cleanly, but I can't verify without seeing the agent loop.

@@ -5,6 +5,7 @@ import { fetchTokenSnapshot } from "./allium-client";
 import * as defillama from "./defillama-client";
 import * as vm from "vm";
 import { retrieveRelevantContext, formatRetrievedContext } from "./brain-retrieval";
+import { storage } from "./storage";
 import {
   consultForTool,
   shouldShortCircuit,
@@ -887,9 +888,28 @@ async function executeTool(name: string, input: any): Promise<string> {
       }
       case "execute_dune_sql": {
         if (!isDuneConfigured()) return JSON.stringify({ error: "Dune Analytics not configured" });
+        const startMs = Date.now();
         const result = await executeDuneSQL(input.sql);
         if (!result || !result.rows) return JSON.stringify({ error: "Query returned no results" });
         const rows = result.rows.slice(0, 500);
+
+        if (rows.length > 0 && input.description) {
+          try {
+            const desc = (input.description || "").toLowerCase();
+            const sqlLower = (input.sql || "").toLowerCase();
+            const protocolMatch = sqlLower.match(/(?:from|join)\s+(\w+)[\._]/)?.[1] || desc.split(/\s+/).find((w: string) => w.length > 2 && !["the","for","and","from","with","get","all","by"].includes(w)) || "unknown";
+            const metricGuess = desc.slice(0, 80) || "custom_query";
+            await storage.saveProvenQuery({
+              protocol: protocolMatch,
+              metricType: metricGuess,
+              sqlQuery: input.sql,
+              dataSource: "dune-sql",
+            });
+          } catch (e: any) {
+            console.log(`[ProvenQuery] Failed to save from session agent: ${e.message}`);
+          }
+        }
+
         return JSON.stringify({ rowCount: rows.length, columns: result.columns?.map((c: any) => c.name) || Object.keys(rows[0] || {}), data: rows });
       }
       case "discover_dune_tables": {
