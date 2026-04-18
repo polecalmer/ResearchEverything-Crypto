@@ -559,13 +559,18 @@ export type DataSourceFact = typeof dataSourceFacts.$inferSelect;
 // Markdown corpora from third-party crypto analysts (TopherGMI, shaundadevens,
 // thiccyth0t). Documents are chunked + embedded via Voyage; agent queries them
 // through the analyst-corpus tools to surface specific lenses on a topic.
-export const ANALYST_NAMES = ["TopherGMI", "shaundadevens", "thiccyth0t"] as const;
+export const ANALYST_NAMES = ["TopherGMI", "shaundadevens", "thiccyth0t", "CryptoHayes", "AustinBarack", "defi_monk", "RyanWatkins_", "robbiepetersen_"] as const;
 export type AnalystName = typeof ANALYST_NAMES[number];
 
 export const ANALYST_DISPLAY: Record<AnalystName, string> = {
   TopherGMI: "TopherGMI (Arca CIO — macro, market structure, tokenomics)",
   shaundadevens: "shaundadevens (Blockworks columnist — fees, governance, market microstructure)",
   thiccyth0t: "thiccyth0t (Scimitar Capital — derivatives, MM, on-chain quant)",
+  CryptoHayes: "Arthur Hayes (BitMEX co-founder — macro, geopolitics, monetary policy)",
+  AustinBarack: "Austin Barack (crypto investor — early-stage, market catalysts, ecosystem analysis)",
+  defi_monk: "defi_monk (DeFi native — protocol mechanics, yield strategies, on-chain analytics)",
+  RyanWatkins_: "Ryan Watkins (Messari alum — sector mapping, protocol valuation, market structure)",
+  robbiepetersen_: "Robbie Petersen (Delphi Digital — cross-chain research, emerging protocols)",
 };
 
 export const analystDocuments = pgTable("analyst_documents", {

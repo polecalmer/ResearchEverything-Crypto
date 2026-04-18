@@ -59,12 +59,12 @@ Focus on user experience and intuitive design.
 
 **Research Planner:** A Haiku-tier AI planner decomposes user prompts into structured `ResearchPlan`s with typed sub-questions, guiding the Session Research agent. It uses a taxonomy of 9 question types (including `derived-metric-chart` for multi-source computed time-series like P/E ratios) and playbook templates (JSON files), and validates the plan before execution. When the plan includes `derived-metric-chart` or `valuation-ask` types, `execute_code` is unblocked even in focused mode to enable data merging.
 
-**Analyst Corpus:** A queryable index of writings from three crypto analysts, integrated as tools for the Session Research agent (`query_analyst_corpus`, `query_analyst_frameworks`, `analyst_perspective`). The corpus consists of markdown documents and extracted reasoning frameworks, stored with embeddings for hybrid retrieval.
+**Analyst Corpus:** A queryable index of writings from eight crypto analysts (TopherGMI, shaundadevens, thiccyth0t, CryptoHayes, AustinBarack, defi_monk, RyanWatkins_, robbiepetersen_), integrated as tools for the Session Research agent (`query_analyst_corpus`, `query_analyst_frameworks`, `analyst_perspective`). The corpus consists of 4,372 markdown documents (7,081+ chunks) and extracted reasoning frameworks, stored with Voyage AI embeddings for hybrid retrieval. ANALYST_NAMES and ANALYST_DISPLAY are defined in `shared/schema.ts`. Ingestion script: `scripts/ingest-analyst-corpus.ts`. Source markdown lives in `data/analyst-corpus/{analyst}/content/`.
 
 **Analyst Thinking System:** Enhances analyst integration with three layers:
 1.  **Framework Procedures in Plan:** Sub-questions in the research plan trigger Haiku calls to convert analyst frameworks into procedural reasoning steps, injected as `>>> PROCEDURE` directives for the agent.
 2.  **`analyst_perspective` Tool:** A new tool that prompts a Haiku sub-call as a specific analyst persona, using their frameworks and corpus chunks to generate structured reasoning traces.
-3.  **Multi-Perspective Debate (Deep Mode):** In deep mode, all three analysts are invoked in parallel after the main agent loop. Their reasoning traces are injected into the final synthesis phase, requiring the agent to integrate, attribute, and reconcile all perspectives.
+3.  **Multi-Perspective Debate (Deep Mode):** In deep mode, all eight analysts are invoked in parallel after the main agent loop. Their reasoning traces are injected into the final synthesis phase, requiring the agent to integrate, attribute, and reconcile all perspectives.
 
 **Session Research Resilience:** Implements three layers of protection against API failures, including graceful error handling, recovery wrap-up calls, and partial response generation from tool call history. It also features extended backoff for specific errors and context compression for long sessions to prevent timeouts.
 

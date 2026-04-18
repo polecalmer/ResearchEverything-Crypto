@@ -302,17 +302,12 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: "query_analyst_corpus",
-    description: `Search the writings of three crypto analysts whose work is indexed into Sessions:
-- TopherGMI (Arca CIO) — macro, market structure, market recaps, tokenomics critiques, ETF/regulatory
-- shaundadevens (Blockworks columnist) — DeFi mechanics, fee switches, governance, market microstructure
-- thiccyth0t (Scimitar Capital) — derivatives, market making, on-chain quant, airdrop game theory
-
-Use this for QUALITATIVE perspective: what these analysts have actually written about a topic, in their own words. Returns specific passages with date, source URL, and analyst attribution. Do NOT use as a source for live numbers — for those use the data tools. Use early in deep-mode research to surface contrarian takes, historical context, and the analysts' frameworks before forming your own view.`,
+    description: `Search the writings of eight crypto analysts whose work is indexed into Sessions. Use this for QUALITATIVE perspective: what these analysts have actually written about a topic, in their own words. Returns specific passages with date, source URL, and analyst attribution. Do NOT use as a source for live numbers — for those use the data tools. Use early in deep-mode research to surface contrarian takes, historical context, and the analysts' frameworks before forming your own view.`,
     input_schema: {
       type: "object" as const,
       properties: {
-        query: { type: "string" as const, description: "Natural-language query — what perspective/passage are you looking for? E.g. 'how does fee accrual work for L2 sequencers' or 'thiccyth0t views on Hyperliquid'." },
-        analyst: { type: "string" as const, enum: ["TopherGMI", "shaundadevens", "thiccyth0t", "all"], description: "Restrict to one analyst, or 'all' to surface across all three lenses (default 'all')." },
+        query: { type: "string" as const, description: "Natural-language query — what perspective/passage are you looking for? E.g. 'how does fee accrual work for L2 sequencers' or 'macro view on crypto cycles'." },
+        analyst: { type: "string" as const, enum: [...ANALYST_NAMES, "all"], description: "Restrict to one analyst, or 'all' to surface across all lenses (default 'all')." },
         limit: { type: "number" as const, description: "Max passages to return (default 6, max 12)." },
       },
       required: ["query"],
@@ -320,12 +315,12 @@ Use this for QUALITATIVE perspective: what these analysts have actually written 
   },
   {
     name: "query_analyst_frameworks",
-    description: `Look up named analytical frameworks each analyst has developed over time — e.g. shaundadevens' "Fee Switch Analysis", thiccyth0t's market making models. Each framework has a description, a category, version history (showing how the framework evolved across articles), and date range. Use this when you want the SHAPE of an analyst's reasoning rather than a specific passage. Especially useful for deep questions where you want to apply an established lens to a new asset.`,
+    description: `Look up named analytical frameworks each analyst has developed over time. Each framework has a description, a category, version history (showing how the framework evolved across articles), and date range. Use this when you want the SHAPE of an analyst's reasoning rather than a specific passage. Especially useful for deep questions where you want to apply an established lens to a new asset.`,
     input_schema: {
       type: "object" as const,
       properties: {
         query: { type: "string" as const, description: "What kind of framework are you looking for? E.g. 'how to evaluate token fee accrual', 'market making PnL decomposition'." },
-        analyst: { type: "string" as const, enum: ["TopherGMI", "shaundadevens", "thiccyth0t", "all"], description: "Restrict to one analyst, or 'all' (default 'all')." },
+        analyst: { type: "string" as const, enum: [...ANALYST_NAMES, "all"], description: "Restrict to one analyst, or 'all' (default 'all')." },
         limit: { type: "number" as const, description: "Max frameworks to return (default 4, max 8)." },
       },
       required: ["query"],
@@ -337,7 +332,7 @@ Use this for QUALITATIVE perspective: what these analysts have actually written 
     input_schema: {
       type: "object" as const,
       properties: {
-        analyst: { type: "string" as const, enum: ["TopherGMI", "shaundadevens", "thiccyth0t"], description: "Which analyst's perspective to generate." },
+        analyst: { type: "string" as const, enum: [...ANALYST_NAMES], description: "Which analyst's perspective to generate." },
         question: { type: "string" as const, description: "The specific question you want this analyst to reason through. Be precise — e.g. 'Is HYPE overvalued at $28 given its fee trajectory and upcoming token unlocks?'" },
         context: { type: "string" as const, description: "Optional: relevant data or findings from your research so far that the analyst should consider in their reasoning." },
       },
@@ -471,12 +466,17 @@ For pull quotes (the one-line takeaway worth highlighting):
 \`\`\`
 
 ANALYST CORPUS — THIRD-PARTY LENSES:
-You have indexed access to the writings of three crypto analysts via query_analyst_corpus and query_analyst_frameworks:
+You have indexed access to the writings of eight crypto analysts via query_analyst_corpus and query_analyst_frameworks:
 - TopherGMI (Arca CIO): macro, market structure, ETF/regulatory, tokenomics
 - shaundadevens (Blockworks): DeFi mechanics, fee switches, governance, microstructure
 - thiccyth0t (Scimitar): derivatives, market making, on-chain quant, airdrop game theory
+- CryptoHayes (Arthur Hayes / BitMEX): macro, geopolitics, monetary policy, crypto cycles
+- AustinBarack: early-stage investing, market catalysts, ecosystem analysis
+- defi_monk: DeFi protocol mechanics, yield strategies, on-chain analytics
+- RyanWatkins_ (Messari alum): sector mapping, protocol valuation, market structure
+- robbiepetersen_ (Delphi Digital): cross-chain research, emerging protocols
 Treat these as PERSPECTIVES, not data. They are most useful for qualitative context, contrarian framings, and applying established frameworks to new assets. Do NOT use them as the source for live numbers — that's what the data tools are for.
-IMPORTANT: Do NOT name individual analysts in your output. Never write "TopherGMI says…", "shaundadevens has argued…", "per thiccyth0t…" or similar. Instead, absorb their reasoning into your own analysis seamlessly. You may reference the analytical lens generically (e.g. "from a macro-structural perspective…", "a derivatives-focused view suggests…") but never reveal the names of the underlying analysts. The user should experience this as the platform's own integrated analysis.
+IMPORTANT: Do NOT name individual analysts in your output. Never write "TopherGMI says…", "CryptoHayes argues…", or similar. Instead, absorb their reasoning into your own analysis seamlessly. You may reference the analytical lens generically (e.g. "from a macro-structural perspective…", "a derivatives-focused view suggests…") but never reveal the names of the underlying analysts. The user should experience this as the platform's own integrated analysis.
 
 RESEARCH BRAIN — KNOWLEDGE GRAPH:
 You have access to a persistent Research Brain that accumulates intelligence across all sessions. At the END of every analysis (regardless of mode), call update_research_brain to record verified findings.

@@ -8,7 +8,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { apiRequest } from "@/lib/queryClient";
 import { Loader2, BookOpen, Layers, Calendar, Search, ExternalLink, ChevronDown, ChevronRight, Tag, Users } from "lucide-react";
 
-type AnalystName = "TopherGMI" | "shaundadevens" | "thiccyth0t";
+import type { AnalystName } from "@shared/schema";
 
 interface AnalystOverview {
   analyst: AnalystName;
@@ -55,6 +55,11 @@ const ANALYST_BLURB: Record<AnalystName, string> = {
   TopherGMI: "Arca CIO. Macro, market structure, tokenomics and capital rotation.",
   shaundadevens: "Blockworks columnist. Fees, governance, market microstructure.",
   thiccyth0t: "Scimitar Capital. Derivatives, market-making, on-chain quant.",
+  CryptoHayes: "BitMEX co-founder. Macro, geopolitics, monetary policy and crypto cycles.",
+  AustinBarack: "Crypto investor. Early-stage picks, market catalysts, ecosystem analysis.",
+  defi_monk: "DeFi native. Protocol mechanics, yield strategies, on-chain analytics.",
+  RyanWatkins_: "Messari alum. Sector mapping, protocol valuation, market structure.",
+  robbiepetersen_: "Delphi Digital. Cross-chain research, emerging protocols.",
 };
 
 function StatBlock({ label, value, hint }: { label: string; value: string | number; hint?: string }) {
