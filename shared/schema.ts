@@ -627,6 +627,46 @@ export type AnalystDocument = typeof analystDocuments.$inferSelect;
 export type AnalystChunk = typeof analystChunks.$inferSelect;
 export type AnalystFramework = typeof analystFrameworks.$inferSelect;
 
+export const brainFacts = pgTable("brain_facts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: text("user_id").notNull(),
+  factId: text("fact_id").notNull(),
+  topic: text("topic").notNull().default(""),
+  fact: text("fact").notNull(),
+  entities: text("entities").array().notNull().default(sql`'{}'::text[]`),
+  source: text("source").notNull().default(""),
+  date: text("date"),
+  confidence: text("confidence").notNull().default("verified"),
+  embedding: vector("embedding", { dimensions: 1024 }).notNull(),
+  contentTsv: tsvector("content_tsv").generatedAlwaysAs(sql`to_tsvector('english', topic || ' ' || fact)`, { mode: "stored" as any }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  embeddingIdx: index("brain_facts_embedding_idx").using("hnsw", table.embedding.op("vector_cosine_ops")),
+  userIdx: index("brain_facts_user_idx").on(table.userId),
+  userFactUnique: uniqueIndex("brain_facts_user_fact_unique").on(table.userId, table.factId),
+}));
+
+export const brainEntities = pgTable("brain_entities", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: text("user_id").notNull(),
+  entityName: text("entity_name").notNull(),
+  type: text("type").notNull().default("unknown"),
+  category: text("category"),
+  summary: text("summary"),
+  embedding: vector("embedding", { dimensions: 1024 }).notNull(),
+  contentTsv: tsvector("content_tsv").generatedAlwaysAs(sql`to_tsvector('english', entity_name || ' ' || COALESCE(summary, '') || ' ' || type)`, { mode: "stored" as any }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+}, (table) => ({
+  embeddingIdx: index("brain_entities_embedding_idx").using("hnsw", table.embedding.op("vector_cosine_ops")),
+  userIdx: index("brain_entities_user_idx").on(table.userId),
+  userEntityUnique: uniqueIndex("brain_entities_user_entity_unique").on(table.userId, table.entityName),
+}));
+
+export type BrainFactRow = typeof brainFacts.$inferSelect;
+export type BrainEntityRow = typeof brainEntities.$inferSelect;
+
 export { sessions } from "./models/auth";
 
 export * from "./models/chat";

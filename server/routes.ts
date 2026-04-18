@@ -2112,6 +2112,7 @@ export async function registerRoutes(
             console.error("[SessionResearch] Failed to persist plan:", err.message);
           }
         },
+        req.user!.id,
       );
       sendEvent("mode", { mode: result.mode, reason: result.modeReason });
 
@@ -2230,6 +2231,30 @@ export async function registerRoutes(
             meta: mergedMeta,
           });
           console.log(`[SessionResearch] Brain merged: ${Object.keys(mergedEntities).length} entities, ${mergedKnowledge.length} facts, ${mergedRelationships.length} rels, ${newContradictions.length} contradictions`);
+
+          try {
+            const { syncBrainFacts, syncBrainEntities } = await import("./brain-embedding-sync");
+            const factsToSync = newFacts.map((f: any) => ({
+              id: f.id,
+              topic: f.topic || "",
+              fact: f.fact || "",
+              entities: f.entities || [],
+              source: f.source || "",
+              date: f.date,
+              confidence: f.confidence || "verified",
+            }));
+            const newEntityEntries: Record<string, any> = {};
+            for (const [name, data] of Object.entries(result.brainUpdates.entities || {})) {
+              newEntityEntries[name] = mergedEntities[name] || data;
+            }
+            const [fSynced, eSynced] = await Promise.all([
+              syncBrainFacts(req.user!.id, factsToSync),
+              syncBrainEntities(req.user!.id, newEntityEntries),
+            ]);
+            console.log(`[BrainSync] Embedded ${fSynced} facts, ${eSynced} entities`);
+          } catch (syncErr: any) {
+            console.warn("[BrainSync] Embedding sync failed (non-fatal):", syncErr.message);
+          }
         } catch (brainErr: any) {
           console.warn("[SessionResearch] Brain update failed:", brainErr.message);
         }
@@ -2396,6 +2421,29 @@ export async function registerRoutes(
     } catch (e: any) {
       console.error("[data-source-brain] reseed failed:", e);
       res.status(500).json({ message: e.message || "Failed to reseed brain" });
+    }
+  });
+
+  app.post("/api/admin/brain/backfill-embeddings", requireAuth, async (req, res) => {
+    try {
+      const isAdmin = await storage.checkIsAdmin(req.user!.id);
+      if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+      const { backfillBrainEmbeddings } = await import("./brain-embedding-sync");
+      const brains = await db.execute(sql`SELECT user_id, entities, knowledge FROM research_brains`);
+      const rows: any[] = (brains as any).rows ?? brains;
+      let totalFacts = 0, totalEntities = 0;
+      for (const row of rows) {
+        const result = await backfillBrainEmbeddings(row.user_id, {
+          entities: row.entities || {},
+          knowledge: row.knowledge || [],
+        });
+        totalFacts += result.facts;
+        totalEntities += result.entities;
+      }
+      res.json({ message: "Backfill complete", users: rows.length, totalFacts, totalEntities });
+    } catch (e: any) {
+      console.error("[brain/backfill] failed:", e);
+      res.status(500).json({ message: e.message || "Failed to backfill brain embeddings" });
     }
   });
 

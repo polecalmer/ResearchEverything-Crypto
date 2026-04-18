@@ -1158,6 +1158,7 @@ export async function runSessionResearchAgent(
   onStep?: (step: ThinkingStep) => void,
   forceMode?: ResearchMode,
   onPlan?: (plan: ResearchPlan) => void | Promise<void>,
+  userId?: string,
 ): Promise<ResearchResponse> {
   const toolCalls: string[] = [];
   const toolCallSignatures: string[] = [];
@@ -1184,7 +1185,7 @@ export async function runSessionResearchAgent(
     console.log(`[SessionResearch] Mode: ${mode} (${modeReason})`);
   }
 
-  const retrieved = retrieveRelevantContext(userMessage, brain);
+  const retrieved = await retrieveRelevantContext(userMessage, brain, userId);
   const brainContext = formatRetrievedContext(retrieved);
   console.log(`[SessionResearch] Brain retrieval: ${retrieved.retrievalSummary}`);
 
