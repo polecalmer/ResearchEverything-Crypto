@@ -220,7 +220,7 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: "search_proven_queries",
-    description: "Search the library of known-good, production-tested Dune SQL queries. ALWAYS check this BEFORE writing new SQL or discovering tables. Returns proven SQL templates you can reuse directly or adapt. Search by protocol name, metric type, or keyword.",
+    description: "Search the library of 130+ proven, production-tested Dune SQL queries. MUST be your FIRST tool call for ANY quantitative data request (charts, metrics, fees, revenue, volume, P/E, valuation). These queries produce richer data than DeFiLlama/CoinGecko APIs. Search by protocol name, metric type, or keyword. If a match is found, use it with execute_dune_sql instead of DeFiLlama tools.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -530,7 +530,8 @@ The user asked a targeted question that needs real analysis but not a full deep-
 - End with a brief "what this means" — but no probability-weighted price targets unless asked.
 
 WHEN THE REQUEST IS A CHART/VISUALIZATION ("show me a chart of X", "pull up Y over Z", "graph the take rate"):
-- Fetch the underlying data (1-2 tool calls), do the trivial transform inline in the chart artifact's "data" array, and ship the chart with a 2-3 sentence summary above it.
+- STEP 0 (MANDATORY): Call search_proven_queries FIRST with the protocol name + metric (e.g. "hyperliquid revenue", "hype P/E", "aave fees"). The proven query library has 130+ Dune SQL queries that often produce richer, more accurate data than DeFiLlama APIs. If a match exists, use execute_dune_sql with it — skip DeFiLlama entirely.
+- STEP 1: If no proven query matched, fetch data from DeFiLlama/CoinGecko (1-2 tool calls), do the trivial transform inline in the chart artifact's "data" array, and ship the chart with a 2-3 sentence summary above it.
 - For a SINGLE ratio (one P/E number, one take rate), compute it inline — no execute_code needed.
 - For a TIME-SERIES of a derived metric (daily P/E over 6 months, take rate trend), you MUST use execute_code to merge the component series row-by-row and output the chart data array. This is the #1 failure mode: the agent tries to build a 180-row data array by hand and gives up. Use code.
 - Only use execute_code in focused mode if the math is genuinely non-trivial OR you need to merge two time-series datasets.
@@ -599,8 +600,8 @@ If the user asked for a "thesis" or "investment view", that is the SYNTHESIS of 
 RESEARCH METHODOLOGY:
 - 5–15 tool calls — let the question drive the count, not a quota
 - Use web_search aggressively for qualitative context (roadmap, shipped products, governance, team) — this is the #1 underused tool
-- Use DeFiLlama / token snapshots / Dune for the quantitative slices
-- DUNE QUERY WORKFLOW: ALWAYS call search_proven_queries FIRST before writing any Dune SQL. If a proven query exists, use it directly with execute_dune_sql. Only call discover_dune_tables and write custom SQL if no proven query matches.
+- PROVEN QUERY FIRST (MANDATORY): For ANY quantitative data request (charts, metrics, fees, revenue, volume, P/E, P/S, valuation, on-chain data), your VERY FIRST tool call MUST be search_proven_queries with a relevant search term (protocol name, metric type, or both). The proven query library contains 130+ battle-tested Dune SQL queries that produce better results than DeFiLlama/CoinGecko APIs. If a proven query exists for the metric, use execute_dune_sql with it. Only fall back to DeFiLlama/token snapshot tools if NO proven query matches.
+- DUNE QUERY WORKFLOW: If search_proven_queries returns no match AND you need to write custom Dune SQL, call discover_dune_tables first to find the right tables. Only write custom SQL as a last resort.
 - execute_code for non-trivial math (regressions, multi-variable models) OR when building a time-series of a derived metric (merging daily price + daily revenue to compute daily P/E). A single P/E ratio does NOT need code, but charting P/E over 180 days DOES.
 
 QUALITY:
