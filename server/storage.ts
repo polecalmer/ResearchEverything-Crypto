@@ -154,6 +154,7 @@ export interface IStorage {
   getConversationByShareToken(shareToken: string): Promise<Conversation | undefined>;
   deleteConversation(id: number): Promise<void>;
   getMessages(conversationId: number): Promise<Message[]>;
+  getMessage(id: number): Promise<Message | undefined>;
   createMessage(data: { conversationId: number; role: string; content: string; artifacts?: any; kind?: string; plan?: any }): Promise<Message>;
   updateMessagePlan(id: number, plan: any): Promise<void>;
   getSavedModelsByUser(userId: string): Promise<Array<{
@@ -960,6 +961,11 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(messages)
       .where(eq(messages.conversationId, conversationId))
       .orderBy(asc(messages.createdAt));
+  }
+
+  async getMessage(id: number): Promise<Message | undefined> {
+    const [msg] = await db.select().from(messages).where(eq(messages.id, id)).limit(1);
+    return msg;
   }
 
   async createMessage(data: { conversationId: number; role: string; content: string; artifacts?: any; kind?: string; plan?: any }): Promise<Message> {

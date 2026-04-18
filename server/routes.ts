@@ -2341,6 +2341,38 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/research/messages/:msgId/save-to-report", requireAuth, async (req, res) => {
+    try {
+      const msgId = parseInt(req.params.msgId);
+      if (isNaN(msgId)) return res.status(400).json({ message: "Invalid message ID" });
+      const userId = req.user!.id;
+
+      const msg = await storage.getMessage(msgId);
+      if (!msg) return res.status(404).json({ message: "Message not found" });
+
+      const conversation = await storage.getConversation(msg.conversationId);
+      if (!conversation || conversation.userId !== userId) {
+        return res.status(403).json({ message: "Not authorized" });
+      }
+
+      const content = msg.content.replace(/^<!--\s*mode:\w+\s*-->\s*\n?/, "");
+      const firstLine = content.split("\n").find(l => l.trim())?.replace(/^#+\s*/, "").slice(0, 100) || "Session Research";
+      const title = `${conversation.title || "Session"} — ${firstLine}`;
+
+      const report = await storage.createReport({
+        companyId: "session-research",
+        userId,
+        title,
+        content,
+        status: "complete",
+      });
+
+      res.json({ id: report.id, title: report.title });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.get("/api/admin/data-source-brain/stats", requireAuth, async (req, res) => {
     try {
       const isAdmin = await storage.checkIsAdmin(req.user!.id);

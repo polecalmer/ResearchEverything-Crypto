@@ -8,6 +8,7 @@ import {
   CheckCircle2, ChevronDown, Brain, Search, BarChart3,
   Share2, Link2, Check, X, Lightbulb, AlertTriangle, Zap, Eye,
   Quote as QuoteIcon, ArrowDown, ArrowUp, RefreshCw, FileText,
+  Bookmark, Microscope,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -108,15 +109,16 @@ function InlineChart({ artifact }: { artifact: Artifact }) {
   const needsDualAxis = yAxes.length > 1 && yAxes[0]?.format !== yAxes[1]?.format;
 
   const renderChart = () => {
-    const commonProps = { data, margin: { top: 8, right: needsDualAxis ? 52 : 16, left: 0, bottom: 4 } };
-    const grid = <CartesianGrid strokeDasharray="2 6" stroke="var(--color-chart-grid)" vertical={false} />;
+    const commonProps = { data, margin: { top: 12, right: needsDualAxis ? 56 : 20, left: 4, bottom: 8 } };
+    const grid = <CartesianGrid strokeDasharray="3 8" stroke="var(--color-chart-grid)" vertical={false} />;
     const xAx = (
       <XAxis
         dataKey={xAxis.dataKey}
         tickFormatter={xTickFormatter}
-        tick={{ fontSize: 9, fill: "var(--color-chart-tick)" }}
+        tick={{ fontSize: 11, fill: "var(--color-chart-tick)" }}
         axisLine={false}
         tickLine={false}
+        tickMargin={8}
       />
     );
     const tip = (
@@ -126,11 +128,12 @@ function InlineChart({ artifact }: { artifact: Artifact }) {
         contentStyle={{
           backgroundColor: "var(--color-tooltip-bg)",
           border: "1px solid var(--color-tooltip-border)",
-          borderRadius: "8px", fontSize: "12px", padding: "8px 12px",
+          borderRadius: "10px", fontSize: "13px", padding: "10px 14px",
           color: "var(--color-tooltip-text)",
-          backdropFilter: "blur(12px)",
-          boxShadow: "0 4px 20px rgba(0,0,0,0.2)",
+          backdropFilter: "blur(16px)",
+          boxShadow: "0 8px 32px rgba(0,0,0,0.15), 0 2px 8px rgba(0,0,0,0.1)",
           pointerEvents: "none",
+          lineHeight: "1.5",
         }}
         wrapperStyle={{ pointerEvents: "none", zIndex: 50 }}
         labelFormatter={tooltipLabelFormatter}
@@ -139,8 +142,8 @@ function InlineChart({ artifact }: { artifact: Artifact }) {
       />
     );
     const leg = yAxes.length > 1 ? (
-      <Legend verticalAlign="top" align="left" height={22} iconType="plainline" iconSize={10}
-        wrapperStyle={{ fontSize: "9px", color: "var(--color-tooltip-text)", paddingBottom: "2px" }}
+      <Legend verticalAlign="top" align="left" height={28} iconType="plainline" iconSize={12}
+        wrapperStyle={{ fontSize: "11px", color: "var(--color-tooltip-text)", paddingBottom: "4px" }}
         formatter={(v: string) => { const ax = yAxes.find(y => y.dataKey === v); return ax?.label || v.replace(/_/g, " "); }}
       />
     ) : null;
@@ -152,20 +155,22 @@ function InlineChart({ artifact }: { artifact: Artifact }) {
           <YAxis
             yAxisId="left"
             tickFormatter={(v: number) => formatValue(v, yAxes[0]?.format)}
-            tick={{ fontSize: 9, fill: CHART_COLORS[0] }}
+            tick={{ fontSize: 11, fill: CHART_COLORS[0] }}
             axisLine={false}
             tickLine={false}
-            width={52}
+            width={56}
+            tickMargin={4}
           />
           {yAxes.length > 1 && (
             <YAxis
               yAxisId="right"
               orientation="right"
               tickFormatter={(v: number) => formatValue(v, yAxes[1]?.format)}
-              tick={{ fontSize: 9, fill: CHART_COLORS[1] }}
+              tick={{ fontSize: 11, fill: CHART_COLORS[1] }}
               axisLine={false}
               tickLine={false}
-              width={48}
+              width={52}
+              tickMargin={4}
             />
           )}
           {tip}{leg}
@@ -173,12 +178,12 @@ function InlineChart({ artifact }: { artifact: Artifact }) {
             const axisId = i === 0 ? "left" : "right";
             const yChartType = y.chartType || (i === 0 ? "bar" : "line");
             if (yChartType === "bar") {
-              return <Bar key={y.dataKey} yAxisId={axisId} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[1, 1, 0, 0]} maxBarSize={32} opacity={0.85} />;
+              return <Bar key={y.dataKey} yAxisId={axisId} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[3, 3, 0, 0]} maxBarSize={40} opacity={0.9} />;
             }
             if (yChartType === "area") {
-              return <Area key={y.dataKey} yAxisId={axisId} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.2} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.08} dot={false} />;
+              return <Area key={y.dataKey} yAxisId={axisId} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.1} dot={false} />;
             }
-            return <Line key={y.dataKey} yAxisId={axisId} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.5} dot={false} activeDot={{ r: 2.5 }} />;
+            return <Line key={y.dataKey} yAxisId={axisId} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} activeDot={{ r: 4, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "#fff", strokeWidth: 2 }} />;
           })}
         </ComposedChart>
       );
@@ -187,10 +192,11 @@ function InlineChart({ artifact }: { artifact: Artifact }) {
     const yAx = (
       <YAxis
         tickFormatter={(v: number) => formatValue(v, yAxes[0]?.format)}
-        tick={{ fontSize: 9, fill: "var(--color-chart-tick)" }}
+        tick={{ fontSize: 11, fill: "var(--color-chart-tick)" }}
         axisLine={false}
         tickLine={false}
-        width={52}
+        width={56}
+        tickMargin={4}
       />
     );
 
@@ -199,7 +205,7 @@ function InlineChart({ artifact }: { artifact: Artifact }) {
         <BarChart {...commonProps}>
           {grid}{xAx}{yAx}{tip}{leg}
           {yAxes.map((y, i) => (
-            <Bar key={y.dataKey} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[1, 1, 0, 0]} maxBarSize={32} opacity={0.85} />
+            <Bar key={y.dataKey} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[3, 3, 0, 0]} maxBarSize={40} opacity={0.9} />
           ))}
         </BarChart>
       );
@@ -209,7 +215,7 @@ function InlineChart({ artifact }: { artifact: Artifact }) {
         <AreaChart {...commonProps}>
           {grid}{xAx}{yAx}{tip}{leg}
           {yAxes.map((y, i) => (
-            <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.2} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.08} dot={false} />
+            <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.1} dot={false} />
           ))}
         </AreaChart>
       );
@@ -218,17 +224,17 @@ function InlineChart({ artifact }: { artifact: Artifact }) {
       <LineChart {...commonProps}>
         {grid}{xAx}{yAx}{tip}{leg}
         {yAxes.map((y, i) => (
-          <Line key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.2} dot={false} activeDot={{ r: 2.5, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "rgba(0,0,0,0.5)", strokeWidth: 1 }} />
+          <Line key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} activeDot={{ r: 4, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "#fff", strokeWidth: 2 }} />
         ))}
       </LineChart>
     );
   };
 
   return (
-    <div className="my-3 rounded border border-border/40 bg-card/30 p-3" style={{ overflow: "visible" }}>
-      <h4 className="text-[11px] font-medium text-foreground/80 mb-2">{title}</h4>
+    <div className="my-5 rounded-lg border border-border/30 bg-card/40 p-5 shadow-sm" style={{ overflow: "visible" }}>
+      {title && <h4 className="text-sm font-semibold text-foreground/90 mb-3 tracking-tight">{title}</h4>}
       <div style={{ overflow: "visible" }}>
-        <ResponsiveContainer width="100%" height={220} style={{ overflow: "visible" }}>
+        <ResponsiveContainer width="100%" height={300} style={{ overflow: "visible" }}>
           {renderChart()}
         </ResponsiveContainer>
       </div>
@@ -259,22 +265,22 @@ function InlineTable({ artifact }: { artifact: Artifact }) {
   const cols = columns || (Array.isArray(data[0]) ? data[0].map((_: any, i: number) => `Col ${i + 1}`) : Object.keys(data[0]));
 
   return (
-    <div className="my-3 rounded border border-border/40 bg-card/30 overflow-hidden">
-      <h4 className="text-[11px] font-medium text-foreground/80 px-3 pt-2 pb-1">{title}</h4>
+    <div className="my-5 rounded-lg border border-border/30 bg-card/40 overflow-hidden shadow-sm">
+      {title && <h4 className="text-sm font-semibold text-foreground/90 px-5 pt-4 pb-2 tracking-tight">{title}</h4>}
       <div className="overflow-x-auto">
-        <table className="w-full text-[10px]">
+        <table className="w-full text-[13px]">
           <thead>
-            <tr className="border-b border-border/30">
+            <tr className="border-b border-border/40 bg-muted/20">
               {cols.map(c => (
-                <th key={c} className="px-3 py-1.5 text-left font-medium text-muted-foreground/70 uppercase tracking-wider">{c.replace(/_/g, " ")}</th>
+                <th key={c} className="px-5 py-2.5 text-left text-xs font-semibold text-muted-foreground/80 uppercase tracking-wider">{c.replace(/_/g, " ")}</th>
               ))}
             </tr>
           </thead>
           <tbody>
             {data.slice(0, 50).map((row: any, i: number) => (
-              <tr key={i} className="border-b border-border/20 last:border-0">
+              <tr key={i} className="border-b border-border/15 last:border-0 hover:bg-muted/10 transition-colors even:bg-muted/5">
                 {cols.map(c => (
-                  <td key={c} className="px-3 py-1.5 text-foreground/80 font-mono">{formatValue(resolveCell(row, c))}</td>
+                  <td key={c} className="px-5 py-2.5 text-foreground/85 font-mono text-[13px]">{formatValue(resolveCell(row, c))}</td>
                 ))}
               </tr>
             ))}
@@ -290,32 +296,16 @@ function MetricCards({ artifact }: { artifact: Artifact }) {
   if (!data?.length) return null;
 
   return (
-    <div className="my-3 rounded border border-border/40 bg-card/30 overflow-hidden" data-testid="metric-cards">
-      {title && <h4 className="text-[11px] font-medium text-foreground/80 px-3 pt-2 pb-1">{title}</h4>}
-      <div className="overflow-x-auto">
-        <table className="w-full text-[10px]">
-          <thead>
-            <tr className="border-b border-border/30">
-              {data.map((card: any, i: number) => (
-                <th key={i} className="px-3 py-1.5 text-left font-medium text-muted-foreground/70 uppercase tracking-wider whitespace-nowrap">{card.label}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="border-b border-border/20">
-              {data.map((card: any, i: number) => (
-                <td key={i} className="px-3 py-1.5 font-mono font-semibold text-foreground/90 whitespace-nowrap">{card.value}</td>
-              ))}
-            </tr>
-            {data.some((c: any) => c.subtitle) && (
-              <tr>
-                {data.map((card: any, i: number) => (
-                  <td key={i} className="px-3 py-1 text-[8px] text-muted-foreground/50 whitespace-nowrap">{card.subtitle || ""}</td>
-                ))}
-              </tr>
-            )}
-          </tbody>
-        </table>
+    <div className="my-5" data-testid="metric-cards">
+      {title && <h4 className="text-sm font-semibold text-foreground/90 mb-3 tracking-tight">{title}</h4>}
+      <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(data.length, 4)}, 1fr)` }}>
+        {data.map((card: any, i: number) => (
+          <div key={i} className="rounded-lg border border-border/30 bg-card/40 px-4 py-3 shadow-sm">
+            <p className="text-xs font-medium text-muted-foreground/70 uppercase tracking-wider mb-1">{card.label}</p>
+            <p className="text-lg font-bold text-foreground/95 font-mono tracking-tight">{card.value}</p>
+            {card.subtitle && <p className="text-xs text-muted-foreground/50 mt-0.5">{card.subtitle}</p>}
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -378,19 +368,19 @@ function parseContentAndArtifacts(content: string, artifacts?: Artifact[] | null
 function CalloutBlock({ artifact }: { artifact: Artifact }) {
   const variant = artifact.variant || "insight";
   const config = {
-    insight: { icon: Lightbulb, label: "Insight", colors: "border-blue-400/40 bg-blue-400/5 text-blue-300" },
-    risk: { icon: AlertTriangle, label: "Risk", colors: "border-amber-400/40 bg-amber-400/5 text-amber-300" },
-    contrarian: { icon: Zap, label: "Contrarian", colors: "border-purple-400/40 bg-purple-400/5 text-purple-300" },
-    catch: { icon: Eye, label: "The Catch", colors: "border-rose-400/40 bg-rose-400/5 text-rose-300" },
+    insight: { icon: Lightbulb, label: "Insight", colors: "border-blue-400/30 bg-blue-400/5 text-blue-400" },
+    risk: { icon: AlertTriangle, label: "Risk", colors: "border-amber-400/30 bg-amber-400/5 text-amber-400" },
+    contrarian: { icon: Zap, label: "Contrarian", colors: "border-purple-400/30 bg-purple-400/5 text-purple-400" },
+    catch: { icon: Eye, label: "The Catch", colors: "border-rose-400/30 bg-rose-400/5 text-rose-400" },
   }[variant];
   const Icon = config.icon;
   return (
-    <div className={`my-3 rounded border ${config.colors} px-3 py-2`} data-testid={`callout-${variant}`}>
-      <div className="flex items-center gap-1.5 mb-1">
-        <Icon className="w-3 h-3" />
-        <span className="text-[9px] uppercase tracking-wider font-semibold">{artifact.title || config.label}</span>
+    <div className={`my-5 rounded-lg border ${config.colors} px-5 py-4`} data-testid={`callout-${variant}`}>
+      <div className="flex items-center gap-2 mb-2">
+        <Icon className="w-4 h-4" />
+        <span className="text-xs uppercase tracking-wider font-bold">{artifact.title || config.label}</span>
       </div>
-      <p className="text-[10px] text-foreground/85 leading-relaxed">{artifact.text}</p>
+      <p className="text-[13px] text-foreground/85 leading-relaxed">{artifact.text}</p>
     </div>
   );
 }
@@ -399,22 +389,28 @@ function ComparisonBlock({ artifact }: { artifact: Artifact }) {
   const { left, right, title } = artifact;
   if (!left || !right) return null;
   return (
-    <div className="my-3 rounded border border-border/40 bg-card/20 overflow-hidden" data-testid="comparison-block">
-      {title && <div className="text-[10px] font-medium text-foreground/80 px-3 pt-2 pb-1">{title}</div>}
-      <div className="grid grid-cols-2 divide-x divide-border/30">
-        <div className="px-3 py-2">
-          <div className="text-[9px] uppercase tracking-wider text-muted-foreground/70 mb-1.5 font-medium">{left.label}</div>
-          <ul className="space-y-1">
+    <div className="my-5 rounded-lg border border-border/30 bg-card/40 overflow-hidden shadow-sm" data-testid="comparison-block">
+      {title && <div className="text-sm font-semibold text-foreground/90 px-5 pt-4 pb-2 tracking-tight">{title}</div>}
+      <div className="grid grid-cols-2 divide-x divide-border/20">
+        <div className="px-5 py-4">
+          <div className="text-xs uppercase tracking-wider text-muted-foreground/70 mb-3 font-bold">{left.label}</div>
+          <ul className="space-y-2">
             {left.items.map((item, i) => (
-              <li key={i} className="text-[10px] text-foreground/80 leading-relaxed">• {item}</li>
+              <li key={i} className="text-[13px] text-foreground/80 leading-relaxed flex gap-2">
+                <span className="text-muted-foreground/50 shrink-0">•</span>
+                <span>{item}</span>
+              </li>
             ))}
           </ul>
         </div>
-        <div className="px-3 py-2">
-          <div className="text-[9px] uppercase tracking-wider text-muted-foreground/70 mb-1.5 font-medium">{right.label}</div>
-          <ul className="space-y-1">
+        <div className="px-5 py-4">
+          <div className="text-xs uppercase tracking-wider text-muted-foreground/70 mb-3 font-bold">{right.label}</div>
+          <ul className="space-y-2">
             {right.items.map((item, i) => (
-              <li key={i} className="text-[10px] text-foreground/80 leading-relaxed">• {item}</li>
+              <li key={i} className="text-[13px] text-foreground/80 leading-relaxed flex gap-2">
+                <span className="text-muted-foreground/50 shrink-0">•</span>
+                <span>{item}</span>
+              </li>
             ))}
           </ul>
         </div>
@@ -425,12 +421,12 @@ function ComparisonBlock({ artifact }: { artifact: Artifact }) {
 
 function QuoteBlock({ artifact }: { artifact: Artifact }) {
   return (
-    <div className="my-3 border-l-2 border-primary/50 pl-3 py-1" data-testid="quote-block">
-      <div className="flex items-start gap-2">
-        <QuoteIcon className="w-3 h-3 mt-0.5 text-primary/60 flex-shrink-0" />
+    <div className="my-5 border-l-3 border-primary/40 pl-5 py-3" data-testid="quote-block">
+      <div className="flex items-start gap-3">
+        <QuoteIcon className="w-4 h-4 mt-0.5 text-primary/50 flex-shrink-0" />
         <div>
-          <p className="text-[11px] text-foreground/90 italic leading-relaxed">{artifact.text}</p>
-          {artifact.attribution && <p className="text-[9px] text-muted-foreground/60 mt-1">— {artifact.attribution}</p>}
+          <p className="text-[14px] text-foreground/90 italic leading-relaxed">{artifact.text}</p>
+          {artifact.attribution && <p className="text-xs text-muted-foreground/60 mt-2">— {artifact.attribution}</p>}
         </div>
       </div>
     </div>
@@ -443,9 +439,9 @@ function InlineFormatted({ text }: { text: string }) {
     <>
       {parts.map((part, j) => {
         if (part.startsWith("**") && part.endsWith("**"))
-          return <strong key={j} className="font-semibold text-foreground/90">{part.slice(2, -2)}</strong>;
+          return <strong key={j} className="font-semibold text-foreground">{part.slice(2, -2)}</strong>;
         if (part.startsWith("`") && part.endsWith("`"))
-          return <code key={j} className="bg-muted/50 px-1 rounded text-[9px]">{part.slice(1, -1)}</code>;
+          return <code key={j} className="bg-muted/60 px-1.5 py-0.5 rounded text-xs font-mono">{part.slice(1, -1)}</code>;
         return <span key={j}>{part}</span>;
       })}
     </>
@@ -455,19 +451,49 @@ function InlineFormatted({ text }: { text: string }) {
 function MarkdownText({ text }: { text: string }) {
   const lines = text.split("\n");
   return (
-    <div className="space-y-1">
+    <div className="space-y-1.5">
       {lines.map((line, i) => {
-        if (line.startsWith("### ")) return <h4 key={i} className="text-[11px] font-semibold text-foreground/90 mt-2"><InlineFormatted text={line.slice(4)} /></h4>;
-        if (line.startsWith("## ")) return <h3 key={i} className="text-[12px] font-semibold text-foreground/90 mt-3"><InlineFormatted text={line.slice(3)} /></h3>;
-        if (line.startsWith("# ")) return <h2 key={i} className="text-[13px] font-bold text-foreground mt-3"><InlineFormatted text={line.slice(2)} /></h2>;
-        if (line.startsWith("- ") || line.startsWith("* ")) return <p key={i} className="text-[10px] text-foreground/80 pl-3">• <InlineFormatted text={line.slice(2)} /></p>;
-        if (line.match(/^\d+\.\s/)) return <p key={i} className="text-[10px] text-foreground/80 pl-3"><InlineFormatted text={line} /></p>;
-        if (line.startsWith("> ")) return <p key={i} className="text-[10px] text-foreground/60 italic border-l-2 border-border/40 pl-2"><InlineFormatted text={line.slice(2)} /></p>;
-        if (line.startsWith("**") && line.endsWith("**")) return <p key={i} className="text-[10px] font-semibold text-foreground/90">{line.slice(2, -2)}</p>;
-        if (!line.trim()) return <div key={i} className="h-1" />;
+        if (line.startsWith("### ")) return (
+          <h4 key={i} className="text-[14px] font-semibold text-foreground mt-5 mb-1">
+            <InlineFormatted text={line.slice(4)} />
+          </h4>
+        );
+        if (line.startsWith("## ")) return (
+          <h3 key={i} className="text-base font-bold text-foreground mt-6 mb-2 pb-1.5 border-b border-border/20">
+            <InlineFormatted text={line.slice(3)} />
+          </h3>
+        );
+        if (line.startsWith("# ")) return (
+          <h2 key={i} className="text-lg font-bold text-foreground mt-6 mb-2 pb-2 border-b border-border/30">
+            <InlineFormatted text={line.slice(2)} />
+          </h2>
+        );
+        if (line.startsWith("- ") || line.startsWith("* ")) return (
+          <p key={i} className="text-[13px] text-foreground/80 pl-4 leading-relaxed flex gap-2">
+            <span className="text-muted-foreground/50 shrink-0">•</span>
+            <span><InlineFormatted text={line.slice(2)} /></span>
+          </p>
+        );
+        if (line.match(/^\d+\.\s/)) return (
+          <p key={i} className="text-[13px] text-foreground/80 pl-4 leading-relaxed">
+            <InlineFormatted text={line} />
+          </p>
+        );
+        if (line.startsWith("> ")) return (
+          <p key={i} className="text-[13px] text-foreground/60 italic border-l-2 border-border/40 pl-4 py-0.5 my-1">
+            <InlineFormatted text={line.slice(2)} />
+          </p>
+        );
+        if (line.startsWith("---") || line.startsWith("***")) return <hr key={i} className="border-border/20 my-4" />;
+        if (line.startsWith("**") && line.endsWith("**")) return (
+          <p key={i} className="text-[13px] font-semibold text-foreground/90 mt-1">
+            {line.slice(2, -2)}
+          </p>
+        );
+        if (!line.trim()) return <div key={i} className="h-2" />;
 
         return (
-          <p key={i} className="text-[10px] text-foreground/80 leading-relaxed">
+          <p key={i} className="text-[13px] text-foreground/80 leading-[1.7]">
             <InlineFormatted text={line} />
           </p>
         );
@@ -486,37 +512,98 @@ function extractMode(content: string): { mode: ResearchMode | null; cleaned: str
 
 function ModeBadge({ mode }: { mode: ResearchMode }) {
   const config = {
-    quick: { label: "Quick", className: "bg-emerald-400/10 text-emerald-300 border-emerald-400/30" },
-    focused: { label: "Focused", className: "bg-blue-400/10 text-blue-300 border-blue-400/30" },
-    deep: { label: "Deep Dive", className: "bg-purple-400/10 text-purple-300 border-purple-400/30" },
+    quick: { label: "Quick", className: "bg-emerald-400/10 text-emerald-400 border-emerald-400/30" },
+    focused: { label: "Focused", className: "bg-blue-400/10 text-blue-400 border-blue-400/30" },
+    deep: { label: "Deep Dive", className: "bg-purple-400/10 text-purple-400 border-purple-400/30" },
   }[mode];
   return (
-    <span className={`inline-block px-1.5 py-0.5 rounded border text-[8px] uppercase tracking-wider font-medium ${config.className}`} data-testid={`mode-badge-${mode}`}>
+    <span className={`inline-block px-2.5 py-1 rounded-md border text-[10px] uppercase tracking-wider font-semibold ${config.className}`} data-testid={`mode-badge-${mode}`}>
       {config.label}
     </span>
+  );
+}
+
+function DiveDeepButton({ onDiveDeep }: { onDiveDeep: (text: string) => void }) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const [selectedText, setSelectedText] = useState("");
+  const btnRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const handleSelectionChange = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.isCollapsed || !sel.toString().trim()) {
+        setPos(null);
+        setSelectedText("");
+        return;
+      }
+      const text = sel.toString().trim();
+      if (text.length < 10) {
+        setPos(null);
+        setSelectedText("");
+        return;
+      }
+      const anchorNode = sel.anchorNode;
+      if (!anchorNode) { setPos(null); setSelectedText(""); return; }
+      const msgEl = (anchorNode.nodeType === Node.ELEMENT_NODE ? anchorNode as Element : anchorNode.parentElement)
+        ?.closest("[data-testid^='msg-assistant-']");
+      if (!msgEl) { setPos(null); setSelectedText(""); return; }
+      const range = sel.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      setPos({ x: rect.left + rect.width / 2, y: rect.top - 8 });
+      setSelectedText(text);
+    };
+
+    document.addEventListener("selectionchange", handleSelectionChange);
+    return () => document.removeEventListener("selectionchange", handleSelectionChange);
+  }, []);
+
+  if (!pos || !selectedText) return null;
+
+  return (
+    <button
+      ref={btnRef}
+      className="fixed z-[100] flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium shadow-lg hover:bg-primary/90 transition-all animate-in fade-in zoom-in-95 duration-150"
+      style={{ left: pos.x, top: pos.y, transform: "translate(-50%, -100%)" }}
+      onMouseDown={(e) => {
+        e.preventDefault();
+        onDiveDeep(selectedText);
+        window.getSelection()?.removeAllRanges();
+        setPos(null);
+        setSelectedText("");
+      }}
+      data-testid="button-dive-deeper"
+    >
+      <Microscope className="w-3.5 h-3.5" />
+      Dive Deeper
+    </button>
   );
 }
 
 function MessageBubble({
   msg,
   onOverride,
+  onDiveDeep,
+  onAddToReport,
   isLast,
   busy,
   lastUserMessage,
 }: {
   msg: SessionMessage;
   onOverride?: (action: { forceMode?: ResearchMode; refreshBrain?: boolean }) => void;
+  onDiveDeep?: (text: string) => void;
+  onAddToReport?: (msgId: number) => Promise<void>;
   isLast?: boolean;
   busy?: boolean;
   lastUserMessage?: string;
 }) {
   const isUser = msg.role === "user";
+  const [reportState, setReportState] = useState<"idle" | "saving" | "saved">("idle");
 
   if (isUser) {
     return (
-      <div className="flex justify-end mb-4" data-testid={`msg-user-${msg.id}`}>
-        <div className="max-w-[80%] bg-primary/10 rounded-lg px-3 py-2">
-          <p className="text-[10px] text-foreground/90">{msg.content}</p>
+      <div className="flex justify-end mb-5" data-testid={`msg-user-${msg.id}`}>
+        <div className="max-w-[80%] bg-primary/10 rounded-xl px-4 py-3">
+          <p className="text-[13px] text-foreground/90">{msg.content}</p>
         </div>
       </div>
     );
@@ -532,10 +619,37 @@ function MessageBubble({
   const deeperTo: ResearchMode = mode === "quick" ? "focused" : "deep";
 
   return (
-    <div className="mb-4" data-testid={`msg-assistant-${msg.id}`}>
-      {mode && (
-        <div className="mb-2"><ModeBadge mode={mode} /></div>
-      )}
+    <div className="mb-6 group/msg" data-testid={`msg-assistant-${msg.id}`}>
+      <div className="flex items-center gap-2 mb-3">
+        {mode && <ModeBadge mode={mode} />}
+        <div className="flex-1" />
+        {onAddToReport && (
+          <button
+            disabled={reportState !== "idle"}
+            onClick={async () => {
+              setReportState("saving");
+              try {
+                await onAddToReport(msg.id);
+                setReportState("saved");
+                setTimeout(() => setReportState("idle"), 3000);
+              } catch {
+                setReportState("idle");
+              }
+            }}
+            className={`opacity-0 group-hover/msg:opacity-100 transition-opacity text-xs px-2.5 py-1 rounded-md border flex items-center gap-1.5 ${
+              reportState === "saved"
+                ? "border-emerald-400/40 text-emerald-400 bg-emerald-400/5 !opacity-100"
+                : reportState === "saving"
+                  ? "border-border/40 text-muted-foreground/40 cursor-wait !opacity-100"
+                  : "border-border/40 text-muted-foreground/60 hover:text-foreground hover:border-border/60 hover:bg-muted/20"
+            }`}
+            data-testid={`button-add-report-${msg.id}`}
+          >
+            {reportState === "saving" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : reportState === "saved" ? <Check className="w-3.5 h-3.5" /> : <Bookmark className="w-3.5 h-3.5" />}
+            {reportState === "saving" ? "Saving..." : reportState === "saved" ? "Saved" : "Add to Reports"}
+          </button>
+        )}
+      </div>
       <div className="max-w-full">
         {parts.map((part, i) => {
           if (part.type === "text" && part.content) {
@@ -563,31 +677,31 @@ function MessageBubble({
         })}
       </div>
       {showOverrides && (
-        <div className="mt-3 flex items-center gap-1.5 flex-wrap" data-testid="mode-overrides">
+        <div className="mt-4 flex items-center gap-2 flex-wrap" data-testid="mode-overrides">
           {canShorter && (
             <button
               onClick={() => onOverride!({ forceMode: shorterTo })}
-              className="text-[9px] px-2 py-1 rounded border border-border/40 text-muted-foreground/70 hover:text-foreground hover:border-border transition-colors flex items-center gap-1"
+              className="text-xs px-3 py-1.5 rounded-md border border-border/40 text-muted-foreground/70 hover:text-foreground hover:border-border hover:bg-muted/20 transition-colors flex items-center gap-1.5"
               data-testid="button-shorter"
             >
-              <ArrowUp className="w-2.5 h-2.5" /> Shorter
+              <ArrowUp className="w-3 h-3" /> Shorter
             </button>
           )}
           {canDeeper && (
             <button
               onClick={() => onOverride!({ forceMode: deeperTo })}
-              className="text-[9px] px-2 py-1 rounded border border-border/40 text-muted-foreground/70 hover:text-foreground hover:border-border transition-colors flex items-center gap-1"
+              className="text-xs px-3 py-1.5 rounded-md border border-border/40 text-muted-foreground/70 hover:text-foreground hover:border-border hover:bg-muted/20 transition-colors flex items-center gap-1.5"
               data-testid="button-deeper"
             >
-              <ArrowDown className="w-2.5 h-2.5" /> Deeper
+              <ArrowDown className="w-3 h-3" /> Deeper
             </button>
           )}
           <button
             onClick={() => onOverride!({ refreshBrain: true })}
-            className="text-[9px] px-2 py-1 rounded border border-border/40 text-muted-foreground/70 hover:text-foreground hover:border-border transition-colors flex items-center gap-1"
+            className="text-xs px-3 py-1.5 rounded-md border border-border/40 text-muted-foreground/70 hover:text-foreground hover:border-border hover:bg-muted/20 transition-colors flex items-center gap-1.5"
             data-testid="button-refresh-data"
           >
-            <RefreshCw className="w-2.5 h-2.5" /> Refresh data
+            <RefreshCw className="w-3 h-3" /> Refresh data
           </button>
         </div>
       )}
@@ -612,27 +726,27 @@ function ThinkingPanel({ steps }: { steps: ThinkingStep[] }) {
   const isComplete = steps[steps.length - 1]?.type === "complete";
 
   return (
-    <div className="mb-3 rounded border border-border/30 bg-card/20 overflow-hidden" data-testid="thinking-panel">
+    <div className="mb-4 rounded-lg border border-border/30 bg-card/20 overflow-hidden" data-testid="thinking-panel">
       <button
-        className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-muted/20 transition-colors"
+        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-muted/20 transition-colors"
         onClick={() => setExpanded(!expanded)}
         data-testid="button-toggle-thinking"
       >
-        {!isComplete && <Loader2 className="h-3 w-3 animate-spin text-primary/60" />}
-        {isComplete && <CheckCircle2 className="h-3 w-3 text-emerald-500/70" />}
-        <span className="text-[10px] text-foreground/60 flex-1 truncate">{latestLabel}</span>
-        <ChevronDown className={`h-3 w-3 text-muted-foreground/40 transition-transform ${expanded ? "" : "-rotate-90"}`} />
+        {!isComplete && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary/60" />}
+        {isComplete && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500/70" />}
+        <span className="text-xs text-foreground/60 flex-1 truncate">{latestLabel}</span>
+        <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground/40 transition-transform ${expanded ? "" : "-rotate-90"}`} />
       </button>
       {expanded && (
-        <div className="px-3 pb-2 space-y-0.5">
+        <div className="px-4 pb-3 space-y-1">
           {steps.map((step, i) => (
-            <div key={i} className="flex items-start gap-2 py-0.5">
-              {step.type === "thinking" && <Brain className="h-3 w-3 text-blue-400/60 mt-0.5 shrink-0" />}
-              {step.type === "tool_start" && <Search className="h-3 w-3 text-amber-400/60 mt-0.5 shrink-0" />}
-              {step.type === "tool_result" && <CheckCircle2 className="h-3 w-3 text-emerald-400/60 mt-0.5 shrink-0" />}
-              {step.type === "analyzing" && <BarChart3 className="h-3 w-3 text-purple-400/60 mt-0.5 shrink-0" />}
-              {step.type === "complete" && <CheckCircle2 className="h-3 w-3 text-emerald-500/60 mt-0.5 shrink-0" />}
-              <span className="text-[9px] text-foreground/50 leading-relaxed">{step.label}</span>
+            <div key={i} className="flex items-start gap-2.5 py-0.5">
+              {step.type === "thinking" && <Brain className="h-3.5 w-3.5 text-blue-400/60 mt-0.5 shrink-0" />}
+              {step.type === "tool_start" && <Search className="h-3.5 w-3.5 text-amber-400/60 mt-0.5 shrink-0" />}
+              {step.type === "tool_result" && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400/60 mt-0.5 shrink-0" />}
+              {step.type === "analyzing" && <BarChart3 className="h-3.5 w-3.5 text-purple-400/60 mt-0.5 shrink-0" />}
+              {step.type === "complete" && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500/60 mt-0.5 shrink-0" />}
+              <span className="text-[11px] text-foreground/50 leading-relaxed">{step.label}</span>
             </div>
           ))}
         </div>
@@ -915,6 +1029,32 @@ export default function SessionResearch() {
     }
   }, [input, activeSessionId, isSending, sendStreamingMessage]);
 
+  const handleDiveDeep = useCallback((selectedText: string) => {
+    if (!activeSessionId || isSending) return;
+    const diveMsg = `Dive deeper into this specific section. Provide more detailed analysis, supporting data, and nuance:\n\n"${selectedText}"`;
+    setPendingUserMsg(diveMsg);
+    sendStreamingMessage(activeSessionId, diveMsg);
+  }, [activeSessionId, isSending, sendStreamingMessage]);
+
+  const handleAddToReport = useCallback(async (msgId: number) => {
+    try {
+      const authHeaders = await getAuthHeaders();
+      const res = await fetch(`/api/research/messages/${msgId}/save-to-report`, {
+        method: "POST",
+        headers: { ...authHeaders },
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: "Failed to save" }));
+        throw new Error(err.message);
+      }
+      const data = await res.json();
+      toast({ title: "Saved to Reports", description: `Report "${data.title}" created. View it in your reports.` });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    }
+  }, [toast]);
+
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
@@ -1027,18 +1167,18 @@ export default function SessionResearch() {
         {activeSessionId && messages.length > 0 && (
           <ShareBar sessionId={activeSessionId} session={sessions.find(s => s.id === activeSessionId)} />
         )}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div className="flex-1 overflow-y-auto px-8 py-6">
           {!activeSessionId && messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full max-w-lg mx-auto">
-              <h2 className="text-[14px] font-semibold text-foreground/90 mb-1">Session Research</h2>
-              <p className="text-[10px] text-muted-foreground/60 mb-6 text-center">
+              <h2 className="text-lg font-bold text-foreground/90 mb-2">Session Research</h2>
+              <p className="text-sm text-muted-foreground/60 mb-8 text-center leading-relaxed">
                 Ask anything about DeFi protocols, on-chain data, or market trends. Charts and tables render inline.
               </p>
-              <div className="grid grid-cols-2 gap-2 w-full">
+              <div className="grid grid-cols-2 gap-3 w-full">
                 {suggestedQueries.map((q, i) => (
                   <button
                     key={i}
-                    className="text-left text-[10px] text-foreground/60 hover:text-foreground/90 bg-card/40 hover:bg-card/60 rounded border border-border/30 px-3 py-2.5 transition-colors"
+                    className="text-left text-[13px] text-foreground/60 hover:text-foreground/90 bg-card/40 hover:bg-card/60 rounded-lg border border-border/30 hover:border-border/50 px-4 py-3 transition-colors leading-relaxed"
                     onClick={() => {
                       setInput(q);
                       inputRef.current?.focus();
@@ -1051,7 +1191,8 @@ export default function SessionResearch() {
               </div>
             </div>
           ) : (
-            <div className="max-w-2xl mx-auto">
+            <div className="max-w-3xl mx-auto">
+              <DiveDeepButton onDiveDeep={handleDiveDeep} />
               {messages.map((msg, idx) => {
                 const isLast = idx === messages.length - 1 && msg.role === "assistant";
                 const lastUserMsg = [...messages].reverse().find(m => m.role === "user")?.content;
@@ -1062,6 +1203,8 @@ export default function SessionResearch() {
                     isLast={isLast}
                     busy={isSending}
                     lastUserMessage={lastUserMsg}
+                    onDiveDeep={handleDiveDeep}
+                    onAddToReport={handleAddToReport}
                     onOverride={(action) => {
                       if (!activeSessionId || !lastUserMsg) return;
                       sendStreamingMessage(activeSessionId, lastUserMsg, action);
@@ -1070,9 +1213,9 @@ export default function SessionResearch() {
                 );
               })}
               {pendingUserMsg && isSending && (
-                <div className="flex justify-end mb-4" data-testid="msg-user-pending">
-                  <div className="max-w-[80%] bg-primary/10 rounded-lg px-3 py-2">
-                    <p className="text-[10px] text-foreground/90">{pendingUserMsg}</p>
+                <div className="flex justify-end mb-5" data-testid="msg-user-pending">
+                  <div className="max-w-[80%] bg-primary/10 rounded-xl px-4 py-3">
+                    <p className="text-[13px] text-foreground/90">{pendingUserMsg}</p>
                   </div>
                 </div>
               )}
@@ -1082,34 +1225,34 @@ export default function SessionResearch() {
           )}
         </div>
 
-        <div className="border-t border-border/30 px-6 py-3 bg-background/80 backdrop-blur">
-          <div className="max-w-2xl mx-auto flex items-end gap-2">
+        <div className="border-t border-border/30 px-8 py-4 bg-background/80 backdrop-blur">
+          <div className="max-w-3xl mx-auto flex items-end gap-3">
             <textarea
               ref={inputRef}
               value={input}
               onChange={e => {
                 setInput(e.target.value);
                 e.target.style.height = "auto";
-                e.target.style.height = Math.min(e.target.scrollHeight, 120) + "px";
+                e.target.style.height = Math.min(e.target.scrollHeight, 140) + "px";
               }}
               onKeyDown={handleKeyDown}
               placeholder="Ask about protocols, metrics, or on-chain data..."
-              className="flex-1 resize-none rounded border border-border/40 bg-card/30 px-3 py-2 text-[11px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 min-h-[36px] max-h-[120px]"
+              className="flex-1 resize-none rounded-lg border border-border/40 bg-card/30 px-4 py-3 text-[13px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 min-h-[44px] max-h-[140px]"
               rows={1}
               disabled={isSending}
               data-testid="input-research-message"
             />
             <Button
               size="sm"
-              className="h-9 w-9 p-0 shrink-0"
+              className="h-10 w-10 p-0 shrink-0 rounded-lg"
               onClick={handleSend}
               disabled={!input.trim() || isSending}
               data-testid="button-send-message"
             >
               {isSending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
-                <Send className="h-3.5 w-3.5" />
+                <Send className="h-4 w-4" />
               )}
             </Button>
           </div>
