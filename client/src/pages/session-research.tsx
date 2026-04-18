@@ -753,11 +753,11 @@ function MessageBubble({
                 setReportState("idle");
               }
             }}
-            className={`opacity-0 group-hover/msg:opacity-100 transition-opacity text-xs px-2.5 py-1 rounded-md border flex items-center gap-1.5 ${
+            className={`text-xs px-2.5 py-1 rounded-md border flex items-center gap-1.5 transition-colors ${
               reportState === "saved"
-                ? "border-emerald-400/40 text-emerald-400 bg-emerald-400/5 !opacity-100"
+                ? "border-emerald-400/40 text-emerald-400 bg-emerald-400/5"
                 : reportState === "saving"
-                  ? "border-border/40 text-muted-foreground/40 cursor-wait !opacity-100"
+                  ? "border-border/40 text-muted-foreground/40 cursor-wait"
                   : "border-border/40 text-muted-foreground/60 hover:text-foreground hover:border-border/60 hover:bg-muted/20"
             }`}
             data-testid={`button-add-report-${msg.id}`}
@@ -779,11 +779,11 @@ function MessageBubble({
                 setModelState("idle");
               }
             }}
-            className={`opacity-0 group-hover/msg:opacity-100 transition-opacity text-xs px-2.5 py-1 rounded-md border flex items-center gap-1.5 ${
+            className={`text-xs px-2.5 py-1 rounded-md border flex items-center gap-1.5 transition-colors ${
               modelState === "saved"
-                ? "border-green-400/40 text-green-400 bg-green-400/5 !opacity-100"
+                ? "border-green-400/40 text-green-400 bg-green-400/5"
                 : modelState === "saving"
-                  ? "border-border/40 text-muted-foreground/40 cursor-wait !opacity-100"
+                  ? "border-border/40 text-muted-foreground/40 cursor-wait"
                   : "border-border/40 text-muted-foreground/60 hover:text-foreground hover:border-border/60 hover:bg-muted/20"
             }`}
             data-testid={`button-save-model-${msg.id}`}
