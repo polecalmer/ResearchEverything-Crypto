@@ -172,22 +172,18 @@ function extractJsonObject(s: string): string {
 }
 
 async function callLLM(batch: DocRow[], analyst: string): Promise<{ frameworks: RawFramework[] }> {
-  const { callAnthropicMPP } = await import("../server/ai-clients");
+  const { callAnthropicServer } = await import("../server/mpp-client");
   const userMsg = buildUserMessage(batch, analyst);
 
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const resp = await callAnthropicMPP({
+      const resp = await callAnthropicServer({
         model: "claude-sonnet-4-20250514",
         max_tokens: 8000,
         system: SYSTEM_PROMPT,
         messages: [{ role: "user", content: userMsg }],
       });
-      const raw = resp.content
-        .filter((b: any) => b.type === "text")
-        .map((b: any) => b.text)
-        .join("");
-      const obj = JSON.parse(extractJsonObject(raw));
+      const obj = JSON.parse(extractJsonObject(resp.text));
       return { frameworks: obj.frameworks || [] };
     } catch (err: any) {
       console.error(`    ! attempt ${attempt} failed: ${err.message?.slice(0, 100)}`);
