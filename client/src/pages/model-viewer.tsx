@@ -6,10 +6,13 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { FinancialModel } from "@shared/schema";
 import { useState } from "react";
+import { format } from "date-fns";
 import {
   ResponsiveContainer,
   ComposedChart,
   LineChart,
+  BarChart,
+  AreaChart,
   Line,
   Bar,
   Area,
@@ -19,6 +22,41 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
+
+const CHART_COLORS = [
+  "hsl(217 91% 60%)", "hsl(142 71% 45%)", "hsl(262 83% 58%)",
+  "hsl(24 95% 53%)", "hsl(349 89% 60%)", "hsl(47 96% 53%)",
+  "hsl(189 94% 43%)", "hsl(322 81% 43%)",
+];
+
+const CURRENCY_HINTS = /fee|revenue|volume|price|cost|tvl|mcap|market.cap|valuation|profit|income|earn|spend|paid|aum|inflow|outflow|deposit|withdraw|\$/i;
+const PERCENT_HINTS = /percent|pct|ratio|rate|apy|apr|yield|share|dominance|change|growth|return/i;
+const MULTIPLIER_HINTS = /multiple|multiplier|p\/e|pe_|p_e|ratio/i;
+
+function inferFormat(dataKey?: string, label?: string, explicitFmt?: string): string | undefined {
+  if (explicitFmt) return explicitFmt;
+  const hint = `${dataKey || ""} ${label || ""}`;
+  if (CURRENCY_HINTS.test(hint)) return "currency";
+  if (PERCENT_HINTS.test(hint)) return "percent";
+  if (MULTIPLIER_HINTS.test(hint)) return "multiplier";
+  return undefined;
+}
+
+function formatValue(val: any, fmt?: string): string {
+  if (val == null) return "";
+  const n = Number(val);
+  if (isNaN(n)) return String(val);
+  if (fmt === "currency" || fmt === "usd") {
+    if (Math.abs(n) >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+    if (Math.abs(n) >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+    if (Math.abs(n) >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
+    return `$${n.toFixed(2)}`;
+  }
+  if (fmt === "percent") return `${n.toFixed(2)}%`;
+  if (fmt === "multiplier") return `${n.toFixed(1)}x`;
+  if (Number.isInteger(n)) return n.toLocaleString();
+  return n.toFixed(2);
+}
 
 function ModelTable({ section }: { section: any }) {
   const columns: string[] = section.columns || [];
@@ -94,43 +132,167 @@ function MetricCards({ section }: { section: any }) {
 function ModelChart({ section }: { section: any }) {
   const cfg = section.chartConfig || {};
   const data = section.data || [];
-  const yAxes = cfg.yAxes || [];
+  const yAxes: any[] = cfg.yAxes || [];
+  const xAxis = cfg.xAxis || { dataKey: "period" };
+  const chartType = cfg.chartType || "line";
 
-  const formatTick = (val: any, fmt?: string) => {
-    if (fmt === "currency" || fmt === "usd") {
-      const n = Number(val);
-      if (isNaN(n)) return val;
-      if (Math.abs(n) >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
-      if (Math.abs(n) >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
-      if (Math.abs(n) >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
-      return `$${n.toFixed(2)}`;
+  if (!data.length || !yAxes.length) return null;
+
+  const isDate = xAxis.format === "date" || (data[0]?.[xAxis.dataKey] && /^\d{4}-\d{2}/.test(String(data[0][xAxis.dataKey])));
+
+  const xTickFormatter = (val: any) => {
+    if (isDate) {
+      try { return format(new Date(val), "MMM ''yy"); } catch { return val; }
     }
-    if (fmt === "percent") return `${val}%`;
-    return val;
+    return formatValue(val, xAxis.format);
   };
 
-  const COLORS = ["#22c55e", "#3b82f6", "#f59e0b", "#ec4899", "#8b5cf6", "#06b6d4"];
+  const tooltipLabelFormatter = (val: any) => {
+    if (isDate) {
+      try { return format(new Date(val), "MMM d, yyyy"); } catch { return val; }
+    }
+    return String(val);
+  };
 
-  return (
-    <div className="bg-muted/10 border border-border/40 rounded-lg p-4" data-testid="model-chart">
-      <ResponsiveContainer width="100%" height={280}>
-        <ComposedChart data={data} margin={{ top: 5, right: 20, bottom: 5, left: 10 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-          <XAxis dataKey={cfg.xAxis?.dataKey || "period"} tick={{ fontSize: 11 }} stroke="rgba(255,255,255,0.3)" />
-          <YAxis tick={{ fontSize: 11 }} stroke="rgba(255,255,255,0.3)" tickFormatter={(v: any) => formatTick(v, yAxes[0]?.format)} />
-          <Tooltip
-            contentStyle={{ backgroundColor: "#1a1a1a", border: "1px solid rgba(255,255,255,0.1)", borderRadius: 8, fontSize: 12 }}
+  const tooltipFormatter = (value: any, name: string) => {
+    const ax = yAxes.find((y: any) => y.dataKey === name);
+    const fmt = inferFormat(ax?.dataKey, ax?.label, ax?.format);
+    return [formatValue(value, fmt), ax?.label || name.replace(/_/g, " ")];
+  };
+
+  const fmt0 = inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format);
+  const fmt1 = yAxes.length > 1 ? inferFormat(yAxes[1]?.dataKey, yAxes[1]?.label, yAxes[1]?.format) : fmt0;
+  const needsDualAxis = yAxes.length > 1 && fmt0 !== fmt1;
+
+  const commonProps = { data, margin: { top: 12, right: needsDualAxis ? 56 : 20, left: 4, bottom: 8 } };
+  const grid = <CartesianGrid strokeDasharray="3 8" stroke="var(--color-chart-grid)" vertical={false} />;
+  const xAx = (
+    <XAxis
+      dataKey={xAxis.dataKey}
+      tickFormatter={xTickFormatter}
+      tick={{ fontSize: 11, fill: "var(--color-chart-tick)" }}
+      axisLine={false}
+      tickLine={false}
+      tickMargin={8}
+    />
+  );
+  const tip = (
+    <Tooltip
+      allowEscapeViewBox={{ x: false, y: true }}
+      offset={16}
+      contentStyle={{
+        backgroundColor: "var(--color-tooltip-bg)",
+        border: "1px solid var(--color-tooltip-border)",
+        borderRadius: "10px", fontSize: "13px", padding: "10px 14px",
+        color: "var(--color-tooltip-text)",
+        backdropFilter: "blur(16px)",
+        boxShadow: "0 8px 32px rgba(0,0,0,0.15), 0 2px 8px rgba(0,0,0,0.1)",
+        pointerEvents: "none",
+        lineHeight: "1.5",
+      }}
+      wrapperStyle={{ pointerEvents: "none", zIndex: 50 }}
+      labelFormatter={tooltipLabelFormatter}
+      formatter={tooltipFormatter}
+      cursor={{ fill: "var(--color-chart-cursor)" }}
+    />
+  );
+  const leg = yAxes.length > 1 ? (
+    <Legend verticalAlign="top" align="left" height={28} iconType="plainline" iconSize={12}
+      wrapperStyle={{ fontSize: "11px", color: "var(--color-tooltip-text)", paddingBottom: "4px" }}
+      formatter={(v: string) => { const ax = yAxes.find((y: any) => y.dataKey === v); return ax?.label || v.replace(/_/g, " "); }}
+    />
+  ) : null;
+
+  const renderChart = () => {
+    if (needsDualAxis || chartType === "composed") {
+      return (
+        <ComposedChart {...commonProps}>
+          {grid}{xAx}
+          <YAxis
+            yAxisId="left"
+            tickFormatter={(v: number) => formatValue(v, inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format))}
+            tick={{ fontSize: 11, fill: CHART_COLORS[0] }}
+            axisLine={false}
+            tickLine={false}
+            width={56}
+            tickMargin={4}
           />
-          <Legend wrapperStyle={{ fontSize: 11 }} />
+          {yAxes.length > 1 && (
+            <YAxis
+              yAxisId="right"
+              orientation="right"
+              tickFormatter={(v: number) => formatValue(v, inferFormat(yAxes[1]?.dataKey, yAxes[1]?.label, yAxes[1]?.format))}
+              tick={{ fontSize: 11, fill: CHART_COLORS[1] }}
+              axisLine={false}
+              tickLine={false}
+              width={52}
+              tickMargin={4}
+            />
+          )}
+          {tip}{leg}
           {yAxes.map((y: any, i: number) => {
-            const ct = y.chartType || cfg.chartType || "line";
-            const props = { key: y.dataKey, dataKey: y.dataKey, stroke: COLORS[i % COLORS.length], fill: COLORS[i % COLORS.length], name: y.name || y.dataKey };
-            if (ct === "bar") return <Bar {...props} fillOpacity={0.7} />;
-            if (ct === "area") return <Area {...props} fillOpacity={0.15} />;
-            return <Line {...props} dot={false} strokeWidth={2} />;
+            const axisId = i === 0 ? "left" : "right";
+            const yChartType = y.chartType || (i === 0 ? "bar" : "line");
+            if (yChartType === "bar") {
+              return <Bar key={y.dataKey} yAxisId={axisId} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[3, 3, 0, 0]} maxBarSize={40} opacity={0.9} />;
+            }
+            if (yChartType === "area") {
+              return <Area key={y.dataKey} yAxisId={axisId} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.1} dot={false} />;
+            }
+            return <Line key={y.dataKey} yAxisId={axisId} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} activeDot={{ r: 4, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "#fff", strokeWidth: 2 }} />;
           })}
         </ComposedChart>
-      </ResponsiveContainer>
+      );
+    }
+
+    const yAx = (
+      <YAxis
+        tickFormatter={(v: number) => formatValue(v, inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format))}
+        tick={{ fontSize: 11, fill: "var(--color-chart-tick)" }}
+        axisLine={false}
+        tickLine={false}
+        width={56}
+        tickMargin={4}
+      />
+    );
+
+    if (chartType === "bar") {
+      return (
+        <BarChart {...commonProps}>
+          {grid}{xAx}{yAx}{tip}{leg}
+          {yAxes.map((y: any, i: number) => (
+            <Bar key={y.dataKey} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[3, 3, 0, 0]} maxBarSize={40} opacity={0.9} />
+          ))}
+        </BarChart>
+      );
+    }
+    if (chartType === "area") {
+      return (
+        <AreaChart {...commonProps}>
+          {grid}{xAx}{yAx}{tip}{leg}
+          {yAxes.map((y: any, i: number) => (
+            <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.1} dot={false} />
+          ))}
+        </AreaChart>
+      );
+    }
+    return (
+      <LineChart {...commonProps}>
+        {grid}{xAx}{yAx}{tip}{leg}
+        {yAxes.map((y: any, i: number) => (
+          <Line key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} activeDot={{ r: 4, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "#fff", strokeWidth: 2 }} />
+        ))}
+      </LineChart>
+    );
+  };
+
+  return (
+    <div className="rounded-lg border border-border/30 bg-card/40 p-5 shadow-sm" style={{ overflow: "visible" }} data-testid="model-chart">
+      <div style={{ overflow: "visible" }}>
+        <ResponsiveContainer width="100%" height={300} style={{ overflow: "visible" }}>
+          {renderChart()}
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
