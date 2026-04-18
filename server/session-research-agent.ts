@@ -440,6 +440,7 @@ For charts:
 \`\`\`
 - "subtitle" = a short ALL-CAPS insight about the trend (e.g. "CYCLICAL PATTERN — PEAKED AT 37X IN MAY 2025, NOW BACK TO 30X ON RISING EARNINGS"). Always include this.
 - "source" = the data source used (e.g. "Dune Analytics", "DeFiLlama"). Always include this.
+- Prefer "line" chartType for most time-series data. Only use "area" when showing cumulative/total values.
 - Use "composed" with different formats per yAxis when mixing $ and % series
 - NEVER plot $ and % on same axis. Keep data under 365 points.
 

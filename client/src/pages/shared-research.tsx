@@ -102,8 +102,8 @@ function InlineChart({ artifact }: { artifact: Artifact }) {
             const axisId = i === 0 ? "left" : "right";
             const yChartType = y.chartType || (i === 0 ? "bar" : "line");
             if (yChartType === "bar") return <Bar key={y.dataKey} yAxisId={axisId} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[1, 1, 0, 0]} maxBarSize={32} opacity={0.85} />;
-            if (yChartType === "area") return <Area key={y.dataKey} yAxisId={axisId} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.2} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.08} dot={false} />;
-            return <Line key={y.dataKey} yAxisId={axisId} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.5} dot={false} activeDot={{ r: 2.5 }} />;
+            if (yChartType === "area") return <Area key={y.dataKey} yAxisId={axisId} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.5} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.03} dot={false} />;
+            return <Line key={y.dataKey} yAxisId={axisId} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.5} dot={false} activeDot={{ r: 2.5 }} />;
           })}
         </ComposedChart>
       );
@@ -113,9 +113,9 @@ function InlineChart({ artifact }: { artifact: Artifact }) {
       return (<BarChart {...commonProps}>{grid}{xAx}{yAx}{tip}{leg}{yAxes.map((y, i) => <Bar key={y.dataKey} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[1, 1, 0, 0]} maxBarSize={32} opacity={0.85} />)}</BarChart>);
     }
     if (chartType === "area") {
-      return (<AreaChart {...commonProps}>{grid}{xAx}{yAx}{tip}{leg}{yAxes.map((y, i) => <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.2} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.08} dot={false} />)}</AreaChart>);
+      return (<AreaChart {...commonProps}>{grid}{xAx}{yAx}{tip}{leg}{yAxes.map((y, i) => <Area key={y.dataKey} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.5} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.03} dot={false} />)}</AreaChart>);
     }
-    return (<LineChart {...commonProps}>{grid}{xAx}{yAx}{tip}{leg}{yAxes.map((y, i) => <Line key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.2} dot={false} activeDot={{ r: 2.5 }} />)}</LineChart>);
+    return (<LineChart {...commonProps}>{grid}{xAx}{yAx}{tip}{leg}{yAxes.map((y, i) => <Line key={y.dataKey} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.5} dot={false} activeDot={{ r: 2.5 }} />)}</LineChart>);
   };
 
   return (

@@ -245,9 +245,9 @@ function ModelChart({ section }: { section: any }) {
               return <Bar key={y.dataKey} yAxisId={axisId} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[3, 3, 0, 0]} maxBarSize={40} opacity={0.9} />;
             }
             if (yChartType === "area") {
-              return <Area key={y.dataKey} yAxisId={axisId} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.1} dot={false} />;
+              return <Area key={y.dataKey} yAxisId={axisId} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.5} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.03} dot={false} />;
             }
-            return <Line key={y.dataKey} yAxisId={axisId} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} activeDot={{ r: 4, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "#fff", strokeWidth: 2 }} />;
+            return <Line key={y.dataKey} yAxisId={axisId} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.5} dot={false} activeDot={{ r: 4, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "#fff", strokeWidth: 2 }} />;
           })}
         </ComposedChart>
       );
@@ -279,7 +279,7 @@ function ModelChart({ section }: { section: any }) {
         <AreaChart {...commonProps}>
           {grid}{xAx}{yAx}{tip}{leg}
           {yAxes.map((y: any, i: number) => (
-            <Area key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.1} dot={false} />
+            <Area key={y.dataKey} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.5} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.03} dot={false} />
           ))}
         </AreaChart>
       );
@@ -288,7 +288,7 @@ function ModelChart({ section }: { section: any }) {
       <LineChart {...commonProps}>
         {grid}{xAx}{yAx}{tip}{leg}
         {yAxes.map((y: any, i: number) => (
-          <Line key={y.dataKey} type="monotone" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={2} dot={false} activeDot={{ r: 4, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "#fff", strokeWidth: 2 }} />
+          <Line key={y.dataKey} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.5} dot={false} activeDot={{ r: 4, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "#fff", strokeWidth: 2 }} />
         ))}
       </LineChart>
     );
