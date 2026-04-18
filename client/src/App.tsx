@@ -28,7 +28,6 @@ import PipelineBrain from "@/pages/pipeline-brain";
 import LandingPage from "@/pages/landing-page";
 import AuthPage from "@/pages/auth-page";
 import SharedResearch from "@/pages/shared-research";
-import { QuickCapture } from "@/components/quick-capture";
 import { Loader2 } from "lucide-react";
 import { useTrackPageView } from "@/hooks/use-track";
 
@@ -126,7 +125,6 @@ function AuthenticatedApp() {
           </main>
         </div>
       </div>
-      <QuickCapture />
     </SidebarProvider>
   );
 }
