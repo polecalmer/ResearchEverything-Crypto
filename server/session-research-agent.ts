@@ -219,8 +219,20 @@ const TOOLS: ToolDef[] = [
     brainBinding: { source: "dune", scopeRef: "dune:/query/execute", observationCategory: "reliability" },
   },
   {
+    name: "search_proven_queries",
+    description: "Search the library of known-good, production-tested Dune SQL queries. ALWAYS check this BEFORE writing new SQL or discovering tables. Returns proven SQL templates you can reuse directly or adapt. Search by protocol name, metric type, or keyword.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        protocol: { type: "string" as const, description: "Protocol or project name (e.g. 'aave', 'hyperliquid', 'pump')" },
+        keyword: { type: "string" as const, description: "Keyword to search query names/types (e.g. 'volume', 'tvl', 'stablecoin', 'trades')" },
+      },
+      required: ["protocol"],
+    },
+  },
+  {
     name: "discover_dune_tables",
-    description: "Search Dune's table catalog for decoded protocol tables and spellbook datasets. Use before writing SQL to find the right tables.",
+    description: "Search Dune's table catalog for decoded protocol tables and spellbook datasets. Use ONLY if search_proven_queries returned no useful results.",
     input_schema: {
       type: "object" as const,
       properties: {
@@ -588,6 +600,7 @@ RESEARCH METHODOLOGY:
 - 5–15 tool calls — let the question drive the count, not a quota
 - Use web_search aggressively for qualitative context (roadmap, shipped products, governance, team) — this is the #1 underused tool
 - Use DeFiLlama / token snapshots / Dune for the quantitative slices
+- DUNE QUERY WORKFLOW: ALWAYS call search_proven_queries FIRST before writing any Dune SQL. If a proven query exists, use it directly with execute_dune_sql. Only call discover_dune_tables and write custom SQL if no proven query matches.
 - execute_code for non-trivial math (regressions, multi-variable models) OR when building a time-series of a derived metric (merging daily price + daily revenue to compute daily P/E). A single P/E ratio does NOT need code, but charting P/E over 180 days DOES.
 
 QUALITY:
@@ -912,6 +925,43 @@ async function executeTool(name: string, input: any): Promise<string> {
 
         return JSON.stringify({ rowCount: rows.length, columns: result.columns?.map((c: any) => c.name) || Object.keys(rows[0] || {}), data: rows });
       }
+      case "search_proven_queries": {
+        const searchProtocol = (input.protocol || "").toLowerCase().trim();
+        const keyword = (input.keyword || "").toLowerCase().trim();
+        const allResults: any[] = [];
+
+        const exact = await storage.findProvenQuery(searchProtocol, keyword || searchProtocol);
+        if (exact) allResults.push(exact);
+
+        const fewShot = await storage.getFewShotExamples(searchProtocol, keyword || searchProtocol, 8);
+        for (const q of fewShot) {
+          if (!allResults.find(r => r.id === q.id)) allResults.push(q);
+        }
+
+        if (allResults.length === 0) {
+          const { db: dbImport } = await import("./db");
+          const { sql: sqlOp } = await import("drizzle-orm");
+          const { provenQueries: pqTable } = await import("@shared/schema");
+          const fuzzy = await dbImport.select().from(pqTable)
+            .where(sqlOp`(${pqTable.protocol} ILIKE ${'%' + searchProtocol + '%'} OR ${pqTable.metricType} ILIKE ${'%' + searchProtocol + '%'} OR ${pqTable.metricType} ILIKE ${'%' + (keyword || searchProtocol) + '%'}) AND ${pqTable.isActive} = true`)
+            .orderBy(sqlOp`${pqTable.successCount} DESC`)
+            .limit(10);
+          allResults.push(...fuzzy);
+        }
+
+        if (allResults.length === 0) {
+          return JSON.stringify({ found: 0, message: "No proven queries found. Use discover_dune_tables to find tables, then write SQL." });
+        }
+
+        const formatted = allResults.slice(0, 10).map(q => ({
+          protocol: q.protocol,
+          metricType: q.metricType,
+          sql: q.sqlQuery,
+          successCount: q.successCount,
+          chartType: q.chartType,
+        }));
+        return JSON.stringify({ found: formatted.length, queries: formatted });
+      }
       case "discover_dune_tables": {
         const tables = await discoverTablesForProtocol(input.protocol, input.chain);
         return JSON.stringify(tables);
@@ -1160,6 +1210,7 @@ const TOOL_LABELS: Record<string, string> = {
   query_defillama_protocol_summary: "Loading protocol overview",
   query_defillama_price_history: "Retrieving price history",
   list_defi_protocols: "Searching protocol database",
+  search_proven_queries: "Checking query library",
   execute_dune_sql: "Running on-chain SQL query",
   discover_dune_tables: "Discovering available data tables",
   compare_protocols: "Comparing protocols side-by-side",
