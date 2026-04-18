@@ -1,7 +1,23 @@
 {
   "version": "v0",
-  "notes": "Start with 8 types. Grow from real planner failures, not upfront design. When two types fit a sub-question equally well, the planner emits both — multi-label is intentional.",
+  "notes": "Start with 9 types. Grow from real planner failures, not upfront design. When two types fit a sub-question equally well, the planner emits both — multi-label is intentional.",
   "types": [
+    {
+      "id": "derived-metric-chart",
+      "description": "Build a time-series chart for a metric that does NOT exist as a single pre-aggregated endpoint. Examples: P/E ratio (needs price+revenue merged daily), take rate over time (fees/volume), revenue per user, emissions-adjusted yield. Requires fetching 2+ raw series, merging/computing in execute_code, and rendering a chart. This is distinct from trend-analysis which plots a metric that already exists in one API call.",
+      "example_prompts": [
+        "Chart HYPE P/E ratio over the last 6 months",
+        "Build a daily take rate chart for GMX",
+        "Plot revenue-per-user over time for Aave",
+        "Show me FDV/revenue multiple trend for ENA",
+        "Chart emissions cost vs fee revenue for AERO daily"
+      ],
+      "required_tools": ["execute_code"],
+      "recommended_tools": ["query_defillama_fees_revenue", "query_defillama_volume", "query_defillama_tvl", "get_token_snapshot", "execute_dune_sql"],
+      "banned_tools": [],
+      "default_artifact": "chart",
+      "typical_sub_shape": "Identify the component series needed (e.g. daily price + daily revenue); fetch each from the best source; merge and compute the derived metric row-by-row in execute_code; render as chart artifact."
+    },
     {
       "id": "fundamentals-snapshot",
       "description": "Current state of a protocol's headline KPIs: TVL, fees, revenue, mcap/FDV, P/F, P/S, holders, active users. Point-in-time facts, not trends.",

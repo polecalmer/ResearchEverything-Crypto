@@ -518,8 +518,9 @@ The user asked a targeted question that needs real analysis but not a full deep-
 
 WHEN THE REQUEST IS A CHART/VISUALIZATION ("show me a chart of X", "pull up Y over Z", "graph the take rate"):
 - Fetch the underlying data (1-2 tool calls), do the trivial transform inline in the chart artifact's "data" array, and ship the chart with a 2-3 sentence summary above it.
-- DO NOT call execute_code for simple ratios, percentages, or rolling averages — write those numbers directly into the chart data using the values you got back from the data tools.
-- Only use execute_code in focused mode if the math is genuinely non-trivial (regressions, correlations, multi-variable models). Computing P/E = mcap/revenue or take_rate = fees/volume does NOT need a code sandbox round.
+- For a SINGLE ratio (one P/E number, one take rate), compute it inline — no execute_code needed.
+- For a TIME-SERIES of a derived metric (daily P/E over 6 months, take rate trend), you MUST use execute_code to merge the component series row-by-row and output the chart data array. This is the #1 failure mode: the agent tries to build a 180-row data array by hand and gives up. Use code.
+- Only use execute_code in focused mode if the math is genuinely non-trivial OR you need to merge two time-series datasets.
 - No scenario tables, no sensitivity matrices, no thesis section. Just the chart + brief context.
 
 CHART REQUESTS — ABSOLUTE DELIVERY RULE:
@@ -531,7 +532,22 @@ If the user explicitly asked for a chart/graph/plot, your response MUST contain 
 VALUATION RATIO CHARTS (P/E, P/S, P/F, FDV/Rev, MCAP/Rev, ADJ MCAP/Rev):
 - For protocols with their own buyback/burn model where standard fees/revenue adapters are empty (HYPE, dYdX, etc.), derive revenue from query_defillama_volume + the protocol's known take rate (in the brain or stated in the prompt), or pull buyback flows from query_dune.
 - ADJ MCAP = circulating mcap minus protocol-owned tokens (treasury, foundation locked); use brain context for the adjustment if known, otherwise note the assumption inline.
-- FDV uses total supply; MCAP uses circulating supply — both come from get_token_snapshot.`;
+- FDV uses total supply; MCAP uses circulating supply — both come from get_token_snapshot.
+
+DERIVED METRIC TIME-SERIES — THE PATTERN:
+When the user asks for a chart of a metric that doesn't exist in a single API endpoint (P/E over time, take rate trend, revenue per user daily, emissions vs revenue), follow this exact 3-step pattern:
+  Step 1: Fetch the component series separately. E.g. for daily P/E:
+    - query_defillama_fees_revenue for daily revenue (or query_defillama_volume + known take rate)
+    - get_token_snapshot for current mcap/FDV/supply, then DeFiLlama or Allium for historical prices
+  Step 2: Use execute_code to merge and compute. The code should:
+    - Accept the raw data arrays as inputs (pass them in the code as constants)
+    - Align dates between the two series (join on date string)
+    - Compute the derived metric for each row (e.g. pe = mcap / (dailyRevenue * 365))
+    - Output a clean data array for the chart: [{date, pe_ratio}, ...]
+    - Keep data under 365 points
+  Step 3: Render the chart artifact using the computed data array from execute_code.
+  
+  CRITICAL: Do NOT try to manually construct 100+ row data arrays in your text output. Always use execute_code for multi-row derived computations. This is the #1 reason chart requests fail.`;
 
 const DEEP_RULES = `RESPONSE MODE: DEEP
 The user asked a substantive, multi-part question that needs real research and synthesis.
@@ -571,7 +587,7 @@ RESEARCH METHODOLOGY:
 - 5–15 tool calls — let the question drive the count, not a quota
 - Use web_search aggressively for qualitative context (roadmap, shipped products, governance, team) — this is the #1 underused tool
 - Use DeFiLlama / token snapshots / Dune for the quantitative slices
-- execute_code only for genuinely non-trivial math (regressions, multi-variable models). Do NOT use it for a P/E ratio or a sum.
+- execute_code for non-trivial math (regressions, multi-variable models) OR when building a time-series of a derived metric (merging daily price + daily revenue to compute daily P/E). A single P/E ratio does NOT need code, but charting P/E over 180 days DOES.
 
 QUALITY:
 - Lead with the actual answer to the user's actual question, not a snapshot
@@ -903,7 +919,7 @@ async function executeTool(name: string, input: any): Promise<string> {
         console.log(`[SessionResearch] Executing code: ${input.description}`);
         if (!input.code || typeof input.code !== "string" || !input.code.trim()) {
           return JSON.stringify({
-            error: "MISSING_CODE: You called execute_code without a 'code' field. The 'code' parameter must contain the actual JavaScript source as a string. For chart/visualization requests you almost never need execute_code at all — just compute simple ratios inline (e.g. revenue/mcap) and put the numbers directly into the chart's data array. Do NOT retry this tool with the same empty input.",
+            error: "MISSING_CODE: You called execute_code without a 'code' field. The 'code' parameter must contain the actual JavaScript source as a string. For single-value ratios, compute inline. For time-series derived metrics (daily P/E, take rate trend), you DO need execute_code — pass the raw data arrays as constants in the code and merge/compute row-by-row. Do NOT retry this tool with the same empty input.",
           });
         }
         const result = await executeCode(input.code);
@@ -1335,7 +1351,11 @@ export async function runSessionResearchAgent(
     }
   }
 
-  const FOCUSED_TOOL_BLOCKLIST = new Set(["execute_code"]);
+  const planNeedsCode = plan?.sub_questions?.some((sq: any) =>
+    sq.types?.includes("derived-metric-chart") || sq.types?.includes("valuation-ask") ||
+    sq.suggested_tools?.includes("execute_code")
+  );
+  const FOCUSED_TOOL_BLOCKLIST = new Set(planNeedsCode ? [] : ["execute_code"]);
   const anthropicTools: any[] = TOOLS
     .filter(t => mode !== "focused" || !FOCUSED_TOOL_BLOCKLIST.has(t.name))
     .map(t => ({
