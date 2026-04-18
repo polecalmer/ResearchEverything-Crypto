@@ -2413,10 +2413,16 @@ export async function registerRoutes(
       }
 
       const content = msg.content.replace(/^<!--\s*mode:\w+\s*-->\s*\n?/, "");
-      const artifacts: any[] = Array.isArray(msg.artifacts) ? msg.artifacts : [];
+      const allArtifacts: any[] = Array.isArray(msg.artifacts) ? msg.artifacts : [];
 
-      const firstLine = content.split("\n").find(l => l.trim())?.replace(/^#+\s*/, "").slice(0, 100) || "Financial Model";
-      const title = req.body.title || firstLine;
+      const artifactIndex = typeof req.body.artifactIndex === "number" ? req.body.artifactIndex : null;
+      const artifacts = artifactIndex !== null && artifactIndex >= 0 && artifactIndex < allArtifacts.length
+        ? [allArtifacts[artifactIndex]]
+        : allArtifacts;
+
+      const singleArtifact = artifactIndex !== null ? artifacts[0] : null;
+      const defaultTitle = singleArtifact?.title || content.split("\n").find((l: string) => l.trim())?.replace(/^#+\s*/, "").slice(0, 100) || "Financial Model";
+      const title = req.body.title || defaultTitle;
 
       const sections: any[] = [];
       const assumptions: any[] = [];

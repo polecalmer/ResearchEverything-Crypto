@@ -350,8 +350,8 @@ function MetricCards({ artifact }: { artifact: Artifact }) {
 
 type PartType = "text" | "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote";
 
-function parseContentAndArtifacts(content: string, artifacts?: Artifact[] | null): Array<{ type: PartType; content?: string; artifact?: Artifact }> {
-  const parts: Array<{ type: PartType; content?: string; artifact?: Artifact }> = [];
+function parseContentAndArtifacts(content: string, artifacts?: Artifact[] | null): Array<{ type: PartType; content?: string; artifact?: Artifact; artifactIdx?: number }> {
+  const parts: Array<{ type: PartType; content?: string; artifact?: Artifact; artifactIdx?: number }> = [];
   const regex = /```artifact:(chart|table|metric_cards|callout|comparison|quote)\s*\n([\s\S]*?)```/g;
   let lastIndex = 0;
   let artifactIndex = 0;
@@ -365,7 +365,7 @@ function parseContentAndArtifacts(content: string, artifacts?: Artifact[] | null
 
     const type = match[1] as PartType;
     if (artifacts && artifactIndex < artifacts.length) {
-      parts.push({ type, artifact: artifacts[artifactIndex] });
+      parts.push({ type, artifact: artifacts[artifactIndex], artifactIdx: artifactIndex });
       artifactIndex++;
     } else {
       try {
@@ -704,7 +704,7 @@ function MessageBubble({
   onOverride?: (action: { forceMode?: ResearchMode; refreshBrain?: boolean }) => void;
   onDiveDeep?: (text: string) => void;
   onAddToReport?: (msgId: number) => Promise<void>;
-  onSaveAsModel?: (msgId: number) => Promise<void>;
+  onSaveAsModel?: (msgId: number, artifactIndex?: number) => Promise<void>;
   isLast?: boolean;
   busy?: boolean;
   lastUserMessage?: string;
@@ -780,7 +780,7 @@ function MessageBubble({
             if (part.type === "quote" && part.artifact) return <QuoteBlock key={i} artifact={part.artifact} />;
             return null;
           })();
-          if (isArtifact && onSaveAsModel) {
+          if (isArtifact && onSaveAsModel && part.artifactIdx !== undefined) {
             return (
               <div key={i}>
                 {artifactEl}
@@ -790,7 +790,7 @@ function MessageBubble({
                     onClick={async () => {
                       setModelState("saving");
                       try {
-                        await onSaveAsModel(msg.id);
+                        await onSaveAsModel(msg.id, part.artifactIdx);
                         setModelState("saved");
                         setTimeout(() => setModelState("idle"), 3000);
                       } catch {
@@ -1195,14 +1195,14 @@ export default function SessionResearch() {
     }
   }, [toast]);
 
-  const handleSaveAsModel = useCallback(async (msgId: number) => {
+  const handleSaveAsModel = useCallback(async (msgId: number, artifactIndex?: number) => {
     try {
       const authHeaders = await getAuthHeaders();
       const res = await fetch(`/api/research/messages/${msgId}/save-as-model`, {
         method: "POST",
         headers: { "Content-Type": "application/json", ...authHeaders },
         credentials: "include",
-        body: JSON.stringify({}),
+        body: JSON.stringify(artifactIndex !== undefined ? { artifactIndex } : {}),
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ message: "Failed to save" }));
