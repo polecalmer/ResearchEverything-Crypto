@@ -29,10 +29,12 @@ export async function syncBrainFacts(
     for (let j = 0; j < batchFacts.length; j++) {
       const f = batchFacts[j];
       const vec = embeddings[j];
+      const entitiesArr = Array.isArray(f.entities) ? f.entities : (f.entities ? [String(f.entities)] : []);
+      const pgArray = `{${entitiesArr.map((e: string) => `"${String(e).replace(/"/g, '\\"')}"`).join(",")}}`;
       try {
         await db.execute(sql`
           INSERT INTO brain_facts (user_id, fact_id, topic, fact, entities, source, date, confidence, embedding, updated_at)
-          VALUES (${userId}, ${f.id}, ${f.topic}, ${f.fact}, ${f.entities}::text[], ${f.source}, ${f.date || null}, ${f.confidence || "verified"}, ${`[${vec.join(",")}]`}::vector, NOW())
+          VALUES (${userId}, ${f.id}, ${f.topic}, ${f.fact}, ${pgArray}::text[], ${f.source}, ${f.date || null}, ${f.confidence || "verified"}, ${`[${vec.join(",")}]`}::vector, NOW())
           ON CONFLICT (user_id, fact_id)
           DO UPDATE SET
             topic = EXCLUDED.topic,
