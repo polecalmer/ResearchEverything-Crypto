@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Loader2, Brain, X, ArrowRight, AlertTriangle, Clock, Zap, Upload, Plus, Trash2, Database, Sparkles, Target, Settings, Users } from "lucide-react";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { AnalystLensesView } from "@/components/analyst-lenses";
+import { DataBrainView } from "@/components/data-brain-view";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -510,6 +511,9 @@ export default function BrainGraphPage() {
             <TabsTrigger value="analysts" className="text-xs" data-testid="tab-analyst-lenses">
               <Users className="w-3 h-3 mr-1.5" />Analyst Lenses
             </TabsTrigger>
+            <TabsTrigger value="data" className="text-xs" data-testid="tab-data-brain">
+              <Database className="w-3 h-3 mr-1.5" />Data Brain
+            </TabsTrigger>
           </TabsList>
           <div className="flex items-center gap-3">
             {data?.meta && data.meta.totalSessions > 0 && (
@@ -644,6 +648,10 @@ export default function BrainGraphPage() {
 
         <TabsContent value="analysts" className="flex-1 overflow-hidden mt-0 data-[state=active]:flex data-[state=active]:flex-col">
           <AnalystLensesView />
+        </TabsContent>
+
+        <TabsContent value="data" className="flex-1 overflow-hidden mt-0 data-[state=active]:flex data-[state=active]:flex-col">
+          <DataBrainView />
         </TabsContent>
       </Tabs>
 

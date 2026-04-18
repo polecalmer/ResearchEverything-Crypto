@@ -2666,5 +2666,67 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/data-brain/stats", requireAuth, async (_req, res) => {
+    try {
+      const { getStats } = await import("./data-source-brain/db");
+      const stats = await getStats();
+      const provenCount = await db.execute(sql`SELECT COUNT(*) as cnt FROM proven_queries WHERE is_active = true`);
+      const provenByProtocol = await db.execute(sql`SELECT protocol, COUNT(*) as cnt, MAX(success_count) as max_success FROM proven_queries WHERE is_active = true GROUP BY protocol ORDER BY cnt DESC LIMIT 30`);
+      const learningsCount = await db.execute(sql`SELECT COUNT(*) as cnt FROM system_learnings WHERE is_active = true`);
+      const learningsByScope = await db.execute(sql`SELECT scope, COUNT(*) as cnt FROM system_learnings WHERE is_active = true GROUP BY scope ORDER BY cnt DESC`);
+      res.json({
+        facts: stats,
+        provenQueries: {
+          total: Number((provenCount as any).rows?.[0]?.cnt || 0),
+          byProtocol: (provenByProtocol as any).rows || [],
+        },
+        systemLearnings: {
+          total: Number((learningsCount as any).rows?.[0]?.cnt || 0),
+          byScope: (learningsByScope as any).rows || [],
+        },
+      });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/data-brain/proven-queries", requireAuth, async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 50, 200);
+      const protocol = req.query.protocol as string | undefined;
+      const where = protocol
+        ? sql`WHERE is_active = true AND protocol ILIKE ${'%' + protocol + '%'}`
+        : sql`WHERE is_active = true`;
+      const rows = await db.execute(sql`SELECT id, protocol, metric_type, sql_query, chart_type, success_count, fail_count, last_used, created_at FROM proven_queries ${where} ORDER BY success_count DESC, last_used DESC LIMIT ${limit}`);
+      res.json((rows as any).rows || []);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/data-brain/facts", requireAuth, async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 50, 200);
+      const source = req.query.source as string | undefined;
+      const where = source
+        ? sql`WHERE source = ${source}`
+        : sql``;
+      const rows = await db.execute(sql`SELECT id, source, scope, scope_ref, category, content, confidence, source_of_fact, observed_count, created_at, last_seen_at FROM data_source_facts ${where} ORDER BY last_seen_at DESC LIMIT ${limit}`);
+      res.json((rows as any).rows || []);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/data-brain/learnings", requireAuth, async (req, res) => {
+    try {
+      const limit = Math.min(Number(req.query.limit) || 50, 200);
+      const rows = await db.execute(sql`SELECT id, scope, scope_key, rule_type, rule_text, confidence, source, applied_count, is_active, created_at FROM system_learnings WHERE is_active = true ORDER BY applied_count DESC, created_at DESC LIMIT ${limit}`);
+      res.json((rows as any).rows || []);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   return httpServer;
 }
