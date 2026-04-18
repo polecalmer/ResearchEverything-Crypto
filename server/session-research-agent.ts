@@ -10,6 +10,8 @@ import {
   consultForTool,
   shouldShortCircuit,
   observeToolError,
+  observeToolSuccess,
+  recordSystemLearning,
   getBinding,
   registerToolBindings,
   type ToolBrainBinding,
@@ -919,6 +921,14 @@ async function executeTool(name: string, input: any): Promise<string> {
               sqlQuery: input.sql,
               dataSource: "dune-sql",
             });
+            void recordSystemLearning({
+              scope: "data_source",
+              scopeKey: `dune:${protocolMatch}`,
+              ruleType: "proven_query",
+              ruleText: `Dune SQL query for ${metricGuess} (protocol: ${protocolMatch}) returned ${rows.length} rows successfully. Prefer this over DeFiLlama for ${protocolMatch} metrics.`,
+              source: "auto:execute_dune_sql",
+              triggeredBy: `session_research`,
+            });
           } catch (e: any) {
             console.log(`[ProvenQuery] Failed to save from session agent: ${e.message}`);
           }
@@ -1635,9 +1645,10 @@ export async function runSessionResearchAgent(
 
         onStep?.({ type: "tool_result", label: resultSummary, detail: block.name, round: round + 1 });
 
-        // Observe runtime errors to grow the brain. Fire-and-forget.
         if (parsedError) {
           void observeToolError(block.name, block.input, parsedError);
+        } else {
+          void observeToolSuccess(block.name, block.input, resultSummary);
         }
 
         const finalContent = brainHint

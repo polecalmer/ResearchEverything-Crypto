@@ -7,6 +7,9 @@
  */
 import type { Source } from "./schema";
 import { consult, observe } from "./db";
+import { db } from "../db";
+import { systemLearnings } from "@shared/schema";
+import { sql, eq, and } from "drizzle-orm";
 
 export interface ToolBrainBinding {
   source: Source;
@@ -154,6 +157,41 @@ export async function shouldShortCircuit(
 }
 
 /**
+ * Observe a successful tool call. Records positive coverage facts so the
+ * brain learns which data sources work for which protocols. Best-effort —
+ * never throws. Rate-limited: only observes once per source+protocol per
+ * session to avoid spamming the DB.
+ */
+const _successObserved = new Set<string>();
+export async function observeToolSuccess(
+  toolName: string,
+  input: any,
+  resultSummary: string,
+): Promise<void> {
+  const binding = getBinding(toolName);
+  if (!binding) return;
+  const protocol = input?.protocol || input?.coinId || input?.slug || input?.ticker || "";
+  if (!protocol) return;
+  const key = `${binding.source}:${protocol}:${toolName}`;
+  if (_successObserved.has(key)) return;
+  _successObserved.add(key);
+  try {
+    const content =
+      `${toolName}(${protocol}) succeeded: ${resultSummary.slice(0, 200)}`;
+    await observe({
+      source: binding.source,
+      scope_ref: binding.scopeRef.replace("{slug}", protocol),
+      category: "coverage",
+      content,
+      source_of_fact: `runtime:${toolName}`,
+      confidence: "observed_once",
+    });
+  } catch (err: any) {
+    console.warn(`[DataSourceBrain] observeSuccess failed for ${toolName}:`, err.message);
+  }
+}
+
+/**
  * Observe a tool failure or empty-result event. The error string is parsed
  * for known patterns (rate limit, auth, missing coverage). Best-effort —
  * never throws.
@@ -188,7 +226,71 @@ export async function observeToolError(
       source_of_fact: `runtime:${toolName}`,
       confidence,
     });
+
+    if (category === "coverage" && protocol !== "unknown") {
+      void recordSystemLearning({
+        scope: "data_source",
+        scopeKey: `${binding.source}:${protocol}`,
+        ruleType: "coverage_gap",
+        ruleText: `${toolName} has no data for ${protocol}. Try proven_queries or alternative data sources instead of ${binding.source}.`,
+        source: `auto:${toolName}`,
+        triggeredBy: "runtime_error_observation",
+      });
+    }
   } catch (err: any) {
     console.warn(`[DataSourceBrain] observe failed for ${toolName}:`, err.message);
+  }
+}
+
+/**
+ * Record a system learning — a reusable rule the system has discovered
+ * through runtime experience. Deduplicates on scope+scopeKey+ruleType.
+ * If a matching learning exists, increments appliedCount and bumps confidence.
+ */
+export async function recordSystemLearning(input: {
+  scope: string;
+  scopeKey: string;
+  ruleType: string;
+  ruleText: string;
+  source?: string;
+  triggeredBy?: string;
+}): Promise<void> {
+  try {
+    const existing = await db
+      .select()
+      .from(systemLearnings)
+      .where(
+        and(
+          eq(systemLearnings.scope, input.scope),
+          eq(systemLearnings.scopeKey, input.scopeKey),
+          eq(systemLearnings.ruleType, input.ruleType),
+        ),
+      )
+      .limit(1);
+
+    if (existing.length > 0) {
+      const newConfidence = Math.min(99, existing[0].confidence + 5);
+      await db
+        .update(systemLearnings)
+        .set({
+          appliedCount: sql`${systemLearnings.appliedCount} + 1`,
+          confidence: newConfidence,
+          updatedAt: new Date(),
+        })
+        .where(eq(systemLearnings.id, existing[0].id));
+    } else {
+      await db.insert(systemLearnings).values({
+        scope: input.scope,
+        scopeKey: input.scopeKey,
+        ruleType: input.ruleType,
+        ruleText: input.ruleText,
+        source: input.source || "auto",
+        triggeredBy: input.triggeredBy,
+        confidence: 50,
+        appliedCount: 1,
+      });
+    }
+  } catch (err: any) {
+    console.warn(`[DataSourceBrain] recordLearning failed:`, err.message);
   }
 }
