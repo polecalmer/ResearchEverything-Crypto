@@ -18,6 +18,8 @@ const CHART_COLORS = [
 interface Artifact {
   type: "chart" | "table" | "metric_cards";
   title: string;
+  subtitle?: string;
+  source?: string;
   data: any[];
   chartConfig?: {
     chartType: string;
@@ -60,9 +62,13 @@ function formatValue(val: any, fmt?: string): string {
 }
 
 function InlineChart({ artifact }: { artifact: Artifact }) {
-  const { chartConfig, data, title } = artifact;
+  const { chartConfig, data, title, subtitle, source } = artifact;
   if (!chartConfig || !data?.length) return null;
   const { chartType, xAxis, yAxes } = chartConfig;
+  const lastRow = data[data.length - 1];
+  const primaryKey = yAxes[0]?.dataKey;
+  const latestRaw = primaryKey ? lastRow?.[primaryKey] : undefined;
+  const latestValue = latestRaw != null ? formatValue(latestRaw, yAxes[0]?.format) : null;
   const isDate = xAxis.format === "date" || (data[0]?.[xAxis.dataKey] && /^\d{4}-\d{2}/.test(String(data[0][xAxis.dataKey])));
   const xTickFormatter = (val: any) => {
     if (isDate) { try { return format(new Date(val), "MMM ''yy"); } catch { return val; } }
@@ -114,10 +120,26 @@ function InlineChart({ artifact }: { artifact: Artifact }) {
 
   return (
     <div className="my-3 rounded border border-border/40 bg-card/30 p-3" style={{ overflow: "visible" }}>
-      <h4 className="text-[11px] font-medium text-foreground/80 mb-2">{title}</h4>
+      <div className="flex items-start justify-between mb-1">
+        <div className="flex-1 min-w-0">
+          <h4 className="text-[11px] font-medium text-foreground/80">{title}</h4>
+          {subtitle && <p className="text-[9px] font-medium text-emerald-400 uppercase tracking-wider mt-0.5 leading-snug">{subtitle}</p>}
+        </div>
+        {latestValue && (
+          <div className="text-right ml-3 shrink-0">
+            <p className="text-base font-bold font-mono tabular-nums text-blue-400 leading-none">{latestValue}</p>
+            <p className="text-[8px] text-muted-foreground/60 mt-0.5">Latest</p>
+          </div>
+        )}
+      </div>
       <div style={{ overflow: "visible" }}>
         <ResponsiveContainer width="100%" height={220} style={{ overflow: "visible" }}>{renderChart()}</ResponsiveContainer>
       </div>
+      {source && (
+        <div className="mt-1.5 pt-1.5 border-t border-border/20">
+          <p className="text-[9px] text-emerald-400/70 italic">Source: {source}</p>
+        </div>
+      )}
     </div>
   );
 }

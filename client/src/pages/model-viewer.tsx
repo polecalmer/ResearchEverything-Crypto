@@ -135,8 +135,16 @@ function ModelChart({ section }: { section: any }) {
   const yAxes: any[] = cfg.yAxes || [];
   const xAxis = cfg.xAxis || { dataKey: "period" };
   const chartType = cfg.chartType || "line";
+  const subtitle = section.subtitle;
+  const source = section.source;
 
   if (!data.length || !yAxes.length) return null;
+
+  const lastRow = data[data.length - 1];
+  const primaryKey = yAxes[0]?.dataKey;
+  const latestRaw = primaryKey ? lastRow?.[primaryKey] : undefined;
+  const latestFmt = inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format);
+  const latestValue = latestRaw != null ? formatValue(latestRaw, latestFmt) : null;
 
   const isDate = xAxis.format === "date" || (data[0]?.[xAxis.dataKey] && /^\d{4}-\d{2}/.test(String(data[0][xAxis.dataKey])));
 
@@ -288,11 +296,27 @@ function ModelChart({ section }: { section: any }) {
 
   return (
     <div className="rounded-lg border border-border/30 bg-card/40 p-5 shadow-sm" style={{ overflow: "visible" }} data-testid="model-chart">
-      <div style={{ overflow: "visible" }}>
+      <div className="flex items-start justify-between mb-1">
+        <div className="flex-1 min-w-0">
+          {subtitle && <p className="text-[11px] font-medium text-emerald-400 uppercase tracking-wider leading-snug">{subtitle}</p>}
+        </div>
+        {latestValue && (
+          <div className="text-right ml-4 shrink-0">
+            <p className="text-xl font-bold font-mono tabular-nums text-blue-400 tracking-tight leading-none">{latestValue}</p>
+            <p className="text-[10px] text-muted-foreground/60 mt-0.5">Latest</p>
+          </div>
+        )}
+      </div>
+      <div style={{ overflow: "visible" }} className="mt-2">
         <ResponsiveContainer width="100%" height={300} style={{ overflow: "visible" }}>
           {renderChart()}
         </ResponsiveContainer>
       </div>
+      {source && (
+        <div className="mt-2 pt-2 border-t border-border/20">
+          <p className="text-[11px] text-emerald-400/70 italic">Source: {source}</p>
+        </div>
+      )}
     </div>
   );
 }

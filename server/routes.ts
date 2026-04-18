@@ -2440,6 +2440,8 @@ export async function registerRoutes(
           sections.push({
             type: "chart",
             title: artifact.title || "Chart",
+            subtitle: artifact.subtitle,
+            source: artifact.source,
             chartConfig: artifact.chartConfig || {},
             data: artifact.data || [],
           });

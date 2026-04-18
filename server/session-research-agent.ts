@@ -436,8 +436,10 @@ For metric cards (compact KPI row):
 
 For charts:
 \`\`\`artifact:chart
-{"title": "...", "chartType": "line|bar|area|composed", "xAxis": {"dataKey": "...", "format": "date|currency|number|percent"}, "yAxes": [{"dataKey": "...", "format": "...", "chartType": "..."}], "data": [...]}
+{"title": "...", "subtitle": "ONE-LINE INSIGHT IN ALL CAPS", "source": "Dune Analytics|DeFiLlama|CoinGecko|Allium", "chartType": "line|bar|area|composed", "xAxis": {"dataKey": "...", "format": "date|currency|number|percent"}, "yAxes": [{"dataKey": "...", "format": "...", "label": "...", "chartType": "..."}], "data": [...]}
 \`\`\`
+- "subtitle" = a short ALL-CAPS insight about the trend (e.g. "CYCLICAL PATTERN — PEAKED AT 37X IN MAY 2025, NOW BACK TO 30X ON RISING EARNINGS"). Always include this.
+- "source" = the data source used (e.g. "Dune Analytics", "DeFiLlama"). Always include this.
 - Use "composed" with different formats per yAxis when mixing $ and % series
 - NEVER plot $ and % on same axis. Keep data under 365 points.
 
@@ -1031,6 +1033,8 @@ export function parseArtifacts(content: string): ResearchArtifact[] {
         artifacts.push({
           type: "chart",
           title: json.title || "Chart",
+          subtitle: json.subtitle,
+          source: json.source,
           data: json.data || [],
           chartConfig: {
             chartType: json.chartType || "line",
