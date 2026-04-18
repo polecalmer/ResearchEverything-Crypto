@@ -1370,8 +1370,10 @@ export async function runSessionResearchAgent(
     max_uses: mode === "quick" ? 1 : mode === "focused" ? 3 : 5,
   });
 
-  const MAX_TOOL_ROUNDS = mode === "quick" ? 3 : mode === "focused" ? 6 : 15;
-  const maxTokens = mode === "quick" ? 2000 : mode === "focused" ? 6000 : 16000;
+  const focusedRounds = planNeedsCode ? 10 : 6;
+  const focusedTokens = planNeedsCode ? 8000 : 6000;
+  const MAX_TOOL_ROUNDS = mode === "quick" ? 3 : mode === "focused" ? focusedRounds : 15;
+  const maxTokens = mode === "quick" ? 2000 : mode === "focused" ? focusedTokens : 16000;
   const SPEND_BUDGET_USD = mode === "quick" ? 5 : mode === "focused" ? 15 : 50;
   let finalText = "";
   let budgetExceeded = false;
