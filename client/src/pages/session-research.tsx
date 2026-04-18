@@ -62,6 +62,16 @@ interface Session {
   createdAt: string;
 }
 
+const CURRENCY_HINTS = /fee|revenue|volume|price|cost|tvl|mcap|market.cap|valuation|profit|income|earn|spend|paid|aum|inflow|outflow|deposit|withdraw|\$/i;
+
+function inferFormat(dataKey?: string, label?: string, explicitFmt?: string): string | undefined {
+  if (explicitFmt) return explicitFmt;
+  const combined = `${dataKey || ""} ${label || ""}`;
+  if (CURRENCY_HINTS.test(combined)) return "currency";
+  if (/percent|%|ratio|apr|apy|yield|rate/i.test(combined)) return "percent";
+  return undefined;
+}
+
 function formatValue(val: any, fmt?: string): string {
   if (val == null) return "—";
   const n = Number(val);
@@ -103,10 +113,13 @@ function InlineChart({ artifact }: { artifact: Artifact }) {
 
   const tooltipFormatter = (value: any, name: string) => {
     const ax = yAxes.find(y => y.dataKey === name);
-    return [formatValue(value, ax?.format), ax?.label || name.replace(/_/g, " ")];
+    const fmt = inferFormat(ax?.dataKey, ax?.label, ax?.format);
+    return [formatValue(value, fmt), ax?.label || name.replace(/_/g, " ")];
   };
 
-  const needsDualAxis = yAxes.length > 1 && yAxes[0]?.format !== yAxes[1]?.format;
+  const fmt0 = inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format);
+  const fmt1 = yAxes.length > 1 ? inferFormat(yAxes[1]?.dataKey, yAxes[1]?.label, yAxes[1]?.format) : fmt0;
+  const needsDualAxis = yAxes.length > 1 && fmt0 !== fmt1;
 
   const renderChart = () => {
     const commonProps = { data, margin: { top: 12, right: needsDualAxis ? 56 : 20, left: 4, bottom: 8 } };
@@ -154,7 +167,7 @@ function InlineChart({ artifact }: { artifact: Artifact }) {
           {grid}{xAx}
           <YAxis
             yAxisId="left"
-            tickFormatter={(v: number) => formatValue(v, yAxes[0]?.format)}
+            tickFormatter={(v: number) => formatValue(v, inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format))}
             tick={{ fontSize: 11, fill: CHART_COLORS[0] }}
             axisLine={false}
             tickLine={false}
@@ -165,7 +178,7 @@ function InlineChart({ artifact }: { artifact: Artifact }) {
             <YAxis
               yAxisId="right"
               orientation="right"
-              tickFormatter={(v: number) => formatValue(v, yAxes[1]?.format)}
+              tickFormatter={(v: number) => formatValue(v, inferFormat(yAxes[1]?.dataKey, yAxes[1]?.label, yAxes[1]?.format))}
               tick={{ fontSize: 11, fill: CHART_COLORS[1] }}
               axisLine={false}
               tickLine={false}
@@ -191,7 +204,7 @@ function InlineChart({ artifact }: { artifact: Artifact }) {
 
     const yAx = (
       <YAxis
-        tickFormatter={(v: number) => formatValue(v, yAxes[0]?.format)}
+        tickFormatter={(v: number) => formatValue(v, inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format))}
         tick={{ fontSize: 11, fill: "var(--color-chart-tick)" }}
         axisLine={false}
         tickLine={false}
@@ -448,52 +461,126 @@ function InlineFormatted({ text }: { text: string }) {
   );
 }
 
+function parseMarkdownTableCells(line: string): string[] {
+  return line.split("|").map(c => c.trim()).filter((_, i, arr) => i > 0 && i < arr.length);
+}
+
+function isTableSeparator(line: string): boolean {
+  return /^\|?[\s\-:|]+\|[\s\-:|]+\|?$/.test(line.trim());
+}
+
+function isTableRow(line: string): boolean {
+  const trimmed = line.trim();
+  return trimmed.includes("|") && (trimmed.startsWith("|") || trimmed.endsWith("|"));
+}
+
+function MarkdownTable({ rows }: { rows: string[] }) {
+  const headerRow = rows[0];
+  const dataRows = rows.filter((_, i) => i > 0 && !isTableSeparator(_));
+  const headers = parseMarkdownTableCells(headerRow);
+
+  return (
+    <div className="my-4 rounded-lg border border-border/30 overflow-hidden" data-testid="markdown-table">
+      <table className="w-full text-[13px]">
+        <thead>
+          <tr className="bg-muted/30 border-b border-border/30">
+            {headers.map((h, i) => (
+              <th key={i} className="text-left px-4 py-2.5 font-semibold text-foreground/90 whitespace-nowrap">
+                <InlineFormatted text={h} />
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {dataRows.map((row, ri) => {
+            const cells = parseMarkdownTableCells(row);
+            return (
+              <tr key={ri} className={`border-b border-border/10 ${ri % 2 === 1 ? "bg-muted/10" : ""} hover:bg-muted/20 transition-colors`}>
+                {headers.map((_, ci) => (
+                  <td key={ci} className="px-4 py-2.5 text-foreground/80 whitespace-nowrap">
+                    <InlineFormatted text={cells[ci] || ""} />
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function MarkdownText({ text }: { text: string }) {
   const lines = text.split("\n");
+
+  const blocks: Array<{ type: "line"; index: number; content: string } | { type: "table"; index: number; rows: string[] }> = [];
+  let i = 0;
+  while (i < lines.length) {
+    if (isTableRow(lines[i])) {
+      const tableRows: string[] = [];
+      while (i < lines.length && (isTableRow(lines[i]) || isTableSeparator(lines[i]))) {
+        tableRows.push(lines[i]);
+        i++;
+      }
+      if (tableRows.length >= 2) {
+        blocks.push({ type: "table", index: i, rows: tableRows });
+      } else {
+        tableRows.forEach((r, ri) => blocks.push({ type: "line", index: i + ri, content: r }));
+      }
+    } else {
+      blocks.push({ type: "line", index: i, content: lines[i] });
+      i++;
+    }
+  }
+
   return (
     <div className="space-y-1.5">
-      {lines.map((line, i) => {
+      {blocks.map((block, bi) => {
+        if (block.type === "table") {
+          return <MarkdownTable key={`table-${bi}`} rows={block.rows} />;
+        }
+        const line = block.content;
         if (line.startsWith("### ")) return (
-          <h4 key={i} className="text-[14px] font-semibold text-foreground mt-5 mb-1">
+          <h4 key={bi} className="text-[14px] font-semibold text-foreground mt-5 mb-1">
             <InlineFormatted text={line.slice(4)} />
           </h4>
         );
         if (line.startsWith("## ")) return (
-          <h3 key={i} className="text-base font-bold text-foreground mt-6 mb-2 pb-1.5 border-b border-border/20">
+          <h3 key={bi} className="text-base font-bold text-foreground mt-6 mb-2 pb-1.5 border-b border-border/20">
             <InlineFormatted text={line.slice(3)} />
           </h3>
         );
         if (line.startsWith("# ")) return (
-          <h2 key={i} className="text-lg font-bold text-foreground mt-6 mb-2 pb-2 border-b border-border/30">
+          <h2 key={bi} className="text-lg font-bold text-foreground mt-6 mb-2 pb-2 border-b border-border/30">
             <InlineFormatted text={line.slice(2)} />
           </h2>
         );
         if (line.startsWith("- ") || line.startsWith("* ")) return (
-          <p key={i} className="text-[13px] text-foreground/80 pl-4 leading-relaxed flex gap-2">
+          <p key={bi} className="text-[13px] text-foreground/80 pl-4 leading-relaxed flex gap-2">
             <span className="text-muted-foreground/50 shrink-0">•</span>
             <span><InlineFormatted text={line.slice(2)} /></span>
           </p>
         );
         if (line.match(/^\d+\.\s/)) return (
-          <p key={i} className="text-[13px] text-foreground/80 pl-4 leading-relaxed">
+          <p key={bi} className="text-[13px] text-foreground/80 pl-4 leading-relaxed">
             <InlineFormatted text={line} />
           </p>
         );
         if (line.startsWith("> ")) return (
-          <p key={i} className="text-[13px] text-foreground/60 italic border-l-2 border-border/40 pl-4 py-0.5 my-1">
+          <p key={bi} className="text-[13px] text-foreground/60 italic border-l-2 border-border/40 pl-4 py-0.5 my-1">
             <InlineFormatted text={line.slice(2)} />
           </p>
         );
-        if (line.startsWith("---") || line.startsWith("***")) return <hr key={i} className="border-border/20 my-4" />;
+        if (line.startsWith("---") || line.startsWith("***")) return <hr key={bi} className="border-border/20 my-4" />;
         if (line.startsWith("**") && line.endsWith("**")) return (
-          <p key={i} className="text-[13px] font-semibold text-foreground/90 mt-1">
+          <p key={bi} className="text-[13px] font-semibold text-foreground/90 mt-1">
             {line.slice(2, -2)}
           </p>
         );
-        if (!line.trim()) return <div key={i} className="h-2" />;
+        if (!line.trim()) return <div key={bi} className="h-2" />;
 
         return (
-          <p key={i} className="text-[13px] text-foreground/80 leading-[1.7]">
+          <p key={bi} className="text-[13px] text-foreground/80 leading-[1.7]">
             <InlineFormatted text={line} />
           </p>
         );
