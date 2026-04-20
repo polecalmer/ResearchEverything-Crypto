@@ -388,7 +388,7 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
         </div>
       )}
       <div style={{ overflow: "visible" }} className={compact ? "mt-1" : "mt-2"}>
-        <ResponsiveContainer width="100%" height={compact ? 200 : 300} style={{ overflow: "visible" }}>
+        <ResponsiveContainer width="100%" height={compact ? 280 : 300} style={{ overflow: "visible" }}>
           {renderChart()}
         </ResponsiveContainer>
       </div>
