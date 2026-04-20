@@ -332,7 +332,7 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
   };
 
   return (
-    <div className={`rounded-lg border border-border/30 bg-card/40 shadow-sm ${compact ? "my-0 p-3" : "my-5 p-5"}`} style={{ overflow: "visible" }}>
+    <div className={`rounded-lg border border-border/30 bg-card/40 shadow-sm ${compact ? "my-0 p-2" : "my-5 p-5"}`} style={{ overflow: "visible" }}>
       <div className="flex items-start justify-between mb-1">
         <div className="flex-1 min-w-0">
           {title && <h4 className={`font-semibold text-foreground/90 tracking-tight ${compact ? "text-xs" : "text-sm"}`}>{title}</h4>}
@@ -392,9 +392,9 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
           {renderChart()}
         </ResponsiveContainer>
       </div>
-      {source && (
-        <div className={`border-t border-border/20 flex items-center justify-between ${compact ? "mt-1 pt-1" : "mt-2 pt-2"}`}>
-          <p className={`text-emerald-400/70 italic ${compact ? "text-[9px]" : "text-[11px]"}`}>Source: {source}</p>
+      {source && !compact && (
+        <div className="border-t border-border/20 flex items-center justify-between mt-2 pt-2">
+          <p className="text-[11px] text-emerald-400/70 italic">Source: {source}</p>
           <p className="text-[10px] text-muted-foreground/50">{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</p>
         </div>
       )}

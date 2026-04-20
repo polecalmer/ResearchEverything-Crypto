@@ -231,7 +231,7 @@ function StationCard({ pc, onRefresh, onDelete, onAddToReport, reports, refreshi
         <InlineChart artifact={pc.artifact} hideSave compact />
       )}
 
-      <div className="px-5 pb-3 -mt-1 flex items-center justify-between text-[9px] text-muted-foreground/35">
+      <div className="px-2 pb-1 -mt-1 flex items-center justify-between text-[8px] text-muted-foreground/35">
         <span>{format(new Date(pc.updatedAt || pc.createdAt), "MMM d, h:mm a")}</span>
         {pc.hasRecipe && (
           <span className="flex items-center gap-1 text-cyan-500/40">
@@ -260,10 +260,10 @@ function ProtocolDashboard({ protocol, charts, onRefresh, onDelete, onAddToRepor
   }, new Date(0));
 
   return (
-    <div className="mb-10" data-testid={`protocol-dashboard-${protocol}`}>
-      <div className="flex items-center justify-between mb-4 px-1">
+    <div className="mb-6" data-testid={`protocol-dashboard-${protocol}`}>
+      <div className="flex items-center justify-between mb-2 px-1">
         <div className="flex items-center gap-3">
-          <h3 className="text-base font-semibold text-foreground/90">{protocol}</h3>
+          <h3 className="text-sm font-semibold text-foreground/90">{protocol}</h3>
           <span className="text-[10px] text-muted-foreground/35">
             {charts.length} chart{charts.length !== 1 ? "s" : ""} · updated {formatDistanceToNow(latestUpdate, { addSuffix: true })}
           </span>
@@ -280,7 +280,7 @@ function ProtocolDashboard({ protocol, charts, onRefresh, onDelete, onAddToRepor
         )}
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
         {charts.map(pc => (
           <StationCard
             key={pc.id}
@@ -533,8 +533,8 @@ export default function DataStation() {
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground/30" />
             </div>
           ) : activeView === "report" && activeReport ? (
-            <div className="p-6 max-w-5xl mx-auto">
-              <div className="mb-5">
+            <div className="px-4 py-3">
+              <div className="mb-3">
                 <h2 className="text-base font-semibold text-foreground/90">{reports.find(r => r.id === activeReport)?.title}</h2>
                 <p className="text-[10px] text-muted-foreground/40 mt-0.5">{reportParsed.length} charts</p>
               </div>
@@ -544,7 +544,7 @@ export default function DataStation() {
                   <p className="text-[10px] text-muted-foreground/30">No charts in this report yet</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
                   {reportParsed.map(pc => (
                     <StationCard key={pc.id} pc={pc} onRefresh={handleRefresh} onDelete={handleDelete} onAddToReport={handleAddToReport} reports={reports} refreshingId={refreshingId} />
                   ))}
@@ -563,9 +563,9 @@ export default function DataStation() {
               </p>
             </div>
           ) : (
-            <div className="p-6 max-w-5xl mx-auto">
-              <div className="mb-6">
-                <h2 className="text-base font-semibold text-foreground/90">Protocol Dashboards</h2>
+            <div className="px-4 py-3">
+              <div className="mb-3">
+                <h2 className="text-sm font-semibold text-foreground/90">Protocol Dashboards</h2>
                 <p className="text-[10px] text-muted-foreground/40 mt-0.5">
                   {parsed.length} charts across {protocolGroups.length} protocol{protocolGroups.length !== 1 ? "s" : ""}
                 </p>
