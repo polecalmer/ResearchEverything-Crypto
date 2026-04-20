@@ -452,11 +452,11 @@ export default function DataStation() {
 
   return (
     <div className="flex h-[calc(100vh-48px)]" data-testid="data-station-page">
-      <div className="w-52 border-r border-border/15 flex flex-col bg-card/5 shrink-0">
+      <div className="w-40 border-r border-border/15 flex flex-col bg-card/5 shrink-0">
         <div className="p-3 pb-2 border-b border-border/15">
           <div className="flex items-center gap-2 mb-3">
             <Radio className="h-3.5 w-3.5 text-cyan-400/70" />
-            <span className="text-[11px] font-semibold text-foreground/85 tracking-wide">Data and Visualization Hub</span>
+            <span className="text-[10px] font-semibold text-foreground/85 tracking-wide">Data & Viz Hub</span>
           </div>
           {totalRefreshable > 0 && (
             <Button
