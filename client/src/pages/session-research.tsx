@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { Send, Plus, Trash2, Loader2, MessageSquare, FileText, FlaskConical, BarChart3 } from "lucide-react";
+import { Send, Plus, Trash2, Loader2, MessageSquare, FileText, FlaskConical, BarChart3, RefreshCw, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import {
@@ -11,7 +11,7 @@ import {
   SUGGESTED_QUERIES, SUGGESTED_DATA_QUERIES,
 } from "@/lib/research-utils";
 import {
-  MessageBubble, DiveDeepButton, ThinkingPanel, ShareBar,
+  MessageBubble, DiveDeepButton, ThinkingPanel, ShareBar, InlineChart,
 } from "@/components/research-artifacts";
 
 export default function SessionResearch() {
@@ -24,6 +24,8 @@ export default function SessionResearch() {
   const [isSending, setIsSending] = useState(false);
   const [sidebarTab, setSidebarTab] = useState<"sessions" | "models" | "charts">("sessions");
   const [sessionMode, setSessionMode] = useState<"research" | "data">("research");
+  const [selectedChartId, setSelectedChartId] = useState<string | null>(null);
+  const [refreshingChartId, setRefreshingChartId] = useState<string | null>(null);
   const [targetMessageId, setTargetMessageId] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -48,7 +50,12 @@ export default function SessionResearch() {
     id: string;
     title: string;
     chartType: string;
+    chartConfig: string;
+    data: string;
+    dataSourceConfig: string;
+    description: string | null;
     createdAt: string;
+    updatedAt: string;
   }>>({
     queryKey: ["/api/research/charts/saved"],
     enabled: !!user,
@@ -79,6 +86,7 @@ export default function SessionResearch() {
     },
     onSuccess: (session: Session) => {
       setActiveSessionId(session.id);
+      setSelectedChartId(null);
       queryClient.invalidateQueries({ queryKey: ["/api/research/sessions"] });
     },
     onError: (err: any) => {
@@ -298,7 +306,7 @@ export default function SessionResearch() {
                   className={`group flex items-center gap-1.5 px-3 py-2 cursor-pointer border-b border-border/10 transition-colors ${
                     activeSessionId === s.id ? "bg-primary/5" : "hover:bg-muted/30"
                   }`}
-                  onClick={() => setActiveSessionId(s.id)}
+                  onClick={() => { setActiveSessionId(s.id); setSelectedChartId(null); }}
                   data-testid={`session-item-${s.id}`}
                 >
                   <MessageSquare className="h-3 w-3 text-muted-foreground/50 shrink-0" />
@@ -348,21 +356,26 @@ export default function SessionResearch() {
           {sidebarTab === "charts" && (
             <>
               {savedCharts.map((c) => (
-                <div
+                <button
                   key={c.id}
-                  className="group flex items-center gap-1.5 px-3 py-2 border-b border-border/10 hover:bg-muted/30 transition-colors"
+                  onClick={() => { setSelectedChartId(c.id); setActiveSessionId(null); }}
+                  className={`group w-full text-left flex items-center gap-1.5 px-3 py-2 border-b border-border/10 hover:bg-muted/30 transition-colors ${
+                    selectedChartId === c.id ? "bg-cyan-500/10 border-l-2 border-l-cyan-400/50" : ""
+                  }`}
                   data-testid={`saved-chart-item-${c.id}`}
                 >
-                  <BarChart3 className="h-3 w-3 text-cyan-400/60 shrink-0" />
+                  <BarChart3 className={`h-3 w-3 shrink-0 ${selectedChartId === c.id ? "text-cyan-400" : "text-cyan-400/60"}`} />
                   <div className="min-w-0 flex-1">
                     <p className="text-[10px] text-foreground/85 truncate">{c.title}</p>
                     <p className="text-[8px] text-muted-foreground/50 mt-0.5">
-                      {format(new Date(c.createdAt), "MMM d, yyyy")} · {c.chartType}
+                      {format(new Date(c.updatedAt || c.createdAt), "MMM d, yyyy")} · {c.chartType}
                     </p>
                   </div>
-                  <button
+                  <span
+                    role="button"
                     className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-destructive transition-opacity"
-                    onClick={async () => {
+                    onClick={async (e) => {
+                      e.stopPropagation();
                       try {
                         const authHeaders = await getAuthHeaders();
                         await fetch(`/api/research/charts/${c.id}`, {
@@ -370,14 +383,15 @@ export default function SessionResearch() {
                           headers: authHeaders,
                           credentials: "include",
                         });
+                        if (selectedChartId === c.id) setSelectedChartId(null);
                         queryClient.invalidateQueries({ queryKey: ["/api/research/charts/saved"] });
                       } catch {}
                     }}
                     data-testid={`button-delete-chart-${c.id}`}
                   >
                     <Trash2 className="h-3 w-3" />
-                  </button>
-                </div>
+                  </span>
+                </button>
               ))}
               {savedCharts.length === 0 && !savedChartsQuery.isLoading && (
                 <p className="text-[9px] text-muted-foreground/40 text-center py-8 px-3">
@@ -416,7 +430,78 @@ export default function SessionResearch() {
           )}
         </div>
         <div className="flex-1 overflow-y-auto px-8 py-6">
-          {!activeSessionId && messages.length === 0 ? (
+          {selectedChartId ? (() => {
+            const chartRaw = savedCharts.find(c => c.id === selectedChartId);
+            if (!chartRaw) return <p className="text-center text-muted-foreground/40 py-20">Chart not found</p>;
+            let parsedData: any[] = [];
+            let parsedConfig: any = {};
+            let dsConfig: any = {};
+            try { parsedData = JSON.parse(chartRaw.data || "[]"); } catch {}
+            try { parsedConfig = JSON.parse(chartRaw.chartConfig || "{}"); } catch {}
+            try { dsConfig = JSON.parse(chartRaw.dataSourceConfig || "{}"); } catch {}
+            const hasRecipe = !!dsConfig.refreshRecipe;
+            const artifact = {
+              type: "chart" as const,
+              title: chartRaw.title,
+              subtitle: chartRaw.description || undefined,
+              source: dsConfig.refreshRecipe?.dataSource || "session",
+              data: parsedData,
+              chartConfig: parsedConfig,
+              refreshRecipe: dsConfig.refreshRecipe,
+            };
+            return (
+              <div className="max-w-3xl mx-auto">
+                <div className="flex items-center gap-3 mb-4">
+                  <button
+                    onClick={() => setSelectedChartId(null)}
+                    className="p-1.5 rounded-md hover:bg-muted/30 text-muted-foreground/60 hover:text-foreground/80 transition-colors"
+                    data-testid="button-back-from-chart"
+                  >
+                    <ArrowLeft className="h-4 w-4" />
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <h3 className="text-sm font-medium text-foreground/90 truncate">{chartRaw.title}</h3>
+                    <p className="text-[10px] text-muted-foreground/50">
+                      Last updated {format(new Date(chartRaw.updatedAt || chartRaw.createdAt), "MMM d, yyyy 'at' HH:mm")}
+                      {hasRecipe && ` · ${dsConfig.refreshRecipe.protocol} · ${dsConfig.refreshRecipe.metric}`}
+                    </p>
+                  </div>
+                  {hasRecipe && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={refreshingChartId === chartRaw.id}
+                      onClick={async () => {
+                        setRefreshingChartId(chartRaw.id);
+                        try {
+                          const authHeaders = await getAuthHeaders();
+                          const res = await fetch(`/api/research/charts/${chartRaw.id}/refresh`, {
+                            method: "POST",
+                            headers: authHeaders,
+                            credentials: "include",
+                          });
+                          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Refresh failed");
+                          const result = await res.json();
+                          queryClient.invalidateQueries({ queryKey: ["/api/research/charts/saved"] });
+                          toast({ title: "Refreshed", description: `${result.dataPoints} data points in ${(result.refreshTimeMs / 1000).toFixed(1)}s` });
+                        } catch (e: any) {
+                          toast({ title: "Refresh failed", description: e.message, variant: "destructive" });
+                        } finally {
+                          setRefreshingChartId(null);
+                        }
+                      }}
+                      className="h-7 text-[10px] gap-1.5 border-cyan-500/20 text-cyan-400/80 hover:bg-cyan-500/10"
+                      data-testid="button-refresh-selected-chart"
+                    >
+                      <RefreshCw className={`h-3 w-3 ${refreshingChartId === chartRaw.id ? "animate-spin" : ""}`} />
+                      Refresh Live
+                    </Button>
+                  )}
+                </div>
+                <InlineChart artifact={artifact} />
+              </div>
+            );
+          })() : !activeSessionId && messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full max-w-lg mx-auto">
               <h2 className="text-lg font-bold text-foreground/90 mb-2">
                 {sessionMode === "data" ? "Data & Charts" : "Sessions"}
