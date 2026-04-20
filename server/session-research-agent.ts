@@ -1260,13 +1260,14 @@ function toolLabel(name: string, input: any): string {
 }
 
 const CHART_INTENT_PATTERNS = [
-  /(?:build|make|create|show|pull up|plot|graph|chart|draw|generate|give me)\s+(?:a|me|the)?\s*(?:chart|graph|plot|visualization)/i,
-  /(?:chart|graph|plot)\s+(?:of|for|showing|comparing)/i,
+  /(?:build|make|create|show|pull up|plot|graph|chart|draw|generate|give me)\s+(?:(?:me|a|the)\s+)*(?:chart|graph|plot|visualization)/i,
+  /(?:chart|graph|plot)\s+(?:of|for|showing|comparing|that\s+(?:tracks?|shows?|compares?))/i,
   /P[\/-]?(?:E|S|F)\s+(?:chart|ratio|over|for)/i,
-  /(?:FDV|MCAP|TVL|volume|revenue|fees)\s+(?:chart|graph|over|vs|trend)/i,
+  /(?:FDV|MCAP|TVL|volume|revenue|fees|market\s*share)\s+(?:chart|graph|over|vs|trend|breakdown)/i,
   /(?:show|pull|get|fetch)\s+(?:me\s+)?(?:the\s+)?(?:daily|weekly|monthly|historical)\s+/i,
   /(?:price\s+(?:chart|history|vs)|compare\s+.*(?:chart|graph))/i,
   /(?:take\s*rate|capital\s*efficiency|revenue\s*growth|fee\s*growth|volume[\s\/]tvl|fdv[\s\/]tvl)\s*(?:chart|trend|over|for|ratio)?/i,
+  /(?:build|make|create)\s+(?:(?:me|a|the)\s+)*(?:chart|graph|plot|visualization)\b/i,
 ];
 
 function isChartRequest(msg: string): boolean {
@@ -1284,8 +1285,10 @@ interface ChartPipelineResult {
 const CHART_EXTRACT_PROMPT = `Extract the protocol/token and metric from this chart request. Return ONLY valid JSON:
 {"protocol": "<protocol name>", "ticker": "<token ticker>", "metric": "<metric category>", "variants": ["<variant1>", ...]}
 
-metric must be one of: pe_ratio, ps_ratio, take_rate, capital_efficiency, revenue_growth, fee_growth, volume_tvl_ratio, fdv_tvl, revenue, fees, tvl, volume, price, custom
+metric must be one of: pe_ratio, ps_ratio, take_rate, capital_efficiency, revenue_growth, fee_growth, volume_tvl_ratio, fdv_tvl, revenue, fees, tvl, volume, price, market_share, custom
 variants are specific sub-metrics the user wants (e.g. ["MCAP", "FDV", "Adj MCAP"] for a P/E chart)
+
+If the request is about a CATEGORY of protocols (e.g. "perps market share", "DEX comparison", "L2 TVL") rather than a single specific protocol, set protocol to "" and ticker to "". The agent loop will handle multi-protocol data fetching.
 
 Examples:
 - "Build a P/E chart for HYPE (MCAP, FDV and Adj MCAP)" → {"protocol": "hyperliquid", "ticker": "HYPE", "metric": "pe_ratio", "variants": ["MCAP", "FDV", "Adj MCAP"]}
@@ -1297,7 +1300,9 @@ Examples:
 - "Capital efficiency of Aave" → {"protocol": "aave", "ticker": "AAVE", "metric": "capital_efficiency", "variants": []}
 - "Revenue growth chart for Hyperliquid" → {"protocol": "hyperliquid", "ticker": "HYPE", "metric": "revenue_growth", "variants": []}
 - "FDV/TVL ratio for Lido" → {"protocol": "lido", "ticker": "LDO", "metric": "fdv_tvl", "variants": []}
-- "Volume to TVL ratio for Curve" → {"protocol": "curve", "ticker": "CRV", "metric": "volume_tvl_ratio", "variants": []}`;
+- "Volume to TVL ratio for Curve" → {"protocol": "curve", "ticker": "CRV", "metric": "volume_tvl_ratio", "variants": []}
+- "Build me a chart that tracks current perps market share" → {"protocol": "", "ticker": "", "metric": "market_share", "variants": ["volume", "revenue"]}
+- "DEX volume comparison chart" → {"protocol": "", "ticker": "", "metric": "volume", "variants": []}`;
 
 function checkChartDataSanity(data: any[], yAxes: Array<{ dataKey: string; label: string }>): string | null {
   if (!data || data.length === 0) return "No data returned";
