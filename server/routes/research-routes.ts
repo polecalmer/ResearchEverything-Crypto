@@ -687,9 +687,23 @@ export function registerResearchRoutes(app: Express) {
         return res.status(400).json({ message: "Title and data are required" });
       }
 
-      const dsConfig = refreshRecipe
-        ? { source: "session_research", refreshRecipe }
-        : { source: "session_research" };
+      let resolvedDataSource = "session";
+      let dsConfig: any = { source: "session_research" };
+
+      if (refreshRecipe) {
+        dsConfig.refreshRecipe = refreshRecipe;
+        if (refreshRecipe.dataSource === "dune" && refreshRecipe.queryId) {
+          resolvedDataSource = "dune";
+          dsConfig.queryId = refreshRecipe.queryId;
+          dsConfig.params = refreshRecipe.params || {};
+        } else if (refreshRecipe.dataSource === "defillama" || refreshRecipe.dataSource === "defi-llama") {
+          resolvedDataSource = "defillama";
+          dsConfig.endpoint = refreshRecipe.metric || refreshRecipe.endpoint;
+          dsConfig.slug = refreshRecipe.slug;
+        } else if (refreshRecipe.dataSource) {
+          resolvedDataSource = refreshRecipe.dataSource;
+        }
+      }
 
       const { dashboardCharts } = await import("@shared/schema");
       const { db: dbImport } = await import("../db");
@@ -698,7 +712,7 @@ export function registerResearchRoutes(app: Express) {
         title,
         description: description || null,
         chartType: chartType || "line",
-        dataSource: "session",
+        dataSource: resolvedDataSource,
         dataSourceConfig: JSON.stringify(dsConfig),
         chartConfig: JSON.stringify(chartConfig || {}),
         data: JSON.stringify(data),
