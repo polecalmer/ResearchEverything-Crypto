@@ -2632,3 +2632,220 @@ async function fetchAlliumSqlData(config: Record<string, any>): Promise<any[]> {
 }
 
 export { DATA_CHART_CHARGE };
+
+export interface SessionDataAgentResult {
+  content: string;
+  artifacts: Array<{
+    type: "chart" | "table";
+    title?: string;
+    subtitle?: string;
+    source?: string;
+    data?: any[];
+    chartConfig?: {
+      chartType: "line" | "bar" | "area" | "composed";
+      xAxis: { dataKey: string; label?: string; format?: string };
+      yAxes: Array<{ dataKey: string; label?: string; format?: string; chartType?: string }>;
+    };
+    refreshRecipe?: any;
+    columns?: string[];
+  }>;
+  mppCost: number;
+  inputTokens: number;
+  outputTokens: number;
+  costBasis: "receipt" | "voucher_estimate";
+  toolCalls: string[];
+  mode: "focused";
+  modeReason: string;
+}
+
+export async function runDataAgentForSession(
+  userPrompt: string,
+  userId: string,
+  onStep?: (step: { type: string; label: string; detail?: string; round?: number }) => void,
+): Promise<SessionDataAgentResult> {
+  const startTime = Date.now();
+
+  onStep?.({ type: "thinking", label: "Analyzing your request..." });
+
+  const { callAnthropicRaw } = await import("./mpp-client");
+
+  const extractResp = await callAnthropicRaw({
+    model: MODELS.SONNET,
+    max_tokens: 300,
+    system: `Extract the protocol/token name from this data/chart request. Return ONLY valid JSON:
+{"protocol": "<protocol name>", "ticker": "<token ticker>"}
+Examples:
+- "Show me Hyperliquid revenue" → {"protocol": "hyperliquid", "ticker": "HYPE"}
+- "AAVE TVL chart" → {"protocol": "aave", "ticker": "AAVE"}
+- "Build a P/E ratio for Morpho" → {"protocol": "morpho", "ticker": "MORPHO"}
+- "Uniswap daily volume" → {"protocol": "uniswap", "ticker": "UNI"}
+- "Compare ETH and SOL price" → {"protocol": "ethereum", "ticker": "ETH"}
+If unclear, guess the most likely protocol. If it's about a general category (e.g. "top DEXes"), use protocol="" ticker="".`,
+    messages: [{ role: "user", content: userPrompt }],
+  });
+
+  let extractCost = extractResp.mppCost || 0;
+  const extractText = extractResp.content.filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
+  let extracted: { protocol: string; ticker: string };
+  try {
+    extracted = JSON.parse(extractText.match(/\{[\s\S]*\}/)?.[0] || "{}");
+  } catch {
+    extracted = { protocol: "", ticker: "" };
+  }
+
+  const protocolName = extracted.protocol || "unknown";
+  const ticker = extracted.ticker || "";
+  console.log(`[DataAgentSession] Extracted: protocol=${protocolName}, ticker=${ticker}`);
+
+  onStep?.({ type: "tool_start", label: `Building chart for ${ticker || protocolName}...`, detail: "data_agent" });
+
+  const allMasterQueries = await storage.getMasterDuneQueries();
+
+  const input: DataAgentInput = {
+    companyId: `session_${userId}`,
+    companyName: protocolName,
+    userId,
+    userPrompt,
+    tokenProfile: null,
+    savedDuneQueries: [],
+    masterDuneQueries: allMasterQueries,
+    tokenSnapshot: null,
+  };
+
+  const result = await runDataAgent(input);
+
+  onStep?.({ type: "complete", label: "Chart ready", detail: "data_agent" });
+
+  const artifacts: SessionDataAgentResult["artifacts"] = [];
+  const contentParts: string[] = [];
+  const totalCost = result.totalCost + extractCost;
+
+  for (const chart of result.charts) {
+    if (chart.status === "failed") {
+      contentParts.push(`Could not generate chart "${chart.title}": ${chart.errorMessage || "Unknown error"}`);
+      continue;
+    }
+
+    let chartData: any[];
+    try {
+      chartData = typeof chart.data === "string" ? JSON.parse(chart.data) : (chart.data || []);
+    } catch {
+      continue;
+    }
+    if (chartData.length === 0) continue;
+
+    let chartConfig: any;
+    try {
+      chartConfig = typeof chart.chartConfig === "string" ? JSON.parse(chart.chartConfig) : (chart.chartConfig || {});
+    } catch {
+      chartConfig = {};
+    }
+
+    let dataSourceConfig: any;
+    try {
+      dataSourceConfig = typeof chart.dataSourceConfig === "string" ? JSON.parse(chart.dataSourceConfig) : (chart.dataSourceConfig || {});
+    } catch {
+      dataSourceConfig = {};
+    }
+
+    const xAxis = chartConfig.xAxis || { dataKey: "date", format: "date" };
+    const yAxes = (chartConfig.yAxes || []).map((y: any) => ({
+      dataKey: y.dataKey,
+      label: y.label || y.dataKey,
+      format: y.format,
+      chartType: y.chartType,
+    }));
+
+    const canonicalMetric = extractMetricTypeFast(chart.title, chart.description || "");
+
+    const refreshRecipe: any = {
+      protocol: protocolName,
+      ticker,
+      metric: canonicalMetric || "custom",
+      dataSource: chart.dataSource || "dune",
+    };
+    if (chart.dataSource === "dune-sql" && dataSourceConfig.sql) {
+      refreshRecipe.dataSource = "dune-sql";
+      refreshRecipe.sql = dataSourceConfig.sql;
+    } else if (chart.dataSource === "dune" && dataSourceConfig.queryId) {
+      refreshRecipe.dataSource = "dune";
+      refreshRecipe.queryId = String(dataSourceConfig.queryId);
+    } else if (chart.dataSource === "defillama" && dataSourceConfig.endpoint) {
+      refreshRecipe.dataSource = "defillama";
+      refreshRecipe.endpoint = dataSourceConfig.endpoint;
+      refreshRecipe.slug = dataSourceConfig.slug;
+    } else if (chart.dataSource === "coingecko" && dataSourceConfig.coinId) {
+      refreshRecipe.dataSource = "coingecko";
+      refreshRecipe.coinId = dataSourceConfig.coinId;
+      refreshRecipe.daysBack = dataSourceConfig.daysBack || 365;
+    } else if (chart.dataSource === "allium-sql" && dataSourceConfig.sql) {
+      refreshRecipe.dataSource = "allium-sql";
+      refreshRecipe.sql = dataSourceConfig.sql;
+    }
+
+    const subtitle = typeof chart.description === "string" && chart.description.includes("|||")
+      ? chart.description.split("|||")[0]
+      : "";
+
+    const chartType = (chart.chartType as any) || "line";
+
+    if (chartType === "table") {
+      const columns = chartConfig.columns || (chartData[0] ? Object.keys(chartData[0]) : []);
+      artifacts.push({
+        type: "table",
+        title: chart.title,
+        subtitle,
+        data: chartData,
+        columns,
+      });
+      const tableJson = { title: chart.title, data: chartData, columns };
+      contentParts.push("```artifact:table\n" + JSON.stringify(tableJson) + "\n```");
+    } else {
+      const chartJson: any = {
+        chartType,
+        title: chart.title,
+        subtitle,
+        source: chart.dataSource || "data agent",
+        data: chartData,
+        xAxis: { dataKey: xAxis.dataKey, format: xAxis.format || xAxis.type || "date" },
+        yAxes,
+        refreshRecipe,
+      };
+
+      artifacts.push({
+        type: "chart",
+        title: chart.title,
+        subtitle,
+        source: chart.dataSource || "data agent",
+        data: chartData,
+        chartConfig: {
+          chartType,
+          xAxis: { dataKey: xAxis.dataKey, format: xAxis.format || xAxis.type || "date" },
+          yAxes,
+        },
+        refreshRecipe,
+      });
+
+      contentParts.push("```artifact:chart\n" + JSON.stringify(chartJson) + "\n```");
+    }
+  }
+
+  if (contentParts.length === 0) {
+    contentParts.push("I wasn't able to generate a chart for that request. Try rephrasing — for example, specify the protocol and metric like \"Show me Aave revenue\" or \"Uniswap daily volume\".");
+  }
+
+  const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+  console.log(`[DataAgentSession] Complete in ${elapsed}s — ${artifacts.length} charts generated`);
+
+  return {
+    content: contentParts.join("\n\n"),
+    artifacts,
+    mppCost: totalCost,
+    inputTokens: extractResp.usage?.input_tokens || 0,
+    outputTokens: extractResp.usage?.output_tokens || 0,
+    costBasis: "receipt",
+    toolCalls: ["data_agent"],
+    mode: "focused",
+    modeReason: "data mode (chart builder)",
+  };
+}
