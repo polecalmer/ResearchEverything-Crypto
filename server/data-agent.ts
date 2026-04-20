@@ -6,6 +6,7 @@ import * as defillama from "./defillama-client";
 import * as alliumApi from "./allium-api";
 import { storage } from "./storage";
 import { MARKUP_MULTIPLIER } from "./enrichment";
+import { MODELS } from "./constants";
 import { crossSourceValidate, type CrossValidationResult } from "./benchmark/cross-validate";
 import type { Company, TokenProfile, DashboardChart, DuneQuery, MasterDuneQuery, SystemLearning } from "@shared/schema";
 import crypto from "crypto";
@@ -592,7 +593,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
   const dataContext = contextParts.join('\n');
 
   const response = await callAnthropicServerHeavy({
-    model: "claude-opus-4-6",
+    model: MODELS.OPUS,
     max_tokens: 4000,
     system: systemPrompt,
     messages: [
@@ -728,7 +729,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
               sqlQuery: finalSql, errorType: "execution_error",
               errorMessage: (fetchError || "Unknown error").substring(0, 500),
               sampleRows: null, finalOutcome: "retry",
-              llmModel: "claude-opus-4-6", latencyMs: Date.now() - chartStartTime,
+              llmModel: MODELS.OPUS, latencyMs: Date.now() - chartStartTime,
               wasCacheHit: false, crossValidationStatus: null, crossValidationRatio: null,
             }).catch(() => {});
           }
@@ -750,7 +751,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
               : "sanity_check",
             errorMessage: sanity.substring(0, 500),
             sampleRows: data.slice(0, 3), finalOutcome: "retry",
-            llmModel: "claude-opus-4-6", latencyMs: Date.now() - chartStartTime,
+            llmModel: MODELS.OPUS, latencyMs: Date.now() - chartStartTime,
             wasCacheHit: !!usedProvenQueryId, crossValidationStatus: null, crossValidationRatio: null,
           }).catch(() => {});
           if (usedProvenQueryId) {
@@ -793,7 +794,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
                     attemptNumber: ++attemptNumber, dataSource: "dune-sql",
                     sqlQuery: retryResult.sql, errorType: null, errorMessage: null,
                     sampleRows: retryResult.data.slice(0, 3), finalOutcome: "success",
-                    llmModel: "claude-sonnet-4-20250514", latencyMs: Date.now() - chartStartTime,
+                    llmModel: MODELS.SONNET, latencyMs: Date.now() - chartStartTime,
                     wasCacheHit: false, crossValidationStatus: null, crossValidationRatio: null,
                   }).catch(() => {});
                   break;
@@ -806,7 +807,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
                     sqlQuery: retryResult.sql, errorType: "sanity_check",
                     errorMessage: retrySanity.substring(0, 500),
                     sampleRows: retryResult.data.slice(0, 3), finalOutcome: "retry",
-                    llmModel: "claude-sonnet-4-20250514", latencyMs: Date.now() - chartStartTime,
+                    llmModel: MODELS.SONNET, latencyMs: Date.now() - chartStartTime,
                     wasCacheHit: false, crossValidationStatus: null, crossValidationRatio: null,
                   }).catch(() => {});
                   finalSql = retryResult.sql;
@@ -855,7 +856,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
                 attemptNumber: ++attemptNumber, dataSource: "dune-sql",
                 sqlQuery: retryResult.sql, errorType: null, errorMessage: null,
                 sampleRows: retryResult.data.slice(0, 3), finalOutcome: "success",
-                llmModel: "claude-sonnet-4-20250514", latencyMs: Date.now() - chartStartTime,
+                llmModel: MODELS.SONNET, latencyMs: Date.now() - chartStartTime,
                 wasCacheHit: false, crossValidationStatus: null, crossValidationRatio: null,
               }).catch(() => {});
               break;
@@ -867,7 +868,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
                 sqlQuery: retryResult.sql, errorType: "sanity_check",
                 errorMessage: retrySanity.substring(0, 500),
                 sampleRows: retryResult.data.slice(0, 3), finalOutcome: "retry",
-                llmModel: "claude-sonnet-4-20250514", latencyMs: Date.now() - chartStartTime,
+                llmModel: MODELS.SONNET, latencyMs: Date.now() - chartStartTime,
                 wasCacheHit: false, crossValidationStatus: null, crossValidationRatio: null,
               }).catch(() => {});
               finalSql = retryResult.sql;
@@ -1014,7 +1015,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
           errorMessage: null,
           sampleRows: data.slice(0, 3),
           finalOutcome: "success",
-          llmModel: "claude-opus-4-6",
+          llmModel: MODELS.OPUS,
           latencyMs: Date.now() - chartStartTime,
           wasCacheHit: !!usedProvenQueryId && !fetchError,
           crossValidationStatus: crossValResult?.status || null,
@@ -1076,7 +1077,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
           errorMessage: errorMsg.substring(0, 500),
           sampleRows: null,
           finalOutcome: "failure",
-          llmModel: "claude-opus-4-6",
+          llmModel: MODELS.OPUS,
           latencyMs: Date.now() - chartStartTime,
           wasCacheHit: false,
           crossValidationStatus: null,
@@ -1243,7 +1244,7 @@ export async function analyzeFailurePatterns(): Promise<{ analyzed: number; newL
     const existingRules = allLearnings.map(l => `[${l.scope}/${l.scopeKey}] ${l.ruleText}`).join("\n");
 
     const response = await callAnthropicServer({
-      model: "claude-sonnet-4-20250514",
+      model: MODELS.SONNET,
       max_tokens: 1000,
       system: `You analyze patterns in failed data queries to generate reusable rules. Review the failures below and identify systemic issues (NOT one-off errors).
 
@@ -1482,7 +1483,7 @@ async function checkSemanticCoherence(
     const columnNames = yAxes.map((y: any) => `${y.dataKey} (${y.label})`).join(", ");
 
     const response = await callAnthropicServer({
-      model: "claude-sonnet-4-20250514",
+      model: MODELS.SONNET,
       max_tokens: 200,
       system: `You verify that chart data semantically matches the user's request. Check for conceptual mismatches where the data technically works but measures the WRONG THING.
 
@@ -1570,7 +1571,7 @@ async function extractMetricType(title: string, description: string = ""): Promi
 
   try {
     const response = await callAnthropicServer({
-      model: "claude-sonnet-4-20250514",
+      model: MODELS.SONNET,
       max_tokens: 50,
       system: `Classify this chart request into exactly one canonical metric type. Reply with ONLY the metric type string, nothing else.\n\nValid types: ${CANONICAL_METRICS.join(", ")}\n\nIf none fit well, create a short snake_case label (max 30 chars).`,
       messages: [{ role: "user", content: `Title: "${title}"\nDescription: "${description || "none"}"` }],
@@ -1625,7 +1626,7 @@ async function autoLearnFromFailure(
 ): Promise<void> {
   try {
     const response = await callAnthropicServer({
-      model: "claude-sonnet-4-20250514",
+      model: MODELS.SONNET,
       max_tokens: 300,
       system: `You are a systems analyst reviewing a failed data query. Extract a concise, reusable rule that would prevent this failure in the future.
 
@@ -1744,7 +1745,7 @@ async function retryDuneSqlWithFeedback(
   const learnedRules = await loadLearningsForPrompt(companyName);
 
   const response = await callAnthropicServerHeavy({
-    model: "claude-sonnet-4-20250514",
+    model: MODELS.SONNET,
     max_tokens: 2000,
     system: `You write DuneSQL (Trino dialect) queries. A previous query FAILED. Fix it based on the error.
 
@@ -2134,7 +2135,7 @@ async function llmDuneSqlFallback(
   console.log(`[Data Agent] LLM Dune SQL fallback: asking LLM to write query for "${plan.title}"`);
 
   const response = await callAnthropicServerHeavy({
-    model: "claude-sonnet-4-20250514",
+    model: MODELS.SONNET,
     max_tokens: 2000,
     system: `You write DuneSQL (Trino dialect) queries for crypto/DeFi protocols.
 Return ONLY a JSON object with these fields:

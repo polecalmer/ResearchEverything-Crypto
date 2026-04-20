@@ -104,8 +104,10 @@ export function getKnownPlaybookIds(): Set<string> {
 
 // ─── Planner prompt ──────────────────────────────────────────────────────────
 
+import { MODELS } from "./constants";
+
 const PLANNER_VERSION = "planner-v0";
-const PLANNER_MODEL = "claude-haiku-4-5";
+const PLANNER_MODEL = MODELS.HAIKU;
 
 // Real tool names exposed by the agent. Kept in sync with the TOOLS array in
 // session-research-agent.ts. Used both at startup (catalog validation) and at

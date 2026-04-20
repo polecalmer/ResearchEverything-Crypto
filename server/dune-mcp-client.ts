@@ -5,7 +5,9 @@
  * the LLM writes SQL, so queries target tables that actually exist.
  */
 
-const DUNE_MCP_URL = "https://api.dune.com/mcp/v1";
+import { EXTERNAL_URLS } from "./constants";
+
+const DUNE_MCP_URL = EXTERNAL_URLS.DUNE_MCP;
 
 function getDuneApiKey(): string {
   const key = process.env.DUNE_API_KEY;

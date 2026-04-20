@@ -28,8 +28,7 @@ const navItems = [
   { title: "Data", url: "/data", icon: BarChart3 },
 ];
 
-const ADMIN_EMAILS = ["allmysubscriptions10@proton.me"];
-const ADMIN_USERNAMES = ["polecalmer"];
+import { ADMIN_EMAILS, ADMIN_USERNAMES } from "@shared/constants";
 
 export function AppSidebar() {
   const [location] = useLocation();

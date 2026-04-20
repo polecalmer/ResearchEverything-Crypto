@@ -6,14 +6,14 @@ import { useState, useCallback } from "react";
 import { queryClient } from "@/lib/queryClient";
 import { useWallets } from "@privy-io/react-auth";
 
-const TEMPO_RPC = "https://rpc.mainnet.tempo.xyz";
+import { TOKENS as TOKEN_ADDRESSES, TEMPO_RPC, TEMPO_EXPLORER } from "@shared/constants";
+
 const BALANCE_OF_SELECTOR = "0x70a08231";
 const TRANSFER_SELECTOR = "0xa9059cbb";
-const TEMPO_EXPLORER = "https://explore.mainnet.tempo.xyz";
 
 const TOKENS = [
-  { symbol: "pathUSD", contract: "0x20c0000000000000000000000000000000000000", decimals: 6 },
-  { symbol: "USDC", contract: "0x20c000000000000000000000b9537d11c60e8b50", decimals: 6 },
+  { symbol: "pathUSD", contract: TOKEN_ADDRESSES.PATH_USD, decimals: 6 },
+  { symbol: "USDC", contract: TOKEN_ADDRESSES.USDC, decimals: 6 },
 ] as const;
 
 interface TokenBalance { symbol: string; amount: string }

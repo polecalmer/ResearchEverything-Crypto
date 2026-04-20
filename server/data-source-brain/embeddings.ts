@@ -11,9 +11,11 @@
  * are the only things callers depend on.
  */
 
+import { EXTERNAL_URLS } from "../constants";
+
 export const EMBEDDING_DIM = 1024;
 const MODEL = "voyage-3.5";
-const ENDPOINT = "https://api.voyageai.com/v1/embeddings";
+const ENDPOINT = EXTERNAL_URLS.VOYAGE_EMBEDDINGS;
 
 export type EmbeddingKind = "document" | "query";
 

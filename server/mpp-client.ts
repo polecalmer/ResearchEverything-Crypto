@@ -1,7 +1,8 @@
 import { tempo } from "mppx/client";
 import { privateKeyToAccount } from "viem/accounts";
+import { EXTERNAL_URLS } from "./constants";
 
-const ANTHROPIC_MPP_URL = "https://anthropic.mpp.tempo.xyz/v1/messages";
+const ANTHROPIC_MPP_URL = EXTERNAL_URLS.ANTHROPIC_MPP;
 
 export interface AnthropicRequest {
   model: string;

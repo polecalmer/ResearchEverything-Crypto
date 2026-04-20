@@ -1,5 +1,6 @@
 import { scrapeUrl, scrapeMultiple, type ScrapedContent } from "./scraper";
 import crypto from "crypto";
+import { MODELS } from "./constants";
 
 export interface AdjacentRead {
   title: string;
@@ -99,7 +100,7 @@ export interface AnthropicRequest {
 
 export function buildAnthropicRequest(systemPrompt: string, userMessage: string, useWebSearch: boolean = false, maxTokens: number = 16000, maxSearchUses: number = 10): AnthropicRequest {
   const request: AnthropicRequest = {
-    model: "claude-opus-4-6",
+    model: MODELS.OPUS,
     max_tokens: maxTokens,
     system: systemPrompt,
     messages: [{ role: "user", content: userMessage }],

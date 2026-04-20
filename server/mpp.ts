@@ -1,16 +1,13 @@
 import { Mppx, tempo } from "mppx/express";
 import type { RequestHandler } from "express";
 import { storage } from "./storage";
-
-const OWNER_WALLET = "0x342fFFBcEbb761bC2c7B512333AF5E397b4cB72d";
-const USDC = "0x20c000000000000000000000b9537d11c60e8b50";
-const FLAT_FEE = "0.50";
+import { WALLETS, TOKENS, MPP_FLAT_FEE } from "./constants";
 
 export const mppx = Mppx.create({
   methods: [
     tempo({
-      currency: USDC,
-      recipient: OWNER_WALLET,
+      currency: TOKENS.USDC,
+      recipient: WALLETS.OWNER,
     }),
   ],
 });
@@ -28,49 +25,49 @@ function withAdminBypass(chargeMiddleware: RequestHandler): RequestHandler {
 
 export const enrichmentPaywall: RequestHandler = withAdminBypass(
   mppx.charge({
-    amount: FLAT_FEE,
-    description: `Sessions AI enrichment ($${FLAT_FEE})`,
+    amount: MPP_FLAT_FEE,
+    description: `Sessions AI enrichment ($${MPP_FLAT_FEE})`,
   }) as RequestHandler
 );
 
 export const nextStepsPaywall: RequestHandler = withAdminBypass(
   mppx.charge({
-    amount: FLAT_FEE,
-    description: `AI next steps advisor ($${FLAT_FEE})`,
+    amount: MPP_FLAT_FEE,
+    description: `AI next steps advisor ($${MPP_FLAT_FEE})`,
   }) as RequestHandler
 );
 
 export const deepResearchPaywall: RequestHandler = withAdminBypass(
   mppx.charge({
-    amount: FLAT_FEE,
-    description: `Deep research report ($${FLAT_FEE})`,
+    amount: MPP_FLAT_FEE,
+    description: `Deep research report ($${MPP_FLAT_FEE})`,
   }) as RequestHandler
 );
 
 export const tokenIntelPaywall: RequestHandler = withAdminBypass(
   mppx.charge({
-    amount: FLAT_FEE,
-    description: `Token intelligence analysis ($${FLAT_FEE})`,
+    amount: MPP_FLAT_FEE,
+    description: `Token intelligence analysis ($${MPP_FLAT_FEE})`,
   }) as RequestHandler
 );
 
 export const duneQueryPaywall: RequestHandler = withAdminBypass(
   mppx.charge({
-    amount: FLAT_FEE,
-    description: `Dune query execution ($${FLAT_FEE})`,
+    amount: MPP_FLAT_FEE,
+    description: `Dune query execution ($${MPP_FLAT_FEE})`,
   }) as RequestHandler
 );
 
 export const tokenSnapshotPaywall: RequestHandler = withAdminBypass(
   mppx.charge({
-    amount: FLAT_FEE,
-    description: `Token snapshot fetch ($${FLAT_FEE})`,
+    amount: MPP_FLAT_FEE,
+    description: `Token snapshot fetch ($${MPP_FLAT_FEE})`,
   }) as RequestHandler
 );
 
 export const dataChartPaywall: RequestHandler = withAdminBypass(
   mppx.charge({
-    amount: FLAT_FEE,
-    description: `Data chart generation ($${FLAT_FEE})`,
+    amount: MPP_FLAT_FEE,
+    description: `Data chart generation ($${MPP_FLAT_FEE})`,
   }) as RequestHandler
 );

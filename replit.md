@@ -57,7 +57,27 @@ Focus on user experience and intuitive design.
 
 **Session Research (Conversational AI — unified research surface):** The single entry point for all research, data, and analysis. Users can ask questions, generate charts, build models, and get deep analysis in one conversation. Charts are generated via a deterministic pipeline (`runChartPipeline()`) that bypasses the Opus agent loop: Sonnet extracts protocol + metric → DeFiLlama/CoinGecko fetch → server-side chart artifact + summary. P/E ratios computed with MCAP, FDV, Adj MCAP variants. Revenue/fees, TVL, volume all deterministic. Zero Opus rounds, ~3-5 seconds. Falls back to proven queries → agent loop only if deterministic fetch fails. Data sanity checks (`checkChartDataSanity`) validate all chart data before rendering. Full features: (1) highlight-to-dive-deeper, (2) Add to Reports, (3) Save as Model for structured data, (4) inline charts/tables/metric cards, (5) 16 specialized tools including Dune SQL, DeFiLlama, CoinGecko, Allium, analyst corpus. Key code: `runChartPipeline()`, `buildChartResponse()`, `checkChartDataSanity()` in `server/session-research-agent.ts`.
 
-**Financial Models (Model Viewer):** Saved financial models from session research are displayed at `/models/:id` in a spreadsheet-style UI. The extraction pipeline (`POST /api/research/messages/:msgId/save-as-model`) parses structured artifacts (tables, metric cards, charts, comparisons, callouts) from message content and JSONB artifacts into typed sections, plus extracts assumptions from content patterns and sources from markdown links. The Model Viewer renders tables with numeric alignment and alternating rows, metric card grids, Recharts charts, comparison panels, scenario analysis (bear/base/bull), callouts, assumption lists, and source links. Supports CSV download and Google Sheets export (via CSV download + import instructions). Schema: `financial_models` table with JSONB columns for sections, assumptions, and sources. Key files: `client/src/pages/model-viewer.tsx`, `server/routes.ts` (model CRUD routes), `server/storage.ts` (model storage methods).
+**Financial Models (Model Viewer):** Saved financial models from session research are displayed at `/models/:id` in a spreadsheet-style UI. The extraction pipeline (`POST /api/research/messages/:msgId/save-as-model`) parses structured artifacts (tables, metric cards, charts, comparisons, callouts) from message content and JSONB artifacts into typed sections, plus extracts assumptions from content patterns and sources from markdown links. The Model Viewer renders tables with numeric alignment and alternating rows, metric card grids, Recharts charts, comparison panels, scenario analysis (bear/base/bull), callouts, assumption lists, and source links. Supports CSV download and Google Sheets export (via CSV download + import instructions). Schema: `financial_models` table with JSONB columns for sections, assumptions, and sources. Key files: `client/src/pages/model-viewer.tsx`, `server/routes/research-routes.ts` (model CRUD routes), `server/storage.ts` (model storage methods).
+
+**Server Route Architecture:** Routes are split into domain modules under `server/routes/`:
+- `billing-routes.ts` — pricing, transactions, credits, Stripe checkout, subscriptions
+- `enrichment-routes.ts` — enrichment orchestration, next steps, deep research reports
+- `company-routes.ts` — company CRUD, founders, notes, reports
+- `token-routes.ts` — token profiles, Dune queries, master query sync, token analyses
+- `data-routes.ts` — dashboard charts, data agent, chart refresh
+- `admin-routes.ts` — analytics, cost reports, wallet admin, learnings, benchmark
+- `research-routes.ts` — session research, brain graph, financial models, analyst corpus, data brain
+- `helpers.ts` — shared utilities (autoAttachMasterQueries, buildDuneChartConfig)
+- `server/routes.ts` — thin orchestrator (50 lines) that mounts all modules + AI proxy + Telegram
+
+**Frontend Component Architecture:** Session research UI is split into:
+- `client/src/pages/session-research.tsx` — page orchestrator (430 lines)
+- `client/src/components/research-artifacts.tsx` — all artifact renderers (InlineChart, InlineTable, MetricCards, CalloutBlock, ComparisonBlock, QuoteBlock, MarkdownText, ModeBadge, DiveDeepButton, ThinkingPanel, ShareBar, MessageBubble)
+- `client/src/lib/research-utils.ts` — types, formatters, parsers (inferFormat, formatValue, parseContentAndArtifacts)
+
+**Centralized Constants:** Hardcoded values are centralized in:
+- `server/constants.ts` — WALLETS, MODELS, ADMINS, EXTERNAL_URLS
+- `shared/constants.ts` — PIPELINE_LABEL_MAP (shared between client and server)
 
 **Research Planner:** A Haiku-tier AI planner decomposes user prompts into structured `ResearchPlan`s with typed sub-questions, guiding the Session Research agent. It uses a taxonomy of 9 question types (including `derived-metric-chart` for multi-source computed time-series like P/E ratios) and playbook templates (JSON files), and validates the plan before execution. When the plan includes `derived-metric-chart` or `valuation-ask` types, `execute_code` is unblocked even in focused mode to enable data merging.
 

@@ -2,8 +2,10 @@ import { createPublicClient, createWalletClient, http, parseAbi, parseAbiItem, e
 import { privateKeyToAccount } from "viem/accounts";
 import { tempo } from "viem/chains";
 
-const ESCROW = "0x33b901018174DDabE4841042ab76ba85D4e24f25" as const;
-const USDC = "0x20C000000000000000000000b9537d11c60E8b50" as const;
+import { WALLETS, TOKENS } from "./constants";
+
+const ESCROW = WALLETS.ESCROW;
+const USDC = TOKENS.USDC;
 
 const channelOpenedEvent = parseAbiItem("event ChannelOpened(bytes32 indexed channelId, address indexed payer, address indexed payee, address token, address authorizedSigner, bytes32 salt, uint256 deposit)");
 

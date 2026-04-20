@@ -2,9 +2,11 @@ import { createPublicClient, createWalletClient, http, parseAbi, encodeFunctionD
 import { privateKeyToAccount } from "viem/accounts";
 import { tempo } from "viem/chains";
 
-const ESCROW = "0x33b901018174DDabE4841042ab76ba85D4e24f25" as const;
-const USDC = "0x20C000000000000000000000b9537d11c60E8b50" as const;
-const SERVER_WALLET = "0x8518b315b3DFC4415Be7E75b2571Df635b27552a" as const;
+import { WALLETS, TOKENS } from "./constants";
+
+const ESCROW = WALLETS.ESCROW;
+const USDC = TOKENS.USDC;
+const SERVER_WALLET = WALLETS.SERVER;
 const CHAIN_ID = 4217;
 
 const transferAbi = parseAbi([

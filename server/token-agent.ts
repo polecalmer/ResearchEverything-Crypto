@@ -4,6 +4,7 @@ import { fetchTokenSnapshot, type TokenSnapshot } from "./allium-client";
 import { isServerMppReady } from "./mpp-client";
 import { storage } from "./storage";
 import { MARKUP_MULTIPLIER } from "./enrichment";
+import { MODELS } from "./constants";
 import type { Company, DuneQuery, TokenProfile } from "@shared/schema";
 
 const TOKEN_ANALYSIS_SYSTEM = `You are the Liquid Token Research Agent in a VC deal intelligence platform. You analyze on-chain data, market metrics, and web-sourced information to produce investment-grade liquid token analysis applying a comprehensive analytical framework.
@@ -90,7 +91,7 @@ async function selectRelevantQueries(
     }));
 
     const result = await callAnthropicServerHeavy({
-      model: "claude-opus-4-6",
+      model: MODELS.OPUS,
       max_tokens: 512,
       system: QUERY_SELECTION_SYSTEM,
       messages: [{
@@ -239,7 +240,7 @@ Fetched At: ${tokenSnapshot.fetchedAt}
 
     console.log(`[TokenAgent] Phase 1/3: Market data research for ${company.name}`);
     const phase1Request: AnthropicRequest = {
-      model: "claude-opus-4-6",
+      model: MODELS.OPUS,
       max_tokens: 5000,
       system: TOKEN_ANALYSIS_SYSTEM,
       messages: [{ role: "user", content: `PHASE 1 — MARKET DATA RESEARCH for ${tokenProfile.tokenTicker || company.name}.\n\n${dataContext}\n\nFocus your web searches on gathering:\n- Current token price, market cap, FDV from CoinGecko/CoinMarketCap\n- Token supply schedule, vesting details, unlock calendar\n- DEX/CEX liquidity depth, trading volume data\n- On-chain holder distribution\n- Staking rates and lock-up data\n\nCompile ALL findings as detailed research notes. Do NOT write the final analysis report yet — just gather and organize the raw data.` }],
@@ -254,7 +255,7 @@ Fetched At: ${tokenSnapshot.fetchedAt}
 
     console.log(`[TokenAgent] Phase 2/3: Valuation & risk research for ${company.name}`);
     const phase2Request: AnthropicRequest = {
-      model: "claude-opus-4-6",
+      model: MODELS.OPUS,
       max_tokens: 5000,
       system: TOKEN_ANALYSIS_SYSTEM,
       messages: [{ role: "user", content: `PHASE 2 — VALUATION & RISK RESEARCH for ${tokenProfile.tokenTicker || company.name}.\n\nToken: ${tokenProfile.tokenTicker || "Unknown"} on ${tokenProfile.chain}\nContract: ${tokenProfile.contractAddress}\nCompany: ${company.name} (${company.sector || "Unknown"})\n\nFocus your web searches on:\n- Protocol revenue data from Token Terminal, DefiLlama\n- Revenue multiples, P/E ratios vs comparable tokens\n- Value accrual mechanisms (buyback, burn, staking rewards, fee distribution)\n- Competitive landscape — similar protocols and their valuations\n- Regulatory risks and exposure\n- Recent governance proposals or tokenomics changes\n- Any red flags (exploit history, insider selling, concentration)\n\nCompile ALL findings as detailed research notes. Do NOT write the final analysis report yet.` }],
@@ -269,7 +270,7 @@ Fetched At: ${tokenSnapshot.fetchedAt}
 
     console.log(`[TokenAgent] Phase 3/3: Synthesizing final analysis for ${company.name}`);
     const phase3Request: AnthropicRequest = {
-      model: "claude-opus-4-6",
+      model: MODELS.OPUS,
       max_tokens: 8000,
       system: TOKEN_ANALYSIS_SYSTEM,
       messages: [{ role: "user", content: `PHASE 3 — FINAL SYNTHESIS for ${tokenProfile.tokenTicker || company.name}.\n\nYou have completed two research phases. Now synthesize ALL research into the final Markdown analysis report following the exact 7-section structure specified in your system instructions (Token Classification, Supply & Adjusted Market Cap, Valuation, Liquidity Assessment, Value Accrual Assessment, Risk Flags, Investment Summary).\n\nORIGINAL DATA CONTEXT:\n${dataContext}\n\nPHASE 1 RESEARCH NOTES (Market Data):\n${phase1Notes}\n\nPHASE 2 RESEARCH NOTES (Valuation & Risk):\n${phase2Notes}\n\nProduce the FINAL complete Markdown analysis report now. Use ALL the research gathered above. Do NOT search again — just write the comprehensive analysis.` }],

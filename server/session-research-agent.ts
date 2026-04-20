@@ -6,6 +6,7 @@ import * as defillama from "./defillama-client";
 import * as vm from "vm";
 import { retrieveRelevantContext, formatRetrievedContext } from "./brain-retrieval";
 import { storage } from "./storage";
+import { MODELS } from "./constants";
 import {
   consultForTool,
   shouldShortCircuit,
@@ -637,7 +638,7 @@ export async function classifyIntent(
 
   try {
     const response = await callAnthropicRaw({
-      model: "claude-opus-4-6",
+      model: MODELS.OPUS,
       max_tokens: 100,
       system: INTENT_CLASSIFIER_PROMPT,
       messages: [{ role: "user", content: userMsg }],
@@ -766,7 +767,7 @@ Structure your response as a reasoning trace:
 Be specific, opinionated, and analytical. Use your signature style. Do not hedge excessively — take a clear analytical position and explain your reasoning.${frameworkContext}${corpusContext}${dataContext}`;
 
   const response = await callAnthropicRaw({
-    model: "claude-haiku-4-5",
+    model: MODELS.HAIKU,
     max_tokens: 1200,
     system: systemPrompt,
     messages: [{ role: "user", content: `Reason through this question from your analytical perspective:\n\n${question}` }],
@@ -1365,7 +1366,7 @@ async function runChartPipeline(
   let extracted: { protocol: string; ticker: string; metric: string; variants: string[] };
   try {
     const extractResp = await callAnthropicRaw({
-      model: "claude-sonnet-4-20250514",
+      model: MODELS.SONNET,
       max_tokens: 300,
       system: CHART_EXTRACT_PROMPT,
       messages: [{ role: "user", content: userMessage }],
@@ -2193,7 +2194,7 @@ ${perspectives.join("\n\n")}`;
     onStep?.({ type: "thinking", label: loopError ? "Recovering — synthesizing results gathered so far..." : budgetExceeded ? "Budget reached, wrapping up..." : "Wrapping up..." });
     try {
       const wrapUp = await callAnthropicRaw({
-        model: "claude-opus-4-6",
+        model: MODELS.OPUS,
         max_tokens: maxTokens,
         system: activeSystemPrompt + perspectiveAddendum + `\n\nIMPORTANT: ${wrapReason}. Synthesize what you learned from the tool results above into your response now. Do not call any more tools.`,
         messages,
@@ -2237,7 +2238,7 @@ ${perspectives.join("\n\n")}`;
         content: "Now integrate the multi-perspective analysis below into your response. Absorb the reasoning seamlessly into your own analysis — do NOT name any individual analysts. Reference perspectives generically (e.g. 'from a macro lens…', 'a derivatives-focused view suggests…'). Note agreements and disagreements, and take a synthesized position. Do not repeat yourself, but ADD the perspectives where they strengthen or challenge your analysis." + perspectiveAddendum,
       });
       const debateWrap = await callAnthropicRaw({
-        model: "claude-opus-4-6",
+        model: MODELS.OPUS,
         max_tokens: maxTokens,
         system: activeSystemPrompt,
         messages,
