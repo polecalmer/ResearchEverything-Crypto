@@ -452,11 +452,20 @@ For charts:
 \`\`\`artifact:chart
 {"title": "...", "subtitle": "ONE-LINE INSIGHT IN ALL CAPS", "source": "Dune Analytics|DeFiLlama|CoinGecko|Allium", "chartType": "line|bar|area|composed", "xAxis": {"dataKey": "...", "format": "date|currency|number|percent"}, "yAxes": [{"dataKey": "...", "format": "...", "label": "...", "chartType": "..."}], "data": [...]}
 \`\`\`
-- "subtitle" = a short ALL-CAPS insight about the trend (e.g. "CYCLICAL PATTERN — PEAKED AT 37X IN MAY 2025, NOW BACK TO 30X ON RISING EARNINGS"). Always include this.
+- "subtitle" = a short ALL-CAPS factual insight about the trend (e.g. "CYCLICAL PATTERN — PEAKED AT 37X IN MAY 2025, NOW BACK TO 30X ON RISING EARNINGS"). Always include this. NEVER editorialize or use subjective language — keep it data-driven. Bad: "COMPETITORS ARE ROUNDING ERRORS". Good: "HYPERLIQUID DOMINATES WITH 94% — JUPITER PERP DISTANT #2 AT 3.6%".
 - "source" = the data source used (e.g. "Dune Analytics", "DeFiLlama"). Always include this.
 - Prefer "line" chartType for most time-series data. Only use "area" when showing cumulative/total values.
 - Use "composed" with different formats per yAxis when mixing $ and % series
 - NEVER plot $ and % on same axis. Keep data under 365 points.
+
+MULTI-PROTOCOL / MARKET SHARE CHARTS:
+When comparing multiple protocols (market share, competitive landscape), follow these rules:
+- Use "bar" chartType for snapshot comparisons (current market share). Use "line" or "area" for time-series trends.
+- Each protocol MUST be its own yAxis with the protocol name as both dataKey and label. Never use generic names like "Market Share %" — name them "Hyperliquid", "Jupiter Perp", etc.
+- For market share requests that ask for MULTIPLE categorizations (e.g. "by volume AND by revenue"), build SEPARATE charts — one for volume share, one for revenue share. Do NOT try to cram both into a single chart.
+- When one protocol dominates (>80%), a pie chart is useless. Use a bar chart so all values are visible. Include a table artifact alongside with exact numbers.
+- Data structure for bar comparisons: each row = one time period or category, each yAxis = one protocol. For snapshot (current share), use a single data row with all protocol values.
+- Always include the unit in yAxis labels: "Hyperliquid ($M)" for volume, "Hyperliquid (%)" for share percentages.
 
 For tables:
 \`\`\`artifact:table
