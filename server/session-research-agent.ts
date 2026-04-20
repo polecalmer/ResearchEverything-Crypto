@@ -1254,6 +1254,237 @@ function toolLabel(name: string, input: any): string {
   return base;
 }
 
+const CHART_INTENT_PATTERNS = [
+  /(?:build|make|create|show|pull up|plot|graph|chart|draw|generate|give me)\s+(?:a|me|the)?\s*(?:chart|graph|plot|visualization)/i,
+  /(?:chart|graph|plot)\s+(?:of|for|showing|comparing)/i,
+  /P[\/-]?(?:E|S|F)\s+(?:chart|ratio|over|for)/i,
+  /(?:FDV|MCAP|TVL|volume|revenue|fees)\s+(?:chart|graph|over|vs|trend)/i,
+  /(?:show|pull|get|fetch)\s+(?:me\s+)?(?:the\s+)?(?:daily|weekly|monthly|historical)\s+/i,
+  /(?:price\s+(?:chart|history|vs)|compare\s+.*(?:chart|graph))/i,
+];
+
+function isChartRequest(msg: string): boolean {
+  return CHART_INTENT_PATTERNS.some(p => p.test(msg));
+}
+
+const CHART_EXTRACT_PROMPT = `Extract the protocol/token and metric from this chart request. Return ONLY valid JSON:
+{"protocol": "<name>", "metric": "<what to chart>", "keywords": ["<search terms for proven query lookup>"]}
+Examples:
+- "Build a P/E chart for HYPE" → {"protocol": "hyperliquid", "metric": "P/E ratio", "keywords": ["hyperliquid P/E", "hype revenue", "hyperliquid fees"]}
+- "Show me AAVE TVL over time" → {"protocol": "aave", "metric": "TVL", "keywords": ["aave tvl"]}
+- "Chart SOL price vs ETH" → {"protocol": "solana", "metric": "price comparison", "keywords": ["solana price", "ethereum price"]}`;
+
+const CHART_RENDER_PROMPT = `You are a fast chart generator. Given raw data from a query, produce a response with:
+1. A 2-3 sentence summary of what the data shows (key trends, notable values)
+2. One or more chart artifacts using the \`\`\`artifact:chart format
+
+CHART ARTIFACT FORMAT:
+\`\`\`artifact:chart
+{
+  "type": "line",
+  "title": "Chart Title",
+  "data": [{"date": "2024-01-01", "value": 123}, ...],
+  "xKey": "date",
+  "series": [{"key": "value", "label": "Label", "color": "#8884d8"}]
+}
+\`\`\`
+
+Rules:
+- Use the actual data provided — never fabricate numbers
+- For multi-series charts, include all series in the "series" array
+- Keep data under 365 points — sample if needed
+- Bold key numbers in your summary
+- If the data has multiple metrics (e.g. FDV_PE, MCAP_PE, ADJ_MCAP_PE), create a multi-series chart
+- Detect column names from the data and map them intelligently to chart series
+- Use distinct colors for each series: #8884d8, #82ca9d, #ffc658, #ff7300, #0088fe
+- CRITICAL: Do NOT try to compute derived data manually. The data is already computed — just chart it.`;
+
+async function runFastChartMode(
+  userMessage: string,
+  history: Array<{ role: string; content: string }>,
+  onStep?: (step: ThinkingStep) => void,
+): Promise<ResearchResponse | null> {
+  const startTime = Date.now();
+  let totalCost = 0;
+  let totalInputTokens = 0;
+  let totalOutputTokens = 0;
+
+  onStep?.({ type: "thinking", label: "Chart mode — extracting request..." });
+
+  let extracted: { protocol: string; metric: string; keywords: string[] };
+  try {
+    const extractResp = await callAnthropicRaw({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 200,
+      system: CHART_EXTRACT_PROMPT,
+      messages: [
+        ...history.slice(-4).map(h => ({ role: h.role, content: h.content })),
+        { role: "user", content: userMessage },
+      ],
+    });
+    totalCost += extractResp.mppCost;
+    totalInputTokens += extractResp.usage?.input_tokens || 0;
+    totalOutputTokens += extractResp.usage?.output_tokens || 0;
+    const text = extractResp.content.filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
+    extracted = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] || "{}");
+    if (!extracted.protocol) return null;
+  } catch {
+    return null;
+  }
+
+  console.log(`[FastChart] Extracted: protocol=${extracted.protocol}, metric=${extracted.metric}`);
+
+  onStep?.({ type: "tool_start", label: "Searching proven queries", detail: "search_proven_queries", round: 1 });
+
+  let queryData: any = null;
+  let dataSource = "";
+  let queryUsed = "";
+
+  for (const kw of extracted.keywords) {
+    const exact = await storage.findProvenQuery(extracted.protocol, kw);
+    if (exact?.sqlQuery) {
+      queryUsed = exact.metricType;
+      onStep?.({ type: "tool_result", label: `Found: ${exact.metricType}`, detail: "search_proven_queries", round: 1 });
+
+      onStep?.({ type: "tool_start", label: `Running: ${exact.metricType}`, detail: "execute_dune_sql", round: 1 });
+      try {
+        const result = await executeDuneSQL(exact.sqlQuery);
+        if (result?.rows && result.rows.length > 0) {
+          queryData = { rows: result.rows.slice(0, 500), columns: result.columns?.map((c: any) => c.name) || Object.keys(result.rows[0]) };
+          dataSource = "proven_query";
+          onStep?.({ type: "tool_result", label: `Got ${queryData.rows.length} rows`, detail: "execute_dune_sql", round: 1 });
+          break;
+        }
+      } catch (e: any) {
+        console.log(`[FastChart] Dune query failed: ${e.message}`);
+      }
+    }
+
+    const fewShot = await storage.getFewShotExamples(extracted.protocol, kw, 3);
+    for (const q of fewShot) {
+      if (queryData) break;
+      if (!q.sqlQuery) continue;
+      onStep?.({ type: "tool_start", label: `Trying: ${q.metricType}`, detail: "execute_dune_sql", round: 1 });
+      try {
+        const result = await executeDuneSQL(q.sqlQuery);
+        if (result?.rows && result.rows.length > 0) {
+          queryData = { rows: result.rows.slice(0, 500), columns: result.columns?.map((c: any) => c.name) || Object.keys(result.rows[0]) };
+          queryUsed = q.metricType;
+          dataSource = "proven_query";
+          onStep?.({ type: "tool_result", label: `Got ${queryData.rows.length} rows`, detail: "execute_dune_sql", round: 1 });
+          break;
+        }
+      } catch {}
+    }
+    if (queryData) break;
+  }
+
+  if (!queryData) {
+    onStep?.({ type: "tool_start", label: `Fetching ${extracted.metric} from APIs`, detail: "defillama", round: 1 });
+    try {
+      const slug = await defillama.resolveSlug(extracted.protocol);
+      const metric = extracted.metric.toLowerCase();
+      if (metric.includes("tvl")) {
+        const data = await defillama.getProtocolTvl(slug);
+        if (data?.length) {
+          const sampled = sampleData(data.map((d: any) => ({ date: new Date(d.date * 1000).toISOString().slice(0, 10), tvl: Math.round(d.totalLiquidityUSD) })), 365);
+          queryData = { rows: sampled, columns: ["date", "tvl"] };
+          dataSource = "defillama_tvl";
+        }
+      } else if (metric.includes("fee") || metric.includes("revenue") || metric.includes("p/e") || metric.includes("p/s")) {
+        const [feesRes, revenueRes] = await Promise.allSettled([
+          defillama.getProtocolFees(slug),
+          defillama.getProtocolRevenue(slug),
+        ]);
+        const fees = feesRes.status === "fulfilled" ? feesRes.value : null;
+        const revenue = revenueRes.status === "fulfilled" ? revenueRes.value : null;
+        const rows: any[] = [];
+        const feeData = fees?.dailyFees || [];
+        const revData = revenue?.dailyRevenue || [];
+        const dateMap = new Map<string, any>();
+        for (const d of feeData) { dateMap.set(d.date, { date: d.date, fees: d.fees }); }
+        for (const d of revData) { const existing = dateMap.get(d.date) || { date: d.date }; existing.revenue = d.revenue; dateMap.set(d.date, existing); }
+        for (const row of dateMap.values()) rows.push(row);
+        rows.sort((a, b) => a.date.localeCompare(b.date));
+        if (rows.length > 0) {
+          queryData = { rows: sampleData(rows, 365), columns: Object.keys(rows[0]) };
+          dataSource = "defillama_fees";
+        }
+      } else if (metric.includes("volume")) {
+        const data = await defillama.getProtocolDexVolume(slug).then(r => r?.dailyVolume || []).catch(() => []);
+        if (data?.length) {
+          const sampled = sampleData(data.map((d: any) => ({ date: new Date(d.date * 1000).toISOString().slice(0, 10), volume: Math.round(d.volume) })), 365);
+          queryData = { rows: sampled, columns: ["date", "volume"] };
+          dataSource = "defillama_volume";
+        }
+      }
+      if (queryData) {
+        onStep?.({ type: "tool_result", label: `Got ${queryData.rows.length} data points`, detail: "defillama", round: 1 });
+      }
+    } catch (e: any) {
+      console.log(`[FastChart] DeFiLlama fallback failed: ${e.message}`);
+    }
+  }
+
+  if (!queryData || queryData.rows.length === 0) {
+    console.log(`[FastChart] No data found — falling back to full agent`);
+    return null;
+  }
+
+  onStep?.({ type: "thinking", label: "Generating chart..." });
+
+  let chartRows = queryData.rows;
+  if (chartRows.length > 365) {
+    const step = Math.ceil(chartRows.length / 365);
+    chartRows = chartRows.filter((_: any, i: number) => i % step === 0 || i === chartRows.length - 1);
+  }
+  const fullDataStr = JSON.stringify(chartRows);
+  if (fullDataStr.length > 120000) {
+    const targetRows = Math.floor(chartRows.length * (100000 / fullDataStr.length));
+    const step = Math.ceil(chartRows.length / targetRows);
+    chartRows = chartRows.filter((_: any, i: number) => i % step === 0 || i === chartRows.length - 1);
+  }
+
+  const renderPrompt = `User asked: "${userMessage}"
+Data source: ${dataSource} (query: ${queryUsed || "API"})
+Columns: ${queryData.columns.join(", ")}
+Total rows: ${chartRows.length}
+
+Full data for chart (use this in the artifact):
+${JSON.stringify(chartRows)}
+
+Generate a chart artifact and brief summary.`;
+
+  try {
+    const renderResp = await callAnthropicRaw({
+      model: "claude-sonnet-4-20250514",
+      max_tokens: 16000,
+      system: CHART_RENDER_PROMPT,
+      messages: [{ role: "user", content: renderPrompt }],
+    });
+    totalCost += renderResp.mppCost;
+    totalInputTokens += renderResp.usage?.input_tokens || 0;
+    totalOutputTokens += renderResp.usage?.output_tokens || 0;
+
+    const outputText = renderResp.content.filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
+    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+    console.log(`[FastChart] Complete in ${elapsed}s (${queryData.rows.length} rows, source=${dataSource})`);
+
+    return {
+      text: outputText,
+      toolCalls: ["search_proven_queries", dataSource.startsWith("defillama") ? dataSource : "execute_dune_sql"],
+      mode: "focused",
+      totalCost,
+      totalInputTokens,
+      totalOutputTokens,
+      costBasis: "receipt",
+    };
+  } catch (e: any) {
+    console.log(`[FastChart] Render call failed: ${e.message} — falling back to full agent`);
+    return null;
+  }
+}
+
 export async function runSessionResearchAgent(
   userMessage: string,
   history: Array<{ role: string; content: string }>,
@@ -1263,6 +1494,20 @@ export async function runSessionResearchAgent(
   onPlan?: (plan: ResearchPlan) => void | Promise<void>,
   userId?: string,
 ): Promise<ResearchResponse> {
+  if (!forceMode && isChartRequest(userMessage)) {
+    console.log(`[SessionResearch] Fast chart mode triggered for: "${userMessage.slice(0, 80)}"`);
+    try {
+      const fastResult = await runFastChartMode(userMessage, history, onStep);
+      if (fastResult) {
+        console.log(`[SessionResearch] Fast chart mode succeeded`);
+        return fastResult;
+      }
+      console.log(`[SessionResearch] Fast chart mode returned null — falling back to full agent`);
+    } catch (e: any) {
+      console.log(`[SessionResearch] Fast chart mode error: ${e.message} — falling back`);
+    }
+  }
+
   const toolCalls: string[] = [];
   const toolCallSignatures: string[] = [];
   let totalCost = 0;
