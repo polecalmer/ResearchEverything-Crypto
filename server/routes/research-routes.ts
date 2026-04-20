@@ -721,6 +721,7 @@ export function registerResearchRoutes(app: Express) {
         id: dashboardCharts.id,
         title: dashboardCharts.title,
         chartType: dashboardCharts.chartType,
+        dataSource: dashboardCharts.dataSource,
         dataSourceConfig: dashboardCharts.dataSourceConfig,
         chartConfig: dashboardCharts.chartConfig,
         data: dashboardCharts.data,

@@ -17,6 +17,7 @@ interface SavedChart {
   id: string;
   title: string;
   chartType: string;
+  dataSource: string;
   chartConfig: string;
   data: string;
   dataSourceConfig: string;
