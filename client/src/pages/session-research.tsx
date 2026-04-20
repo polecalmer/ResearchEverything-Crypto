@@ -3,12 +3,12 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { Send, Plus, Trash2, Loader2, MessageSquare, FileText } from "lucide-react";
+import { Send, Plus, Trash2, Loader2, MessageSquare, FileText, FlaskConical, BarChart3 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import {
   type ResearchMode, type Session, type SessionMessage, type ThinkingStep,
-  SUGGESTED_QUERIES,
+  SUGGESTED_QUERIES, SUGGESTED_DATA_QUERIES,
 } from "@/lib/research-utils";
 import {
   MessageBubble, DiveDeepButton, ThinkingPanel, ShareBar,
@@ -22,7 +22,8 @@ export default function SessionResearch() {
   const [pendingUserMsg, setPendingUserMsg] = useState<string | null>(null);
   const [thinkingSteps, setThinkingSteps] = useState<ThinkingStep[]>([]);
   const [isSending, setIsSending] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<"sessions" | "models">("sessions");
+  const [sidebarTab, setSidebarTab] = useState<"sessions" | "models" | "charts">("sessions");
+  const [sessionMode, setSessionMode] = useState<"research" | "data">("research");
   const [targetMessageId, setTargetMessageId] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -40,6 +41,16 @@ export default function SessionResearch() {
     preview: string;
   }>>({
     queryKey: ["/api/research/saved-models"],
+    enabled: !!user,
+  });
+
+  const savedChartsQuery = useQuery<Array<{
+    id: string;
+    title: string;
+    chartType: string;
+    createdAt: string;
+  }>>({
+    queryKey: ["/api/research/charts/saved"],
     enabled: !!user,
   });
 
@@ -99,7 +110,7 @@ export default function SessionResearch() {
         method: "POST",
         headers,
         credentials: "include",
-        body: JSON.stringify({ message, forceMode: opts?.forceMode, refreshBrain: opts?.refreshBrain }),
+        body: JSON.stringify({ message, forceMode: opts?.forceMode, refreshBrain: opts?.refreshBrain, sessionMode }),
       });
 
       if (!res.ok) {
@@ -156,7 +167,7 @@ export default function SessionResearch() {
       setPendingUserMsg(null);
       setIsSending(false);
     }
-  }, [toast]);
+  }, [toast, sessionMode]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -244,6 +255,7 @@ export default function SessionResearch() {
 
   const sessions = sessionsQuery.data || [];
   const savedModels = savedModelsQuery.data || [];
+  const savedCharts = savedChartsQuery.data || [];
   const messages = messagesQuery.data || [];
 
   return (
@@ -262,7 +274,7 @@ export default function SessionResearch() {
           </Button>
         </div>
         <div className="flex border-b border-border/30 text-[9px] uppercase tracking-wider">
-          {(["sessions", "models"] as const).map((tab) => (
+          {(["sessions", "models", "charts"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setSidebarTab(tab)}
@@ -273,7 +285,7 @@ export default function SessionResearch() {
               }`}
               data-testid={`sidebar-tab-${tab}`}
             >
-              {tab === "sessions" ? `Sessions (${sessions.length})` : `Models (${savedModels.length})`}
+              {tab === "sessions" ? `Sessions (${sessions.length})` : tab === "models" ? `Models (${savedModels.length})` : `Charts (${savedCharts.length})`}
             </button>
           ))}
         </div>
@@ -301,7 +313,7 @@ export default function SessionResearch() {
                 </div>
               ))}
               {sessions.length === 0 && !sessionsQuery.isLoading && (
-                <p className="text-[9px] text-muted-foreground/40 text-center py-8 px-3">No sessions yet. Start a new research session.</p>
+                <p className="text-[9px] text-muted-foreground/40 text-center py-8 px-3">No sessions yet. Start a new session.</p>
               )}
             </>
           )}
@@ -333,22 +345,89 @@ export default function SessionResearch() {
               )}
             </>
           )}
+          {sidebarTab === "charts" && (
+            <>
+              {savedCharts.map((c) => (
+                <div
+                  key={c.id}
+                  className="group flex items-center gap-1.5 px-3 py-2 border-b border-border/10 hover:bg-muted/30 transition-colors"
+                  data-testid={`saved-chart-item-${c.id}`}
+                >
+                  <BarChart3 className="h-3 w-3 text-cyan-400/60 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] text-foreground/85 truncate">{c.title}</p>
+                    <p className="text-[8px] text-muted-foreground/50 mt-0.5">
+                      {format(new Date(c.createdAt), "MMM d, yyyy")} · {c.chartType}
+                    </p>
+                  </div>
+                  <button
+                    className="opacity-0 group-hover:opacity-100 p-0.5 hover:text-destructive transition-opacity"
+                    onClick={async () => {
+                      try {
+                        const authHeaders = await getAuthHeaders();
+                        await fetch(`/api/research/charts/${c.id}`, {
+                          method: "DELETE",
+                          headers: authHeaders,
+                          credentials: "include",
+                        });
+                        queryClient.invalidateQueries({ queryKey: ["/api/research/charts/saved"] });
+                      } catch {}
+                    }}
+                    data-testid={`button-delete-chart-${c.id}`}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              ))}
+              {savedCharts.length === 0 && !savedChartsQuery.isLoading && (
+                <p className="text-[9px] text-muted-foreground/40 text-center py-8 px-3">
+                  No saved charts yet. Build a chart and click "Save" to add it here.
+                </p>
+              )}
+            </>
+          )}
         </div>
       </div>
 
       <div className="flex-1 flex flex-col min-w-0">
-        {activeSessionId && messages.length > 0 && (
-          <ShareBar sessionId={activeSessionId} session={sessions.find(s => s.id === activeSessionId)} />
-        )}
+        <div className="border-b border-border/30 px-4 py-2 flex items-center justify-between bg-card/10">
+          <div className="flex items-center gap-1 bg-muted/30 rounded-md p-0.5" data-testid="session-mode-toggle">
+            {([
+              { key: "research" as const, label: "Research", icon: FlaskConical },
+              { key: "data" as const, label: "Data", icon: BarChart3 },
+            ]).map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                onClick={() => setSessionMode(key)}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-[11px] font-medium transition-all ${
+                  sessionMode === key
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground/60 hover:text-foreground/80"
+                }`}
+                data-testid={`session-mode-${key}`}
+              >
+                <Icon className="h-3 w-3" />
+                {label}
+              </button>
+            ))}
+          </div>
+          {activeSessionId && messages.length > 0 && (
+            <ShareBar sessionId={activeSessionId} session={sessions.find(s => s.id === activeSessionId)} />
+          )}
+        </div>
         <div className="flex-1 overflow-y-auto px-8 py-6">
           {!activeSessionId && messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full max-w-lg mx-auto">
-              <h2 className="text-lg font-bold text-foreground/90 mb-2">Session Research</h2>
+              <h2 className="text-lg font-bold text-foreground/90 mb-2">
+                {sessionMode === "data" ? "Data & Charts" : "Sessions"}
+              </h2>
               <p className="text-sm text-muted-foreground/60 mb-8 text-center leading-relaxed">
-                Ask anything about DeFi protocols, on-chain data, or market trends. Charts and tables render inline.
+                {sessionMode === "data"
+                  ? "Build charts, visualize on-chain data, and create dashboards. Every chart becomes a saveable artifact."
+                  : "Ask anything about DeFi protocols, on-chain data, or market trends. Charts and tables render inline."}
               </p>
               <div className="grid grid-cols-2 gap-3 w-full">
-                {SUGGESTED_QUERIES.map((q, i) => (
+                {(sessionMode === "data" ? SUGGESTED_DATA_QUERIES : SUGGESTED_QUERIES).map((q, i) => (
                   <button
                     key={i}
                     className="text-left text-[13px] text-foreground/60 hover:text-foreground/90 bg-card/40 hover:bg-card/60 rounded-lg border border-border/30 hover:border-border/50 px-4 py-3 transition-colors leading-relaxed"
@@ -411,7 +490,7 @@ export default function SessionResearch() {
                 e.target.style.height = Math.min(e.target.scrollHeight, 140) + "px";
               }}
               onKeyDown={handleKeyDown}
-              placeholder="Ask about protocols, metrics, or on-chain data..."
+              placeholder={sessionMode === "data" ? "Build a chart, query data, or create a visualization..." : "Ask about protocols, metrics, or on-chain data..."}
               className="flex-1 resize-none rounded-lg border border-border/40 bg-card/30 px-4 py-3 text-[13px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 min-h-[44px] max-h-[140px]"
               rows={1}
               disabled={isSending}

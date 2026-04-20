@@ -151,7 +151,7 @@ export function registerResearchRoutes(app: Express) {
     try {
       const session = await storage.createConversation({
         userId: req.user!.id,
-        title: req.body.title || "New Research Session",
+        title: req.body.title || "New Session",
         type: "research",
       });
       res.json(session);
@@ -185,7 +185,8 @@ export function registerResearchRoutes(app: Express) {
         return res.status(404).json({ message: "Session not found" });
       }
 
-      const { message, forceMode, refreshBrain } = req.body;
+      const { message, forceMode, refreshBrain, sessionMode } = req.body;
+      const isDataMode = sessionMode === "data";
       if (!message || typeof message !== "string") {
         return res.status(400).json({ message: "Message is required" });
       }
@@ -245,7 +246,7 @@ export function registerResearchRoutes(app: Express) {
         historyForAgent.slice(0, -1),
         brainForAgent,
         (step) => sendEvent("step", step),
-        mode,
+        isDataMode ? "focused" as const : mode,
         async (plan) => {
           try {
             await storage.updateMessagePlan(userMsg.id, plan);
@@ -255,6 +256,7 @@ export function registerResearchRoutes(app: Express) {
           }
         },
         req.user!.id,
+        isDataMode,
       );
       sendEvent("mode", { mode: result.mode, reason: result.modeReason });
 
@@ -674,6 +676,67 @@ export function registerResearchRoutes(app: Express) {
       res.json({ id: model.id, title: model.title });
     } catch (e: any) {
       console.error("[save-as-model] failed:", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/research/charts/save", requireAuth, async (req, res) => {
+    try {
+      const { title, chartType, chartConfig, data, description } = req.body;
+      if (!title || !data) {
+        return res.status(400).json({ message: "Title and data are required" });
+      }
+
+      const { dashboardCharts } = await import("@shared/schema");
+      const { db: dbImport } = await import("../db");
+      const [chart] = await dbImport.insert(dashboardCharts).values({
+        userId: req.user!.id,
+        title,
+        description: description || null,
+        chartType: chartType || "line",
+        dataSource: "session",
+        dataSourceConfig: JSON.stringify({ source: "session_research" }),
+        chartConfig: JSON.stringify(chartConfig || {}),
+        data: JSON.stringify(data),
+        status: "complete",
+      }).returning();
+
+      res.json({ id: chart.id, title: chart.title });
+    } catch (e: any) {
+      console.error("[save-chart] failed:", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/research/charts/saved", requireAuth, async (req, res) => {
+    try {
+      const { dashboardCharts } = await import("@shared/schema");
+      const { db: dbImport } = await import("../db");
+      const { eq, desc, sql: sqlOp } = await import("drizzle-orm");
+      const charts = await dbImport.select({
+        id: dashboardCharts.id,
+        title: dashboardCharts.title,
+        chartType: dashboardCharts.chartType,
+        createdAt: dashboardCharts.createdAt,
+      }).from(dashboardCharts)
+        .where(eq(dashboardCharts.userId, req.user!.id))
+        .orderBy(desc(dashboardCharts.createdAt))
+        .limit(50);
+      res.json(charts);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/research/charts/:id", requireAuth, async (req, res) => {
+    try {
+      const { dashboardCharts } = await import("@shared/schema");
+      const { db: dbImport } = await import("../db");
+      const { eq, and } = await import("drizzle-orm");
+      await dbImport.delete(dashboardCharts)
+        .where(and(eq(dashboardCharts.id, req.params.id), eq(dashboardCharts.userId, req.user!.id)));
+      res.json({ success: true });
+    } catch (e: any) {
       res.status(500).json({ message: e.message });
     }
   });

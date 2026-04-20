@@ -1652,8 +1652,9 @@ export async function runSessionResearchAgent(
   forceMode?: ResearchMode,
   onPlan?: (plan: ResearchPlan) => void | Promise<void>,
   userId?: string,
+  isDataMode?: boolean,
 ): Promise<ResearchResponse> {
-  const isChart = !forceMode && isChartRequest(userMessage);
+  const isChart = isDataMode || (!forceMode && isChartRequest(userMessage));
 
   const toolCalls: string[] = [];
   const toolCallSignatures: string[] = [];

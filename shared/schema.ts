@@ -139,7 +139,7 @@ export const tokenAnalyses = pgTable("token_analyses", {
 
 export const dashboardCharts = pgTable("dashboard_charts", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  companyId: varchar("company_id").notNull(),
+  companyId: varchar("company_id"),
   userId: varchar("user_id").notNull(),
   title: text("title").notNull(),
   description: text("description"),

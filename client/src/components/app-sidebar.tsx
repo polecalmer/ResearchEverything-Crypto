@@ -21,7 +21,7 @@ const navItems = [
   { title: "Pipeline", url: "/", icon: LayoutDashboard },
   { title: "Map", url: "/map", icon: Network },
   { title: "Companies", url: "/companies", icon: Building2 },
-  { title: "Research", url: "/research", icon: FlaskConical },
+  { title: "Sessions", url: "/research", icon: FlaskConical },
   { title: "Brain", url: "/brain", icon: Brain },
   { title: "Wallet", url: "/wallet", icon: Wallet },
   { title: "Extension", url: "/extension", icon: Chrome },

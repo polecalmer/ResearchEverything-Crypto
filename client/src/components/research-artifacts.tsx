@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
-import { getAuthHeaders } from "@/lib/queryClient";
+import { getAuthHeaders, queryClient } from "@/lib/queryClient";
 import {
   type Artifact, type SessionMessage, type Session,
   type ResearchMode, type ThinkingStep,
@@ -36,6 +36,9 @@ const CHART_VIEW_OPTIONS: { mode: ChartViewMode; icon: typeof TrendingUp; tip: s
 
 export function InlineChart({ artifact }: { artifact: Artifact }) {
   const { chartConfig, data, title, subtitle, source } = artifact;
+  const { toast } = useToast();
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
   if (!chartConfig || !data?.length) return null;
 
   const { chartType: defaultChartType, xAxis, yAxes } = chartConfig;
@@ -300,6 +303,33 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
     return { disabled: false };
   };
 
+  const handleSaveChart = async () => {
+    setSaving(true);
+    try {
+      const authHeaders = await getAuthHeaders();
+      const res = await fetch("/api/research/charts/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        credentials: "include",
+        body: JSON.stringify({
+          title: title || "Untitled Chart",
+          chartType: defaultChartType,
+          chartConfig,
+          data,
+          description: subtitle || source || "",
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Failed to save");
+      setSaved(true);
+      queryClient.invalidateQueries({ queryKey: ["/api/research/charts/saved"] });
+      toast({ title: "Saved", description: `Chart "${title}" saved to your dashboard.` });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div className="my-5 rounded-lg border border-border/30 bg-card/40 p-5 shadow-sm" style={{ overflow: "visible" }}>
       <div className="flex items-start justify-between mb-1">
@@ -307,12 +337,28 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
           {title && <h4 className="text-sm font-semibold text-foreground/90 tracking-tight">{title}</h4>}
           {subtitle && <p className="text-[11px] font-medium text-emerald-400 uppercase tracking-wider mt-1 leading-snug">{subtitle}</p>}
         </div>
-        {latestValue && (
-          <div className="text-right ml-4 shrink-0">
-            <p className="text-xl font-bold font-mono tabular-nums tracking-tight leading-none" style={{ color: CHART_COLORS[0] }}>{latestValue}</p>
-            <p className="text-[10px] text-muted-foreground/50 mt-0.5">Latest</p>
-          </div>
-        )}
+        <div className="flex items-center gap-2 ml-4 shrink-0">
+          {latestValue && (
+            <div className="text-right">
+              <p className="text-xl font-bold font-mono tabular-nums tracking-tight leading-none" style={{ color: CHART_COLORS[0] }}>{latestValue}</p>
+              <p className="text-[10px] text-muted-foreground/50 mt-0.5">Latest</p>
+            </div>
+          )}
+          <button
+            onClick={handleSaveChart}
+            disabled={saving || saved}
+            className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-all border ${
+              saved
+                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                : "text-muted-foreground/60 hover:text-foreground/80 hover:bg-muted/30 border-border/30"
+            }`}
+            data-testid="button-save-chart"
+            title="Save to dashboard"
+          >
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : saved ? <Check className="h-3 w-3" /> : <Bookmark className="h-3 w-3" />}
+            {saved ? "Saved" : "Save"}
+          </button>
+        </div>
       </div>
       <div className="flex items-center gap-1 mt-2 mb-3" data-testid="chart-type-toggle">
         {CHART_VIEW_OPTIONS.map(({ mode, icon: Icon, tip }) => {

@@ -212,3 +212,10 @@ export const SUGGESTED_QUERIES = [
   "Which DEXs have the highest revenue in the last 30 days?",
   "What's the P/E ratio trend for Ethereum L2s?",
 ];
+
+export const SUGGESTED_DATA_QUERIES = [
+  "Chart Hyperliquid 30D MA ARR vs price over the last 6 months",
+  "Build a fees and revenue comparison: Uniswap vs Aave vs Lido",
+  "Show me Ethereum L2 TVL breakdown as a stacked area chart",
+  "Compare daily active users across top 5 DEXs",
+];
