@@ -539,7 +539,7 @@ export async function callAnthropicRawStreaming(request: any): Promise<Anthropic
         }
       }
       const is524 = errMsg.includes("524") || errMsg.includes("timeout");
-      const isRetryableError = errMsg.includes("fetch") || is524 || errMsg.includes("502") || errMsg.includes("503") || errMsg.includes("ECONNRESET") || errMsg.includes("429");
+      const isRetryableError = errMsg.includes("fetch") || is524 || errMsg.includes("502") || errMsg.includes("503") || errMsg.includes("ECONNRESET") || errMsg.includes("429") || errMsg.includes("terminated") || errMsg.includes("network") || errMsg.includes("aborted");
       if (attempt < MAX_RETRIES && isRetryableError) {
         const delay = is524 ? Math.min(30000, 10000 * (attempt + 1)) : RETRY_DELAY_MS * (attempt + 1);
         console.log(`[MPP-Stream] Error: "${errMsg.slice(0, 80)}", retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
