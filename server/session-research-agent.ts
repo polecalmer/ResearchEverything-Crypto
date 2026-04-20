@@ -1153,7 +1153,7 @@ export function parseArtifacts(content: string): ResearchArtifact[] {
       const type = match[1];
       const json = JSON.parse(match[2].trim());
       if (type === "chart") {
-        artifacts.push({
+        const chartArtifact: ResearchArtifact = {
           type: "chart",
           title: json.title || "Chart",
           subtitle: json.subtitle,
@@ -1164,7 +1164,9 @@ export function parseArtifacts(content: string): ResearchArtifact[] {
             xAxis: json.xAxis || { dataKey: "date" },
             yAxes: json.yAxes || [],
           },
-        });
+        };
+        if (json.refreshRecipe) chartArtifact.refreshRecipe = json.refreshRecipe;
+        artifacts.push(chartArtifact);
       } else if (type === "metric_cards") {
         artifacts.push({
           type: "metric_cards",

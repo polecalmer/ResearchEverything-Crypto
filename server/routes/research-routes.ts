@@ -230,35 +230,48 @@ export function registerResearchRoutes(app: Express) {
 
       const { runSessionResearchAgent, parseArtifacts } = await import("../session-research-agent");
 
-      let brainForAgent = brain;
-      if (refreshBrain && brain) {
-        const LIVE = /\b(price|tvl|mcap|market cap|fdv|fee|fees|revenue|volume|apy|apr|yield|supply|circulating|inflation|holders|active users|dau|wau)\b/i;
-        const filtered = (brain.knowledge || []).filter((f: any) => {
-          const text = `${f.topic || ""} ${f.fact || ""}`;
-          return !LIVE.test(text);
-        });
-        brainForAgent = { ...brain, knowledge: filtered };
-        console.log(`[SessionResearch] refreshBrain=true → dropped ${(brain.knowledge || []).length - filtered.length} live-metric facts from context`);
-      }
+      let result: any;
 
-      const result = await runSessionResearchAgent(
-        message,
-        historyForAgent.slice(0, -1),
-        brainForAgent,
-        (step) => sendEvent("step", step),
-        isDataMode ? "focused" as const : mode,
-        async (plan) => {
-          try {
-            await storage.updateMessagePlan(userMsg.id, plan);
-            sendEvent("plan", plan);
-          } catch (err: any) {
-            console.error("[SessionResearch] Failed to persist plan:", err.message);
-          }
-        },
-        req.user!.id,
-        isDataMode,
-      );
-      sendEvent("mode", { mode: result.mode, reason: result.modeReason });
+      if (isDataMode) {
+        console.log(`[SessionResearch] Data mode → routing to data agent (chart builder)`);
+        const { runDataAgentForSession } = await import("../data-agent");
+        result = await runDataAgentForSession(
+          message,
+          req.user!.id,
+          (step) => sendEvent("step", step),
+        );
+        sendEvent("mode", { mode: result.mode, reason: result.modeReason });
+      } else {
+        let brainForAgent = brain;
+        if (refreshBrain && brain) {
+          const LIVE = /\b(price|tvl|mcap|market cap|fdv|fee|fees|revenue|volume|apy|apr|yield|supply|circulating|inflation|holders|active users|dau|wau)\b/i;
+          const filtered = (brain.knowledge || []).filter((f: any) => {
+            const text = `${f.topic || ""} ${f.fact || ""}`;
+            return !LIVE.test(text);
+          });
+          brainForAgent = { ...brain, knowledge: filtered };
+          console.log(`[SessionResearch] refreshBrain=true → dropped ${(brain.knowledge || []).length - filtered.length} live-metric facts from context`);
+        }
+
+        result = await runSessionResearchAgent(
+          message,
+          historyForAgent.slice(0, -1),
+          brainForAgent,
+          (step) => sendEvent("step", step),
+          mode,
+          async (plan) => {
+            try {
+              await storage.updateMessagePlan(userMsg.id, plan);
+              sendEvent("plan", plan);
+            } catch (err: any) {
+              console.error("[SessionResearch] Failed to persist plan:", err.message);
+            }
+          },
+          req.user!.id,
+          false,
+        );
+        sendEvent("mode", { mode: result.mode, reason: result.modeReason });
+      }
 
       const artifacts = parseArtifacts(result.content);
       const continuationTag = result.needsContinuation ? "<!-- needs_continuation -->\n" : "";
@@ -804,6 +817,22 @@ export function registerResearchRoutes(app: Express) {
         const rows = rawData?.rows || [];
         const existingConfig = JSON.parse(chart.chartConfig || "{}");
         result = { data: rows, chartConfig: existingConfig };
+      } else if (recipe.dataSource === "dune-sql" && recipe.sql) {
+        const { executeDuneSQL } = await import("../dune-client");
+        const rawData = await executeDuneSQL(recipe.sql);
+        const rows = rawData?.rows || [];
+        const existingConfig = JSON.parse(chart.chartConfig || "{}");
+        result = { data: rows, chartConfig: existingConfig };
+      } else if (recipe.dataSource === "coingecko" && recipe.coinId) {
+        const resp = await fetch(`https://api.coingecko.com/api/v3/coins/${recipe.coinId}/market_chart?vs_currency=usd&days=${recipe.daysBack || 365}`);
+        if (!resp.ok) throw new Error(`CoinGecko API error: ${resp.status}`);
+        const cgData = await resp.json();
+        const rows = (cgData.prices || []).map((p: [number, number]) => ({
+          date: Math.floor(p[0] / 1000),
+          price: p[1],
+        }));
+        const existingConfig = JSON.parse(chart.chartConfig || "{}");
+        result = { data: rows, chartConfig: existingConfig };
       } else if (recipe.dataSource === "stonks") {
         const apiKey = process.env.STONKS_API_KEY;
         if (!apiKey) throw new Error("Stonks API key not configured");
@@ -814,6 +843,22 @@ export function registerResearchRoutes(app: Express) {
         if (!resp.ok) throw new Error(`Stonks API error: ${resp.status}`);
         const freshData = await resp.json();
         const rows = Array.isArray(freshData) ? freshData : [freshData];
+        const existingConfig = JSON.parse(chart.chartConfig || "{}");
+        result = { data: rows, chartConfig: existingConfig };
+      } else if (recipe.dataSource === "defillama" && recipe.endpoint) {
+        const defillama = await import("../defillama-client");
+        const slug = recipe.slug || recipe.protocol;
+        let rows: any[] = [];
+        if (recipe.endpoint === "tvl") {
+          const tvlData = await defillama.getProtocolTvl(slug);
+          rows = (tvlData || []).map((d: any) => ({ date: d.date, tvl: d.totalLiquidityUSD }));
+        } else if (recipe.endpoint === "fees") {
+          const feesData = await defillama.getProtocolFees(slug);
+          rows = (feesData?.totalDataChart || []).map((d: any) => ({ date: d[0], fees: d[1] }));
+        } else if (recipe.endpoint === "revenue") {
+          const revData = await defillama.getProtocolRevenue(slug);
+          rows = (revData?.totalDataChart || []).map((d: any) => ({ date: d[0], revenue: d[1] }));
+        }
         const existingConfig = JSON.parse(chart.chartConfig || "{}");
         result = { data: rows, chartConfig: existingConfig };
       } else {
