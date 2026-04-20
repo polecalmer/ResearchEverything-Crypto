@@ -34,7 +34,7 @@ const CHART_VIEW_OPTIONS: { mode: ChartViewMode; icon: typeof TrendingUp; tip: s
   { mode: "pie", icon: PieChartIcon, tip: "Breakdown" },
 ];
 
-export function InlineChart({ artifact, hideSave }: { artifact: Artifact; hideSave?: boolean }) {
+export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifact; hideSave?: boolean; compact?: boolean }) {
   const { chartConfig, data, title, subtitle, source, refreshRecipe } = artifact;
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
@@ -332,16 +332,16 @@ export function InlineChart({ artifact, hideSave }: { artifact: Artifact; hideSa
   };
 
   return (
-    <div className="my-5 rounded-lg border border-border/30 bg-card/40 p-5 shadow-sm" style={{ overflow: "visible" }}>
+    <div className={`rounded-lg border border-border/30 bg-card/40 shadow-sm ${compact ? "my-0 p-3" : "my-5 p-5"}`} style={{ overflow: "visible" }}>
       <div className="flex items-start justify-between mb-1">
         <div className="flex-1 min-w-0">
-          {title && <h4 className="text-sm font-semibold text-foreground/90 tracking-tight">{title}</h4>}
-          {subtitle && <p className="text-[11px] font-medium text-emerald-400 uppercase tracking-wider mt-1 leading-snug">{subtitle}</p>}
+          {title && <h4 className={`font-semibold text-foreground/90 tracking-tight ${compact ? "text-xs" : "text-sm"}`}>{title}</h4>}
+          {subtitle && <p className={`font-medium text-emerald-400 uppercase tracking-wider mt-1 leading-snug ${compact ? "text-[9px]" : "text-[11px]"}`}>{subtitle}</p>}
         </div>
         <div className="flex items-center gap-2 ml-4 shrink-0">
           {latestValue && (
             <div className="text-right">
-              <p className="text-xl font-bold font-mono tabular-nums tracking-tight leading-none" style={{ color: CHART_COLORS[0] }}>{latestValue}</p>
+              <p className={`font-bold font-mono tabular-nums tracking-tight leading-none ${compact ? "text-base" : "text-xl"}`} style={{ color: CHART_COLORS[0] }}>{latestValue}</p>
               <p className="text-[10px] text-muted-foreground/50 mt-0.5">Latest</p>
             </div>
           )}
@@ -363,36 +363,38 @@ export function InlineChart({ artifact, hideSave }: { artifact: Artifact; hideSa
           )}
         </div>
       </div>
-      <div className="flex items-center gap-1 mt-2 mb-3" data-testid="chart-type-toggle">
-        {CHART_VIEW_OPTIONS.map(({ mode, icon: Icon, tip }) => {
-          const { disabled, reason } = isDisabled(mode);
-          if (disabled) return null;
-          return (
-            <button
-              key={mode}
-              onClick={() => setViewMode(mode)}
-              title={tip}
-              data-testid={`chart-toggle-${mode}`}
-              className={`px-2.5 py-1 rounded-md text-[11px] font-medium flex items-center gap-1.5 transition-all ${
-                viewMode === mode
-                  ? "bg-primary/15 text-primary border border-primary/30"
-                  : "text-muted-foreground/50 hover:text-muted-foreground/80 hover:bg-muted/30 border border-transparent"
-              }`}
-            >
-              <Icon size={12} strokeWidth={viewMode === mode ? 2.2 : 1.5} />
-              {tip}
-            </button>
-          );
-        })}
-      </div>
-      <div style={{ overflow: "visible" }} className="mt-2">
-        <ResponsiveContainer width="100%" height={300} style={{ overflow: "visible" }}>
+      {!compact && (
+        <div className="flex items-center gap-1 mt-2 mb-3" data-testid="chart-type-toggle">
+          {CHART_VIEW_OPTIONS.map(({ mode, icon: Icon, tip }) => {
+            const { disabled, reason } = isDisabled(mode);
+            if (disabled) return null;
+            return (
+              <button
+                key={mode}
+                onClick={() => setViewMode(mode)}
+                title={tip}
+                data-testid={`chart-toggle-${mode}`}
+                className={`px-2.5 py-1 rounded-md text-[11px] font-medium flex items-center gap-1.5 transition-all ${
+                  viewMode === mode
+                    ? "bg-primary/15 text-primary border border-primary/30"
+                    : "text-muted-foreground/50 hover:text-muted-foreground/80 hover:bg-muted/30 border border-transparent"
+                }`}
+              >
+                <Icon size={12} strokeWidth={viewMode === mode ? 2.2 : 1.5} />
+                {tip}
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <div style={{ overflow: "visible" }} className={compact ? "mt-1" : "mt-2"}>
+        <ResponsiveContainer width="100%" height={compact ? 200 : 300} style={{ overflow: "visible" }}>
           {renderChart()}
         </ResponsiveContainer>
       </div>
       {source && (
-        <div className="mt-2 pt-2 border-t border-border/20 flex items-center justify-between">
-          <p className="text-[11px] text-emerald-400/70 italic">Source: {source}</p>
+        <div className={`border-t border-border/20 flex items-center justify-between ${compact ? "mt-1 pt-1" : "mt-2 pt-2"}`}>
+          <p className={`text-emerald-400/70 italic ${compact ? "text-[9px]" : "text-[11px]"}`}>Source: {source}</p>
           <p className="text-[10px] text-muted-foreground/50">{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</p>
         </div>
       )}

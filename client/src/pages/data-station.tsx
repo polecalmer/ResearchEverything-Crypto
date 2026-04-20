@@ -228,7 +228,7 @@ function StationCard({ pc, onRefresh, onDelete, onAddToReport, reports, refreshi
       {pc.isTable ? (
         <InlineTable artifact={pc.artifact} />
       ) : (
-        <InlineChart artifact={pc.artifact} hideSave />
+        <InlineChart artifact={pc.artifact} hideSave compact />
       )}
 
       <div className="px-5 pb-3 -mt-1 flex items-center justify-between text-[9px] text-muted-foreground/35">
@@ -280,7 +280,7 @@ function ProtocolDashboard({ protocol, charts, onRefresh, onDelete, onAddToRepor
         )}
       </div>
 
-      <div className="grid grid-cols-1 gap-3">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
         {charts.map(pc => (
           <StationCard
             key={pc.id}
@@ -571,7 +571,7 @@ export default function DataStation() {
                   <p className="text-[10px] text-muted-foreground/30">No charts in this report yet</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 gap-3">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
                   {reportParsed.map(pc => (
                     <StationCard key={pc.id} pc={pc} onRefresh={handleRefresh} onDelete={handleDelete} onAddToReport={handleAddToReport} reports={reports} refreshingId={refreshingId} />
                   ))}
