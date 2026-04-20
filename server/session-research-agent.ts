@@ -1344,15 +1344,22 @@ Examples:
     return { provenQueryContext: "", prefetchCost, prefetchInputTokens, prefetchOutputTokens };
   }
 
-  const formatted = allResults.map(q =>
-    `- [${q.protocol}] "${q.metricType}" (${q.successCount} successes, chart: ${q.chartType || "line"})\n  SQL: ${q.sqlQuery?.slice(0, 300)}${(q.sqlQuery?.length || 0) > 300 ? "..." : ""}`
-  ).join("\n");
+  const formatted = allResults.map(q => {
+    const sql = q.sqlQuery || "(no SQL — API-based)";
+    return `- [${q.protocol}] "${q.metricType}" (${q.successCount} successes, chart: ${q.chartType || "line"})\n  SQL:\n  ${sql}`;
+  }).join("\n\n");
 
   const provenQueryContext = `\n\n<prefetched_proven_queries>
-The system has already searched the proven query library for this request. Here are the matching queries — use these DIRECTLY with execute_dune_sql instead of calling search_proven_queries again:
+The system has ALREADY searched the proven query library for this chart request. DO NOT call search_proven_queries — use these pre-fetched results directly:
+
 ${formatted}
 
-IMPORTANT: These queries are pre-fetched and ready to use. Pick the most relevant one(s) and execute them immediately with execute_dune_sql. For complex charts (P/E ratios, multi-metric), you may need to execute multiple queries and then use execute_code to merge/compute derived metrics.
+INSTRUCTIONS:
+1. Skip search_proven_queries — it's already been done for you above.
+2. Pick the most relevant query/queries and execute them with execute_dune_sql.
+3. For derived metrics (P/E, P/S, P/F ratios): execute the revenue/fees query, then use execute_code to fetch price/mcap data and compute the ratios.
+4. For multi-series charts (MCAP PE vs FDV PE vs Adj MCAP PE): compute all series in execute_code and produce a single chart.
+5. If none of the pre-fetched queries match, you can still call search_proven_queries with different terms, or fall back to DeFiLlama/CoinGecko APIs.
 </prefetched_proven_queries>`;
 
   console.log(`[ChartMode] Pre-fetched ${allResults.length} proven queries for protocols: ${protocols.join(", ")}`);
@@ -1579,7 +1586,7 @@ export async function runSessionResearchAgent(
   const MAX_TOOL_ROUNDS = mode === "quick" ? 3 : mode === "focused" ? focusedRounds : 15;
   const maxTokens = mode === "quick" ? 2000 : mode === "focused" ? focusedTokens : 16000;
   const SPEND_BUDGET_USD = mode === "quick" ? 5 : mode === "focused" ? 15 : 50;
-  const useModel = isChart ? "claude-sonnet-4-20250514" : "claude-opus-4-6";
+  const useModel = "claude-opus-4-6";
   let finalText = "";
   let budgetExceeded = false;
 
