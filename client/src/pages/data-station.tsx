@@ -7,7 +7,7 @@ import { format, formatDistanceToNow } from "date-fns";
 import {
   RefreshCw, Trash2, Loader2,
   Zap, MoreVertical, FileText, Plus,
-  Layers, Radio,
+  Radio,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { InlineChart, InlineTable } from "@/components/research-artifacts";
@@ -451,43 +451,23 @@ export default function DataStation() {
   };
 
   return (
-    <div className="flex h-[calc(100vh-48px)]" data-testid="data-station-page">
-      <div className="w-40 border-r border-border/15 flex flex-col bg-card/5 shrink-0">
-        <div className="p-3 pb-2 border-b border-border/15">
-          <div className="flex items-center gap-2 mb-3">
-            <Radio className="h-3.5 w-3.5 text-cyan-400/70" />
-            <span className="text-[10px] font-semibold text-foreground/85 tracking-wide">Data & Viz Hub</span>
-          </div>
-          {totalRefreshable > 0 && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={handleRefreshAll}
-              className="w-full h-7 text-[9px] gap-1.5 border-cyan-500/15 text-cyan-400/70 hover:bg-cyan-500/10 hover:text-cyan-400"
-              data-testid="button-refresh-all"
-            >
-              <Zap className="h-3 w-3" />
-              Refresh All ({totalRefreshable})
-            </Button>
-          )}
+    <div className="flex flex-col h-[calc(100vh-48px)]" data-testid="data-station-page">
+      <div className="border-b border-border/15 bg-card/5 px-4 py-2 flex items-center gap-3 shrink-0">
+        <div className="flex items-center gap-2">
+          <Radio className="h-3.5 w-3.5 text-cyan-400/70" />
+          <span className="text-[11px] font-semibold text-foreground/85">Data & Viz Hub</span>
         </div>
 
-        <div className="flex-1 overflow-y-auto">
-          <div className="px-2 pt-2 pb-1">
-            <span className="text-[8px] uppercase tracking-widest text-muted-foreground/35 font-medium px-1">Protocols</span>
-          </div>
-
+        <div className="flex items-center gap-1 ml-2 overflow-x-auto">
           <button
             onClick={() => { setActiveView("protocols"); setActiveReport(null); }}
-            className={`w-full text-left px-3 py-1.5 text-[10px] flex items-center gap-2 transition-colors ${
-              activeView === "protocols" && !activeReport ? "bg-muted/20 text-foreground/90" : "text-muted-foreground/50 hover:text-foreground/70 hover:bg-muted/10"
+            className={`px-2 py-1 rounded text-[10px] whitespace-nowrap transition-colors ${
+              activeView === "protocols" && !activeReport ? "bg-muted/25 text-foreground/90" : "text-muted-foreground/50 hover:text-foreground/70 hover:bg-muted/10"
             }`}
             data-testid="button-all-protocols"
           >
-            <Layers className="h-3 w-3" />
-            All Protocols ({protocolGroups.length})
+            All ({protocolGroups.length})
           </button>
-
           {protocolGroups.map(([protocol, pCharts]) => (
             <button
               key={protocol}
@@ -496,65 +476,58 @@ export default function DataStation() {
                 setActiveReport(null);
                 document.getElementById(`protocol-${protocol}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
               }}
-              className="w-full text-left px-3 py-1.5 text-[10px] flex items-center gap-2 text-muted-foreground/50 hover:text-foreground/70 hover:bg-muted/10 transition-colors"
+              className="px-2 py-1 rounded text-[10px] whitespace-nowrap text-muted-foreground/50 hover:text-foreground/70 hover:bg-muted/10 transition-colors"
               data-testid={`button-protocol-nav-${protocol}`}
             >
-              <span className="truncate flex-1">{protocol}</span>
-              <span className="text-[8px] text-muted-foreground/30">{pCharts.length}</span>
+              {protocol} <span className="text-[8px] text-muted-foreground/30">{pCharts.length}</span>
             </button>
           ))}
-
-          <div className="px-2 pt-4 pb-1 flex items-center justify-between">
-            <span className="text-[8px] uppercase tracking-widest text-muted-foreground/35 font-medium px-1">Reports</span>
-            <button onClick={() => setShowNewReport(true)} className="p-0.5 text-muted-foreground/30 hover:text-foreground/50" data-testid="button-new-report">
-              <Plus className="h-3 w-3" />
-            </button>
-          </div>
-
-          {showNewReport && (
-            <div className="px-3 pb-2">
-              <input
-                value={newReportTitle}
-                onChange={e => setNewReportTitle(e.target.value)}
-                onKeyDown={e => { if (e.key === "Enter") handleCreateReport(); if (e.key === "Escape") setShowNewReport(false); }}
-                placeholder="Report name..."
-                className="w-full bg-muted/15 border border-border/20 rounded px-2 py-1 text-[10px] text-foreground/80 placeholder:text-muted-foreground/25 outline-none focus:border-cyan-500/30"
-                autoFocus
-                data-testid="input-new-report-title"
-              />
-            </div>
-          )}
-
           {reports.map(r => (
-            <div key={r.id} className="group flex items-center">
-              <button
-                onClick={() => { setActiveReport(r.id); setActiveView("report"); }}
-                className={`flex-1 text-left px-3 py-1.5 text-[10px] flex items-center gap-2 transition-colors min-w-0 ${
-                  activeReport === r.id ? "bg-muted/20 text-foreground/90" : "text-muted-foreground/50 hover:text-foreground/70 hover:bg-muted/10"
-                }`}
-                data-testid={`button-report-${r.id}`}
-              >
-                <FileText className="h-3 w-3 shrink-0" />
-                <span className="truncate">{r.title}</span>
-              </button>
-              <button
-                onClick={() => handleDeleteReport(r.id)}
-                className="opacity-0 group-hover:opacity-100 p-1 mr-1 text-muted-foreground/30 hover:text-destructive transition-opacity"
-                data-testid={`button-delete-report-${r.id}`}
-              >
-                <Trash2 className="h-2.5 w-2.5" />
-              </button>
-            </div>
+            <button
+              key={r.id}
+              onClick={() => { setActiveReport(r.id); setActiveView("report"); }}
+              className={`px-2 py-1 rounded text-[10px] whitespace-nowrap flex items-center gap-1 transition-colors ${
+                activeReport === r.id ? "bg-muted/25 text-foreground/90" : "text-muted-foreground/50 hover:text-foreground/70 hover:bg-muted/10"
+              }`}
+              data-testid={`button-report-${r.id}`}
+            >
+              <FileText className="h-2.5 w-2.5" /> {r.title}
+            </button>
           ))}
+        </div>
 
-          {reports.length === 0 && !showNewReport && (
-            <p className="text-[9px] text-muted-foreground/25 px-4 py-2">No reports yet</p>
+        <div className="ml-auto flex items-center gap-2 shrink-0">
+          {showNewReport ? (
+            <input
+              value={newReportTitle}
+              onChange={e => setNewReportTitle(e.target.value)}
+              onKeyDown={e => { if (e.key === "Enter") handleCreateReport(); if (e.key === "Escape") { setShowNewReport(false); setNewReportTitle(""); } }}
+              placeholder="Report name..."
+              className="bg-muted/15 border border-border/20 rounded px-2 py-1 text-[10px] text-foreground/80 placeholder:text-muted-foreground/25 outline-none focus:border-cyan-500/30 w-32"
+              autoFocus
+              data-testid="input-new-report-title"
+            />
+          ) : (
+            <button onClick={() => setShowNewReport(true)} className="p-1 text-muted-foreground/30 hover:text-foreground/50" title="New Report" data-testid="button-new-report">
+              <Plus className="h-3.5 w-3.5" />
+            </button>
+          )}
+          {totalRefreshable > 0 && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={handleRefreshAll}
+              className="h-6 text-[9px] gap-1 border-cyan-500/15 text-cyan-400/70 hover:bg-cyan-500/10 hover:text-cyan-400 px-2"
+              data-testid="button-refresh-all"
+            >
+              <Zap className="h-3 w-3" />
+              Refresh All ({totalRefreshable})
+            </Button>
           )}
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col min-w-0 bg-background">
-        <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto">
           {chartsQuery.isLoading ? (
             <div className="flex items-center justify-center py-20">
               <Loader2 className="h-5 w-5 animate-spin text-muted-foreground/30" />
@@ -614,7 +587,6 @@ export default function DataStation() {
               ))}
             </div>
           )}
-        </div>
       </div>
     </div>
   );

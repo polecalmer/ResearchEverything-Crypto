@@ -336,7 +336,7 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
       <div className="flex items-start justify-between mb-1">
         <div className="flex-1 min-w-0">
           {title && <h4 className={`font-semibold text-foreground/90 tracking-tight ${compact ? "text-xs" : "text-sm"}`}>{title}</h4>}
-          {subtitle && !compact && <p className="text-[11px] font-medium text-emerald-400 uppercase tracking-wider mt-1 leading-snug">{subtitle}</p>}
+          {subtitle && <p className={`font-medium text-emerald-400 uppercase tracking-wider mt-1 leading-snug ${compact ? "text-[9px] line-clamp-1" : "text-[11px]"}`}>{subtitle}</p>}
         </div>
         <div className="flex items-center gap-2 ml-4 shrink-0">
           {latestValue && (
