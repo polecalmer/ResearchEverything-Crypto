@@ -19,7 +19,7 @@ import { getAuthHeaders } from "@/lib/queryClient";
 import {
   type Artifact, type SessionMessage, type Session,
   type ResearchMode, type ThinkingStep,
-  CHART_COLORS, inferFormat, formatValue,
+  CHART_COLORS, inferFormat, formatValue, formatAxisTick,
   extractMode, parseContentAndArtifacts,
   parseMarkdownTableCells, isTableSeparator, isTableRow,
 } from "@/lib/research-utils";
@@ -214,22 +214,22 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
           {grid}{xAx}
           <YAxis
             yAxisId="left"
-            tickFormatter={(v: number) => formatValue(v, inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format))}
+            tickFormatter={(v: number) => formatAxisTick(v, inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format))}
             tick={{ fontSize: 11, fill: "rgba(255,255,255,0.45)" }}
             axisLine={false}
             tickLine={false}
-            width={56}
+            width={60}
             tickMargin={4}
           />
           {yAxes.length > 1 && (
             <YAxis
               yAxisId="right"
               orientation="right"
-              tickFormatter={(v: number) => formatValue(v, inferFormat(yAxes[1]?.dataKey, yAxes[1]?.label, yAxes[1]?.format))}
+              tickFormatter={(v: number) => formatAxisTick(v, inferFormat(yAxes[1]?.dataKey, yAxes[1]?.label, yAxes[1]?.format))}
               tick={{ fontSize: 11, fill: "rgba(255,255,255,0.35)" }}
               axisLine={false}
               tickLine={false}
-              width={52}
+              width={56}
               tickMargin={4}
             />
           )}
@@ -251,11 +251,11 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
 
     const yAx = (
       <YAxis
-        tickFormatter={(v: number) => formatValue(v, inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format))}
+        tickFormatter={(v: number) => formatAxisTick(v, inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format))}
         tick={{ fontSize: 11, fill: "rgba(255,255,255,0.45)" }}
         axisLine={false}
         tickLine={false}
-        width={56}
+        width={60}
         tickMargin={4}
       />
     );

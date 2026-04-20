@@ -79,6 +79,27 @@ function compactNumber(n: number): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
+export function formatAxisTick(val: any, fmt?: string): string {
+  if (val == null) return "";
+  const n = Number(val);
+  if (isNaN(n)) return String(val);
+  if (fmt === "currency_K") return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}K`;
+  if (fmt === "currency_M") return `$${n.toLocaleString(undefined, { maximumFractionDigits: 1 })}M`;
+  if (fmt === "currency_B") return `$${n.toLocaleString(undefined, { maximumFractionDigits: 1 })}B`;
+  if (fmt === "currency") {
+    if (Math.abs(n) >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
+    if (Math.abs(n) >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
+    if (Math.abs(n) >= 1e3) return `$${(n / 1e3).toFixed(0)}K`;
+    return `$${n.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  }
+  if (fmt === "ratio") return `${n.toLocaleString(undefined, { maximumFractionDigits: 1 })}x`;
+  if (fmt === "percent") return `${n.toFixed(1)}%`;
+  if (Math.abs(n) >= 1e9) return `${(n / 1e9).toFixed(1)}B`;
+  if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
+  if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(0)}K`;
+  return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
+}
+
 export function formatValue(val: any, fmt?: string): string {
   if (val == null) return "—";
   const n = Number(val);
