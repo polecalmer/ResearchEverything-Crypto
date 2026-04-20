@@ -35,7 +35,7 @@ const CHART_VIEW_OPTIONS: { mode: ChartViewMode; icon: typeof TrendingUp; tip: s
 ];
 
 export function InlineChart({ artifact }: { artifact: Artifact }) {
-  const { chartConfig, data, title, subtitle, source } = artifact;
+  const { chartConfig, data, title, subtitle, source, refreshRecipe } = artifact;
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -317,6 +317,7 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
           chartConfig,
           data,
           description: subtitle || source || "",
+          ...(refreshRecipe ? { refreshRecipe } : {}),
         }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Failed to save");

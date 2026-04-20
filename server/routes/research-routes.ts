@@ -682,10 +682,14 @@ export function registerResearchRoutes(app: Express) {
 
   app.post("/api/research/charts/save", requireAuth, async (req, res) => {
     try {
-      const { title, chartType, chartConfig, data, description } = req.body;
+      const { title, chartType, chartConfig, data, description, refreshRecipe } = req.body;
       if (!title || !data) {
         return res.status(400).json({ message: "Title and data are required" });
       }
+
+      const dsConfig = refreshRecipe
+        ? { source: "session_research", refreshRecipe }
+        : { source: "session_research" };
 
       const { dashboardCharts } = await import("@shared/schema");
       const { db: dbImport } = await import("../db");
@@ -695,7 +699,7 @@ export function registerResearchRoutes(app: Express) {
         description: description || null,
         chartType: chartType || "line",
         dataSource: "session",
-        dataSourceConfig: JSON.stringify({ source: "session_research" }),
+        dataSourceConfig: JSON.stringify(dsConfig),
         chartConfig: JSON.stringify(chartConfig || {}),
         data: JSON.stringify(data),
         status: "complete",
@@ -712,18 +716,79 @@ export function registerResearchRoutes(app: Express) {
     try {
       const { dashboardCharts } = await import("@shared/schema");
       const { db: dbImport } = await import("../db");
-      const { eq, desc, sql: sqlOp } = await import("drizzle-orm");
+      const { eq, desc } = await import("drizzle-orm");
       const charts = await dbImport.select({
         id: dashboardCharts.id,
         title: dashboardCharts.title,
         chartType: dashboardCharts.chartType,
+        dataSourceConfig: dashboardCharts.dataSourceConfig,
+        chartConfig: dashboardCharts.chartConfig,
+        data: dashboardCharts.data,
+        description: dashboardCharts.description,
         createdAt: dashboardCharts.createdAt,
+        updatedAt: dashboardCharts.updatedAt,
       }).from(dashboardCharts)
         .where(eq(dashboardCharts.userId, req.user!.id))
         .orderBy(desc(dashboardCharts.createdAt))
-        .limit(50);
+        .limit(100);
       res.json(charts);
     } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/research/charts/:id", requireAuth, async (req, res) => {
+    try {
+      const { dashboardCharts } = await import("@shared/schema");
+      const { db: dbImport } = await import("../db");
+      const { eq, and } = await import("drizzle-orm");
+      const [chart] = await dbImport.select().from(dashboardCharts)
+        .where(and(eq(dashboardCharts.id, req.params.id), eq(dashboardCharts.userId, req.user!.id)));
+      if (!chart) return res.status(404).json({ message: "Chart not found" });
+      res.json(chart);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/research/charts/:id/refresh", requireAuth, async (req, res) => {
+    try {
+      const { dashboardCharts } = await import("@shared/schema");
+      const { db: dbImport } = await import("../db");
+      const { eq, and } = await import("drizzle-orm");
+      const [chart] = await dbImport.select().from(dashboardCharts)
+        .where(and(eq(dashboardCharts.id, req.params.id), eq(dashboardCharts.userId, req.user!.id)));
+      if (!chart) return res.status(404).json({ message: "Chart not found" });
+
+      const dsConfig = JSON.parse(chart.dataSourceConfig || "{}");
+      const recipe = dsConfig.refreshRecipe;
+      if (!recipe) return res.status(400).json({ message: "This chart does not have a refresh recipe" });
+
+      const { executeRefreshRecipe } = await import("../session-research-agent");
+      console.log(`[RefreshChart] Refreshing chart ${chart.id}: ${recipe.protocol} / ${recipe.metric}`);
+      const startTime = Date.now();
+      const result = await executeRefreshRecipe(recipe);
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(`[RefreshChart] Done in ${elapsed}s — ${result.data.length} data points`);
+
+      await dbImport.update(dashboardCharts)
+        .set({
+          data: JSON.stringify(result.data),
+          chartConfig: JSON.stringify(result.chartConfig),
+          updatedAt: new Date(),
+        })
+        .where(eq(dashboardCharts.id, chart.id));
+
+      res.json({
+        id: chart.id,
+        data: result.data,
+        chartConfig: result.chartConfig,
+        updatedAt: new Date().toISOString(),
+        dataPoints: result.data.length,
+        refreshTimeMs: Date.now() - startTime,
+      });
+    } catch (e: any) {
+      console.error("[RefreshChart] failed:", e);
       res.status(500).json({ message: e.message });
     }
   });
@@ -736,6 +801,109 @@ export function registerResearchRoutes(app: Express) {
       await dbImport.delete(dashboardCharts)
         .where(and(eq(dashboardCharts.id, req.params.id), eq(dashboardCharts.userId, req.user!.id)));
       res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/research/reports", requireAuth, async (req, res) => {
+    try {
+      const { researchReports } = await import("@shared/schema");
+      const { db: dbImport } = await import("../db");
+      const { eq, desc } = await import("drizzle-orm");
+      const reports = await dbImport.select().from(researchReports)
+        .where(eq(researchReports.userId, req.user!.id))
+        .orderBy(desc(researchReports.updatedAt));
+      res.json(reports);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/research/reports", requireAuth, async (req, res) => {
+    try {
+      const { title, description } = req.body;
+      if (!title) return res.status(400).json({ message: "Title is required" });
+      const { researchReports } = await import("@shared/schema");
+      const { db: dbImport } = await import("../db");
+      const [report] = await dbImport.insert(researchReports).values({
+        userId: req.user!.id,
+        title,
+        description: description || null,
+      }).returning();
+      res.json(report);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/research/reports/:id", requireAuth, async (req, res) => {
+    try {
+      const { researchReports, reportCharts } = await import("@shared/schema");
+      const { db: dbImport } = await import("../db");
+      const { eq, and } = await import("drizzle-orm");
+      await dbImport.delete(reportCharts).where(eq(reportCharts.reportId, req.params.id));
+      await dbImport.delete(researchReports)
+        .where(and(eq(researchReports.id, req.params.id), eq(researchReports.userId, req.user!.id)));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.post("/api/research/reports/:id/charts", requireAuth, async (req, res) => {
+    try {
+      const { chartId } = req.body;
+      if (!chartId) return res.status(400).json({ message: "chartId is required" });
+      const { reportCharts, researchReports } = await import("@shared/schema");
+      const { db: dbImport } = await import("../db");
+      const { eq, and } = await import("drizzle-orm");
+      const [report] = await dbImport.select().from(researchReports)
+        .where(and(eq(researchReports.id, req.params.id), eq(researchReports.userId, req.user!.id)));
+      if (!report) return res.status(404).json({ message: "Report not found" });
+
+      const existing = await dbImport.select().from(reportCharts)
+        .where(and(eq(reportCharts.reportId, req.params.id), eq(reportCharts.chartId, chartId)));
+      if (existing.length > 0) return res.json({ message: "Chart already in report" });
+
+      const [rc] = await dbImport.insert(reportCharts).values({
+        reportId: req.params.id,
+        chartId,
+      }).returning();
+      res.json(rc);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.delete("/api/research/reports/:reportId/charts/:chartId", requireAuth, async (req, res) => {
+    try {
+      const { reportCharts } = await import("@shared/schema");
+      const { db: dbImport } = await import("../db");
+      const { eq, and } = await import("drizzle-orm");
+      await dbImport.delete(reportCharts)
+        .where(and(eq(reportCharts.reportId, req.params.reportId), eq(reportCharts.chartId, req.params.chartId)));
+      res.json({ success: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.get("/api/research/reports/:id/charts", requireAuth, async (req, res) => {
+    try {
+      const { reportCharts, dashboardCharts } = await import("@shared/schema");
+      const { db: dbImport } = await import("../db");
+      const { eq } = await import("drizzle-orm");
+      const rcs = await dbImport.select().from(reportCharts)
+        .where(eq(reportCharts.reportId, req.params.id))
+        .orderBy(reportCharts.sortOrder);
+      const chartIds = rcs.map(rc => rc.chartId);
+      if (chartIds.length === 0) return res.json([]);
+      const { inArray } = await import("drizzle-orm");
+      const charts = await dbImport.select().from(dashboardCharts)
+        .where(inArray(dashboardCharts.id, chartIds));
+      const orderedCharts = chartIds.map(id => charts.find(c => c.id === id)).filter(Boolean);
+      res.json(orderedCharts);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

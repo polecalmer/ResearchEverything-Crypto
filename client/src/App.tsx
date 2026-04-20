@@ -28,6 +28,7 @@ import PipelineBrain from "@/pages/pipeline-brain";
 import LandingPage from "@/pages/landing-page";
 import AuthPage from "@/pages/auth-page";
 import SharedResearch from "@/pages/shared-research";
+import DataStation from "@/pages/data-station";
 import { Loader2 } from "lucide-react";
 import { useTrackPageView } from "@/hooks/use-track";
 
@@ -115,6 +116,7 @@ function AuthenticatedApp() {
               <Route path="/wallet" component={WalletPage} />
               <Route path="/data" component={DataPage} />
               <Route path="/research" component={SessionResearch} />
+              <Route path="/station" component={DataStation} />
               <Route path="/shared/research/:token" component={SharedResearch} />
               <Route path="/brain" component={BrainGraph} />
               <Route path="/map" component={PipelineBrain} />

@@ -1,5 +1,15 @@
 export type ResearchMode = "quick" | "focused" | "deep";
 
+export interface RefreshRecipe {
+  protocol: string;
+  ticker: string;
+  metric: string;
+  dataSource: "defillama" | "coingecko" | "derived" | "dune";
+  slug?: string;
+  coinId?: string;
+  timeWindowDays: number;
+}
+
 export interface Artifact {
   type: "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote";
   title?: string;
@@ -11,6 +21,7 @@ export interface Artifact {
     xAxis: { dataKey: string; label?: string; format?: string };
     yAxes: Array<{ dataKey: string; label?: string; format?: string; chartType?: string }>;
   };
+  refreshRecipe?: RefreshRecipe;
   columns?: string[];
   variant?: "insight" | "risk" | "contrarian" | "catch";
   text?: string;
@@ -163,7 +174,7 @@ export function parseContentAndArtifacts(content: string, artifacts?: Artifact[]
         const json = JSON.parse(match[2].trim());
         let artifact: Artifact;
         if (type === "chart") {
-          artifact = { type: "chart", title: json.title || "Chart", data: json.data || [], chartConfig: { chartType: json.chartType || "line", xAxis: json.xAxis || { dataKey: "date" }, yAxes: json.yAxes || [] } };
+          artifact = { type: "chart", title: json.title || "Chart", data: json.data || [], chartConfig: { chartType: json.chartType || "line", xAxis: json.xAxis || { dataKey: "date" }, yAxes: json.yAxes || [] }, ...(json.refreshRecipe ? { refreshRecipe: json.refreshRecipe } : {}) };
         } else if (type === "metric_cards") {
           artifact = { type: "metric_cards", title: json.title || "Metrics", data: json.data || [] };
         } else if (type === "table") {

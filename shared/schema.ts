@@ -162,6 +162,27 @@ export const insertDashboardChartSchema = createInsertSchema(dashboardCharts).om
 });
 
 export type DashboardChart = typeof dashboardCharts.$inferSelect;
+
+export const researchReports = pgTable("research_reports", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  title: text("title").notNull(),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export type ResearchReport = typeof researchReports.$inferSelect;
+
+export const reportCharts = pgTable("report_charts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  reportId: varchar("report_id").notNull(),
+  chartId: varchar("chart_id").notNull(),
+  sortOrder: integer("sort_order").default(0),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type ReportChart = typeof reportCharts.$inferSelect;
 export type InsertDashboardChart = z.infer<typeof insertDashboardChartSchema>;
 
 export const insertCompanySchema = createInsertSchema(companies).omit({

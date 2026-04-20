@@ -26,6 +26,16 @@ import {
   type ResearchPlan,
 } from "./research-planner";
 
+export interface RefreshRecipe {
+  protocol: string;
+  ticker: string;
+  metric: string;
+  dataSource: "defillama" | "coingecko" | "derived" | "dune";
+  slug?: string;
+  coinId?: string;
+  timeWindowDays: number;
+}
+
 export interface ResearchArtifact {
   type: "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote";
   title?: string;
@@ -37,6 +47,7 @@ export interface ResearchArtifact {
     xAxis: { dataKey: string; label?: string; format?: string };
     yAxes: Array<{ dataKey: string; label?: string; format?: string; chartType?: string }>;
   };
+  refreshRecipe?: RefreshRecipe;
   columns?: string[];
   variant?: "insight" | "risk" | "contrarian" | "catch";
   text?: string;
@@ -1340,6 +1351,7 @@ function buildChartResponse(
   pipelineCost: number,
   pipelineInputTokens: number,
   pipelineOutputTokens: number,
+  refreshRecipe?: RefreshRecipe,
 ): ResearchResponse {
   const sanityIssue = checkChartDataSanity(data, yAxes);
   if (sanityIssue) {
@@ -1356,7 +1368,7 @@ function buildChartResponse(
     autoSubtitle = `LATEST ${typeof last === "number" ? (Math.abs(last) >= 1e6 ? (last / 1e6).toFixed(1) + "M" : Math.abs(last) >= 1e3 ? (last / 1e3).toFixed(1) + "K" : last.toLocaleString(undefined, { maximumFractionDigits: 1 })) : last} — ${direction} ${Math.abs(pctChange).toFixed(0)}% OVER PERIOD (${data.length} DATA POINTS)`;
   }
   const source = "DeFiLlama + CoinGecko";
-  const chartJson = {
+  const chartJson: any = {
     chartType,
     title,
     subtitle: autoSubtitle,
@@ -1365,6 +1377,7 @@ function buildChartResponse(
     xAxis: { dataKey: xAxisKey, format: "date" },
     yAxes: yAxes.map(y => ({ dataKey: y.dataKey, label: y.label })),
   };
+  if (refreshRecipe) chartJson.refreshRecipe = refreshRecipe;
   const artifactBlock = "```artifact:chart\n" + JSON.stringify(chartJson) + "\n```";
   const content = `<!-- mode:focused -->\n${summary}\n\n${artifactBlock}`;
   const artifact: ResearchArtifact = {
@@ -1378,6 +1391,7 @@ function buildChartResponse(
       xAxis: { dataKey: xAxisKey, format: "date" },
       yAxes: yAxes.map(y => ({ dataKey: y.dataKey, label: y.label })),
     },
+    ...(refreshRecipe ? { refreshRecipe } : {}),
   };
   return {
     content,
@@ -1463,8 +1477,15 @@ async function runChartPipeline(
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(`[ChartPipeline] ${recipe.displayLabel} chart complete in ${elapsed}s — ${chartData.length} data points`);
 
+      const derivedRecipe: RefreshRecipe = {
+        protocol: extracted.protocol,
+        ticker: extracted.ticker,
+        metric: extracted.metric,
+        dataSource: "derived",
+        timeWindowDays: 365,
+      };
       return {
-        response: buildChartResponse(recipe.chartType, `${extracted.ticker || extracted.protocol} ${recipe.displayLabel}`, chartData, "date", yAxes, summaryParts.join(" "), cost, inputTokens, outputTokens),
+        response: buildChartResponse(recipe.chartType, `${extracted.ticker || extracted.protocol} ${recipe.displayLabel}`, chartData, "date", yAxes, summaryParts.join(" "), cost, inputTokens, outputTokens, derivedRecipe),
         fallbackContext: "", cost, inputTokens, outputTokens,
       };
     } catch (e: any) {
@@ -1509,8 +1530,16 @@ async function runChartPipeline(
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(`[ChartPipeline] Fees/revenue chart complete in ${elapsed}s`);
 
+      const feesRecipe: RefreshRecipe = {
+        protocol: extracted.protocol,
+        ticker: extracted.ticker,
+        metric: extracted.metric,
+        dataSource: "defillama",
+        slug,
+        timeWindowDays: 365,
+      };
       return {
-        response: buildChartResponse("line", `${extracted.ticker || extracted.protocol} Daily Fees & Revenue`, chartData, "date", yAxes, summaryParts.join(", ") + ".", cost, inputTokens, outputTokens),
+        response: buildChartResponse("line", `${extracted.ticker || extracted.protocol} Daily Fees & Revenue`, chartData, "date", yAxes, summaryParts.join(", ") + ".", cost, inputTokens, outputTokens, feesRecipe),
         fallbackContext: "", cost, inputTokens, outputTokens,
       };
     } catch (e: any) {
@@ -1541,8 +1570,16 @@ async function runChartPipeline(
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(`[ChartPipeline] TVL chart complete in ${elapsed}s`);
 
+      const tvlRecipe: RefreshRecipe = {
+        protocol: extracted.protocol,
+        ticker: extracted.ticker,
+        metric: "tvl",
+        dataSource: "defillama",
+        slug,
+        timeWindowDays: 365,
+      };
       return {
-        response: buildChartResponse("area", `${extracted.ticker || extracted.protocol} Total Value Locked`, chartData, "date", [{ dataKey: "tvl", label: "TVL" }], summary, cost, inputTokens, outputTokens),
+        response: buildChartResponse("area", `${extracted.ticker || extracted.protocol} Total Value Locked`, chartData, "date", [{ dataKey: "tvl", label: "TVL" }], summary, cost, inputTokens, outputTokens, tvlRecipe),
         fallbackContext: "", cost, inputTokens, outputTokens,
       };
     } catch (e: any) {
@@ -1572,8 +1609,16 @@ async function runChartPipeline(
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(`[ChartPipeline] Volume chart complete in ${elapsed}s`);
 
+      const volumeRecipe: RefreshRecipe = {
+        protocol: extracted.protocol,
+        ticker: extracted.ticker,
+        metric: "volume",
+        dataSource: "defillama",
+        slug,
+        timeWindowDays: 365,
+      };
       return {
-        response: buildChartResponse("bar", `${extracted.ticker || extracted.protocol} Daily DEX Volume`, chartData, "date", [{ dataKey: "volume", label: "Volume" }], summary, cost, inputTokens, outputTokens),
+        response: buildChartResponse("bar", `${extracted.ticker || extracted.protocol} Daily DEX Volume`, chartData, "date", [{ dataKey: "volume", label: "Volume" }], summary, cost, inputTokens, outputTokens, volumeRecipe),
         fallbackContext: "", cost, inputTokens, outputTokens,
       };
     } catch (e: any) {
@@ -1607,6 +1652,69 @@ Pick the most relevant query, execute it, then render the chart.
   }
 
   return { response: null, fallbackContext: "", cost, inputTokens, outputTokens };
+}
+
+export async function executeRefreshRecipe(recipe: RefreshRecipe): Promise<{ data: any[]; chartConfig: any }> {
+  const { resolveCoinGeckoId, getRevenueSlugs } = await import("./coingecko-ids");
+  const { lookupDerivedMetric, computeDerivedChart } = await import("./data-source-brain/derived-metrics");
+
+  if (recipe.dataSource === "derived") {
+    const derivedRecipe = lookupDerivedMetric(recipe.metric);
+    if (!derivedRecipe) throw new Error(`Unknown derived metric: ${recipe.metric}`);
+    const resolvers = { resolveCoinGeckoId, getRevenueSlugs };
+    const { data, yAxes } = await computeDerivedChart(derivedRecipe, recipe.protocol, defillama, resolvers, recipe.timeWindowDays);
+    return {
+      data,
+      chartConfig: {
+        chartType: derivedRecipe.chartType,
+        xAxis: { dataKey: "date", format: "date" },
+        yAxes: yAxes.map(y => ({ dataKey: y.dataKey, label: y.label })),
+      },
+    };
+  }
+
+  const slug = recipe.slug || await defillama.resolveSlug(recipe.protocol);
+
+  if (recipe.metric === "revenue" || recipe.metric === "fees") {
+    const [feesRes, revenueRes] = await Promise.allSettled([
+      defillama.getProtocolFees(slug),
+      defillama.getProtocolRevenue(slug),
+    ]);
+    const fees = feesRes.status === "fulfilled" ? feesRes.value : null;
+    const revenue = revenueRes.status === "fulfilled" ? revenueRes.value : null;
+    const dateMap = new Map<number, any>();
+    if (fees?.dailyFees) { for (const d of fees.dailyFees) dateMap.set(d.date, { date: new Date(d.date * 1000).toISOString().slice(0, 10), fees: d.fees, _ts: d.date }); }
+    if (revenue?.dailyRevenue) { for (const d of revenue.dailyRevenue) { const ex = dateMap.get(d.date) || { date: new Date(d.date * 1000).toISOString().slice(0, 10), _ts: d.date }; ex.revenue = d.revenue; dateMap.set(d.date, ex); } }
+    const rows: any[] = [...dateMap.values()].sort((a, b) => a._ts - b._ts).map(({ _ts, ...rest }) => rest);
+    const data = sampleData(rows, recipe.timeWindowDays);
+    const yAxes: Array<{ dataKey: string; label: string }> = [];
+    if (data[0]?.fees !== undefined) yAxes.push({ dataKey: "fees", label: "Daily Fees" });
+    if (data[0]?.revenue !== undefined) yAxes.push({ dataKey: "revenue", label: "Daily Revenue" });
+    return { data, chartConfig: { chartType: "line", xAxis: { dataKey: "date", format: "date" }, yAxes } };
+  }
+
+  if (recipe.metric === "tvl") {
+    const rawData = await defillama.getProtocolTvl(slug);
+    if (!rawData || rawData.length < 7) throw new Error("Insufficient TVL data");
+    const data = sampleData(rawData.map((d: any) => ({
+      date: new Date(d.date * 1000).toISOString().slice(0, 10),
+      tvl: Math.round(d.totalLiquidityUSD),
+    })), recipe.timeWindowDays);
+    return { data, chartConfig: { chartType: "area", xAxis: { dataKey: "date", format: "date" }, yAxes: [{ dataKey: "tvl", label: "TVL" }] } };
+  }
+
+  if (recipe.metric === "volume") {
+    const volData = await defillama.getProtocolDexVolume(slug);
+    const dailyVol = volData?.dailyVolume || [];
+    if (dailyVol.length < 7) throw new Error("Insufficient volume data");
+    const data = sampleData(dailyVol.map((d: any) => ({
+      date: new Date(d.date * 1000).toISOString().slice(0, 10),
+      volume: Math.round(d.volume),
+    })), recipe.timeWindowDays);
+    return { data, chartConfig: { chartType: "bar", xAxis: { dataKey: "date", format: "date" }, yAxes: [{ dataKey: "volume", label: "Volume" }] } };
+  }
+
+  throw new Error(`Unsupported refresh recipe: metric=${recipe.metric}, dataSource=${recipe.dataSource}`);
 }
 
 async function searchProvenQueriesForProtocol(protocol: string, searchTerms: string[]): Promise<any[]> {
