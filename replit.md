@@ -72,7 +72,7 @@ Focus on user experience and intuitive design.
 
 **Frontend Component Architecture:** Session research UI is split into:
 - `client/src/pages/session-research.tsx` — page orchestrator (430 lines)
-- `client/src/components/research-artifacts.tsx` — all artifact renderers (InlineChart, InlineTable, MetricCards, CalloutBlock, ComparisonBlock, QuoteBlock, MarkdownText, ModeBadge, DiveDeepButton, ThinkingPanel, ShareBar, MessageBubble)
+- `client/src/components/research-artifacts.tsx` — all artifact renderers (InlineChart, InlineTable, MetricCards, CalloutBlock, ComparisonBlock, QuoteBlock, MarkdownText, ModeBadge, DiveDeepButton, ThinkingPanel, ShareBar, MessageBubble). **Chart type toggle**: InlineChart has a 5-mode toggle (line, bar, area, cumulative, pie) that lets users switch chart visualization on the fly. Cumulative mode computes running sums; pie mode shows breakdown using latest values or top-N categories. The toggle initializes to the chart type suggested by the agent but can be overridden.
 - `client/src/lib/research-utils.ts` — types, formatters, parsers (inferFormat, formatValue, parseContentAndArtifacts)
 
 **Centralized Constants:** Hardcoded values are centralized in:

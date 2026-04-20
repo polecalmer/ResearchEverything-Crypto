@@ -1,8 +1,8 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useMemo } from "react";
 import {
   ResponsiveContainer,
   LineChart, Line, BarChart, Bar, AreaChart, Area,
-  ComposedChart,
+  ComposedChart, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, CartesianGrid, Legend,
 } from "recharts";
 import { format } from "date-fns";
@@ -10,7 +10,8 @@ import {
   Loader2, CheckCircle2, ChevronDown, Brain, Search, BarChart3,
   Share2, Link2, Check, X, Lightbulb, AlertTriangle, Zap, Eye,
   Quote as QuoteIcon, ArrowDown, ArrowUp, RefreshCw,
-  Bookmark, Microscope, Table2,
+  Bookmark, Microscope, Table2, TrendingUp, PieChart as PieChartIcon,
+  AreaChart as AreaChartIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -23,19 +24,69 @@ import {
   parseMarkdownTableCells, isTableSeparator, isTableRow,
 } from "@/lib/research-utils";
 
+type ChartViewMode = "line" | "bar" | "area" | "cumulative" | "pie";
+
+const CHART_VIEW_OPTIONS: { mode: ChartViewMode; icon: typeof TrendingUp; tip: string }[] = [
+  { mode: "line", icon: TrendingUp, tip: "Line" },
+  { mode: "bar", icon: BarChart3, tip: "Bar" },
+  { mode: "area", icon: AreaChartIcon, tip: "Area" },
+  { mode: "cumulative", icon: ArrowUp, tip: "Cumulative" },
+  { mode: "pie", icon: PieChartIcon, tip: "Breakdown" },
+];
+
 export function InlineChart({ artifact }: { artifact: Artifact }) {
   const { chartConfig, data, title, subtitle, source } = artifact;
   if (!chartConfig || !data?.length) return null;
 
-  const { chartType, xAxis, yAxes } = chartConfig;
+  const { chartType: defaultChartType, xAxis, yAxes } = chartConfig;
+  const isComposedOrDualAxis = defaultChartType === "composed" || (yAxes.length > 1 && inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format) !== inferFormat(yAxes[1]?.dataKey, yAxes[1]?.label, yAxes[1]?.format));
+  const [viewMode, setViewMode] = useState<ChartViewMode>(
+    (["line", "bar", "area"].includes(defaultChartType) ? defaultChartType : "line") as ChartViewMode
+  );
+
+  const cumulativeData = useMemo(() => {
+    if (viewMode !== "cumulative") return data;
+    const result = data.map((row: any) => ({ ...row }));
+    for (const y of yAxes) {
+      let running = 0;
+      for (const row of result) {
+        const val = Number(row[y.dataKey]);
+        if (!isNaN(val)) running += val;
+        row[y.dataKey] = running;
+      }
+    }
+    return result;
+  }, [data, yAxes, viewMode]);
+
+  const pieData = useMemo(() => {
+    if (viewMode !== "pie" || !data.length) return [];
+    const primaryKey = yAxes[0]?.dataKey;
+    if (!primaryKey) return [];
+    if (yAxes.length > 1) {
+      const lastRow = data[data.length - 1];
+      return yAxes.map((y, i) => ({
+        name: y.label || y.dataKey.replace(/_/g, " "),
+        value: Math.abs(Number(lastRow?.[y.dataKey]) || 0),
+        color: CHART_COLORS[i % CHART_COLORS.length],
+      })).filter(d => d.value > 0);
+    }
+    const recentSlice = data.slice(-Math.min(10, data.length));
+    return recentSlice.map((row: any, i: number) => ({
+      name: String(row[xAxis.dataKey] || `Item ${i}`),
+      value: Math.abs(Number(row[primaryKey]) || 0),
+      color: CHART_COLORS[i % CHART_COLORS.length],
+    })).filter(d => d.value > 0);
+  }, [data, yAxes, xAxis, viewMode]);
+
+  const activeData = viewMode === "cumulative" ? cumulativeData : data;
 
   const isDate = xAxis.format === "date" || (data[0]?.[xAxis.dataKey] && /^\d{4}-\d{2}/.test(String(data[0][xAxis.dataKey])));
 
-  const lastRow = data[data.length - 1];
+  const lastRow = activeData[activeData.length - 1];
   const primaryKey = yAxes[0]?.dataKey;
   const latestRaw = primaryKey ? lastRow?.[primaryKey] : undefined;
   const latestFmt = inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format);
-  const latestValue = latestRaw != null ? formatValue(latestRaw, latestFmt) : null;
+  const latestValue = latestRaw != null ? formatValue(latestRaw, viewMode === "cumulative" ? "number" : latestFmt) : null;
 
   const xTickFormatter = (val: any) => {
     if (isDate) {
@@ -62,7 +113,59 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
   const needsDualAxis = yAxes.length > 1 && fmt0 !== fmt1;
 
   const renderChart = () => {
-    const commonProps = { data, margin: { top: 12, right: needsDualAxis ? 56 : 20, left: 4, bottom: 8 } };
+    if (viewMode === "pie") {
+      if (pieData.length === 0) {
+        return (
+          <BarChart data={[]} margin={{ top: 12, right: 20, left: 4, bottom: 8 }}>
+            <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.35)" fontSize={13}>
+              No breakdown available for this data
+            </text>
+          </BarChart>
+        );
+      }
+      const pieFmt = inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format);
+      return (
+        <PieChart>
+          <Pie
+            data={pieData}
+            cx="50%"
+            cy="50%"
+            innerRadius={60}
+            outerRadius={110}
+            paddingAngle={2}
+            dataKey="value"
+            nameKey="name"
+            label={({ name, percent }: any) => `${name} ${(percent * 100).toFixed(1)}%`}
+            labelLine={{ stroke: "rgba(255,255,255,0.3)", strokeWidth: 1 }}
+          >
+            {pieData.map((entry: any, i: number) => (
+              <Cell key={i} fill={entry.color} stroke="transparent" />
+            ))}
+          </Pie>
+          <Tooltip
+            contentStyle={{
+              backgroundColor: "var(--color-tooltip-bg)",
+              border: "1px solid var(--color-tooltip-border)",
+              borderRadius: "10px", fontSize: "13px", padding: "10px 14px",
+              color: "var(--color-tooltip-text)",
+              backdropFilter: "blur(16px)",
+            }}
+            formatter={(value: any) => [formatValue(value, pieFmt), ""]}
+          />
+          {pieData.length > 1 && (
+            <Legend
+              verticalAlign="bottom"
+              iconType="circle"
+              iconSize={8}
+              wrapperStyle={{ fontSize: "11px", color: "rgba(255,255,255,0.55)" }}
+            />
+          )}
+        </PieChart>
+      );
+    }
+
+    const effectiveChartType = viewMode === "cumulative" ? "area" : viewMode;
+    const commonProps = { data: activeData, margin: { top: 12, right: needsDualAxis ? 56 : 20, left: 4, bottom: 8 } };
     const grid = <CartesianGrid strokeDasharray="3 6" stroke="rgba(255,255,255,0.06)" vertical={false} />;
     const xAx = (
       <XAxis
@@ -101,7 +204,7 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
       />
     ) : null;
 
-    if (needsDualAxis || chartType === "composed") {
+    if (isComposedOrDualAxis) {
       return (
         <ComposedChart {...commonProps}>
           {grid}{xAx}
@@ -153,7 +256,7 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
       />
     );
 
-    if (chartType === "bar") {
+    if (effectiveChartType === "bar") {
       return (
         <BarChart {...commonProps}>
           {grid}{xAx}{yAx}{tip}{leg}
@@ -163,12 +266,12 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
         </BarChart>
       );
     }
-    if (chartType === "area") {
+    if (effectiveChartType === "area") {
       return (
         <AreaChart {...commonProps}>
           {grid}{xAx}{yAx}{tip}{leg}
           {yAxes.map((y, i) => (
-            <Area key={y.dataKey} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.04} dot={false} />
+            <Area key={y.dataKey} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={viewMode === "cumulative" ? 0.15 : 0.04} dot={false} />
           ))}
         </AreaChart>
       );
@@ -190,12 +293,36 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
           {title && <h4 className="text-sm font-semibold text-foreground/90 tracking-tight">{title}</h4>}
           {subtitle && <p className="text-[11px] font-medium text-emerald-400 uppercase tracking-wider mt-1 leading-snug">{subtitle}</p>}
         </div>
-        {latestValue && (
-          <div className="text-right ml-4 shrink-0">
-            <p className="text-xl font-bold font-mono tabular-nums tracking-tight leading-none" style={{ color: CHART_COLORS[0] }}>{latestValue}</p>
-            <p className="text-[10px] text-muted-foreground/50 mt-0.5">Latest</p>
+        <div className="flex items-center gap-2 ml-4 shrink-0">
+          <div className="flex items-center rounded-md border border-border/30 bg-background/40 p-0.5" data-testid="chart-type-toggle">
+            {CHART_VIEW_OPTIONS.map(({ mode, icon: Icon, tip }) => {
+              const disabled = isComposedOrDualAxis && !["cumulative", "pie"].includes(mode) && mode !== (["line", "bar", "area"].includes(defaultChartType) ? defaultChartType : "line");
+              return (
+                <button
+                  key={mode}
+                  onClick={() => !disabled && setViewMode(mode)}
+                  title={disabled ? `${tip} (not available for multi-axis charts)` : tip}
+                  data-testid={`chart-toggle-${mode}`}
+                  className={`p-1.5 rounded transition-all ${
+                    viewMode === mode
+                      ? "bg-primary/20 text-primary shadow-sm"
+                      : disabled
+                        ? "text-muted-foreground/15 cursor-not-allowed"
+                        : "text-muted-foreground/40 hover:text-muted-foreground/70"
+                  }`}
+                >
+                  <Icon size={13} strokeWidth={viewMode === mode ? 2.2 : 1.5} />
+                </button>
+              );
+            })}
           </div>
-        )}
+          {latestValue && (
+            <div className="text-right">
+              <p className="text-xl font-bold font-mono tabular-nums tracking-tight leading-none" style={{ color: CHART_COLORS[0] }}>{latestValue}</p>
+              <p className="text-[10px] text-muted-foreground/50 mt-0.5">Latest</p>
+            </div>
+          )}
+        </div>
       </div>
       <div style={{ overflow: "visible" }} className="mt-2">
         <ResponsiveContainer width="100%" height={300} style={{ overflow: "visible" }}>
