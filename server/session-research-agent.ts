@@ -1264,6 +1264,7 @@ const CHART_INTENT_PATTERNS = [
   /(?:FDV|MCAP|TVL|volume|revenue|fees)\s+(?:chart|graph|over|vs|trend)/i,
   /(?:show|pull|get|fetch)\s+(?:me\s+)?(?:the\s+)?(?:daily|weekly|monthly|historical)\s+/i,
   /(?:price\s+(?:chart|history|vs)|compare\s+.*(?:chart|graph))/i,
+  /(?:take\s*rate|capital\s*efficiency|revenue\s*growth|fee\s*growth|volume[\s\/]tvl|fdv[\s\/]tvl)\s*(?:chart|trend|over|for|ratio)?/i,
 ];
 
 function isChartRequest(msg: string): boolean {
@@ -1281,7 +1282,7 @@ interface ChartPipelineResult {
 const CHART_EXTRACT_PROMPT = `Extract the protocol/token and metric from this chart request. Return ONLY valid JSON:
 {"protocol": "<protocol name>", "ticker": "<token ticker>", "metric": "<metric category>", "variants": ["<variant1>", ...]}
 
-metric must be one of: pe_ratio, ps_ratio, revenue, fees, tvl, volume, price, custom
+metric must be one of: pe_ratio, ps_ratio, take_rate, capital_efficiency, revenue_growth, fee_growth, volume_tvl_ratio, fdv_tvl, revenue, fees, tvl, volume, price, custom
 variants are specific sub-metrics the user wants (e.g. ["MCAP", "FDV", "Adj MCAP"] for a P/E chart)
 
 Examples:
@@ -1289,7 +1290,12 @@ Examples:
 - "Show me AAVE revenue over time" → {"protocol": "aave", "ticker": "AAVE", "metric": "revenue", "variants": []}
 - "Chart SOL TVL trend" → {"protocol": "solana", "ticker": "SOL", "metric": "tvl", "variants": []}
 - "Compare HYPE fees vs revenue" → {"protocol": "hyperliquid", "ticker": "HYPE", "metric": "fees", "variants": ["fees", "revenue"]}
-- "Show daily volume for Uniswap" → {"protocol": "uniswap", "ticker": "UNI", "metric": "volume", "variants": []}`;
+- "Show daily volume for Uniswap" → {"protocol": "uniswap", "ticker": "UNI", "metric": "volume", "variants": []}
+- "What's Uniswap's take rate trend?" → {"protocol": "uniswap", "ticker": "UNI", "metric": "take_rate", "variants": []}
+- "Capital efficiency of Aave" → {"protocol": "aave", "ticker": "AAVE", "metric": "capital_efficiency", "variants": []}
+- "Revenue growth chart for Hyperliquid" → {"protocol": "hyperliquid", "ticker": "HYPE", "metric": "revenue_growth", "variants": []}
+- "FDV/TVL ratio for Lido" → {"protocol": "lido", "ticker": "LDO", "metric": "fdv_tvl", "variants": []}
+- "Volume to TVL ratio for Curve" → {"protocol": "curve", "ticker": "CRV", "metric": "volume_tvl_ratio", "variants": []}`;
 
 function checkChartDataSanity(data: any[], yAxes: Array<{ dataKey: string; label: string }>): string | null {
   if (!data || data.length === 0) return "No data returned";
@@ -1402,123 +1408,51 @@ async function runChartPipeline(
   console.log(`[ChartPipeline] Extracted: protocol=${extracted.protocol}, metric=${extracted.metric}, variants=${extracted.variants?.join(",") || "none"}`);
 
   const { resolveCoinGeckoId, getRevenueSlugs } = await import("./coingecko-ids");
+  const { lookupDerivedMetric, computeDerivedChart } = await import("./data-source-brain/derived-metrics");
 
-  if (extracted.metric === "pe_ratio" || extracted.metric === "ps_ratio") {
-    onStep?.({ type: "tool_start", label: `Fetching ${extracted.protocol} revenue + price data`, detail: "deterministic_fetch", round: 0 });
+  const recipe = lookupDerivedMetric(extracted.metric);
+  if (recipe) {
+    onStep?.({ type: "tool_start", label: `Computing ${recipe.displayLabel} for ${extracted.protocol}`, detail: "deterministic_fetch", round: 0 });
     try {
-      const slug = await defillama.resolveSlug(extracted.protocol);
-      const coinId = resolveCoinGeckoId(slug) || resolveCoinGeckoId(extracted.protocol) || extracted.ticker?.toLowerCase();
-      const revSlugs = getRevenueSlugs(slug);
+      const resolvers = { resolveCoinGeckoId, getRevenueSlugs };
+      const { data: chartData, yAxes } = await computeDerivedChart(recipe, extracted.protocol, defillama, resolvers, 365);
 
-      let dailyRevenue: { date: number; revenue: number }[] = [];
-      for (const rs of revSlugs) {
-        try {
-          const revData = await defillama.getProtocolRevenue(rs);
-          const parsed = (revData.dailyRevenue || [])
-            .map((d: any) => ({ date: d.date, revenue: d.revenue || d.value || 0 }))
-            .filter((d: any) => d.revenue > 0);
-          if (parsed.length > dailyRevenue.length) {
-            dailyRevenue = parsed;
-            console.log(`[ChartPipeline] Revenue from '${rs}': ${parsed.length} daily points`);
-            break;
-          }
-        } catch {}
-      }
+      onStep?.({ type: "tool_result", label: `Computed ${chartData.length} ${recipe.displayLabel} data points`, detail: "deterministic_fetch", round: 0 });
 
-      if (dailyRevenue.length < 14) {
-        throw new Error(`Insufficient revenue data (${dailyRevenue.length} points)`);
-      }
-      dailyRevenue.sort((a, b) => a.date - b.date);
-
-      const [priceData, cgData] = await Promise.all([
-        defillama.getCoinPriceHistory(coinId, 365),
-        fetch(`https://api.coingecko.com/api/v3/coins/${coinId}?localization=false&tickers=false&community_data=false&developer_data=false`)
-          .then(r => r.json()).catch(() => ({})),
-      ]);
-
-      if (priceData.prices.length < 7) throw new Error(`Insufficient price data for ${coinId}`);
-
-      const mcap = cgData?.market_data?.market_cap?.usd || 0;
-      const fdv = cgData?.market_data?.fully_diluted_valuation?.usd || 0;
-      const currentPrice = cgData?.market_data?.current_price?.usd || 0;
-      const circulatingSupply = cgData?.market_data?.circulating_supply || 0;
-      const totalSupply = cgData?.market_data?.total_supply || 0;
-      if (!mcap || !currentPrice) throw new Error(`Could not get market cap for ${coinId}`);
-
-      const mcapScale = mcap / currentPrice;
-      const fdvScale = fdv > 0 ? fdv / currentPrice : totalSupply > 0 ? totalSupply : mcapScale;
-      const adjMcapScale = circulatingSupply > 0 ? circulatingSupply * 0.85 : mcapScale * 0.85;
-      console.log(`[ChartPipeline] MCAP=$${(mcap/1e6).toFixed(1)}M, FDV=$${(fdv/1e6).toFixed(1)}M, price=$${currentPrice}`);
-
-      const revByDate = new Map<string, number>();
-      for (const d of dailyRevenue) {
-        const dk = new Date(d.date * 1000).toISOString().substring(0, 10);
-        revByDate.set(dk, (revByDate.get(dk) || 0) + d.revenue);
-      }
-      const priceByDate = new Map<string, number>();
-      for (const p of priceData.prices) {
-        const dk = new Date(p.date * 1000).toISOString().substring(0, 10);
-        priceByDate.set(dk, p.price);
-      }
-
-      const sortedRevDates = [...revByDate.keys()].sort();
-      const TRAILING_DAYS = 30;
-      const cutoffDate = new Date();
-      cutoffDate.setFullYear(cutoffDate.getFullYear() - 1);
-      const cutoffStr = cutoffDate.toISOString().substring(0, 10);
-
-      const chartData: any[] = [];
-      for (let i = TRAILING_DAYS - 1; i < sortedRevDates.length; i++) {
-        const dateStr = sortedRevDates[i];
-        if (dateStr < cutoffStr) continue;
-        const price = priceByDate.get(dateStr);
-        if (!price) continue;
-        let trailingRevSum = 0;
-        let trailingDays = 0;
-        for (let j = i - TRAILING_DAYS + 1; j <= i; j++) {
-          const rev = revByDate.get(sortedRevDates[j]);
-          if (rev && rev > 0) { trailingRevSum += rev; trailingDays++; }
-        }
-        if (trailingDays < 7 || trailingRevSum <= 0) continue;
-        const annualizedRev = (trailingRevSum / trailingDays) * 365;
-        const mcapVal = price * mcapScale;
-        const mcapPe = mcapVal / annualizedRev;
-        if (mcapPe <= 0 || mcapPe >= 100000) continue;
-        const row: any = { date: dateStr, mcap_pe: Number(mcapPe.toFixed(2)) };
-        if (fdv > 0) row.fdv_pe = Number(((price * fdvScale) / annualizedRev).toFixed(2));
-        row.adj_mcap_pe = Number(((price * adjMcapScale) / annualizedRev).toFixed(2));
-        chartData.push(row);
-      }
-
-      if (chartData.length < 3) throw new Error(`Only ${chartData.length} data points`);
-
-      onStep?.({ type: "tool_result", label: `Computed ${chartData.length} P/E data points`, detail: "deterministic_fetch", round: 0 });
-
-      const yAxes: Array<{ dataKey: string; label: string }> = [{ dataKey: "mcap_pe", label: "MCAP P/E" }];
-      if (chartData[0].fdv_pe !== undefined) yAxes.push({ dataKey: "fdv_pe", label: "FDV P/E" });
-      if (chartData[0].adj_mcap_pe !== undefined) yAxes.push({ dataKey: "adj_mcap_pe", label: "Adj MCAP P/E" });
-
+      const primaryKey = yAxes[0].dataKey;
       const latest = chartData[chartData.length - 1];
       const priorIdx = Math.max(0, chartData.length - 91);
       const prior = chartData[priorIdx];
-      const peTrend = latest.mcap_pe < prior.mcap_pe ? "declining" : latest.mcap_pe > prior.mcap_pe ? "rising" : "flat";
+      const latestVal = Number(latest[primaryKey]);
+      const priorVal = Number(prior[primaryKey]);
 
+      const fmtVal = (v: number) => {
+        if (recipe.format === "ratio") return `${v.toFixed(1)}x`;
+        if (recipe.format === "percent") return `${v.toFixed(1)}%`;
+        if (recipe.format === "currency") return v >= 1e9 ? `$${(v/1e9).toFixed(2)}B` : v >= 1e6 ? `$${(v/1e6).toFixed(1)}M` : v >= 1e3 ? `$${(v/1e3).toFixed(1)}K` : `$${v.toFixed(0)}`;
+        return v.toFixed(2);
+      };
+
+      const trend = latestVal < priorVal ? "declining" : latestVal > priorVal ? "rising" : "flat";
       const summaryParts = [
-        `**${extracted.ticker || extracted.protocol}** currently trades at a **${latest.mcap_pe.toFixed(1)}x** MCAP-based P/E ratio (annualized revenue basis).`,
+        `**${extracted.ticker || extracted.protocol}** ${recipe.displayLabel}: **${fmtVal(latestVal)}** (${trend} from ${fmtVal(priorVal)} over ~3 months).`,
       ];
-      if (latest.fdv_pe) summaryParts.push(`FDV P/E sits at **${latest.fdv_pe.toFixed(1)}x** and Adj MCAP P/E at **${latest.adj_mcap_pe.toFixed(1)}x**.`);
-      summaryParts.push(`The ratio has been ${peTrend} over the past 3 months, from ${prior.mcap_pe.toFixed(1)}x to ${latest.mcap_pe.toFixed(1)}x.`);
-      summaryParts.push(`*Data: DeFiLlama (revenue) + CoinGecko (price/mcap). ${chartData.length} daily observations.*`);
+      if (yAxes.length > 1) {
+        const secondKey = yAxes[1].dataKey;
+        const secondVal = Number(latest[secondKey]);
+        if (!isNaN(secondVal)) summaryParts.push(`${yAxes[1].label}: **${fmtVal(secondVal)}**.`);
+      }
+      summaryParts.push(`*${chartData.length} daily observations from ${recipe.sources.map(s => s.split(".")[0]).filter((v, i, a) => a.indexOf(v) === i).join(" + ")}.*`);
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(`[ChartPipeline] P/E chart complete in ${elapsed}s — ${chartData.length} data points, no agent loop used`);
+      console.log(`[ChartPipeline] ${recipe.displayLabel} chart complete in ${elapsed}s — ${chartData.length} data points`);
 
       return {
-        response: buildChartResponse("line", `${extracted.ticker || extracted.protocol} P/E Ratio (Annualized Revenue)`, chartData, "date", yAxes, summaryParts.join(" "), cost, inputTokens, outputTokens),
+        response: buildChartResponse(recipe.chartType, `${extracted.ticker || extracted.protocol} ${recipe.displayLabel}`, chartData, "date", yAxes, summaryParts.join(" "), cost, inputTokens, outputTokens),
         fallbackContext: "", cost, inputTokens, outputTokens,
       };
     } catch (e: any) {
-      console.log(`[ChartPipeline] P/E deterministic failed: ${e.message}`);
+      console.log(`[ChartPipeline] ${recipe.displayLabel} failed: ${e.message}`);
     }
   }
 
