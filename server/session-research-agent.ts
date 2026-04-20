@@ -1872,7 +1872,7 @@ export async function runSessionResearchAgent(
   const MAX_TOOL_ROUNDS = mode === "quick" ? 3 : mode === "focused" ? focusedRounds : 15;
   const maxTokens = mode === "quick" ? 2000 : mode === "focused" ? focusedTokens : 16000;
   const SPEND_BUDGET_USD = mode === "quick" ? 5 : mode === "focused" ? 15 : 50;
-  const useModel = MODELS.OPUS;
+  const useModel = isChart ? MODELS.SONNET : MODELS.OPUS;
   let finalText = "";
   let budgetExceeded = false;
 
@@ -1926,15 +1926,17 @@ export async function runSessionResearchAgent(
     };
 
     let response: AnthropicRawResponse;
+    const needsStreaming = !isChart && mode !== "quick";
+    const apiCall = needsStreaming ? callAnthropicRawStreaming : callAnthropicRaw;
     try {
-      response = await callAnthropicRawStreaming(requestBody);
+      response = await apiCall(requestBody);
     } catch (apiErr: any) {
       console.error(`[SessionResearch] API call failed at round ${round + 1}: ${apiErr.message}`);
       if (round === 0 && !apiErr.message.includes("InsufficientBalance") && !apiErr.message.includes("shutting down")) {
         console.log(`[SessionResearch] First-round failure — retrying once after 3s...`);
         await new Promise(r => setTimeout(r, 3000));
         try {
-          response = await callAnthropicRawStreaming(requestBody);
+          response = await apiCall(requestBody);
         } catch (retryErr: any) {
           console.error(`[SessionResearch] Retry also failed: ${retryErr.message}`);
           loopError = retryErr.message;
