@@ -402,7 +402,7 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
   );
 }
 
-export function InlineTable({ artifact }: { artifact: Artifact }) {
+export function InlineTable({ artifact, compact }: { artifact: Artifact; compact?: boolean }) {
   const { data, columns, title } = artifact;
   if (!data?.length) return null;
 
@@ -425,22 +425,22 @@ export function InlineTable({ artifact }: { artifact: Artifact }) {
   const cols = columns || (Array.isArray(data[0]) ? data[0].map((_: any, i: number) => `Col ${i + 1}`) : Object.keys(data[0]));
 
   return (
-    <div className="my-5 rounded-lg border border-border/30 bg-card/40 overflow-hidden shadow-sm">
-      {title && <h4 className="text-sm font-semibold text-foreground/90 px-5 pt-4 pb-2 tracking-tight">{title}</h4>}
-      <div className="overflow-x-auto">
-        <table className="w-full text-[13px]">
+    <div className={`rounded-lg border border-border/30 bg-card/40 overflow-hidden shadow-sm ${compact ? "my-0" : "my-5"}`}>
+      {title && <h4 className={`font-semibold text-foreground/90 tracking-tight ${compact ? "text-xs px-2 pt-2 pb-1" : "text-sm px-5 pt-4 pb-2"}`}>{title}</h4>}
+      <div className={`overflow-x-auto ${compact ? "max-h-[300px] overflow-y-auto" : ""}`}>
+        <table className={`w-full ${compact ? "text-[10px]" : "text-[13px]"}`}>
           <thead>
             <tr className="border-b border-border/40 bg-muted/20">
               {cols.map(c => (
-                <th key={c} className="px-5 py-2.5 text-left text-xs font-semibold text-muted-foreground/80 uppercase tracking-wider">{c.replace(/_/g, " ")}</th>
+                <th key={c} className={`text-left font-semibold text-muted-foreground/80 uppercase tracking-wider ${compact ? "px-2 py-1.5 text-[9px]" : "px-5 py-2.5 text-xs"}`}>{c.replace(/_/g, " ")}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {data.slice(0, 50).map((row: any, i: number) => (
+            {data.slice(0, compact ? 20 : 50).map((row: any, i: number) => (
               <tr key={i} className="border-b border-border/15 last:border-0 hover:bg-muted/10 transition-colors even:bg-muted/5">
                 {cols.map(c => (
-                  <td key={c} className="px-5 py-2.5 text-foreground/85 font-mono text-[13px]">{formatValue(resolveCell(row, c))}</td>
+                  <td key={c} className={`text-foreground/85 font-mono ${compact ? "px-2 py-1 text-[10px]" : "px-5 py-2.5 text-[13px]"}`}>{formatValue(resolveCell(row, c))}</td>
                 ))}
               </tr>
             ))}

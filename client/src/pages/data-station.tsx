@@ -226,7 +226,7 @@ function StationCard({ pc, onRefresh, onDelete, onAddToReport, reports, refreshi
       </div>
 
       {pc.isTable ? (
-        <InlineTable artifact={pc.artifact} />
+        <InlineTable artifact={pc.artifact} compact />
       ) : (
         <InlineChart artifact={pc.artifact} hideSave compact />
       )}
