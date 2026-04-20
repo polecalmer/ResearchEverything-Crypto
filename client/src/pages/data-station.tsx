@@ -136,6 +136,9 @@ function parseChart(chart: SavedChart): ParsedChart {
   try { dsConfig = JSON.parse(chart.dataSourceConfig || "{}"); } catch {}
 
   const recipe = dsConfig.refreshRecipe;
+  const canRefresh = !!recipe
+    || (chart.dataSource === "dune" && !!dsConfig.queryId)
+    || (chart.dataSource === "defillama" && !!dsConfig.endpoint);
   const protocol = resolveProtocol(chart.title, dsConfig);
   const isTable = chart.chartType === "table" || (!parsedConfig?.yAxes?.length && parsedConfig?.columns);
 
@@ -161,7 +164,7 @@ function parseChart(chart: SavedChart): ParsedChart {
     parsedData,
     parsedConfig,
     dsConfig,
-    hasRecipe: !!recipe,
+    hasRecipe: canRefresh,
     protocol,
     artifact,
     isTable,

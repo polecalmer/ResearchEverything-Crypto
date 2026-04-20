@@ -761,13 +761,35 @@ export function registerResearchRoutes(app: Express) {
       if (!chart) return res.status(404).json({ message: "Chart not found" });
 
       const dsConfig = JSON.parse(chart.dataSourceConfig || "{}");
-      const recipe = dsConfig.refreshRecipe;
+      let recipe = dsConfig.refreshRecipe;
+
+      if (!recipe && chart.dataSource === "dune" && dsConfig.queryId) {
+        recipe = { dataSource: "dune", queryId: dsConfig.queryId, params: dsConfig.params || {} };
+      } else if (!recipe && chart.dataSource === "defillama" && dsConfig.endpoint) {
+        recipe = { dataSource: "defillama", metric: dsConfig.endpoint, slug: dsConfig.slug, protocol: dsConfig.slug };
+      }
+
       if (!recipe) return res.status(400).json({ message: "This chart does not have a refresh recipe" });
 
       const { executeRefreshRecipe } = await import("../session-research-agent");
-      console.log(`[RefreshChart] Refreshing chart ${chart.id}: ${recipe.protocol} / ${recipe.metric}`);
+      console.log(`[RefreshChart] Refreshing chart ${chart.id}:`, JSON.stringify(recipe).slice(0, 100));
       const startTime = Date.now();
-      const result = await executeRefreshRecipe(recipe);
+
+      let result: { data: any[]; chartConfig: any };
+      if (recipe.dataSource === "dune" && recipe.queryId) {
+        const { getLatestDuneResults, executeDuneQuery } = await import("../dune-client");
+        let rawData;
+        try {
+          rawData = await getLatestDuneResults(recipe.queryId);
+        } catch {
+          rawData = await executeDuneQuery(recipe.queryId, recipe.params || {});
+        }
+        const rows = rawData?.rows || [];
+        const existingConfig = JSON.parse(chart.chartConfig || "{}");
+        result = { data: rows, chartConfig: existingConfig };
+      } else {
+        result = await executeRefreshRecipe(recipe);
+      }
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(`[RefreshChart] Done in ${elapsed}s — ${result.data.length} data points`);
 
