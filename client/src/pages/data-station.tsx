@@ -139,7 +139,8 @@ function parseChart(chart: SavedChart): ParsedChart {
   const recipe = dsConfig.refreshRecipe;
   const canRefresh = !!recipe
     || (chart.dataSource === "dune" && !!dsConfig.queryId)
-    || (chart.dataSource === "defillama" && !!dsConfig.endpoint);
+    || (chart.dataSource === "defillama" && !!dsConfig.endpoint)
+    || chart.dataSource === "stonks";
   const protocol = resolveProtocol(chart.title, dsConfig);
   const isTable = chart.chartType === "table" || (!parsedConfig?.yAxes?.length && parsedConfig?.columns);
 

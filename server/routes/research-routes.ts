@@ -768,6 +768,8 @@ export function registerResearchRoutes(app: Express) {
         recipe = { dataSource: "dune", queryId: dsConfig.queryId, params: dsConfig.params || {} };
       } else if (!recipe && chart.dataSource === "defillama" && dsConfig.endpoint) {
         recipe = { dataSource: "defillama", metric: dsConfig.endpoint, slug: dsConfig.slug, protocol: dsConfig.slug };
+      } else if (!recipe && chart.dataSource === "stonks") {
+        recipe = { dataSource: "stonks", endpoint: dsConfig.endpoint || "summary" };
       }
 
       if (!recipe) return res.status(400).json({ message: "This chart does not have a refresh recipe" });
@@ -786,6 +788,18 @@ export function registerResearchRoutes(app: Express) {
           rawData = await executeDuneQuery(recipe.queryId, recipe.params || {});
         }
         const rows = rawData?.rows || [];
+        const existingConfig = JSON.parse(chart.chartConfig || "{}");
+        result = { data: rows, chartConfig: existingConfig };
+      } else if (recipe.dataSource === "stonks") {
+        const apiKey = process.env.STONKS_API_KEY;
+        if (!apiKey) throw new Error("Stonks API key not configured");
+        const endpoint = recipe.endpoint || "summary";
+        const resp = await fetch(`https://api.stonksonchain.com/v1/hyperliquid/${endpoint}`, {
+          headers: { "x-api-key": apiKey },
+        });
+        if (!resp.ok) throw new Error(`Stonks API error: ${resp.status}`);
+        const freshData = await resp.json();
+        const rows = Array.isArray(freshData) ? freshData : [freshData];
         const existingConfig = JSON.parse(chart.chartConfig || "{}");
         result = { data: rows, chartConfig: existingConfig };
       } else {
