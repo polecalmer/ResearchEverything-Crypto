@@ -34,8 +34,12 @@ export const COINGECKO_IDS: Record<string, string> = {
 
   // Derivatives
   hyperliquid: "hyperliquid",
+  lighter: "lighter",
   gmx: "gmx",
   dydx: "dydx-chain",
+  "jupiter-perpetual": "jupiter-exchange-solana",
+  synthetix: "havven",
+  aevo: "aevo-exchange",
 };
 
 /** Maps protocol names/slugs → DeFiLlama revenue slug (with fallbacks) */

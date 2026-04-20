@@ -510,7 +510,8 @@ The brain context injected below (if present) shows what you already know. USE I
 - Trust facts marked "verified" — don't re-fetch them
 - DO re-fetch facts marked "stale" (live metrics older than 12h) before citing
 - Build on past research instead of restarting
-- If brain has competitors for an entity, include them without the user asking`;
+- If brain has competitors for an entity, include them without the user asking
+- For market share / competitive landscape queries: check brain entities sharing the same CATEGORY — these are peers the brain already knows. Include ALL of them in your analysis, don't rely on memory alone. The brain's category field (e.g. "derivatives-dex", "lending", "dex") groups protocols by market segment.`;
 
 const QUICK_RULES = `RESPONSE MODE: QUICK
 The user asked a clarification, recall, confirmation, or simple factual question. Match that energy.

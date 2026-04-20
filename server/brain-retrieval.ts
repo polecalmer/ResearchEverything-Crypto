@@ -259,6 +259,24 @@ function legacyRetrieve(
     }
   }
 
+  const isComparisonQuery = /market\s*share|compar|vs\.?|versus|landscape|competitor|peer|ranking/i.test(query);
+  if (isComparisonQuery) {
+    const matchedCategories = new Set<string>();
+    for (const name of Object.keys(relevantEntities)) {
+      const cat = relevantEntities[name]?.category;
+      if (cat) matchedCategories.add(cat);
+    }
+    if (matchedCategories.size > 0) {
+      for (const name of allEntityNames) {
+        const ent = brain.entities[name];
+        if (ent?.category && matchedCategories.has(ent.category) && !relevantEntities[name]) {
+          relevantEntities[name] = ent;
+          relatedEntityNames.add(name);
+        }
+      }
+    }
+  }
+
   const relevantRelationships = allRelationships.filter(r =>
     relatedEntityNames.has(r.from) || relatedEntityNames.has(r.to)
   );
@@ -334,6 +352,45 @@ export async function retrieveRelevantContext(
   for (const name of retrievedEntityNames) {
     if (!entities[name] && brain.entities[name]) {
       entities[name] = brain.entities[name];
+    }
+  }
+
+  const isComparisonQuery = /market\s*share|compar|vs\.?|versus|landscape|competitor|peer|ranking/i.test(query);
+  if (isComparisonQuery) {
+    const matchedCategories = new Set<string>();
+    for (const se of scoredEntities) {
+      const cat = se.entity.category;
+      if (cat) matchedCategories.add(cat);
+    }
+    if (matchedCategories.size > 0) {
+      try {
+        const catArray = [...matchedCategories];
+        const peerRows = await db.execute(sql`
+          SELECT entity_name, type, category, summary
+          FROM brain_entities
+          WHERE user_id = ${userId}
+            AND category = ANY(${catArray}::text[])
+          LIMIT 20
+        `);
+        const raw: any[] = (peerRows as any).rows ?? peerRows;
+        for (const r of raw) {
+          if (!entities[r.entity_name]) {
+            entities[r.entity_name] = {
+              type: r.type || "unknown",
+              category: r.category || undefined,
+              summary: r.summary || undefined,
+              researchCount: 0,
+              lastResearched: "",
+            } as BrainEntity;
+            retrievedEntityNames.add(r.entity_name);
+          }
+        }
+        if (raw.length > 0) {
+          console.log(`[BrainRetrieval] Category peer expansion: found ${raw.length} peers in categories [${catArray.join(", ")}]`);
+        }
+      } catch (err: any) {
+        console.warn(`[BrainRetrieval] Category peer expansion failed: ${err.message}`);
+      }
     }
   }
 
