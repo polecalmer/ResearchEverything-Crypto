@@ -123,6 +123,7 @@ export interface ResearchResponse {
   mode: ResearchMode;
   modeReason: string;
   plan?: ResearchPlan;
+  needsContinuation?: boolean;
 }
 
 export type BrainContext = BrainGraph | null;
@@ -1646,6 +1647,7 @@ export async function runSessionResearchAgent(
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
   let anyCostSourceVoucher = false;
+  let needsContinuation = false;
   let pendingBrainUpdate: BrainUpdate | undefined;
   let chartPrefetchContext = "";
 
@@ -2171,8 +2173,8 @@ ${perspectives.join("\n\n")}`;
     }
     if (!finalText && toolCalls.length > 0) {
       console.log(`[SessionResearch] Both main loop and wrap-up failed — constructing partial response from ${toolCalls.length} tool calls`);
-      const toolSummary = toolCalls.map((t, i) => `${i + 1}. ${t}`).join("\n");
-      finalText = `The analysis was interrupted before completion, but here is a summary of the research conducted so far:\n\n**Tools executed (${toolCalls.length}):**\n${toolSummary}\n\nPlease send a follow-up message in this session to continue — all the data gathered above is preserved in the conversation context and will be used to complete the analysis.`;
+      needsContinuation = true;
+      finalText = `Your question warranted extensive research — I gathered data from ${toolCalls.length} sources but need one more pass to synthesize everything into a complete analysis. All the data is preserved and ready to go.`;
     } else if (!finalText) {
       const isPaymentIssue = loopError && (loopError.includes("InsufficientBalance") || loopError.includes("insufficient funds") || loopError.includes("payment"));
       const isTimeout = loopError && (loopError.includes("524") || loopError.includes("timeout") || loopError.includes("ECONNRESET"));
@@ -2234,5 +2236,6 @@ ${perspectives.join("\n\n")}`;
     mode,
     modeReason,
     plan,
+    needsContinuation,
   };
 }

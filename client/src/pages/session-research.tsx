@@ -188,6 +188,13 @@ export default function SessionResearch() {
     sendStreamingMessage(activeSessionId, diveMsg);
   }, [activeSessionId, isSending, sendStreamingMessage]);
 
+  const handleContinueAnalysis = useCallback(() => {
+    if (!activeSessionId || isSending) return;
+    const continueMsg = "Continue where you left off. All data from previous tool calls is in context — synthesize it into the complete analysis now.";
+    setPendingUserMsg("Continuing analysis...");
+    sendStreamingMessage(activeSessionId, continueMsg);
+  }, [activeSessionId, isSending, sendStreamingMessage]);
+
   const handleAddToReport = useCallback(async (msgId: number) => {
     try {
       const authHeaders = await getAuthHeaders();
@@ -372,6 +379,7 @@ export default function SessionResearch() {
                     onDiveDeep={handleDiveDeep}
                     onAddToReport={handleAddToReport}
                     onSaveAsModel={handleSaveAsModel}
+                    onContinue={handleContinueAnalysis}
                     onOverride={(action) => {
                       if (!activeSessionId || !lastUserMsg) return;
                       sendStreamingMessage(activeSessionId, lastUserMsg, action);

@@ -816,6 +816,7 @@ export function MessageBubble({
   onDiveDeep,
   onAddToReport,
   onSaveAsModel,
+  onContinue,
   isLast,
   busy,
   lastUserMessage,
@@ -825,6 +826,7 @@ export function MessageBubble({
   onDiveDeep?: (text: string) => void;
   onAddToReport?: (msgId: number) => Promise<void>;
   onSaveAsModel?: (msgId: number, artifactIndex?: number) => Promise<void>;
+  onContinue?: () => void;
   isLast?: boolean;
   busy?: boolean;
   lastUserMessage?: string;
@@ -843,7 +845,7 @@ export function MessageBubble({
     );
   }
 
-  const { mode, cleaned } = extractMode(msg.content);
+  const { mode, cleaned, needsContinuation } = extractMode(msg.content);
   const parts = parseContentAndArtifacts(cleaned, msg.artifacts as Artifact[] | null);
 
   const artifacts: any[] = Array.isArray(msg.artifacts) ? msg.artifacts : [];
@@ -936,7 +938,24 @@ export function MessageBubble({
           return artifactEl;
         })}
       </div>
-      {showOverrides && (
+      {needsContinuation && isLast && !busy && onContinue && (
+        <div className="mt-5 flex justify-center" data-testid="continue-analysis-section">
+          <button
+            onClick={onContinue}
+            className="group/btn flex items-center gap-3 px-6 py-3 rounded-xl border border-primary/30 bg-primary/5 hover:bg-primary/10 hover:border-primary/50 transition-all duration-200"
+            data-testid="button-continue-analysis"
+          >
+            <div className="w-8 h-8 rounded-full bg-primary/15 flex items-center justify-center group-hover/btn:bg-primary/25 transition-colors">
+              <RefreshCw className="w-4 h-4 text-primary" />
+            </div>
+            <div className="text-left">
+              <p className="text-sm font-medium text-foreground/90">Continue Analysis</p>
+              <p className="text-[11px] text-muted-foreground/60">Pick up where we left off and complete the synthesis</p>
+            </div>
+          </button>
+        </div>
+      )}
+      {showOverrides && !needsContinuation && (
         <div className="mt-4 flex items-center gap-2 flex-wrap" data-testid="mode-overrides">
           {canShorter && (
             <button

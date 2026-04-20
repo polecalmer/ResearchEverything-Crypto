@@ -259,7 +259,8 @@ export function registerResearchRoutes(app: Express) {
       sendEvent("mode", { mode: result.mode, reason: result.modeReason });
 
       const artifacts = parseArtifacts(result.content);
-      const contentWithMode = `<!-- mode:${result.mode} -->\n${result.content}`;
+      const continuationTag = result.needsContinuation ? "<!-- needs_continuation -->\n" : "";
+      const contentWithMode = `<!-- mode:${result.mode} -->\n${continuationTag}${result.content}`;
       const assistantMsg = await storage.createMessage({
         conversationId: session.id,
         role: "assistant",
@@ -417,6 +418,7 @@ export function registerResearchRoutes(app: Express) {
         artifacts,
         mppCost: result.mppCost,
         toolCalls: result.toolCalls,
+        needsContinuation: result.needsContinuation || false,
       });
 
       res.end();

@@ -110,11 +110,14 @@ export function formatValue(val: any, fmt?: string): string {
 }
 
 const MODE_RE = /^<!--\s*mode:(quick|focused|deep)\s*-->\s*\n?/;
+const CONTINUATION_RE = /<!--\s*needs_continuation\s*-->\s*\n?/;
 
-export function extractMode(content: string): { mode: ResearchMode | null; cleaned: string } {
-  const m = content.match(MODE_RE);
-  if (m) return { mode: m[1] as ResearchMode, cleaned: content.replace(MODE_RE, "") };
-  return { mode: null, cleaned: content };
+export function extractMode(content: string): { mode: ResearchMode | null; cleaned: string; needsContinuation: boolean } {
+  const needsContinuation = CONTINUATION_RE.test(content);
+  let cleaned = content.replace(CONTINUATION_RE, "");
+  const m = cleaned.match(MODE_RE);
+  if (m) return { mode: m[1] as ResearchMode, cleaned: cleaned.replace(MODE_RE, ""), needsContinuation };
+  return { mode: null, cleaned, needsContinuation };
 }
 
 export function parseContentAndArtifacts(content: string, artifacts?: Artifact[] | null): Array<{ type: PartType; content?: string; artifact?: Artifact; artifactIdx?: number }> {
