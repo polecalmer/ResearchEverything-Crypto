@@ -22,7 +22,7 @@ const navItems = [
   { title: "Map", url: "/map", icon: Network },
   { title: "Companies", url: "/companies", icon: Building2 },
   { title: "Sessions", url: "/research", icon: FlaskConical },
-  { title: "Station", url: "/station", icon: Radio },
+  { title: "Data & Viz Hub", url: "/station", icon: Radio },
   { title: "Brain", url: "/brain", icon: Brain },
   { title: "Wallet", url: "/wallet", icon: Wallet },
   { title: "Extension", url: "/extension", icon: Chrome },

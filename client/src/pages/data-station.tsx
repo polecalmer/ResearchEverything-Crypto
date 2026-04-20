@@ -456,7 +456,7 @@ export default function DataStation() {
         <div className="p-3 pb-2 border-b border-border/15">
           <div className="flex items-center gap-2 mb-3">
             <Radio className="h-3.5 w-3.5 text-cyan-400/70" />
-            <span className="text-[11px] font-semibold text-foreground/85 tracking-wide">Data Station</span>
+            <span className="text-[11px] font-semibold text-foreground/85 tracking-wide">Data and Visualization Hub</span>
           </div>
           {totalRefreshable > 0 && (
             <Button
@@ -583,7 +583,7 @@ export default function DataStation() {
               <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500/10 to-purple-500/10 border border-border/15 flex items-center justify-center mb-4">
                 <Radio className="h-5 w-5 text-cyan-400/40" />
               </div>
-              <h2 className="text-sm font-semibold text-foreground/70 mb-1.5">Your Data Station</h2>
+              <h2 className="text-sm font-semibold text-foreground/70 mb-1.5">Your Data and Visualization Hub</h2>
               <p className="text-[11px] text-muted-foreground/40 max-w-sm leading-relaxed">
                 Charts you save from Sessions appear here, automatically organized by protocol. 
                 Each chart with a data recipe can be refreshed with one click to pull the latest live data — no AI cost.
