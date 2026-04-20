@@ -280,7 +280,7 @@ function ProtocolDashboard({ protocol, charts, onRefresh, onDelete, onAddToRepor
         )}
       </div>
 
-      <div className={`grid gap-4 ${charts.length === 1 ? "grid-cols-1" : "grid-cols-1 lg:grid-cols-2"}`}>
+      <div className="grid grid-cols-1 gap-6">
         {charts.map(pc => (
           <StationCard
             key={pc.id}
@@ -571,7 +571,7 @@ export default function DataStation() {
                   <p className="text-[10px] text-muted-foreground/30">No charts in this report yet</p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-6">
                   {reportParsed.map(pc => (
                     <StationCard key={pc.id} pc={pc} onRefresh={handleRefresh} onDelete={handleDelete} onAddToReport={handleAddToReport} reports={reports} refreshingId={refreshingId} />
                   ))}
