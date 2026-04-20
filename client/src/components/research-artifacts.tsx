@@ -40,6 +40,10 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
 
   const { chartType: defaultChartType, xAxis, yAxes } = chartConfig;
   const isComposedOrDualAxis = defaultChartType === "composed" || (yAxes.length > 1 && inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format) !== inferFormat(yAxes[1]?.dataKey, yAxes[1]?.label, yAxes[1]?.format));
+
+  const allFormats = yAxes.map(y => inferFormat(y.dataKey, y.label, y.format));
+  const hasRateOrPercent = allFormats.some(f => f === "percent" || f === "ratio");
+
   const [viewMode, setViewMode] = useState<ChartViewMode>(
     (["line", "bar", "area"].includes(defaultChartType) ? defaultChartType : "line") as ChartViewMode
   );
@@ -286,6 +290,16 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
     );
   };
 
+  const isDisabled = (mode: ChartViewMode): { disabled: boolean; reason?: string } => {
+    if (mode === "cumulative" && hasRateOrPercent) {
+      return { disabled: true, reason: "Cumulative doesn't apply to rates/percentages" };
+    }
+    if (isComposedOrDualAxis && !["cumulative", "pie"].includes(mode) && mode !== (["line", "bar", "area"].includes(defaultChartType) ? defaultChartType : "line")) {
+      return { disabled: true, reason: "Not available for multi-axis charts" };
+    }
+    return { disabled: false };
+  };
+
   return (
     <div className="my-5 rounded-lg border border-border/30 bg-card/40 p-5 shadow-sm" style={{ overflow: "visible" }}>
       <div className="flex items-start justify-between mb-1">
@@ -293,36 +307,34 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
           {title && <h4 className="text-sm font-semibold text-foreground/90 tracking-tight">{title}</h4>}
           {subtitle && <p className="text-[11px] font-medium text-emerald-400 uppercase tracking-wider mt-1 leading-snug">{subtitle}</p>}
         </div>
-        <div className="flex items-center gap-2 ml-4 shrink-0">
-          <div className="flex items-center rounded-md border border-border/30 bg-background/40 p-0.5" data-testid="chart-type-toggle">
-            {CHART_VIEW_OPTIONS.map(({ mode, icon: Icon, tip }) => {
-              const disabled = isComposedOrDualAxis && !["cumulative", "pie"].includes(mode) && mode !== (["line", "bar", "area"].includes(defaultChartType) ? defaultChartType : "line");
-              return (
-                <button
-                  key={mode}
-                  onClick={() => !disabled && setViewMode(mode)}
-                  title={disabled ? `${tip} (not available for multi-axis charts)` : tip}
-                  data-testid={`chart-toggle-${mode}`}
-                  className={`p-1.5 rounded transition-all ${
-                    viewMode === mode
-                      ? "bg-primary/20 text-primary shadow-sm"
-                      : disabled
-                        ? "text-muted-foreground/15 cursor-not-allowed"
-                        : "text-muted-foreground/40 hover:text-muted-foreground/70"
-                  }`}
-                >
-                  <Icon size={13} strokeWidth={viewMode === mode ? 2.2 : 1.5} />
-                </button>
-              );
-            })}
+        {latestValue && (
+          <div className="text-right ml-4 shrink-0">
+            <p className="text-xl font-bold font-mono tabular-nums tracking-tight leading-none" style={{ color: CHART_COLORS[0] }}>{latestValue}</p>
+            <p className="text-[10px] text-muted-foreground/50 mt-0.5">Latest</p>
           </div>
-          {latestValue && (
-            <div className="text-right">
-              <p className="text-xl font-bold font-mono tabular-nums tracking-tight leading-none" style={{ color: CHART_COLORS[0] }}>{latestValue}</p>
-              <p className="text-[10px] text-muted-foreground/50 mt-0.5">Latest</p>
-            </div>
-          )}
-        </div>
+        )}
+      </div>
+      <div className="flex items-center gap-1 mt-2 mb-3" data-testid="chart-type-toggle">
+        {CHART_VIEW_OPTIONS.map(({ mode, icon: Icon, tip }) => {
+          const { disabled, reason } = isDisabled(mode);
+          if (disabled) return null;
+          return (
+            <button
+              key={mode}
+              onClick={() => setViewMode(mode)}
+              title={tip}
+              data-testid={`chart-toggle-${mode}`}
+              className={`px-2.5 py-1 rounded-md text-[11px] font-medium flex items-center gap-1.5 transition-all ${
+                viewMode === mode
+                  ? "bg-primary/15 text-primary border border-primary/30"
+                  : "text-muted-foreground/50 hover:text-muted-foreground/80 hover:bg-muted/30 border border-transparent"
+              }`}
+            >
+              <Icon size={12} strokeWidth={viewMode === mode ? 2.2 : 1.5} />
+              {tip}
+            </button>
+          );
+        })}
       </div>
       <div style={{ overflow: "visible" }} className="mt-2">
         <ResponsiveContainer width="100%" height={300} style={{ overflow: "visible" }}>
