@@ -1267,12 +1267,12 @@ function isChartRequest(msg: string): boolean {
   return CHART_INTENT_PATTERNS.some(p => p.test(msg));
 }
 
-interface ChartPrefetchResult {
-  prefetchedData: string;
-  prefetchCost: number;
-  prefetchInputTokens: number;
-  prefetchOutputTokens: number;
-  dataFetched: boolean;
+interface ChartPipelineResult {
+  response: ResearchResponse | null;
+  fallbackContext: string;
+  cost: number;
+  inputTokens: number;
+  outputTokens: number;
 }
 
 const CHART_EXTRACT_PROMPT = `Extract the protocol/token and metric from this chart request. Return ONLY valid JSON:
@@ -1288,13 +1288,57 @@ Examples:
 - "Compare HYPE fees vs revenue" → {"protocol": "hyperliquid", "ticker": "HYPE", "metric": "fees", "variants": ["fees", "revenue"]}
 - "Show daily volume for Uniswap" → {"protocol": "uniswap", "ticker": "UNI", "metric": "volume", "variants": []}`;
 
-async function prefetchChartData(
+function buildChartResponse(
+  chartType: "line" | "bar" | "area" | "composed",
+  title: string,
+  data: any[],
+  xAxisKey: string,
+  yAxes: Array<{ dataKey: string; label: string }>,
+  summary: string,
+  pipelineCost: number,
+  pipelineInputTokens: number,
+  pipelineOutputTokens: number,
+): ResearchResponse {
+  const chartJson = {
+    chartType,
+    title,
+    data,
+    xAxis: { dataKey: xAxisKey, format: "date" },
+    yAxes: yAxes.map(y => ({ dataKey: y.dataKey, label: y.label })),
+  };
+  const artifactBlock = "```artifact:chart\n" + JSON.stringify(chartJson) + "\n```";
+  const content = `<!-- mode:focused -->\n${summary}\n\n${artifactBlock}`;
+  const artifact: ResearchArtifact = {
+    type: "chart",
+    title,
+    data,
+    chartConfig: {
+      chartType,
+      xAxis: { dataKey: xAxisKey, format: "date" },
+      yAxes: yAxes.map(y => ({ dataKey: y.dataKey, label: y.label })),
+    },
+  };
+  return {
+    content,
+    artifacts: [artifact],
+    mppCost: pipelineCost,
+    inputTokens: pipelineInputTokens,
+    outputTokens: pipelineOutputTokens,
+    costBasis: "receipt",
+    toolCalls: [`deterministic_${chartType}`],
+    mode: "focused",
+    modeReason: "chart request (deterministic pipeline)",
+  };
+}
+
+async function runChartPipeline(
   userMessage: string,
   onStep?: (step: ThinkingStep) => void,
-): Promise<ChartPrefetchResult> {
-  let prefetchCost = 0;
-  let prefetchInputTokens = 0;
-  let prefetchOutputTokens = 0;
+): Promise<ChartPipelineResult> {
+  const startTime = Date.now();
+  let cost = 0;
+  let inputTokens = 0;
+  let outputTokens = 0;
 
   let extracted: { protocol: string; ticker: string; metric: string; variants: string[] };
   try {
@@ -1304,19 +1348,19 @@ async function prefetchChartData(
       system: CHART_EXTRACT_PROMPT,
       messages: [{ role: "user", content: userMessage }],
     });
-    prefetchCost += extractResp.mppCost;
-    prefetchInputTokens += extractResp.usage?.input_tokens || 0;
-    prefetchOutputTokens += extractResp.usage?.output_tokens || 0;
+    cost += extractResp.mppCost;
+    inputTokens += extractResp.usage?.input_tokens || 0;
+    outputTokens += extractResp.usage?.output_tokens || 0;
     const text = extractResp.content.filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
     extracted = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] || "{}");
     if (!extracted.protocol) {
-      return { prefetchedData: "", prefetchCost, prefetchInputTokens, prefetchOutputTokens, dataFetched: false };
+      return { response: null, fallbackContext: "", cost, inputTokens, outputTokens };
     }
   } catch {
-    return { prefetchedData: "", prefetchCost, prefetchInputTokens, prefetchOutputTokens, dataFetched: false };
+    return { response: null, fallbackContext: "", cost, inputTokens, outputTokens };
   }
 
-  console.log(`[ChartPrefetch] Extracted: protocol=${extracted.protocol}, metric=${extracted.metric}, variants=${extracted.variants?.join(",") || "none"}`);
+  console.log(`[ChartPipeline] Extracted: protocol=${extracted.protocol}, metric=${extracted.metric}, variants=${extracted.variants?.join(",") || "none"}`);
 
   const { resolveCoinGeckoId, getRevenueSlugs } = await import("./coingecko-ids");
 
@@ -1336,46 +1380,36 @@ async function prefetchChartData(
             .filter((d: any) => d.revenue > 0);
           if (parsed.length > dailyRevenue.length) {
             dailyRevenue = parsed;
-            console.log(`[ChartPrefetch] Revenue from '${rs}': ${parsed.length} daily points`);
+            console.log(`[ChartPipeline] Revenue from '${rs}': ${parsed.length} daily points`);
             break;
           }
         } catch {}
       }
 
       if (dailyRevenue.length < 14) {
-        onStep?.({ type: "tool_start", label: `Trying proven queries for revenue`, detail: "proven_query_fallback", round: 0 });
-        const pqResults = await searchProvenQueriesForProtocol(extracted.protocol, ["revenue", "fees", "data"]);
-        if (pqResults.length > 0) {
-          return buildProvenQueryFallback(pqResults, extracted, userMessage, prefetchCost, prefetchInputTokens, prefetchOutputTokens);
-        }
         throw new Error(`Insufficient revenue data (${dailyRevenue.length} points)`);
       }
       dailyRevenue.sort((a, b) => a.date - b.date);
 
-      const priceData = await defillama.getCoinPriceHistory(coinId, 365);
-      if (priceData.prices.length < 7) {
-        throw new Error(`Insufficient price data for ${coinId}`);
-      }
+      const [priceData, cgData] = await Promise.all([
+        defillama.getCoinPriceHistory(coinId, 365),
+        fetch(`https://api.coingecko.com/api/v3/coins/${coinId}?localization=false&tickers=false&community_data=false&developer_data=false`)
+          .then(r => r.json()).catch(() => ({})),
+      ]);
 
-      const cgData: any = await fetch(
-        `https://api.coingecko.com/api/v3/coins/${coinId}?localization=false&tickers=false&community_data=false&developer_data=false`
-      ).then(r => r.json()).catch(() => ({}));
+      if (priceData.prices.length < 7) throw new Error(`Insufficient price data for ${coinId}`);
 
       const mcap = cgData?.market_data?.market_cap?.usd || 0;
       const fdv = cgData?.market_data?.fully_diluted_valuation?.usd || 0;
       const currentPrice = cgData?.market_data?.current_price?.usd || 0;
       const circulatingSupply = cgData?.market_data?.circulating_supply || 0;
       const totalSupply = cgData?.market_data?.total_supply || 0;
-
-      if (!mcap || !currentPrice) {
-        throw new Error(`Could not get market cap for ${coinId}`);
-      }
+      if (!mcap || !currentPrice) throw new Error(`Could not get market cap for ${coinId}`);
 
       const mcapScale = mcap / currentPrice;
       const fdvScale = fdv > 0 ? fdv / currentPrice : totalSupply > 0 ? totalSupply : mcapScale;
       const adjMcapScale = circulatingSupply > 0 ? circulatingSupply * 0.85 : mcapScale * 0.85;
-
-      console.log(`[ChartPrefetch] MCAP=$${(mcap/1e6).toFixed(1)}M, FDV=$${(fdv/1e6).toFixed(1)}M, price=$${currentPrice}`);
+      console.log(`[ChartPipeline] MCAP=$${(mcap/1e6).toFixed(1)}M, FDV=$${(fdv/1e6).toFixed(1)}M, price=$${currentPrice}`);
 
       const monthlyRevSum = new Map<string, number>();
       const monthlyRevDays = new Map<string, number>();
@@ -1384,7 +1418,6 @@ async function prefetchChartData(
         monthlyRevSum.set(mk, (monthlyRevSum.get(mk) || 0) + d.revenue);
         monthlyRevDays.set(mk, (monthlyRevDays.get(mk) || 0) + 1);
       }
-
       const monthlyPrice = new Map<string, { sum: number; count: number }>();
       for (const p of priceData.prices) {
         const mk = new Date(p.date * 1000).toISOString().substring(0, 7);
@@ -1394,70 +1427,51 @@ async function prefetchChartData(
         monthlyPrice.set(mk, entry);
       }
 
-      const result: any[] = [];
+      const chartData: any[] = [];
       for (const month of [...monthlyRevSum.keys()].sort()) {
         const revSum = monthlyRevSum.get(month) || 0;
         const revDays = monthlyRevDays.get(month) || 1;
         const priceEntry = monthlyPrice.get(month);
         if (!priceEntry || revSum <= 0) continue;
-
         const avgPrice = priceEntry.sum / priceEntry.count;
         const annualizedRev = (revSum / revDays) * 365;
-        const row: any = {
-          date: `${month}-15`,
-          revenue_monthly: Math.round(revSum),
-          annualized_revenue: Math.round(annualizedRev),
-          price: Number(avgPrice.toFixed(4)),
-        };
-
         const mcapVal = avgPrice * mcapScale;
-        row.mcap_pe = Number((mcapVal / annualizedRev).toFixed(2));
-
-        if (fdv > 0) {
-          const fdvVal = avgPrice * fdvScale;
-          row.fdv_pe = Number((fdvVal / annualizedRev).toFixed(2));
-        }
-
-        const adjVal = avgPrice * adjMcapScale;
-        row.adj_mcap_pe = Number((adjVal / annualizedRev).toFixed(2));
-
-        if (row.mcap_pe > 0 && row.mcap_pe < 100000) {
-          result.push(row);
-        }
+        const mcapPe = mcapVal / annualizedRev;
+        if (mcapPe <= 0 || mcapPe >= 100000) continue;
+        const row: any = { date: `${month}-15`, mcap_pe: Number(mcapPe.toFixed(2)) };
+        if (fdv > 0) row.fdv_pe = Number(((avgPrice * fdvScale) / annualizedRev).toFixed(2));
+        row.adj_mcap_pe = Number(((avgPrice * adjMcapScale) / annualizedRev).toFixed(2));
+        chartData.push(row);
       }
 
-      if (result.length < 3) {
-        throw new Error(`Only ${result.length} data points computed — insufficient`);
-      }
+      if (chartData.length < 3) throw new Error(`Only ${chartData.length} data points`);
 
-      console.log(`[ChartPrefetch] Computed ${result.length} monthly P/E data points`);
-      onStep?.({ type: "tool_result", label: `Got ${result.length} data points with P/E ratios`, detail: "deterministic_fetch", round: 0 });
+      onStep?.({ type: "tool_result", label: `Computed ${chartData.length} P/E data points`, detail: "deterministic_fetch", round: 0 });
 
-      const dataStr = JSON.stringify(result);
-      const prefetchedData = `\n\n<prefetched_chart_data>
-The system has ALREADY fetched and computed all the data for this chart request. NO tool calls needed — just render the chart.
+      const yAxes: Array<{ dataKey: string; label: string }> = [{ dataKey: "mcap_pe", label: "MCAP P/E" }];
+      if (chartData[0].fdv_pe !== undefined) yAxes.push({ dataKey: "fdv_pe", label: "FDV P/E" });
+      if (chartData[0].adj_mcap_pe !== undefined) yAxes.push({ dataKey: "adj_mcap_pe", label: "Adj MCAP P/E" });
 
-Protocol: ${extracted.protocol} (${extracted.ticker})
-Metric: P/E Ratio (annualized revenue basis)
-Data source: DeFiLlama (revenue) + CoinGecko (price/mcap/fdv/supply)
-Current MCAP: $${(mcap/1e6).toFixed(1)}M | FDV: $${(fdv/1e6).toFixed(1)}M | Price: $${currentPrice}
-Data points: ${result.length} monthly observations
-Columns: ${Object.keys(result[0]).join(", ")}
+      const latest = chartData[chartData.length - 1];
+      const prior = chartData.length >= 4 ? chartData[chartData.length - 4] : chartData[0];
+      const peTrend = latest.mcap_pe < prior.mcap_pe ? "declining" : latest.mcap_pe > prior.mcap_pe ? "rising" : "flat";
 
-DATA (use this directly in your chart artifact):
-${dataStr}
+      const summaryParts = [
+        `**${extracted.ticker || extracted.protocol}** currently trades at a **${latest.mcap_pe.toFixed(1)}x** MCAP-based P/E ratio (annualized revenue basis).`,
+      ];
+      if (latest.fdv_pe) summaryParts.push(`FDV P/E sits at **${latest.fdv_pe.toFixed(1)}x** and Adj MCAP P/E at **${latest.adj_mcap_pe.toFixed(1)}x**.`);
+      summaryParts.push(`The ratio has been ${peTrend} over the past ${Math.min(chartData.length, 3)} months, from ${prior.mcap_pe.toFixed(1)}x to ${latest.mcap_pe.toFixed(1)}x.`);
+      summaryParts.push(`*Data: DeFiLlama (revenue) + CoinGecko (price/mcap). ${chartData.length} monthly observations.*`);
 
-INSTRUCTIONS:
-1. DO NOT call any tools. The data is already computed above.
-2. Create a multi-line chart artifact with the P/E ratio series the user asked for.
-3. Use columns: mcap_pe (MCAP P/E), fdv_pe (FDV P/E), adj_mcap_pe (Adj MCAP P/E) as separate series.
-4. Write a 2-3 sentence summary highlighting current P/E levels and trends.
-5. Respond immediately with the chart — no tool calls needed.
-</prefetched_chart_data>`;
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(`[ChartPipeline] P/E chart complete in ${elapsed}s — ${chartData.length} data points, no agent loop used`);
 
-      return { prefetchedData, prefetchCost, prefetchInputTokens, prefetchOutputTokens, dataFetched: true };
+      return {
+        response: buildChartResponse("line", `${extracted.ticker || extracted.protocol} P/E Ratio (Annualized Revenue)`, chartData, "date", yAxes, summaryParts.join(" "), cost, inputTokens, outputTokens),
+        fallbackContext: "", cost, inputTokens, outputTokens,
+      };
     } catch (e: any) {
-      console.log(`[ChartPrefetch] P/E deterministic fetch failed: ${e.message} — falling back to proven queries`);
+      console.log(`[ChartPipeline] P/E deterministic failed: ${e.message}`);
     }
   }
 
@@ -1471,50 +1485,39 @@ INSTRUCTIONS:
       ]);
       const fees = feesRes.status === "fulfilled" ? feesRes.value : null;
       const revenue = revenueRes.status === "fulfilled" ? revenueRes.value : null;
-      const rows: any[] = [];
-      const dateMap = new Map<string, any>();
-
-      if (fees?.dailyFees) {
-        for (const d of fees.dailyFees) { dateMap.set(d.date, { date: d.date, fees: d.fees }); }
-      }
-      if (revenue?.dailyRevenue) {
-        for (const d of revenue.dailyRevenue) {
-          const existing = dateMap.get(d.date) || { date: d.date };
-          existing.revenue = d.revenue;
-          dateMap.set(d.date, existing);
-        }
-      }
-      for (const row of dateMap.values()) rows.push(row);
-      rows.sort((a, b) => a.date.localeCompare(b.date));
-
+      const dateMap = new Map<number, any>();
+      if (fees?.dailyFees) { for (const d of fees.dailyFees) dateMap.set(d.date, { date: new Date(d.date * 1000).toISOString().slice(0, 10), fees: d.fees, _ts: d.date }); }
+      if (revenue?.dailyRevenue) { for (const d of revenue.dailyRevenue) { const ex = dateMap.get(d.date) || { date: new Date(d.date * 1000).toISOString().slice(0, 10), _ts: d.date }; ex.revenue = d.revenue; dateMap.set(d.date, ex); } }
+      const rows: any[] = [...dateMap.values()].sort((a, b) => a._ts - b._ts).map(({ _ts, ...rest }) => rest);
       if (rows.length < 7) throw new Error(`Insufficient data (${rows.length} points)`);
 
-      const sampled = sampleData(rows, 365);
-      console.log(`[ChartPrefetch] Got ${sampled.length} fee/revenue data points for ${extracted.protocol}`);
-      onStep?.({ type: "tool_result", label: `Got ${sampled.length} data points`, detail: "deterministic_fetch", round: 0 });
+      const chartData = sampleData(rows, 365);
+      onStep?.({ type: "tool_result", label: `Got ${chartData.length} data points`, detail: "deterministic_fetch", round: 0 });
 
-      const prefetchedData = `\n\n<prefetched_chart_data>
-The system has ALREADY fetched the data for this chart request. NO tool calls needed — just render the chart.
+      const hasFees = chartData[0].fees !== undefined;
+      const hasRevenue = chartData[0].revenue !== undefined;
+      const yAxes: Array<{ dataKey: string; label: string }> = [];
+      if (hasFees) yAxes.push({ dataKey: "fees", label: "Daily Fees" });
+      if (hasRevenue) yAxes.push({ dataKey: "revenue", label: "Daily Revenue" });
 
-Protocol: ${extracted.protocol}
-Metric: Fees & Revenue
-Data source: DeFiLlama
-Data points: ${sampled.length}
-Columns: ${Object.keys(sampled[0]).join(", ")}
+      const recentSlice = chartData.slice(-30);
+      const avgFees = hasFees ? recentSlice.reduce((s: number, r: any) => s + (r.fees || 0), 0) / recentSlice.length : 0;
+      const avgRev = hasRevenue ? recentSlice.reduce((s: number, r: any) => s + (r.revenue || 0), 0) / recentSlice.length : 0;
 
-DATA:
-${JSON.stringify(sampled)}
+      const summaryParts = [`**${extracted.ticker || extracted.protocol}** recent 30-day averages:`];
+      if (hasFees) summaryParts.push(`daily fees **$${avgFees >= 1000 ? (avgFees/1000).toFixed(1) + "K" : avgFees.toFixed(0)}**`);
+      if (hasRevenue) summaryParts.push(`daily revenue **$${avgRev >= 1000 ? (avgRev/1000).toFixed(1) + "K" : avgRev.toFixed(0)}**`);
+      summaryParts.push(`*(${chartData.length} daily data points from DeFiLlama)*`);
 
-INSTRUCTIONS:
-1. DO NOT call any tools. The data is already fetched above.
-2. Create a chart artifact directly from this data.
-3. Write a brief summary of the trends.
-4. Respond immediately — no tool calls needed.
-</prefetched_chart_data>`;
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(`[ChartPipeline] Fees/revenue chart complete in ${elapsed}s`);
 
-      return { prefetchedData, prefetchCost, prefetchInputTokens, prefetchOutputTokens, dataFetched: true };
+      return {
+        response: buildChartResponse("line", `${extracted.ticker || extracted.protocol} Daily Fees & Revenue`, chartData, "date", yAxes, summaryParts.join(", ") + ".", cost, inputTokens, outputTokens),
+        fallbackContext: "", cost, inputTokens, outputTokens,
+      };
     } catch (e: any) {
-      console.log(`[ChartPrefetch] Fees/revenue fetch failed: ${e.message}`);
+      console.log(`[ChartPipeline] Fees/revenue failed: ${e.message}`);
     }
   }
 
@@ -1525,31 +1528,28 @@ INSTRUCTIONS:
       const data = await defillama.getProtocolTvl(slug);
       if (!data || data.length < 7) throw new Error(`Insufficient TVL data`);
 
-      const rows = sampleData(data.map((d: any) => ({
+      const chartData = sampleData(data.map((d: any) => ({
         date: new Date(d.date * 1000).toISOString().slice(0, 10),
         tvl: Math.round(d.totalLiquidityUSD),
       })), 365);
 
-      console.log(`[ChartPrefetch] Got ${rows.length} TVL data points for ${extracted.protocol}`);
-      onStep?.({ type: "tool_result", label: `Got ${rows.length} TVL data points`, detail: "deterministic_fetch", round: 0 });
+      onStep?.({ type: "tool_result", label: `Got ${chartData.length} TVL points`, detail: "deterministic_fetch", round: 0 });
 
-      const prefetchedData = `\n\n<prefetched_chart_data>
-The system has ALREADY fetched the data. NO tool calls needed — just render the chart.
+      const latest = chartData[chartData.length - 1];
+      const prior30 = chartData.length > 30 ? chartData[chartData.length - 31] : chartData[0];
+      const tvlChange = prior30.tvl > 0 ? ((latest.tvl - prior30.tvl) / prior30.tvl * 100).toFixed(1) : "N/A";
 
-Protocol: ${extracted.protocol}
-Metric: Total Value Locked (TVL)
-Data source: DeFiLlama
-Data points: ${rows.length}
+      const tvlStr = latest.tvl >= 1e9 ? `$${(latest.tvl/1e9).toFixed(2)}B` : latest.tvl >= 1e6 ? `$${(latest.tvl/1e6).toFixed(1)}M` : `$${latest.tvl.toLocaleString()}`;
+      const summary = `**${extracted.ticker || extracted.protocol}** current TVL: **${tvlStr}** (${tvlChange}% over 30 days). ${chartData.length} daily data points from DeFiLlama.`;
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(`[ChartPipeline] TVL chart complete in ${elapsed}s`);
 
-DATA:
-${JSON.stringify(rows)}
-
-INSTRUCTIONS: DO NOT call any tools. Create a chart artifact directly and write a brief summary.
-</prefetched_chart_data>`;
-
-      return { prefetchedData, prefetchCost, prefetchInputTokens, prefetchOutputTokens, dataFetched: true };
+      return {
+        response: buildChartResponse("area", `${extracted.ticker || extracted.protocol} Total Value Locked`, chartData, "date", [{ dataKey: "tvl", label: "TVL" }], summary, cost, inputTokens, outputTokens),
+        fallbackContext: "", cost, inputTokens, outputTokens,
+      };
     } catch (e: any) {
-      console.log(`[ChartPrefetch] TVL fetch failed: ${e.message}`);
+      console.log(`[ChartPipeline] TVL failed: ${e.message}`);
     }
   }
 
@@ -1561,31 +1561,26 @@ INSTRUCTIONS: DO NOT call any tools. Create a chart artifact directly and write 
       const dailyVol = volData?.dailyVolume || [];
       if (dailyVol.length < 7) throw new Error(`Insufficient volume data`);
 
-      const rows = sampleData(dailyVol.map((d: any) => ({
+      const chartData = sampleData(dailyVol.map((d: any) => ({
         date: new Date(d.date * 1000).toISOString().slice(0, 10),
         volume: Math.round(d.volume),
       })), 365);
 
-      console.log(`[ChartPrefetch] Got ${rows.length} volume data points for ${extracted.protocol}`);
-      onStep?.({ type: "tool_result", label: `Got ${rows.length} volume data points`, detail: "deterministic_fetch", round: 0 });
+      onStep?.({ type: "tool_result", label: `Got ${chartData.length} volume points`, detail: "deterministic_fetch", round: 0 });
 
-      const prefetchedData = `\n\n<prefetched_chart_data>
-The system has ALREADY fetched the data. NO tool calls needed — just render the chart.
+      const latest = chartData[chartData.length - 1];
+      const volStr = latest.volume >= 1e9 ? `$${(latest.volume/1e9).toFixed(2)}B` : latest.volume >= 1e6 ? `$${(latest.volume/1e6).toFixed(1)}M` : `$${latest.volume.toLocaleString()}`;
 
-Protocol: ${extracted.protocol}
-Metric: Daily DEX Volume
-Data source: DeFiLlama
-Data points: ${rows.length}
+      const summary = `**${extracted.ticker || extracted.protocol}** latest daily volume: **${volStr}**. ${chartData.length} daily data points from DeFiLlama.`;
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(`[ChartPipeline] Volume chart complete in ${elapsed}s`);
 
-DATA:
-${JSON.stringify(rows)}
-
-INSTRUCTIONS: DO NOT call any tools. Create a chart artifact directly and write a brief summary.
-</prefetched_chart_data>`;
-
-      return { prefetchedData, prefetchCost, prefetchInputTokens, prefetchOutputTokens, dataFetched: true };
+      return {
+        response: buildChartResponse("bar", `${extracted.ticker || extracted.protocol} Daily DEX Volume`, chartData, "date", [{ dataKey: "volume", label: "Volume" }], summary, cost, inputTokens, outputTokens),
+        fallbackContext: "", cost, inputTokens, outputTokens,
+      };
     } catch (e: any) {
-      console.log(`[ChartPrefetch] Volume fetch failed: ${e.message}`);
+      console.log(`[ChartPipeline] Volume failed: ${e.message}`);
     }
   }
 
@@ -1597,10 +1592,24 @@ INSTRUCTIONS: DO NOT call any tools. Create a chart artifact directly and write 
   ];
   const pqResults = await searchProvenQueriesForProtocol(extracted.protocol, searchTerms);
   if (pqResults.length > 0) {
-    return buildProvenQueryFallback(pqResults, extracted, userMessage, prefetchCost, prefetchInputTokens, prefetchOutputTokens);
+    const formatted = pqResults.map(q => {
+      const sql = q.sqlQuery || "(no SQL)";
+      return `- [${q.protocol}] "${q.metricType}" (${q.successCount} successes)\n  SQL:\n  ${sql}`;
+    }).join("\n\n");
+
+    const fallbackContext = `\n\n<prefetched_proven_queries>
+Pre-fetched proven queries for this chart request — execute directly with execute_dune_sql:
+
+${formatted}
+
+Pick the most relevant query, execute it, then render the chart.
+</prefetched_proven_queries>`;
+
+    console.log(`[ChartPipeline] Falling back to ${pqResults.length} proven queries for ${extracted.protocol}`);
+    return { response: null, fallbackContext, cost, inputTokens, outputTokens };
   }
 
-  return { prefetchedData: "", prefetchCost, prefetchInputTokens, prefetchOutputTokens, dataFetched: false };
+  return { response: null, fallbackContext: "", cost, inputTokens, outputTokens };
 }
 
 async function searchProvenQueriesForProtocol(protocol: string, searchTerms: string[]): Promise<any[]> {
@@ -1637,31 +1646,6 @@ async function searchProvenQueriesForProtocol(protocol: string, searchTerms: str
   return allResults;
 }
 
-function buildProvenQueryFallback(
-  pqResults: any[],
-  extracted: { protocol: string; ticker: string; metric: string; variants: string[] },
-  userMessage: string,
-  prefetchCost: number,
-  prefetchInputTokens: number,
-  prefetchOutputTokens: number,
-): ChartPrefetchResult {
-  const formatted = pqResults.map(q => {
-    const sql = q.sqlQuery || "(no SQL — API-based)";
-    return `- [${q.protocol}] "${q.metricType}" (${q.successCount} successes, chart: ${q.chartType || "line"})\n  SQL:\n  ${sql}`;
-  }).join("\n\n");
-
-  const prefetchedData = `\n\n<prefetched_proven_queries>
-The system has searched the proven query library. Here are the matching queries — use these with execute_dune_sql:
-
-${formatted}
-
-Pick the most relevant query and execute it with execute_dune_sql. Then render the chart.
-For derived metrics, you may need execute_code to compute ratios from the fetched data.
-</prefetched_proven_queries>`;
-
-  console.log(`[ChartPrefetch] Falling back to ${pqResults.length} proven queries for ${extracted.protocol}`);
-  return { prefetchedData, prefetchCost, prefetchInputTokens, prefetchOutputTokens, dataFetched: false };
-}
 
 export async function runSessionResearchAgent(
   userMessage: string,
@@ -1682,7 +1666,6 @@ export async function runSessionResearchAgent(
   let anyCostSourceVoucher = false;
   let pendingBrainUpdate: BrainUpdate | undefined;
   let chartPrefetchContext = "";
-  let chartDataPreFetched = false;
 
   let mode: ResearchMode;
   let modeReason: string;
@@ -1692,24 +1675,28 @@ export async function runSessionResearchAgent(
     console.log(`[SessionResearch] Mode: ${mode} (forced by user)`);
   } else if (isChart) {
     mode = "focused";
-    modeReason = "chart request (fast path)";
-    console.log(`[SessionResearch] Mode: focused (chart request — deterministic data fetch + single Opus render)`);
+    modeReason = "chart request (deterministic pipeline)";
+    console.log(`[SessionResearch] Mode: focused (chart request — deterministic pipeline, no agent loop)`);
 
     onStep?.({ type: "thinking", label: "Chart mode — fetching data..." });
     try {
-      const prefetch = await prefetchChartData(userMessage, onStep);
-      chartPrefetchContext = prefetch.prefetchedData;
-      chartDataPreFetched = prefetch.dataFetched;
-      totalCost += prefetch.prefetchCost;
-      totalInputTokens += prefetch.prefetchInputTokens;
-      totalOutputTokens += prefetch.prefetchOutputTokens;
-      if (chartDataPreFetched) {
-        console.log(`[SessionResearch] Chart data pre-fetched — Opus will render in 1 round`);
-      } else if (chartPrefetchContext) {
-        console.log(`[SessionResearch] Proven queries pre-fetched — Opus will execute + render`);
+      const pipeline = await runChartPipeline(userMessage, onStep);
+      totalCost += pipeline.cost;
+      totalInputTokens += pipeline.inputTokens;
+      totalOutputTokens += pipeline.outputTokens;
+
+      if (pipeline.response) {
+        console.log(`[SessionResearch] Chart pipeline returned complete response — skipping agent loop entirely`);
+        onStep?.({ type: "complete", label: "Chart ready", detail: "deterministic_pipeline" });
+        return pipeline.response;
+      }
+
+      if (pipeline.fallbackContext) {
+        chartPrefetchContext = pipeline.fallbackContext;
+        console.log(`[SessionResearch] Chart pipeline provided proven query context — using agent loop`);
       }
     } catch (e: any) {
-      console.log(`[SessionResearch] Chart prefetch failed (non-fatal): ${e.message}`);
+      console.log(`[SessionResearch] Chart pipeline failed (non-fatal): ${e.message}`);
     }
   } else {
     onStep?.({ type: "thinking", label: "Reading your question..." });
@@ -1882,7 +1869,7 @@ export async function runSessionResearchAgent(
     max_uses: mode === "quick" ? 1 : mode === "focused" ? 3 : 5,
   });
 
-  const focusedRounds = isChart && chartDataPreFetched ? 2 : isChart ? 4 : planNeedsCode ? 10 : 6;
+  const focusedRounds = isChart ? 4 : planNeedsCode ? 10 : 6;
   const focusedTokens = isChart ? 8000 : planNeedsCode ? 8000 : 6000;
   const MAX_TOOL_ROUNDS = mode === "quick" ? 3 : mode === "focused" ? focusedRounds : 15;
   const maxTokens = mode === "quick" ? 2000 : mode === "focused" ? focusedTokens : 16000;
@@ -1891,9 +1878,9 @@ export async function runSessionResearchAgent(
   let finalText = "";
   let budgetExceeded = false;
 
-  onStep?.({ type: "thinking", label: isChart && chartDataPreFetched ? "Rendering chart..." : isChart ? "Building chart..." : mode === "quick" ? "Composing a quick answer..." : mode === "focused" ? "Working through this..." : "Planning deep analysis..." });
+  onStep?.({ type: "thinking", label: isChart ? "Building chart..." : mode === "quick" ? "Composing a quick answer..." : mode === "focused" ? "Working through this..." : "Planning deep analysis..." });
   if (isChart) {
-    console.log(`[SessionResearch] Chart mode: model=${useModel}, max ${MAX_TOOL_ROUNDS} rounds, data_prefetched=${chartDataPreFetched}, execute_code=${chartNeedsCode ? "enabled" : "blocked"}`);
+    console.log(`[SessionResearch] Chart fallback mode: model=${useModel}, max ${MAX_TOOL_ROUNDS} rounds, execute_code=${chartNeedsCode ? "enabled" : "blocked"}`);
   }
 
   // Reflection checkpoint: for deep mode with a plan, after the agent has
