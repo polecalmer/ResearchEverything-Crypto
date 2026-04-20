@@ -383,7 +383,7 @@ ${topRules.map(l => `- [${l.ruleType}] ${l.ruleText}`).join("\n")}`;
 
     // 3. Call LLM to generate plan
     const response = await callAnthropicServer({
-      model: "claude-opus-4-6", // Match production model for accurate eval
+      model: "claude-opus-4-7", // Match production model for accurate eval
       max_tokens: 2000,
       system: systemPrompt,
       messages: [{
@@ -843,7 +843,7 @@ async function generateImprovements(
   const currentRulesText = currentRules.map(r => `[${r.scope}/${r.scopeKey}] [${r.ruleType}] ${r.ruleText}`).join("\n");
 
   const response = await callAnthropicServerHeavy({
-    model: "claude-opus-4-6",
+    model: "claude-opus-4-7",
     max_tokens: 2000,
     system: `You are improving a DeFi data agent that writes SQL queries and fetches chart data. Analyze the failure patterns and propose specific, discrete improvements.
 
@@ -1756,7 +1756,7 @@ async function runIntentCase(
   );
 
   const judgeResponse = await callAnthropicServer({
-    model: "claude-opus-4-6",
+    model: "claude-opus-4-7",
     max_tokens: 500,
     system: "You are an evaluation judge. Return JSON only.",
     messages: [{ role: "user", content: judgePrompt }],

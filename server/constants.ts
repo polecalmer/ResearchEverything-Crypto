@@ -10,7 +10,7 @@ export const TOKENS = {
 } as const;
 
 export const MODELS = {
-  OPUS: "claude-opus-4-6",
+  OPUS: "claude-opus-4-7",
   SONNET: "claude-sonnet-4-20250514",
   HAIKU: "claude-haiku-4-5",
 } as const;

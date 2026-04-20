@@ -1872,7 +1872,7 @@ export async function runSessionResearchAgent(
   const MAX_TOOL_ROUNDS = mode === "quick" ? 3 : mode === "focused" ? focusedRounds : 15;
   const maxTokens = mode === "quick" ? 2000 : mode === "focused" ? focusedTokens : 16000;
   const SPEND_BUDGET_USD = mode === "quick" ? 5 : mode === "focused" ? 15 : 50;
-  const useModel = "claude-opus-4-6";
+  const useModel = MODELS.OPUS;
   let finalText = "";
   let budgetExceeded = false;
 

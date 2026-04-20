@@ -729,7 +729,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
               sqlQuery: finalSql, errorType: "execution_error",
               errorMessage: (fetchError || "Unknown error").substring(0, 500),
               sampleRows: null, finalOutcome: "retry",
-              llmModel: MODELS.OPUS, latencyMs: Date.now() - chartStartTime,
+              llmModel: MODELS.SONNET, latencyMs: Date.now() - chartStartTime,
               wasCacheHit: false, crossValidationStatus: null, crossValidationRatio: null,
             }).catch(() => {});
           }
@@ -751,7 +751,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
               : "sanity_check",
             errorMessage: sanity.substring(0, 500),
             sampleRows: data.slice(0, 3), finalOutcome: "retry",
-            llmModel: MODELS.OPUS, latencyMs: Date.now() - chartStartTime,
+            llmModel: MODELS.SONNET, latencyMs: Date.now() - chartStartTime,
             wasCacheHit: !!usedProvenQueryId, crossValidationStatus: null, crossValidationRatio: null,
           }).catch(() => {});
           if (usedProvenQueryId) {
@@ -1015,7 +1015,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
           errorMessage: null,
           sampleRows: data.slice(0, 3),
           finalOutcome: "success",
-          llmModel: MODELS.OPUS,
+          llmModel: MODELS.SONNET,
           latencyMs: Date.now() - chartStartTime,
           wasCacheHit: !!usedProvenQueryId && !fetchError,
           crossValidationStatus: crossValResult?.status || null,
@@ -1077,7 +1077,7 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
           errorMessage: errorMsg.substring(0, 500),
           sampleRows: null,
           finalOutcome: "failure",
-          llmModel: MODELS.OPUS,
+          llmModel: MODELS.SONNET,
           latencyMs: Date.now() - chartStartTime,
           wasCacheHit: false,
           crossValidationStatus: null,
