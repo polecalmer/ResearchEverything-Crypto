@@ -59,14 +59,14 @@ const PRESCALED_UNIT_RE = /\(\s*\$?\s*([KMBkmb])\s*\)|\$([KMBkmb])\b/;
 const RATIO_HINTS = /P[\/-]?E|P[\/-]?S|P[\/-]?F|EV[\/-]|multiple|ratio/i;
 
 export function inferFormat(dataKey?: string, label?: string, explicitFmt?: string): string | undefined {
-  if (explicitFmt) return explicitFmt;
   const combined = `${dataKey || ""} ${label || ""}`;
-  if (RATIO_HINTS.test(combined)) return "ratio";
-  const prescaled = label ? PRESCALED_UNIT_RE.exec(label) : null;
+  const prescaled = PRESCALED_UNIT_RE.exec(combined);
   if (prescaled) {
     const unit = (prescaled[1] || prescaled[2]).toUpperCase();
     return `currency_${unit}`;
   }
+  if (explicitFmt) return explicitFmt;
+  if (RATIO_HINTS.test(combined)) return "ratio";
   if (CURRENCY_HINTS.test(combined)) return "currency";
   if (/percent|%|apr|apy|yield|rate/i.test(combined)) return "percent";
   return undefined;
