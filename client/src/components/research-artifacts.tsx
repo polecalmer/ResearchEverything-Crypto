@@ -63,12 +63,12 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
 
   const renderChart = () => {
     const commonProps = { data, margin: { top: 12, right: needsDualAxis ? 56 : 20, left: 4, bottom: 8 } };
-    const grid = <CartesianGrid strokeDasharray="3 8" stroke="var(--color-chart-grid)" vertical={false} />;
+    const grid = <CartesianGrid strokeDasharray="3 6" stroke="rgba(255,255,255,0.06)" vertical={false} />;
     const xAx = (
       <XAxis
         dataKey={xAxis.dataKey}
         tickFormatter={xTickFormatter}
-        tick={{ fontSize: 11, fill: "var(--color-chart-tick)" }}
+        tick={{ fontSize: 11, fill: "rgba(255,255,255,0.45)" }}
         axisLine={false}
         tickLine={false}
         tickMargin={8}
@@ -96,7 +96,7 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
     );
     const leg = yAxes.length > 1 ? (
       <Legend verticalAlign="top" align="left" height={28} iconType="plainline" iconSize={12}
-        wrapperStyle={{ fontSize: "11px", color: "var(--color-tooltip-text)", paddingBottom: "4px" }}
+        wrapperStyle={{ fontSize: "11px", color: "rgba(255,255,255,0.55)", paddingBottom: "4px" }}
         formatter={(v: string) => { const ax = yAxes.find(y => y.dataKey === v); return ax?.label || v.replace(/_/g, " "); }}
       />
     ) : null;
@@ -108,7 +108,7 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
           <YAxis
             yAxisId="left"
             tickFormatter={(v: number) => formatValue(v, inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format))}
-            tick={{ fontSize: 11, fill: CHART_COLORS[0] }}
+            tick={{ fontSize: 11, fill: "rgba(255,255,255,0.45)" }}
             axisLine={false}
             tickLine={false}
             width={56}
@@ -119,7 +119,7 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
               yAxisId="right"
               orientation="right"
               tickFormatter={(v: number) => formatValue(v, inferFormat(yAxes[1]?.dataKey, yAxes[1]?.label, yAxes[1]?.format))}
-              tick={{ fontSize: 11, fill: CHART_COLORS[1] }}
+              tick={{ fontSize: 11, fill: "rgba(255,255,255,0.35)" }}
               axisLine={false}
               tickLine={false}
               width={52}
@@ -131,12 +131,12 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
             const axisId = i === 0 ? "left" : "right";
             const yChartType = y.chartType || (i === 0 ? "bar" : "line");
             if (yChartType === "bar") {
-              return <Bar key={y.dataKey} yAxisId={axisId} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[3, 3, 0, 0]} maxBarSize={40} opacity={0.9} />;
+              return <Bar key={y.dataKey} yAxisId={axisId} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[2, 2, 0, 0]} maxBarSize={48} />;
             }
             if (yChartType === "area") {
-              return <Area key={y.dataKey} yAxisId={axisId} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.5} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.03} dot={false} />;
+              return <Area key={y.dataKey} yAxisId={axisId} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.03} dot={false} />;
             }
-            return <Line key={y.dataKey} yAxisId={axisId} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.5} dot={false} activeDot={{ r: 4, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "#fff", strokeWidth: 2 }} />;
+            return <Line key={y.dataKey} yAxisId={axisId} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.2} dot={false} activeDot={{ r: 3, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "#fff", strokeWidth: 1 }} />;
           })}
         </ComposedChart>
       );
@@ -145,7 +145,7 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
     const yAx = (
       <YAxis
         tickFormatter={(v: number) => formatValue(v, inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format))}
-        tick={{ fontSize: 11, fill: "var(--color-chart-tick)" }}
+        tick={{ fontSize: 11, fill: "rgba(255,255,255,0.45)" }}
         axisLine={false}
         tickLine={false}
         width={56}
@@ -158,7 +158,7 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
         <BarChart {...commonProps}>
           {grid}{xAx}{yAx}{tip}{leg}
           {yAxes.map((y, i) => (
-            <Bar key={y.dataKey} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[3, 3, 0, 0]} maxBarSize={40} opacity={0.9} />
+            <Bar key={y.dataKey} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[2, 2, 0, 0]} maxBarSize={48} />
           ))}
         </BarChart>
       );
@@ -168,7 +168,7 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
         <AreaChart {...commonProps}>
           {grid}{xAx}{yAx}{tip}{leg}
           {yAxes.map((y, i) => (
-            <Area key={y.dataKey} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.5} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.03} dot={false} />
+            <Area key={y.dataKey} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.04} dot={false} />
           ))}
         </AreaChart>
       );
@@ -177,7 +177,7 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
       <LineChart {...commonProps}>
         {grid}{xAx}{yAx}{tip}{leg}
         {yAxes.map((y, i) => (
-          <Line key={y.dataKey} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.5} dot={false} activeDot={{ r: 4, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "#fff", strokeWidth: 2 }} />
+          <Line key={y.dataKey} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.2} dot={false} activeDot={{ r: 3, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "#fff", strokeWidth: 1 }} />
         ))}
       </LineChart>
     );
@@ -192,8 +192,8 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
         </div>
         {latestValue && (
           <div className="text-right ml-4 shrink-0">
-            <p className="text-xl font-bold font-mono tabular-nums text-blue-400 tracking-tight leading-none">{latestValue}</p>
-            <p className="text-[10px] text-muted-foreground/60 mt-0.5">Latest</p>
+            <p className="text-xl font-bold font-mono tabular-nums tracking-tight leading-none" style={{ color: CHART_COLORS[0] }}>{latestValue}</p>
+            <p className="text-[10px] text-muted-foreground/50 mt-0.5">Latest</p>
           </div>
         )}
       </div>

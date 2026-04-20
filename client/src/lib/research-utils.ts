@@ -49,9 +49,9 @@ export interface ThinkingStep {
 export type PartType = "text" | "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote";
 
 export const CHART_COLORS = [
-  "hsl(217 91% 60%)", "hsl(142 71% 45%)", "hsl(262 83% 58%)",
-  "hsl(24 95% 53%)", "hsl(349 89% 60%)", "hsl(47 96% 53%)",
-  "hsl(189 94% 43%)", "hsl(322 81% 43%)",
+  "#6B8DE3", "#A0B4E0", "#3D5A9E",
+  "#8FAAE8", "#4A6BB5", "#C2D1F0",
+  "#526EAA", "#7C9CDD",
 ];
 
 const CURRENCY_HINTS = /fee|revenue|volume|price|cost|tvl|mcap|market.cap|valuation|profit|income|earn|spend|paid|aum|inflow|outflow|deposit|withdraw|\$/i;
