@@ -203,8 +203,9 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
         </ResponsiveContainer>
       </div>
       {source && (
-        <div className="mt-2 pt-2 border-t border-border/20">
+        <div className="mt-2 pt-2 border-t border-border/20 flex items-center justify-between">
           <p className="text-[11px] text-emerald-400/70 italic">Source: {source}</p>
+          <p className="text-[10px] text-muted-foreground/50">{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</p>
         </div>
       )}
     </div>

@@ -56,17 +56,19 @@ export const CHART_COLORS = [
 
 const CURRENCY_HINTS = /fee|revenue|volume|price|cost|tvl|mcap|market.cap|valuation|profit|income|earn|spend|paid|aum|inflow|outflow|deposit|withdraw|\$/i;
 const PRESCALED_UNIT_RE = /\(\s*\$?\s*([KMBkmb])\s*\)|\$([KMBkmb])\b/;
+const RATIO_HINTS = /P[\/-]?E|P[\/-]?S|P[\/-]?F|EV[\/-]|multiple|ratio/i;
 
 export function inferFormat(dataKey?: string, label?: string, explicitFmt?: string): string | undefined {
   if (explicitFmt) return explicitFmt;
   const combined = `${dataKey || ""} ${label || ""}`;
+  if (RATIO_HINTS.test(combined)) return "ratio";
   const prescaled = label ? PRESCALED_UNIT_RE.exec(label) : null;
   if (prescaled) {
     const unit = (prescaled[1] || prescaled[2]).toUpperCase();
     return `currency_${unit}`;
   }
   if (CURRENCY_HINTS.test(combined)) return "currency";
-  if (/percent|%|ratio|apr|apy|yield|rate/i.test(combined)) return "percent";
+  if (/percent|%|apr|apy|yield|rate/i.test(combined)) return "percent";
   return undefined;
 }
 
@@ -95,6 +97,10 @@ export function formatValue(val: any, fmt?: string): string {
   if (fmt === "currency_B") {
     const full = n * 1e9;
     return `$${compactNumber(full)}`;
+  }
+  if (fmt === "ratio") {
+    if (Math.abs(n) >= 1e3) return `${compactNumber(n)}x`;
+    return `${n.toLocaleString(undefined, { maximumFractionDigits: 1 })}x`;
   }
   if (fmt === "percent") return `${n.toFixed(2)}%`;
   if (Math.abs(n) >= 1e9) return `${(n / 1e9).toFixed(2)}B`;

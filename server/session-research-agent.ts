@@ -29,6 +29,8 @@ import {
 export interface ResearchArtifact {
   type: "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote";
   title?: string;
+  subtitle?: string;
+  source?: string;
   data?: any[];
   chartConfig?: {
     chartType: "line" | "bar" | "area" | "composed";
@@ -1322,9 +1324,21 @@ function buildChartResponse(
     console.log(`[ChartPipeline] Data sanity check failed: ${sanityIssue}`);
     throw new Error(`Data sanity: ${sanityIssue}`);
   }
+  const primaryKey = yAxes[0]?.dataKey;
+  const first = data[0]?.[primaryKey];
+  const last = data[data.length - 1]?.[primaryKey];
+  let autoSubtitle = "";
+  if (typeof first === "number" && typeof last === "number" && first !== 0) {
+    const pctChange = ((last - first) / Math.abs(first)) * 100;
+    const direction = pctChange >= 0 ? "UP" : "DOWN";
+    autoSubtitle = `LATEST ${typeof last === "number" ? (Math.abs(last) >= 1e6 ? (last / 1e6).toFixed(1) + "M" : Math.abs(last) >= 1e3 ? (last / 1e3).toFixed(1) + "K" : last.toLocaleString(undefined, { maximumFractionDigits: 1 })) : last} — ${direction} ${Math.abs(pctChange).toFixed(0)}% OVER PERIOD (${data.length} DATA POINTS)`;
+  }
+  const source = "DeFiLlama + CoinGecko";
   const chartJson = {
     chartType,
     title,
+    subtitle: autoSubtitle,
+    source,
     data,
     xAxis: { dataKey: xAxisKey, format: "date" },
     yAxes: yAxes.map(y => ({ dataKey: y.dataKey, label: y.label })),
@@ -1334,6 +1348,8 @@ function buildChartResponse(
   const artifact: ResearchArtifact = {
     type: "chart",
     title,
+    subtitle: autoSubtitle,
+    source,
     data,
     chartConfig: {
       chartType,
