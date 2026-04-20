@@ -55,13 +55,26 @@ export const CHART_COLORS = [
 ];
 
 const CURRENCY_HINTS = /fee|revenue|volume|price|cost|tvl|mcap|market.cap|valuation|profit|income|earn|spend|paid|aum|inflow|outflow|deposit|withdraw|\$/i;
+const PRESCALED_UNIT_RE = /\(\s*\$?\s*([KMBkmb])\s*\)|\$([KMBkmb])\b/;
 
 export function inferFormat(dataKey?: string, label?: string, explicitFmt?: string): string | undefined {
   if (explicitFmt) return explicitFmt;
   const combined = `${dataKey || ""} ${label || ""}`;
+  const prescaled = label ? PRESCALED_UNIT_RE.exec(label) : null;
+  if (prescaled) {
+    const unit = (prescaled[1] || prescaled[2]).toUpperCase();
+    return `currency_${unit}`;
+  }
   if (CURRENCY_HINTS.test(combined)) return "currency";
   if (/percent|%|ratio|apr|apy|yield|rate/i.test(combined)) return "percent";
   return undefined;
+}
+
+function compactNumber(n: number): string {
+  if (Math.abs(n) >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
+  if (Math.abs(n) >= 1e6) return `${(n / 1e6).toFixed(2)}M`;
+  if (Math.abs(n) >= 1e3) return `${(n / 1e3).toFixed(1)}K`;
+  return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
 export function formatValue(val: any, fmt?: string): string {
@@ -69,10 +82,19 @@ export function formatValue(val: any, fmt?: string): string {
   const n = Number(val);
   if (isNaN(n)) return String(val);
   if (fmt === "currency") {
-    if (Math.abs(n) >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
-    if (Math.abs(n) >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
-    if (Math.abs(n) >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
-    return `$${n.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+    return `$${compactNumber(n)}`;
+  }
+  if (fmt === "currency_K") {
+    const full = n * 1e3;
+    return `$${compactNumber(full)}`;
+  }
+  if (fmt === "currency_M") {
+    const full = n * 1e6;
+    return `$${compactNumber(full)}`;
+  }
+  if (fmt === "currency_B") {
+    const full = n * 1e9;
+    return `$${compactNumber(full)}`;
   }
   if (fmt === "percent") return `${n.toFixed(2)}%`;
   if (Math.abs(n) >= 1e9) return `${(n / 1e9).toFixed(2)}B`;
