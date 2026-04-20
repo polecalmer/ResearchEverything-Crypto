@@ -1267,222 +1267,96 @@ function isChartRequest(msg: string): boolean {
   return CHART_INTENT_PATTERNS.some(p => p.test(msg));
 }
 
-const CHART_EXTRACT_PROMPT = `Extract the protocol/token and metric from this chart request. Return ONLY valid JSON:
-{"protocol": "<name>", "metric": "<what to chart>", "keywords": ["<search terms for proven query lookup>"]}
-Examples:
-- "Build a P/E chart for HYPE" → {"protocol": "hyperliquid", "metric": "P/E ratio", "keywords": ["hyperliquid P/E", "hype revenue", "hyperliquid fees"]}
-- "Show me AAVE TVL over time" → {"protocol": "aave", "metric": "TVL", "keywords": ["aave tvl"]}
-- "Chart SOL price vs ETH" → {"protocol": "solana", "metric": "price comparison", "keywords": ["solana price", "ethereum price"]}`;
-
-const CHART_RENDER_PROMPT = `You are a fast chart generator. Given raw data from a query, produce a response with:
-1. A 2-3 sentence summary of what the data shows (key trends, notable values)
-2. One or more chart artifacts using the \`\`\`artifact:chart format
-
-CHART ARTIFACT FORMAT:
-\`\`\`artifact:chart
-{
-  "type": "line",
-  "title": "Chart Title",
-  "data": [{"date": "2024-01-01", "value": 123}, ...],
-  "xKey": "date",
-  "series": [{"key": "value", "label": "Label", "color": "#8884d8"}]
-}
-\`\`\`
-
-Rules:
-- Use the actual data provided — never fabricate numbers
-- For multi-series charts, include all series in the "series" array
-- Keep data under 365 points — sample if needed
-- Bold key numbers in your summary
-- If the data has multiple metrics (e.g. FDV_PE, MCAP_PE, ADJ_MCAP_PE), create a multi-series chart
-- Detect column names from the data and map them intelligently to chart series
-- Use distinct colors for each series: #8884d8, #82ca9d, #ffc658, #ff7300, #0088fe
-- CRITICAL: Do NOT try to compute derived data manually. The data is already computed — just chart it.`;
-
-async function runFastChartMode(
+async function prefetchChartContext(
   userMessage: string,
-  history: Array<{ role: string; content: string }>,
-  onStep?: (step: ThinkingStep) => void,
-): Promise<ResearchResponse | null> {
-  const startTime = Date.now();
-  let totalCost = 0;
-  let totalInputTokens = 0;
-  let totalOutputTokens = 0;
+): Promise<{ provenQueryContext: string; prefetchCost: number; prefetchInputTokens: number; prefetchOutputTokens: number }> {
+  const extractPrompt = `Extract the protocol/token names and search terms from this chart/data request.
+Return ONLY valid JSON: {"protocols": ["<name>"], "searchTerms": ["<term1>", "<term2>", ...]}
+The searchTerms should include variations that might match proven Dune queries — include the protocol + metric, abbreviations, and common phrasings.
+Examples:
+- "Build a P/E chart for HYPE (MCAP, FDV, Adj MCAP)" → {"protocols": ["hyperliquid", "hype"], "searchTerms": ["hyperliquid P/E", "hype P/E", "hyperliquid fees", "hyperliquid revenue", "hype revenue", "hyperliquid data", "hyperliquid valuation"]}
+- "Show me AAVE TVL over time" → {"protocols": ["aave"], "searchTerms": ["aave tvl"]}
+- "Compare ETH vs SOL fees" → {"protocols": ["ethereum", "solana"], "searchTerms": ["ethereum fees", "solana fees"]}`;
 
-  onStep?.({ type: "thinking", label: "Chart mode — extracting request..." });
+  let protocols: string[] = [];
+  let searchTerms: string[] = [];
+  let prefetchCost = 0;
+  let prefetchInputTokens = 0;
+  let prefetchOutputTokens = 0;
 
-  let extracted: { protocol: string; metric: string; keywords: string[] };
   try {
     const extractResp = await callAnthropicRaw({
       model: "claude-sonnet-4-20250514",
-      max_tokens: 200,
-      system: CHART_EXTRACT_PROMPT,
-      messages: [
-        ...history.slice(-4).map(h => ({ role: h.role, content: h.content })),
-        { role: "user", content: userMessage },
-      ],
+      max_tokens: 300,
+      system: extractPrompt,
+      messages: [{ role: "user", content: userMessage }],
     });
-    totalCost += extractResp.mppCost;
-    totalInputTokens += extractResp.usage?.input_tokens || 0;
-    totalOutputTokens += extractResp.usage?.output_tokens || 0;
+    prefetchCost += extractResp.mppCost;
+    prefetchInputTokens += extractResp.usage?.input_tokens || 0;
+    prefetchOutputTokens += extractResp.usage?.output_tokens || 0;
     const text = extractResp.content.filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
-    extracted = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] || "{}");
-    if (!extracted.protocol) return null;
+    const parsed = JSON.parse(text.match(/\{[\s\S]*\}/)?.[0] || "{}");
+    protocols = parsed.protocols || [];
+    searchTerms = parsed.searchTerms || [];
   } catch {
-    return null;
+    return { provenQueryContext: "", prefetchCost, prefetchInputTokens, prefetchOutputTokens };
   }
 
-  console.log(`[FastChart] Extracted: protocol=${extracted.protocol}, metric=${extracted.metric}`);
+  if (protocols.length === 0 && searchTerms.length === 0) {
+    return { provenQueryContext: "", prefetchCost, prefetchInputTokens, prefetchOutputTokens };
+  }
 
-  onStep?.({ type: "tool_start", label: "Searching proven queries", detail: "search_proven_queries", round: 1 });
+  const allResults: any[] = [];
+  const seen = new Set<number>();
 
-  let queryData: any = null;
-  let dataSource = "";
-  let queryUsed = "";
-
-  for (const kw of extracted.keywords) {
-    const exact = await storage.findProvenQuery(extracted.protocol, kw);
-    if (exact?.sqlQuery) {
-      queryUsed = exact.metricType;
-      onStep?.({ type: "tool_result", label: `Found: ${exact.metricType}`, detail: "search_proven_queries", round: 1 });
-
-      onStep?.({ type: "tool_start", label: `Running: ${exact.metricType}`, detail: "execute_dune_sql", round: 1 });
+  for (const proto of protocols) {
+    for (const term of searchTerms) {
+      if (allResults.length >= 15) break;
       try {
-        const result = await executeDuneSQL(exact.sqlQuery);
-        if (result?.rows && result.rows.length > 0) {
-          queryData = { rows: result.rows.slice(0, 500), columns: result.columns?.map((c: any) => c.name) || Object.keys(result.rows[0]) };
-          dataSource = "proven_query";
-          onStep?.({ type: "tool_result", label: `Got ${queryData.rows.length} rows`, detail: "execute_dune_sql", round: 1 });
-          break;
-        }
-      } catch (e: any) {
-        console.log(`[FastChart] Dune query failed: ${e.message}`);
-      }
-    }
-
-    const fewShot = await storage.getFewShotExamples(extracted.protocol, kw, 3);
-    for (const q of fewShot) {
-      if (queryData) break;
-      if (!q.sqlQuery) continue;
-      onStep?.({ type: "tool_start", label: `Trying: ${q.metricType}`, detail: "execute_dune_sql", round: 1 });
-      try {
-        const result = await executeDuneSQL(q.sqlQuery);
-        if (result?.rows && result.rows.length > 0) {
-          queryData = { rows: result.rows.slice(0, 500), columns: result.columns?.map((c: any) => c.name) || Object.keys(result.rows[0]) };
-          queryUsed = q.metricType;
-          dataSource = "proven_query";
-          onStep?.({ type: "tool_result", label: `Got ${queryData.rows.length} rows`, detail: "execute_dune_sql", round: 1 });
-          break;
+        const exact = await storage.findProvenQuery(proto, term);
+        if (exact && !seen.has(exact.id)) { allResults.push(exact); seen.add(exact.id); }
+        const fewShot = await storage.getFewShotExamples(proto, term, 5);
+        for (const q of fewShot) {
+          if (!seen.has(q.id) && allResults.length < 15) { allResults.push(q); seen.add(q.id); }
         }
       } catch {}
     }
-    if (queryData) break;
   }
 
-  if (!queryData) {
-    onStep?.({ type: "tool_start", label: `Fetching ${extracted.metric} from APIs`, detail: "defillama", round: 1 });
+  if (allResults.length === 0) {
     try {
-      const slug = await defillama.resolveSlug(extracted.protocol);
-      const metric = extracted.metric.toLowerCase();
-      if (metric.includes("tvl")) {
-        const data = await defillama.getProtocolTvl(slug);
-        if (data?.length) {
-          const sampled = sampleData(data.map((d: any) => ({ date: new Date(d.date * 1000).toISOString().slice(0, 10), tvl: Math.round(d.totalLiquidityUSD) })), 365);
-          queryData = { rows: sampled, columns: ["date", "tvl"] };
-          dataSource = "defillama_tvl";
-        }
-      } else if (metric.includes("fee") || metric.includes("revenue") || metric.includes("p/e") || metric.includes("p/s")) {
-        const [feesRes, revenueRes] = await Promise.allSettled([
-          defillama.getProtocolFees(slug),
-          defillama.getProtocolRevenue(slug),
-        ]);
-        const fees = feesRes.status === "fulfilled" ? feesRes.value : null;
-        const revenue = revenueRes.status === "fulfilled" ? revenueRes.value : null;
-        const rows: any[] = [];
-        const feeData = fees?.dailyFees || [];
-        const revData = revenue?.dailyRevenue || [];
-        const dateMap = new Map<string, any>();
-        for (const d of feeData) { dateMap.set(d.date, { date: d.date, fees: d.fees }); }
-        for (const d of revData) { const existing = dateMap.get(d.date) || { date: d.date }; existing.revenue = d.revenue; dateMap.set(d.date, existing); }
-        for (const row of dateMap.values()) rows.push(row);
-        rows.sort((a, b) => a.date.localeCompare(b.date));
-        if (rows.length > 0) {
-          queryData = { rows: sampleData(rows, 365), columns: Object.keys(rows[0]) };
-          dataSource = "defillama_fees";
-        }
-      } else if (metric.includes("volume")) {
-        const data = await defillama.getProtocolDexVolume(slug).then(r => r?.dailyVolume || []).catch(() => []);
-        if (data?.length) {
-          const sampled = sampleData(data.map((d: any) => ({ date: new Date(d.date * 1000).toISOString().slice(0, 10), volume: Math.round(d.volume) })), 365);
-          queryData = { rows: sampled, columns: ["date", "volume"] };
-          dataSource = "defillama_volume";
+      const { db: dbImport } = await import("./db");
+      const { sql: sqlOp } = await import("drizzle-orm");
+      const { provenQueries: pqTable } = await import("@shared/schema");
+      for (const proto of protocols) {
+        const fuzzy = await dbImport.select().from(pqTable)
+          .where(sqlOp`(${pqTable.protocol} ILIKE ${'%' + proto + '%'} OR ${pqTable.metricType} ILIKE ${'%' + proto + '%'}) AND ${pqTable.isActive} = true`)
+          .orderBy(sqlOp`${pqTable.successCount} DESC`)
+          .limit(10);
+        for (const q of fuzzy) {
+          if (!seen.has(q.id)) { allResults.push(q); seen.add(q.id); }
         }
       }
-      if (queryData) {
-        onStep?.({ type: "tool_result", label: `Got ${queryData.rows.length} data points`, detail: "defillama", round: 1 });
-      }
-    } catch (e: any) {
-      console.log(`[FastChart] DeFiLlama fallback failed: ${e.message}`);
-    }
+    } catch {}
   }
 
-  if (!queryData || queryData.rows.length === 0) {
-    console.log(`[FastChart] No data found — falling back to full agent`);
-    return null;
+  if (allResults.length === 0) {
+    return { provenQueryContext: "", prefetchCost, prefetchInputTokens, prefetchOutputTokens };
   }
 
-  onStep?.({ type: "thinking", label: "Generating chart..." });
+  const formatted = allResults.map(q =>
+    `- [${q.protocol}] "${q.metricType}" (${q.successCount} successes, chart: ${q.chartType || "line"})\n  SQL: ${q.sqlQuery?.slice(0, 300)}${(q.sqlQuery?.length || 0) > 300 ? "..." : ""}`
+  ).join("\n");
 
-  let chartRows = queryData.rows;
-  if (chartRows.length > 365) {
-    const step = Math.ceil(chartRows.length / 365);
-    chartRows = chartRows.filter((_: any, i: number) => i % step === 0 || i === chartRows.length - 1);
-  }
-  const fullDataStr = JSON.stringify(chartRows);
-  if (fullDataStr.length > 120000) {
-    const targetRows = Math.floor(chartRows.length * (100000 / fullDataStr.length));
-    const step = Math.ceil(chartRows.length / targetRows);
-    chartRows = chartRows.filter((_: any, i: number) => i % step === 0 || i === chartRows.length - 1);
-  }
+  const provenQueryContext = `\n\n<prefetched_proven_queries>
+The system has already searched the proven query library for this request. Here are the matching queries — use these DIRECTLY with execute_dune_sql instead of calling search_proven_queries again:
+${formatted}
 
-  const renderPrompt = `User asked: "${userMessage}"
-Data source: ${dataSource} (query: ${queryUsed || "API"})
-Columns: ${queryData.columns.join(", ")}
-Total rows: ${chartRows.length}
+IMPORTANT: These queries are pre-fetched and ready to use. Pick the most relevant one(s) and execute them immediately with execute_dune_sql. For complex charts (P/E ratios, multi-metric), you may need to execute multiple queries and then use execute_code to merge/compute derived metrics.
+</prefetched_proven_queries>`;
 
-Full data for chart (use this in the artifact):
-${JSON.stringify(chartRows)}
-
-Generate a chart artifact and brief summary.`;
-
-  try {
-    const renderResp = await callAnthropicRaw({
-      model: "claude-sonnet-4-20250514",
-      max_tokens: 16000,
-      system: CHART_RENDER_PROMPT,
-      messages: [{ role: "user", content: renderPrompt }],
-    });
-    totalCost += renderResp.mppCost;
-    totalInputTokens += renderResp.usage?.input_tokens || 0;
-    totalOutputTokens += renderResp.usage?.output_tokens || 0;
-
-    const outputText = renderResp.content.filter((b: any) => b.type === "text").map((b: any) => b.text).join("");
-    const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    console.log(`[FastChart] Complete in ${elapsed}s (${queryData.rows.length} rows, source=${dataSource})`);
-
-    return {
-      text: outputText,
-      toolCalls: ["search_proven_queries", dataSource.startsWith("defillama") ? dataSource : "execute_dune_sql"],
-      mode: "focused",
-      totalCost,
-      totalInputTokens,
-      totalOutputTokens,
-      costBasis: "receipt",
-    };
-  } catch (e: any) {
-    console.log(`[FastChart] Render call failed: ${e.message} — falling back to full agent`);
-    return null;
-  }
+  console.log(`[ChartMode] Pre-fetched ${allResults.length} proven queries for protocols: ${protocols.join(", ")}`);
+  return { provenQueryContext, prefetchCost, prefetchInputTokens, prefetchOutputTokens };
 }
 
 export async function runSessionResearchAgent(
@@ -1494,19 +1368,7 @@ export async function runSessionResearchAgent(
   onPlan?: (plan: ResearchPlan) => void | Promise<void>,
   userId?: string,
 ): Promise<ResearchResponse> {
-  if (!forceMode && isChartRequest(userMessage)) {
-    console.log(`[SessionResearch] Fast chart mode triggered for: "${userMessage.slice(0, 80)}"`);
-    try {
-      const fastResult = await runFastChartMode(userMessage, history, onStep);
-      if (fastResult) {
-        console.log(`[SessionResearch] Fast chart mode succeeded`);
-        return fastResult;
-      }
-      console.log(`[SessionResearch] Fast chart mode returned null — falling back to full agent`);
-    } catch (e: any) {
-      console.log(`[SessionResearch] Fast chart mode error: ${e.message} — falling back`);
-    }
-  }
+  const isChart = !forceMode && isChartRequest(userMessage);
 
   const toolCalls: string[] = [];
   const toolCallSignatures: string[] = [];
@@ -1515,6 +1377,7 @@ export async function runSessionResearchAgent(
   let totalOutputTokens = 0;
   let anyCostSourceVoucher = false;
   let pendingBrainUpdate: BrainUpdate | undefined;
+  let chartPrefetchContext = "";
 
   let mode: ResearchMode;
   let modeReason: string;
@@ -1522,6 +1385,24 @@ export async function runSessionResearchAgent(
     mode = forceMode;
     modeReason = "user override";
     console.log(`[SessionResearch] Mode: ${mode} (forced by user)`);
+  } else if (isChart) {
+    mode = "focused";
+    modeReason = "chart request (fast path)";
+    console.log(`[SessionResearch] Mode: focused (chart request — skipping classifier + planner, using Sonnet)`);
+
+    onStep?.({ type: "thinking", label: "Chart mode — pre-fetching data context..." });
+    try {
+      const prefetch = await prefetchChartContext(userMessage);
+      chartPrefetchContext = prefetch.provenQueryContext;
+      totalCost += prefetch.prefetchCost;
+      totalInputTokens += prefetch.prefetchInputTokens;
+      totalOutputTokens += prefetch.prefetchOutputTokens;
+      if (chartPrefetchContext) {
+        onStep?.({ type: "tool_result", label: "Found relevant proven queries", detail: "prefetch", round: 0 });
+      }
+    } catch (e: any) {
+      console.log(`[SessionResearch] Chart prefetch failed (non-fatal): ${e.message}`);
+    }
   } else {
     onStep?.({ type: "thinking", label: "Reading your question..." });
     const classified = await classifyIntent(userMessage, history);
@@ -1538,11 +1419,11 @@ export async function runSessionResearchAgent(
   console.log(`[SessionResearch] Brain retrieval: ${retrieved.retrievalSummary}`);
 
   // ─── Planner pre-step ──────────────────────────────────────────────────────
-  // Skip for quick mode (cheap lookups don't need decomposition). For focused
-  // and deep, the planner emits a structured ResearchPlan that gets injected
+  // Skip for quick mode and chart mode (data viz doesn't need planner decomposition).
+  // For focused and deep, the planner emits a structured ResearchPlan that gets injected
   // into the system prompt and persisted on the user message for audit.
   let plan: ResearchPlan | undefined;
-  if (mode !== "quick") {
+  if (mode !== "quick" && !isChart) {
     onStep?.({ type: "thinking", label: "Structuring the plan..." });
     try {
       const planResult = await planResearch(userMessage, history);
@@ -1574,8 +1455,6 @@ export async function runSessionResearchAgent(
         label: `Planned ${subQs} sub-question${subQs === 1 ? "" : "s"}${playbook}`,
         detail: plan.sub_questions.map(q => `• ${q.text} [${q.types.join(", ")}]`).join("\n"),
       });
-      // Persist immediately so the plan is preserved even if the agent loop
-      // throws mid-execution. The reflected version (if any) overwrites later.
       if (onPlan) {
         try {
           await onPlan(plan);
@@ -1584,9 +1463,6 @@ export async function runSessionResearchAgent(
         }
       }
     } catch (err: any) {
-      // Planner failed (parse error, validation fatal, network). Still account
-      // for any spend that happened before the failure, then fall back to
-      // unplanned execution so the user still gets an answer.
       if (err.costMeta) {
         totalCost += err.costMeta.cost || 0;
         totalInputTokens += err.costMeta.inputTokens || 0;
@@ -1597,7 +1473,7 @@ export async function runSessionResearchAgent(
   }
 
   const planAddendum = plan ? `\n\n${renderPlanForSystemPrompt(plan)}` : "";
-  const systemPrompt = buildSystemPrompt(mode, brainContext) + planAddendum;
+  const systemPrompt = buildSystemPrompt(mode, brainContext) + planAddendum + chartPrefetchContext;
 
   const messages: Array<{ role: string; content: any }> = summarizeHistory(history);
   messages.push({ role: "user", content: userMessage });
@@ -1682,7 +1558,8 @@ export async function runSessionResearchAgent(
     sq.types?.includes("derived-metric-chart") || sq.types?.includes("valuation-ask") ||
     sq.suggested_tools?.includes("execute_code")
   );
-  const FOCUSED_TOOL_BLOCKLIST = new Set(planNeedsCode ? [] : ["execute_code"]);
+  const chartNeedsCode = isChart;
+  const FOCUSED_TOOL_BLOCKLIST = new Set((planNeedsCode || chartNeedsCode) ? [] : ["execute_code"]);
   const anthropicTools: any[] = TOOLS
     .filter(t => mode !== "focused" || !FOCUSED_TOOL_BLOCKLIST.has(t.name))
     .map(t => ({
@@ -1697,15 +1574,19 @@ export async function runSessionResearchAgent(
     max_uses: mode === "quick" ? 1 : mode === "focused" ? 3 : 5,
   });
 
-  const focusedRounds = planNeedsCode ? 10 : 6;
-  const focusedTokens = planNeedsCode ? 8000 : 6000;
+  const focusedRounds = isChart ? 5 : planNeedsCode ? 10 : 6;
+  const focusedTokens = isChart ? 8000 : planNeedsCode ? 8000 : 6000;
   const MAX_TOOL_ROUNDS = mode === "quick" ? 3 : mode === "focused" ? focusedRounds : 15;
   const maxTokens = mode === "quick" ? 2000 : mode === "focused" ? focusedTokens : 16000;
   const SPEND_BUDGET_USD = mode === "quick" ? 5 : mode === "focused" ? 15 : 50;
+  const useModel = isChart ? "claude-sonnet-4-20250514" : "claude-opus-4-6";
   let finalText = "";
   let budgetExceeded = false;
 
-  onStep?.({ type: "thinking", label: mode === "quick" ? "Composing a quick answer..." : mode === "focused" ? "Working through this..." : "Planning deep analysis..." });
+  onStep?.({ type: "thinking", label: isChart ? "Building chart..." : mode === "quick" ? "Composing a quick answer..." : mode === "focused" ? "Working through this..." : "Planning deep analysis..." });
+  if (isChart) {
+    console.log(`[SessionResearch] Chart mode: using ${useModel}, max ${MAX_TOOL_ROUNDS} rounds, execute_code ${chartNeedsCode ? "enabled" : "blocked"}`);
+  }
 
   // Reflection checkpoint: for deep mode with a plan, after the agent has
   // executed enough tools to learn something, give the planner one chance to
@@ -1744,7 +1625,7 @@ export async function runSessionResearchAgent(
     compressOlderToolResults(messages, round);
 
     const requestBody: any = {
-      model: "claude-opus-4-6",
+      model: useModel,
       max_tokens: maxTokens,
       system: activeSystemPrompt,
       messages,
