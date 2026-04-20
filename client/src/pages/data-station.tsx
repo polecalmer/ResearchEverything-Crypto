@@ -301,6 +301,7 @@ export default function DataStation() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [activeView, setActiveView] = useState<"protocols" | "report">("protocols");
+  const [activeProtocol, setActiveProtocol] = useState<string | null>(null);
   const [activeReport, setActiveReport] = useState<string | null>(null);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
   const [newReportTitle, setNewReportTitle] = useState("");
@@ -460,9 +461,9 @@ export default function DataStation() {
 
         <div className="flex items-center gap-1 ml-2 overflow-x-auto">
           <button
-            onClick={() => { setActiveView("protocols"); setActiveReport(null); }}
+            onClick={() => { setActiveView("protocols"); setActiveProtocol(null); setActiveReport(null); }}
             className={`px-2 py-1 rounded text-[10px] whitespace-nowrap transition-colors ${
-              activeView === "protocols" && !activeReport ? "bg-muted/25 text-foreground/90" : "text-muted-foreground/50 hover:text-foreground/70 hover:bg-muted/10"
+              activeView === "protocols" && !activeProtocol && !activeReport ? "bg-muted/25 text-foreground/90" : "text-muted-foreground/50 hover:text-foreground/70 hover:bg-muted/10"
             }`}
             data-testid="button-all-protocols"
           >
@@ -473,10 +474,12 @@ export default function DataStation() {
               key={protocol}
               onClick={() => {
                 setActiveView("protocols");
+                setActiveProtocol(protocol);
                 setActiveReport(null);
-                document.getElementById(`protocol-${protocol}`)?.scrollIntoView({ behavior: "smooth", block: "start" });
               }}
-              className="px-2 py-1 rounded text-[10px] whitespace-nowrap text-muted-foreground/50 hover:text-foreground/70 hover:bg-muted/10 transition-colors"
+              className={`px-2 py-1 rounded text-[10px] whitespace-nowrap transition-colors ${
+                activeView === "protocols" && activeProtocol === protocol ? "bg-muted/25 text-foreground/90" : "text-muted-foreground/50 hover:text-foreground/70 hover:bg-muted/10"
+              }`}
               data-testid={`button-protocol-nav-${protocol}`}
             >
               {protocol} <span className="text-[8px] text-muted-foreground/30">{pCharts.length}</span>
@@ -564,27 +567,48 @@ export default function DataStation() {
             </div>
           ) : (
             <div className="px-4 py-3">
-              <div className="mb-3">
-                <h2 className="text-sm font-semibold text-foreground/90">Protocol Dashboards</h2>
-                <p className="text-[10px] text-muted-foreground/40 mt-0.5">
-                  {parsed.length} charts across {protocolGroups.length} protocol{protocolGroups.length !== 1 ? "s" : ""}
-                </p>
-              </div>
-
-              {protocolGroups.map(([protocol, pCharts]) => (
-                <div key={protocol} id={`protocol-${protocol}`}>
-                  <ProtocolDashboard
-                    protocol={protocol}
-                    charts={pCharts}
-                    onRefresh={handleRefresh}
-                    onDelete={handleDelete}
-                    onAddToReport={handleAddToReport}
-                    reports={reports}
-                    refreshingId={refreshingId}
-                    onRefreshProtocol={handleRefreshProtocol}
-                  />
-                </div>
-              ))}
+              {activeProtocol ? (
+                (() => {
+                  const group = protocolGroups.find(([p]) => p === activeProtocol);
+                  if (!group) return null;
+                  const [protocol, pCharts] = group;
+                  return (
+                    <ProtocolDashboard
+                      protocol={protocol}
+                      charts={pCharts}
+                      onRefresh={handleRefresh}
+                      onDelete={handleDelete}
+                      onAddToReport={handleAddToReport}
+                      reports={reports}
+                      refreshingId={refreshingId}
+                      onRefreshProtocol={handleRefreshProtocol}
+                    />
+                  );
+                })()
+              ) : (
+                <>
+                  <div className="mb-3">
+                    <h2 className="text-sm font-semibold text-foreground/90">All Protocols</h2>
+                    <p className="text-[10px] text-muted-foreground/40 mt-0.5">
+                      {parsed.length} charts across {protocolGroups.length} protocol{protocolGroups.length !== 1 ? "s" : ""}
+                    </p>
+                  </div>
+                  {protocolGroups.map(([protocol, pCharts]) => (
+                    <div key={protocol} id={`protocol-${protocol}`}>
+                      <ProtocolDashboard
+                        protocol={protocol}
+                        charts={pCharts}
+                        onRefresh={handleRefresh}
+                        onDelete={handleDelete}
+                        onAddToReport={handleAddToReport}
+                        reports={reports}
+                        refreshingId={refreshingId}
+                        onRefreshProtocol={handleRefreshProtocol}
+                      />
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
           )}
       </div>
