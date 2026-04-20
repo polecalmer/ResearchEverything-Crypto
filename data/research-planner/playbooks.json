@@ -1,0 +1,50 @@
+{
+  "version": "v0",
+  "notes": "Keep playbooks abstract and short (5-7 nodes). Don't encode protocol specifics — let the planner instantiate against the user's actual subject at runtime. Grow only when a real prompt fails because no playbook fit.",
+  "playbooks": [
+    {
+      "id": "evaluate-protocol",
+      "name": "Evaluate a protocol",
+      "description": "General-purpose deep dive on a single protocol. Works for L1s, DEXes, lending markets, perp DEXes, LSTs. Don't specialize unless v0 fails.",
+      "trigger_pattern": "User asks to 'evaluate', 'deep dive on', 'build a thesis on', 'tell me about' a single protocol or token.",
+      "source_analyst": "Hasu-style framework, generalized.",
+      "nodes": [
+        { "id": "snapshot", "abstract": "Where is the protocol today? Headline KPIs.", "types": ["fundamentals-snapshot"] },
+        { "id": "traction", "abstract": "Is it growing? What's the trend?", "types": ["trend-analysis"], "depends_on": ["snapshot"] },
+        { "id": "value-capture", "abstract": "How does the token actually accrue value?", "types": ["tokenomics-mechanics"] },
+        { "id": "competitive", "abstract": "Who else is in this market and where does it rank?", "types": ["comp-analysis"], "depends_on": ["snapshot"] },
+        { "id": "narrative", "abstract": "What's the prevailing bull/bear story?", "types": ["narrative-inquiry"] },
+        { "id": "valuation", "abstract": "What is it worth under reasonable scenarios?", "types": ["valuation-ask"], "depends_on": ["snapshot", "value-capture", "competitive"] },
+        { "id": "synthesis", "abstract": "Pull it together into a one-paragraph view.", "types": ["narrative-inquiry"], "depends_on": ["valuation", "narrative", "traction"] }
+      ]
+    },
+    {
+      "id": "compare-set",
+      "name": "Compare a set of protocols",
+      "description": "Side-by-side analysis across N protocols. Triggered when the prompt names multiple subjects or asks 'best X'.",
+      "trigger_pattern": "User names 2+ protocols/tokens or asks 'best/top N in {category}'.",
+      "source_analyst": "Generic comp framework.",
+      "nodes": [
+        { "id": "scope", "abstract": "What dimensions matter for this comparison?", "types": ["comp-analysis"] },
+        { "id": "fundamentals", "abstract": "Pull the headline metrics for each subject.", "types": ["fundamentals-snapshot"], "depends_on": ["scope"] },
+        { "id": "differentiation", "abstract": "Where does each one differ structurally (tokenomics, mechanism)?", "types": ["tokenomics-mechanics"], "depends_on": ["scope"] },
+        { "id": "table", "abstract": "Render the comparison table with takeaway per row.", "types": ["comp-analysis"], "depends_on": ["fundamentals", "differentiation"] },
+        { "id": "ranking", "abstract": "Order them and explain the top pick.", "types": ["narrative-inquiry"], "depends_on": ["table"] }
+      ]
+    },
+    {
+      "id": "scenario-model",
+      "name": "Build a scenario / valuation model",
+      "description": "User explicitly asks for a price target, model, or scenario analysis on a single asset.",
+      "trigger_pattern": "User asks 'what's X worth at Y', 'build a model for', 'price target', 'scenario analysis', 'NTM revenue'.",
+      "source_analyst": "TopherGMI valuation; thiccyth0t for derivatives revenue.",
+      "nodes": [
+        { "id": "current-state", "abstract": "Anchor on current revenue/fee/take-rate baseline.", "types": ["fundamentals-snapshot"] },
+        { "id": "growth-drivers", "abstract": "What are the explicit drivers that move the metric forward?", "types": ["trend-analysis", "narrative-inquiry"], "depends_on": ["current-state"] },
+        { "id": "comp-multiples", "abstract": "What multiples do comparables trade at? Anchor the multiple range.", "types": ["comp-analysis"], "depends_on": ["current-state"] },
+        { "id": "scenarios", "abstract": "Bear / base / bull on the driver; apply multiple range; produce a 3-scenario table.", "types": ["valuation-ask"], "depends_on": ["growth-drivers", "comp-multiples"] },
+        { "id": "sensitivities", "abstract": "Which input matters most? Flag the assumption with the highest leverage.", "types": ["valuation-ask"], "depends_on": ["scenarios"] }
+      ]
+    }
+  ]
+}

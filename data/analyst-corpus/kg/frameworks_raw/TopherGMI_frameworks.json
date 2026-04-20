@@ -1,0 +1,55 @@
+{
+  "analyst": "TopherGMI",
+  "model": "synthetic-test",
+  "extracted_at": "2026-04-17T00:00:00Z",
+  "article_count": 2,
+  "batch_count": 1,
+  "frameworks": [
+    {
+      "name": "Concentration Metrics",
+      "description": "Analyzing supply or holder concentration where a small % controls a large % of resources",
+      "category": "quantitative",
+      "description_variants": [],
+      "first_seen_date": "2018-06-08",
+      "first_seen_article": "arca_2018-06-08_2018-a-cryptocurrency-odyssey.md",
+      "last_seen_date": "2019-01-14",
+      "last_seen_article": "arca_2019-01-14_thats-our-two-satoshis-01-14-19.md",
+      "applications": [
+        {
+          "article_id": "arca_2018-06-08_2018-a-cryptocurrency-odyssey.md",
+          "date": "2018-06-08",
+          "context": "Token supply concentration analysis showing small group holds large share",
+          "entities_involved": ["Bitcoin"],
+          "relationships": ["analyzes"],
+          "scope": "narrow",
+          "confidence": 0.82
+        }
+      ],
+      "total_applications": 1,
+      "confidence": 0.82
+    },
+    {
+      "name": "Cycle Positioning",
+      "description": "Macro cycle-aware allocation across crypto bull and bear regimes",
+      "category": "macro",
+      "description_variants": [],
+      "first_seen_date": "2018-08-13",
+      "first_seen_article": "arca_2018-08-13_thats-our-two-satoshis-08-13-18.md",
+      "last_seen_date": "2018-08-13",
+      "last_seen_article": "arca_2018-08-13_thats-our-two-satoshis-08-13-18.md",
+      "applications": [
+        {
+          "article_id": "arca_2018-08-13_thats-our-two-satoshis-08-13-18.md",
+          "date": "2018-08-13",
+          "context": "Positioning for bear market continuation based on cycle analysis",
+          "entities_involved": ["Bitcoin", "Ethereum"],
+          "relationships": ["applies_to"],
+          "scope": "broad",
+          "confidence": 0.78
+        }
+      ],
+      "total_applications": 1,
+      "confidence": 0.78
+    }
+  ]
+}

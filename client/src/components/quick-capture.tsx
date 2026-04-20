@@ -1,0 +1,248 @@
+import { useState } from "react";
+import { useMutation } from "@tanstack/react-query";
+import { queryClient } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { useLocation } from "wouter";
+import { useAuth } from "@/hooks/use-auth";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from "@/components/ui/dialog";
+import { Plus, Loader2, Sparkles, CheckCircle2, Search, FileSearch, ShieldCheck, FileText } from "lucide-react";
+import { runEnrichmentPipeline, type EnrichmentStage } from "@/lib/enrichment";
+
+const PIPELINE_AGENTS = [
+  { key: "identifier", icon: Search, label: "Identifier" },
+  { key: "researcher", icon: FileSearch, label: "Research" },
+  { key: "verify_clean", icon: ShieldCheck, label: "Verify & Clean" },
+  { key: "dd_reads", icon: FileText, label: "DD Reads" },
+] as const;
+
+export function QuickCapture() {
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState("");
+  const [pipelineStages, setPipelineStages] = useState<EnrichmentStage[]>([]);
+  const { toast } = useToast();
+  const [, navigate] = useLocation();
+  const { getAccessToken } = useAuth();
+
+  const enrichMutation = useMutation({
+    mutationFn: async () => {
+      setPipelineStages([]);
+
+      const enriched = await runEnrichmentPipeline(
+        input.trim(),
+        (stage) => {
+          setPipelineStages((prev) => {
+            const existing = prev.findIndex((s) => s.agent === stage.agent);
+            if (existing >= 0) {
+              const updated = [...prev];
+              updated[existing] = stage;
+              return updated;
+            }
+            return [...prev, stage];
+          });
+        },
+        getAccessToken,
+      );
+
+      const inputUrl = input.trim();
+      const isUrl = inputUrl.startsWith("http://") || inputUrl.startsWith("https://");
+
+      let websiteUrl = enriched.websiteUrl || "";
+      if (!websiteUrl && isUrl) {
+        try {
+          const hostname = new URL(inputUrl).hostname.replace("www.", "").toLowerCase();
+          const socialDomains = [
+            "twitter.com", "x.com", "linkedin.com", "github.com",
+            "facebook.com", "instagram.com", "tiktok.com", "youtube.com",
+            "reddit.com", "medium.com", "substack.com",
+            "producthunt.com", "crunchbase.com", "pitchbook.com",
+          ];
+          if (!socialDomains.some(d => hostname.includes(d))) {
+            websiteUrl = inputUrl;
+          }
+        } catch {}
+      }
+
+      const companyData = {
+        name: enriched.name || "Unknown Company",
+        oneLiner: enriched.oneLiner || "AI-enriched company",
+        description: enriched.description || "",
+        sector: enriched.sector || "",
+        subSector: enriched.subSector || "",
+        businessModel: enriched.businessModel || "",
+        stage: enriched.stage || "",
+        fundingHistory: enriched.fundingHistory || "",
+        competitiveLandscape: enriched.competitiveLandscape || "",
+        sourceUrl: isUrl ? inputUrl : "",
+        websiteUrl,
+        githubUrl: enriched.githubUrl || "",
+        twitterUrl: enriched.twitterUrl || "",
+        linkedinUrl: enriched.linkedinUrl || "",
+        pipelineStage: "discovered",
+        tags: enriched.tags || [],
+        adjacentReads: enriched.adjacentReads && enriched.adjacentReads.length > 0
+          ? JSON.stringify(enriched.adjacentReads) : undefined,
+      };
+
+      const token = await getAccessToken();
+      const headers: Record<string, string> = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const createRes = await fetch("/api/companies", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(companyData),
+      });
+      if (!createRes.ok) throw new Error("Failed to create company");
+      const company = await createRes.json();
+
+      if (enriched.founders && enriched.founders.length > 0) {
+        for (const founder of enriched.founders) {
+          if (founder.name) {
+            await fetch(`/api/companies/${company.id}/founders`, {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                name: founder.name,
+                role: founder.role || "",
+                bio: founder.bio || "",
+                linkedinUrl: founder.linkedinUrl || "",
+                twitterUrl: founder.twitterUrl || "",
+                githubUrl: founder.githubUrl || "",
+                personalUrl: founder.personalUrl || "",
+                priorCompanies: founder.priorCompanies || "",
+              }),
+            });
+          }
+        }
+      }
+
+      return company;
+    },
+    onSuccess: (company) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/companies"] });
+      toast({ title: `"${company.name}" added with AI research` });
+      resetAndClose();
+      navigate(`/companies/${company.id}`);
+    },
+    onError: (error: Error) => {
+      toast({ title: "Research failed", description: error.message, variant: "destructive" });
+    },
+  });
+
+  const resetAndClose = () => {
+    setOpen(false);
+    setInput("");
+    setPipelineStages([]);
+  };
+
+  const handleSubmit = () => {
+    if (!input.trim()) return;
+    enrichMutation.mutate();
+  };
+
+  return (
+    <>
+      <Button
+        onClick={() => setOpen(true)}
+        className="fixed bottom-6 right-6 z-50 rounded-full w-14 h-14 shadow-lg"
+        size="icon"
+        data-testid="button-quick-capture"
+      >
+        <Plus className="w-6 h-6" />
+      </Button>
+
+      <Dialog open={open} onOpenChange={(v) => { if (!v) resetAndClose(); else setOpen(true); }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-foreground" />
+              AI Quick Capture
+            </DialogTitle>
+            <DialogDescription>
+              Drop any link or text. A team of 4 AI agents will identify, research, verify, and find due diligence reads.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4 pt-2">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1.5 block">URL, name, or any reference</label>
+              <Input
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                placeholder="e.g. https://x.com/elonmusk, stripe.com, a blog link..."
+                onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+                autoFocus
+                disabled={enrichMutation.isPending}
+                data-testid="input-capture"
+              />
+              <p className="text-[11px] text-muted-foreground mt-1.5">
+                Works with: company websites, tweets, X/LinkedIn profiles, blog posts, Product Hunt, GitHub repos, or plain company names
+              </p>
+            </div>
+
+            {enrichMutation.isPending && (
+              <div className="space-y-1.5 p-3 rounded-lg bg-accent/50 border border-border" data-testid="quick-pipeline-progress">
+                <p className="text-xs font-medium text-foreground mb-2">Agent Pipeline</p>
+                {pipelineStages.length > 0 ? (
+                  <div className="space-y-1">
+                    {pipelineStages.map((stage) => (
+                      <div key={stage.agent} className="flex items-center gap-1.5 text-[11px]">
+                        {stage.status === "complete" ? (
+                          <CheckCircle2 className="w-3 h-3 text-green-500" />
+                        ) : (
+                          <Loader2 className="w-3 h-3 animate-spin text-foreground" />
+                        )}
+                        <span className={stage.status === "complete" ? "text-muted-foreground" : "text-foreground"}>
+                          {stage.message || stage.agent}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    {PIPELINE_AGENTS.map(({ key, label }) => (
+                      <div key={key} className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                        <Loader2 className="w-3 h-3 animate-spin text-foreground" />
+                        <span>{label}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground mt-1">
+                  4 agents working: identifying → researching → verifying → finding DD reads
+                </p>
+              </div>
+            )}
+
+            <Button
+              onClick={handleSubmit}
+              disabled={!input.trim() || enrichMutation.isPending}
+              className="w-full"
+              data-testid="button-capture-submit"
+            >
+              {enrichMutation.isPending ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                  4 agents working...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 mr-1.5" />
+                  Add &amp; Research with AI
+                </>
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}

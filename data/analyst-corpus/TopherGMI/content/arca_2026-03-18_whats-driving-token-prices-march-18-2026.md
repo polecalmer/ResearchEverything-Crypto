@@ -1,0 +1,17 @@
+---
+source: arca-blog
+author: Arca Research Team
+date: 2026-03-18
+url: https://www.ar.ca/blog/whats-driving-token-prices-march-18-2026
+title: "What's Driving Token Prices? March 18, 2026"
+type: article
+topher_mentioned: false
+---
+
+# What's Driving Token Prices? March 18, 2026
+
+**Arca Research Team** | 2026-03-18
+
+Join Katie Talati, Arca’s Head of Research, weekly on Wednesday at 4PM EST / 1PM PST as she shares notable token activity over the past week and her insights on what market events drove these token price movements. - STX (-1.7%) - Yesterday, the Bitcoin Layer-2 project Stacks activated its SIP-034 upgrade on mainnet, which is designed to significantly increase speeds and capacity. The upgrade increases the number of transactions per block, which should speed up DeFi applications by 30x, according to the project. Since the Bitcoin blockchain does not allow for native smart contracts and therefore does not have applications built on top of it, Stacks and other Layer-2 projects have proliferated to offer more advanced use cases. Stacks specifically has focused on yield generation for Bitcoin and DeFi applications. - LDO (+0.4%) - Lido announced last week the launch of various stablecoin and ETH earn vaults. This is a departure from the protocol's core business of staking, as they will allocate deposited assets to a blend of "conservative lending positions with selective exposure to higher-yielding strategies" to earn returns. Lido introduced a few earn vaults in September last year and reportedly attracted $250M in deposits. Since launching these vaults last week, they have attracted $217M in deposits. - 2Z (+1.6%) - DoubleZero is an infrastructure that focuses on providing wired networks for the Solana blockchain to run on, rather than using traditional internet rails. The idea is that by having a dedicated network, Solana’s transaction speeds can also increase. This past week, DoubleZero introduced a new data product called “Edge,” which allows subscribers to see the contents of transactions before they are confirmed. Previously, only large Solana validators could see this data. DoubleZero also removed a 5% fee that validators had to pay to DoubleZero and increased staking rewards to validators in specific underserved areas. Finally, they granted revenue share to groups such as Jito, Agave, and others that provide vital Solana infrastructure. The idea is to reward these development teams through DoubleZero’s subscription revenue, which is recurring versus the one-time grant model. DoubleZero’s revenue is still fairly small at about $4.36M annualized, although it currently accounts for ~47% of Solana’s validator network. - DRV (+41%) - Last week, decentralized options protocol Derive announced it would route 25% of net fees to buybacks, with the other 75% allocated to its insurance fund. The project also reiterated that it has no dual equity-token structure and all value was intended to flow to tokenholders. The project has been expanding its focus as of late, branching out into offering better liquidity for RFQ trades and offering options on HYPE (BTC and ETH have historically been the primary focus). As of today, Derive makes about $4.361M in annualized revenue, giving it a roughly 41x P/S (on a fully diluted basis).
+
+DISCLAIMER: This commentary is provided as general information only and is in no way intended as investment advice, investment research, legal advice, tax advice, a research report, or a recommendation.

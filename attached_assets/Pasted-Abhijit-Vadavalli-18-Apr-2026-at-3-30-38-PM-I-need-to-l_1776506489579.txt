@@ -1,0 +1,34 @@
+Abhijit Vadavalli, [18 Apr 2026 at 3:30:38 PM]:
+...I need to look at the actual repo and ground myself in what's there — otherwise I'll be guessing about what "the prototype" actually does, which won't be useful for a system you're integrating into a production research product.The landing page is shell-only — I need to look into the actual server code to see how Dune querying is implemented. Let me pull the key files.Good, the HANDOFF.md is very informative. This is a maturing system, not a raw prototype — 500-case benchmark at 89.6%, 136 auto-generated prompt rules in system_learnings, an autoresearch training loop, and concrete known weaknesses (price 47.8%, intent-comparison 62.5%). 
+
+Before I write up an architecture, I want to flag what I'm confident about versus where I'm guessing — per your preferences, I'd rather surface the unknowns than extrapolate.
+
+What I can see clearly from the repo + brief:
+- The prototype is a benchmark/training harness around data-agent.ts with reference-data cross-validation (DeFiLlama/CoinGecko), a scoring rubric (magnitude 40% / trend 20% / shape-MAPE 40%), and an auto-mutation loop that writes rules back to system_learnings.
+- Dune SQL generation uses MCP table discovery + a proven_queries cache + query_templates for compound queries.
+- Failure modes are stratified by metric type and "intent category," which is the actually interesting structural insight here.
+
+What I don't know and would guess badly on without your input:
+
+1. What "a system within our research product" means concretely. Three very different answers possible:
+   - The whole benchmark/training apparatus becomes a permanent subsystem (nightly evals, drift detection, continuous prompt evolution in prod).
+   - Just the *runtime components* (table discovery, proven_queries cache, system_learnings) become production infra while the benchmark stays CI-side.
+   - A narrower thing: only the "when/why/how to build a Dune query" decision logic gets lifted.
+
+2. Where `data-agent.ts` currently sits in the production agent topology. The brief says the session research agent has 16+ tools including "Dune SQL," but data-agent.ts is listed separately as "transforms natural language into chart configurations." Are these the same code path, or does the session agent call the data agent as a sub-agent? This matters a lot — whether Dune generation is a *tool* or a *sub-agent* changes where the learning loop plugs in.
+
+3. What the planner currently decides about Dune. The research-planner has 9 question types. Does the planner already route between DeFiLlama / Dune / Allium, or does the executor agent decide at tool-call time? The "when to build a Dune query" question lives wherever that decision currently happens.
+
+4. What "learning to build Dune queries" means in your head. Possibilities:
+   - Better SQL generation (fewer syntax/schema errors)
+   - Better schema grounding (knowing which Dune tables actually exist and what columns)
+   - Better query-reuse (finding when a past proven query applies to a new question)
+   - Query pattern abstraction (learning that "DEX volume by chain over time" is a template)
+   - Something closer to RL / self-play where the agent tries queries against a verifier
+
+5. Your appetite for infrastructure vs. prompt engineering. The current system is prompt-rules-heavy (136 rules in system_learnings). A serious "brain" could go several directions — embedding-based query retrieval, a schema-aware grammar-constrained decoder, a fine-tune, a verifier/critic model. These have very different costs and production implications.
+
+6. Does Sessions.xyz have a different production codebase from this Replit repo? The brief describes session-research-agent.ts, research-planner.ts, data-agent.ts, dune-client.ts, dune-mcp-client.ts — the repo has dune-mcp-client.ts and a benchmark harness but the code bodies aren't directly accessible here (robots-blocked tree view). Is the Replit repo an in-flight branch of the production system, or a separate evaluation playground that mirrors production's data agent?
+
+
+Could you answer (2), (4), and (6) at minimum? Those three determine whether I'm designing a runtime "Dune brain" sub-agent, a training/eval subsystem, or a prompt-learning pipeline — and they're not answers I can infer safely from what I have.

@@ -1,0 +1,164 @@
+---
+name: crypto-data-catalog
+description: >
+  Authoritative catalog of crypto and DeFi data sources — consult BEFORE making any data-fetching decision.
+  Use this skill whenever the task involves fetching, analyzing, or comparing on-chain or crypto market data.
+  Triggers: any mention of TVL, fees, revenue, token prices, market cap, yields, stablecoin flows,
+  holder distributions, on-chain queries, protocol metrics, DeFi analytics, or building dashboards/models
+  that consume crypto data. Also trigger when building Dune queries, calling CoinGecko or DefiLlama,
+  or writing any code that hits a crypto data API. Even if the user doesn't name a source, use this
+  skill to pick the right one. Do NOT default to Dune for everything — consult the decision matrix first.
+---
+
+# Crypto Data Source Catalog
+
+## Purpose
+
+This skill eliminates trial-and-error data sourcing. Before writing any API call, Dune query,
+or data-fetching code, consult the decision matrix below to pick the optimal source on the first try.
+
+---
+
+## Decision Matrix — Route by Metric Type
+
+Use this table as the primary router. Find the metric you need, use the recommended source.
+
+| Metric / Data Need | First Choice | Why | Fallback |
+|---|---|---|---|
+| **TVL** (protocol, chain, category) | DefiLlama | Broadest coverage, free, no key | Dune (custom calc) |
+| **Protocol revenue & fees** | DefiLlama | `/fees` and `/revenue` endpoints, daily/cumulative | Dune (contract-level) |
+| **DEX volume** (aggregate) | DefiLlama | `/dexs` endpoint, per-chain breakdown | Dune |
+| **Yield / APY** (lending, LP, staking) | DefiLlama | `/yields` endpoint, 10k+ pools tracked | Protocol subgraphs |
+| **Stablecoin supply & flows** | DefiLlama | `/stablecoins` endpoint, chain-level mcap | Dune |
+| **Token price** (current) | CoinGecko | `/simple/price`, free tier sufficient | DefiLlama (limited) |
+| **Token price** (historical OHLC) | CoinGecko | `/coins/{id}/ohlc` or `/market_chart` | Allium (raw DEX trades) |
+| **Market cap, FDV, circulating supply** | CoinGecko | Standard `/coins/{id}` response | CoinMarketCap |
+| **Token metadata** (categories, links, desc) | CoinGecko | Rich metadata in `/coins/{id}` | Manual |
+| **Holder distribution** | Dune | Custom SQL on raw transfer tables | Allium |
+| **Wallet-level behavior** (PnL, activity) | Dune | Flexible SQL, decoded tables | Allium |
+| **Specific contract interactions** | Dune | Decoded event logs, `_decoded` tables | Allium (raw logs) |
+| **Bridge flows** | DefiLlama | `/bridges` endpoint | Dune |
+| **Options / perps volume** | DefiLlama | `/derivatives` endpoints | Dune (protocol-specific) |
+| **NFT volume / floor prices** | Dune | Community dashboards, raw trades | Reservoir API |
+| **Raw indexed chain data** (SQL) | Allium | Full EVM + Solana + Cosmos coverage | Dune |
+| **Cross-chain raw SQL** (non-EVM) | Allium | Solana, Cosmos, Sui, Aptos tables | Flipside |
+| **Gas / blob fees** | Dune | `ethereum.blocks`, `ethereum.blobs` | Etherscan API |
+| **Governance proposals** | Tally / Snapshot APIs | Structured governance data | Dune (raw) |
+| **13F / institutional filings** | SEC EDGAR | Canonical source | WhaleWisdom |
+
+---
+
+## Source Profiles — Quick Reference
+
+### 1. DefiLlama (FREE, NO API KEY)
+
+- **Base URL**: `https://api.llama.fi` (core), `https://yields.llama.fi` (yields), `https://stablecoins.llama.fi` (stables), `https://coins.llama.fi` (prices)
+- **Auth**: None. Fully open.
+- **Rate limit**: ~500 req/min (undocumented soft limit, rarely hit)
+- **Data freshness**: Most endpoints update every 10-30 min
+- **Coverage**: 5000+ protocols, 250+ chains
+- **Strengths**: Best free aggregator for protocol-level financial metrics (TVL, fees, revenue, volume). Covers dimensions no one else aggregates for free (bridges, options, stablecoins, yields).
+- **Weaknesses**: No wallet-level data, no raw on-chain, limited price history granularity. Some smaller protocols may have stale or missing fee/revenue data.
+- **Read**: `references/defillama.md` for full endpoint catalog
+
+### 2. CoinGecko (FREE TIER + PRO)
+
+- **Base URL**: `https://api.coingecko.com/api/v3` (free), `https://pro-api.coingecko.com/api/v3` (pro)
+- **Auth**: Free tier = no key (or demo key). Pro = `x-cg-pro-api-key` header.
+- **Rate limit**: Free ~30 req/min, Demo ~30 req/min with key, Pro 500 req/min
+- **Data freshness**: Prices update every 60s, market data every few minutes
+- **Coverage**: 15,000+ tokens
+- **Strengths**: Best free source for token prices, market cap, FDV, supply metrics, OHLC, and rich metadata. Canonical for "what is the current price of X."
+- **Weaknesses**: Free tier rate limits are tight for bulk operations. Historical granularity depends on time range (5min for <1d, hourly for 1-90d, daily beyond). No on-chain data.
+- **Read**: `references/coingecko.md` for full endpoint catalog
+
+### 3. Dune Analytics (API KEY REQUIRED)
+
+- **Base URL**: `https://api.dune.com/api/v1`
+- **Auth**: API key in `x-dune-api-key` header. Free tier = 2,500 credits/month.
+- **Rate limit**: Varies by plan; free tier is heavily constrained
+- **Data freshness**: Depends on query. Pre-built materialized views can be minutes old. Custom queries run on-demand against data that's typically 5-15 min behind head.
+- **Coverage**: Ethereum, Polygon, Arbitrum, Optimism, Base, BNB, Solana, Bitcoin + decoded contract tables for major protocols
+- **Strengths**: Arbitrary SQL against decoded on-chain data. Community dashboards. Best for bespoke analysis (holder distributions, specific contract events, wallet PnL, custom cohorts). Spellbook has pre-built tables for DEX trades, NFT trades, ERC20 transfers, etc.
+- **Weaknesses**: Cold queries can take 30-120s. Credit system means heavy usage gets expensive. Not ideal for simple lookups that DefiLlama/CoinGecko handle for free. Decoded tables may lag for newer/smaller protocols.
+- **Read**: `references/dune.md` for query patterns and key tables
+
+### 4. Allium (API KEY REQUIRED)
+
+- **Base URL**: `https://api.allium.so`
+- **Auth**: API key required
+- **Rate limit**: Plan-dependent
+- **Data freshness**: Near real-time for major chains (< 5 min)
+- **Coverage**: 40+ chains including EVM, Solana, Cosmos, Sui, Aptos, Bitcoin
+- **Strengths**: Raw indexed chain data with full SQL access. Best non-EVM coverage (Solana decoded IDL tables, Cosmos msg types). Lower latency than Dune for raw data. Good for cross-chain analysis that spans EVM + non-EVM.
+- **Weaknesses**: Less community content than Dune (no shared dashboards/spellbook). Requires more raw SQL skill - fewer pre-built abstractions. Paid product.
+- **Read**: `references/allium.md` for schema patterns
+
+---
+
+## Supplementary Sources
+
+| Source | Use Case | Access |
+|---|---|---|
+| **Etherscan / Block Explorers** | Contract verification, single-address lookups, ABI fetching | Free API key, 5 req/s |
+| **Flipside Crypto** | Alternative SQL engine, Solana + EVM | Free tier available |
+| **Token Terminal** | Protocol fundamentals (P/E, P/S ratios) | Paid API |
+| **Artemis** | Institutional-grade protocol metrics | Paid |
+| **CoinMarketCap** | Price/mcap fallback, exchange-level volume | Free tier, API key |
+| **The Graph** | Protocol-specific subgraph queries (Uniswap, Aave, etc.) | Free for hosted, pay for decentralized |
+| **Reservoir** | NFT orders, floor prices, collection stats | Free tier, API key |
+| **Tally** | On-chain governance (proposals, votes, delegates) | Free API |
+| **Snapshot** | Off-chain governance (gasless votes) | GraphQL, free |
+| **SEC EDGAR** | 13F filings, institutional holdings | Free, `sec.gov` |
+
+---
+
+## Anti-Patterns — Common Mistakes to Avoid
+
+1. **Don't Dune-first for TVL/fees/revenue.** DefiLlama has this pre-aggregated and free. A Dune query for "Aave TVL" wastes credits and time rebuilding what DefiLlama already computes.
+
+2. **Don't CoinGecko for protocol revenue.** CoinGecko tracks token prices, not protocol financials. Use DefiLlama `/fees` or `/revenue`.
+
+3. **Don't scrape block explorers for bulk data.** Etherscan is for spot-checks and ABI lookups, not for pulling 10k transactions. Use Dune or Allium.
+
+4. **Don't use Dune free tier for real-time dashboards.** Cold query latency + credit limits make this impractical. Use DefiLlama for anything it covers, reserve Dune for custom analysis.
+
+5. **Don't assume CoinGecko IDs match protocol names.** Always search `/search?query=` first to resolve the correct `id` before calling other endpoints. Example: Lido is `lido-dao`, not `lido` or `steth`.
+
+6. **Don't forget DefiLlama's price API.** `coins.llama.fi` can resolve prices by contract address (`chain:address` format), which is often easier than finding CoinGecko IDs.
+
+---
+
+## Composing Multi-Source Analyses
+
+Many real analyses require combining sources. Common patterns:
+
+**Protocol Valuation Model**
+1. DefiLlama -> TVL, fees, revenue (fundamentals)
+2. CoinGecko -> token price, market cap, FDV, supply schedule
+3. Dune -> token holder distribution, treasury flows, vesting unlocks
+
+**Token Liquidity Analysis**
+1. CoinGecko -> price, volume, market cap
+2. Dune -> DEX liquidity depth, LP positions, CEX deposit/withdrawal flows
+3. DefiLlama -> yields on staking/LP (opportunity cost)
+
+**On-Chain Behavioral Research**
+1. Dune -> wallet cohorts, transaction patterns, contract interactions
+2. Allium -> cross-chain activity (if non-EVM involved)
+3. CoinGecko -> price overlay for behavioral correlation
+
+**Stablecoin Flows**
+1. DefiLlama -> aggregate stablecoin mcap by chain, issuer
+2. Dune -> specific mint/burn events, bridge transfers, whale movements
+
+---
+
+## For Detailed Endpoint Documentation
+
+Read the appropriate reference file before writing any API call:
+
+- **DefiLlama**: `references/defillama.md` -- Every endpoint with params, response shapes, gotchas
+- **CoinGecko**: `references/coingecko.md` -- Endpoint catalog, ID resolution, pagination, rate limit strategies
+- **Dune**: `references/dune.md` -- Key tables, query patterns, Spellbook references, credit optimization
+- **Allium**: `references/allium.md` -- Schema patterns, chain coverage, non-EVM specifics

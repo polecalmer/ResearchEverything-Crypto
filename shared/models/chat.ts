@@ -1,0 +1,59 @@
+import { pgTable, serial, integer, text, timestamp, jsonb } from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod";
+import { sql } from "drizzle-orm";
+
+export const conversations = pgTable("conversations", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id"),
+  title: text("title").notNull(),
+  type: text("type").default("chat").notNull(),
+  shareToken: text("share_token"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const researchBrains = pgTable("research_brains", {
+  id: serial("id").primaryKey(),
+  userId: text("user_id").notNull().unique(),
+  entities: jsonb("entities").default(sql`'{}'::jsonb`).notNull(),
+  knowledge: jsonb("knowledge").default(sql`'[]'::jsonb`).notNull(),
+  preferences: jsonb("preferences").default(sql`'{}'::jsonb`).notNull(),
+  relationships: jsonb("relationships").default(sql`'[]'::jsonb`).notNull(),
+  contradictions: jsonb("contradictions").default(sql`'[]'::jsonb`).notNull(),
+  meta: jsonb("meta").default(sql`'{}'::jsonb`).notNull(),
+  updatedAt: timestamp("updated_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const messages = pgTable("messages", {
+  id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  role: text("role").notNull(),
+  content: text("content").notNull(),
+  artifacts: jsonb("artifacts"),
+  // Optional classification of this message. Currently used to mark deep-mode
+  // assistant responses as "deep_model" so they can be surfaced in a saved-
+  // models list independently of which conversation they live in.
+  kind: text("kind"),
+  // Structured ResearchPlan emitted by the planner pre-step. Stored on the
+  // user message that triggered planning so a bad assistant response can be
+  // traced back to the plan that produced it. Null for quick-mode or
+  // pre-planner messages.
+  plan: jsonb("plan"),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertConversationSchema = createInsertSchema(conversations).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertMessageSchema = createInsertSchema(messages).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type Conversation = typeof conversations.$inferSelect;
+export type InsertConversation = z.infer<typeof insertConversationSchema>;
+export type Message = typeof messages.$inferSelect;
+export type InsertMessage = z.infer<typeof insertMessageSchema>;
+export type ResearchBrain = typeof researchBrains.$inferSelect;

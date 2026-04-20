@@ -1,0 +1,64 @@
+{
+  "analyst": "shaundadevens",
+  "model": "synthetic-test",
+  "extracted_at": "2026-04-17T00:00:00Z",
+  "article_count": 2,
+  "batch_count": 1,
+  "frameworks": [
+    {
+      "name": "Fee Switch Analysis",
+      "description": "Assessing protocol revenue extraction potential from activating fee capture",
+      "category": "quantitative",
+      "description_variants": [],
+      "first_seen_date": "2025-09-08",
+      "first_seen_article": "blockworks_2025-09-08_builders-capture-the-fees.md",
+      "last_seen_date": "2025-09-08",
+      "last_seen_article": "blockworks_2025-09-08_builders-capture-the-fees.md",
+      "applications": [
+        {
+          "article_id": "blockworks_2025-09-08_builders-capture-the-fees.md",
+          "date": "2025-09-08",
+          "context": "Evaluating how builders and protocols capture fee revenue in L2 stacks",
+          "entities_involved": ["Ethereum"],
+          "relationships": ["analyzes"],
+          "scope": "narrow",
+          "confidence": 0.85
+        }
+      ],
+      "total_applications": 1,
+      "confidence": 0.85
+    },
+    {
+      "name": "Narrative Trading",
+      "description": "Following attention and meta rather than fundamentals to position ahead of flows",
+      "category": "behavioral",
+      "description_variants": [],
+      "first_seen_date": "2025-08-07",
+      "first_seen_article": "blockworks_2025-08-07_another-day-another-launchpad.md",
+      "last_seen_date": "2025-10-09",
+      "last_seen_article": "blockworks_2025-10-09_bnb-mania-returns.md",
+      "applications": [
+        {
+          "article_id": "blockworks_2025-08-07_another-day-another-launchpad.md",
+          "date": "2025-08-07",
+          "context": "Launchpad season narrative drives capital rotation across meme and new issue flows",
+          "entities_involved": ["Solana"],
+          "relationships": ["analyzes"],
+          "scope": "narrow",
+          "confidence": 0.8
+        },
+        {
+          "article_id": "blockworks_2025-10-09_bnb-mania-returns.md",
+          "date": "2025-10-09",
+          "context": "BNB ecosystem attention rotation drives short-term flows back into the meta",
+          "entities_involved": ["BNB"],
+          "relationships": ["analyzes"],
+          "scope": "broad",
+          "confidence": 0.82
+        }
+      ],
+      "total_applications": 2,
+      "confidence": 0.81
+    }
+  ]
+}

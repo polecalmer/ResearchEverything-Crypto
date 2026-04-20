@@ -1,0 +1,17 @@
+---
+source: arca-blog
+author: Arca Research Team
+date: 2025-11-06
+url: https://www.ar.ca/blog/whats-driving-token-prices-november-6-2025
+title: "What's Driving Token Prices? November 6, 2025"
+type: article
+topher_mentioned: false
+---
+
+# What's Driving Token Prices? November 6, 2025
+
+**Arca Research Team** | 2025-11-06
+
+Join Katie Talati, Arca’s Head of Research, weekly on Wednesday at 4PM EST / 1PM PST as she shares notable token activity over the past week and her insights on what market events drove these token price movements. Watch Our Founders Video - xUSD (-89%) - On Monday, Stream Finance, a DeFi yield protocol, announced that one of its managers incurred a $93M loss on assets backing the Staked Stream USD (xUSD) stablecoin. In response, Stream disabled xUSD deposits and withdrawals, but since the token trades elsewhere, it quickly lost its peg. The issue was compounded by xUSD’s integration across several lending protocols, which used a “modular vault architecture” (i.e., siloed vaults designed to contain risk). Many of these vaults on protocols like Morpho, Euler, Gearbox, and Silo—employ “looping” strategies, in which users repeatedly lend and borrow the same assets to amplify yield. While effective under normal conditions, these strategies unraveled as xUSD depegged, triggering mass redemptions. The event underscores the importance of understanding both yield strategies and their managers before allocating capital. Although not directly responsible, DeFi protocols such as Silo (-14%), Morpho (-15%), and Euler (-32%) were affected. Silo has since announced legal action against Stream Finance to recover user losses. xUSD is down 89%. - BAL (-16%) - Early Monday morning, decentralized exchange Balancer suffered a $110M exploit. The attack targeted the v2 version of its Composable Stable Pools, leading to unauthorized withdrawals of wrapped ETH and staked ETH derivatives osETH and wstETH. The breach is believed to have stemmed from a rounding-error bug where small numerical approximations in code create exploitable inaccuracies, combined with weak access control mechanisms. Because Balancer is deployed across multiple chains, losses occurred on Ethereum, Base, Polygon, Sonic, Arbitrum, and Optimism. On Berachain, the project opted to fork the chain to prevent losses. - ZEC (+42%) - One token that has defied the broader market downturn is Zcash, a privacy-focused layer-1 network. Interest in the project has surged in recent weeks as its opt-in privacy features—known as shielded tokens and shielded transactions—are viewed as a compelling alternative to Bitcoin, which some argue has become too “mainstream.” Like Bitcoin, Zcash uses a proof-of-work consensus mechanism and a fixed supply schedule, but it distinguishes itself through zero-knowledge proofs that enable fully private transactions. In October, ZEC held in private pools rose 11%, while shielded transactions increased 36%, suggesting growing on-chain usage beyond speculation. Adding to the momentum, Arthur Hayes recently predicted that ZEC could reach $10,000, further fueling interest. The Electric Coin Company, which supports Zcash development, also released its Q4 roadmap, emphasizing improvements to user privacy and wallet usability.
+
+DISCLAIMER: This commentary is provided as general information only and is in no way intended as investment advice, investment research, legal advice, tax advice, a research report, or a recommendation.

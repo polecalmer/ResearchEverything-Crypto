@@ -1,0 +1,383 @@
+<html>
+    <head>
+        <meta charset="utf-8">
+        
+            <script>function neighbourhoodHighlight(params) {
+  // console.log("in nieghbourhoodhighlight");
+  allNodes = nodes.get({ returnType: "Object" });
+  // originalNodes = JSON.parse(JSON.stringify(allNodes));
+  // if something is selected:
+  if (params.nodes.length > 0) {
+    highlightActive = true;
+    var i, j;
+    var selectedNode = params.nodes[0];
+    var degrees = 2;
+
+    // mark all nodes as hard to read.
+    for (let nodeId in allNodes) {
+      // nodeColors[nodeId] = allNodes[nodeId].color;
+      allNodes[nodeId].color = "rgba(200,200,200,0.5)";
+      if (allNodes[nodeId].hiddenLabel === undefined) {
+        allNodes[nodeId].hiddenLabel = allNodes[nodeId].label;
+        allNodes[nodeId].label = undefined;
+      }
+    }
+    var connectedNodes = network.getConnectedNodes(selectedNode);
+    var allConnectedNodes = [];
+
+    // get the second degree nodes
+    for (i = 1; i < degrees; i++) {
+      for (j = 0; j < connectedNodes.length; j++) {
+        allConnectedNodes = allConnectedNodes.concat(
+          network.getConnectedNodes(connectedNodes[j])
+        );
+      }
+    }
+
+    // all second degree nodes get a different color and their label back
+    for (i = 0; i < allConnectedNodes.length; i++) {
+      // allNodes[allConnectedNodes[i]].color = "pink";
+      allNodes[allConnectedNodes[i]].color = "rgba(150,150,150,0.75)";
+      if (allNodes[allConnectedNodes[i]].hiddenLabel !== undefined) {
+        allNodes[allConnectedNodes[i]].label =
+          allNodes[allConnectedNodes[i]].hiddenLabel;
+        allNodes[allConnectedNodes[i]].hiddenLabel = undefined;
+      }
+    }
+
+    // all first degree nodes get their own color and their label back
+    for (i = 0; i < connectedNodes.length; i++) {
+      // allNodes[connectedNodes[i]].color = undefined;
+      allNodes[connectedNodes[i]].color = nodeColors[connectedNodes[i]];
+      if (allNodes[connectedNodes[i]].hiddenLabel !== undefined) {
+        allNodes[connectedNodes[i]].label =
+          allNodes[connectedNodes[i]].hiddenLabel;
+        allNodes[connectedNodes[i]].hiddenLabel = undefined;
+      }
+    }
+
+    // the main node gets its own color and its label back.
+    // allNodes[selectedNode].color = undefined;
+    allNodes[selectedNode].color = nodeColors[selectedNode];
+    if (allNodes[selectedNode].hiddenLabel !== undefined) {
+      allNodes[selectedNode].label = allNodes[selectedNode].hiddenLabel;
+      allNodes[selectedNode].hiddenLabel = undefined;
+    }
+  } else if (highlightActive === true) {
+    // console.log("highlightActive was true");
+    // reset all nodes
+    for (let nodeId in allNodes) {
+      // allNodes[nodeId].color = "purple";
+      allNodes[nodeId].color = nodeColors[nodeId];
+      // delete allNodes[nodeId].color;
+      if (allNodes[nodeId].hiddenLabel !== undefined) {
+        allNodes[nodeId].label = allNodes[nodeId].hiddenLabel;
+        allNodes[nodeId].hiddenLabel = undefined;
+      }
+    }
+    highlightActive = false;
+  }
+
+  // transform the object into an array
+  var updateArray = [];
+  if (params.nodes.length > 0) {
+    for (let nodeId in allNodes) {
+      if (allNodes.hasOwnProperty(nodeId)) {
+        // console.log(allNodes[nodeId]);
+        updateArray.push(allNodes[nodeId]);
+      }
+    }
+    nodes.update(updateArray);
+  } else {
+    // console.log("Nothing was selected");
+    for (let nodeId in allNodes) {
+      if (allNodes.hasOwnProperty(nodeId)) {
+        // console.log(allNodes[nodeId]);
+        // allNodes[nodeId].color = {};
+        updateArray.push(allNodes[nodeId]);
+      }
+    }
+    nodes.update(updateArray);
+  }
+}
+
+function filterHighlight(params) {
+  allNodes = nodes.get({ returnType: "Object" });
+  // if something is selected:
+  if (params.nodes.length > 0) {
+    filterActive = true;
+    let selectedNodes = params.nodes;
+
+    // hiding all nodes and saving the label
+    for (let nodeId in allNodes) {
+      allNodes[nodeId].hidden = true;
+      if (allNodes[nodeId].savedLabel === undefined) {
+        allNodes[nodeId].savedLabel = allNodes[nodeId].label;
+        allNodes[nodeId].label = undefined;
+      }
+    }
+
+    for (let i=0; i < selectedNodes.length; i++) {
+      allNodes[selectedNodes[i]].hidden = false;
+      if (allNodes[selectedNodes[i]].savedLabel !== undefined) {
+        allNodes[selectedNodes[i]].label = allNodes[selectedNodes[i]].savedLabel;
+        allNodes[selectedNodes[i]].savedLabel = undefined;
+      }
+    }
+
+  } else if (filterActive === true) {
+    // reset all nodes
+    for (let nodeId in allNodes) {
+      allNodes[nodeId].hidden = false;
+      if (allNodes[nodeId].savedLabel !== undefined) {
+        allNodes[nodeId].label = allNodes[nodeId].savedLabel;
+        allNodes[nodeId].savedLabel = undefined;
+      }
+    }
+    filterActive = false;
+  }
+
+  // transform the object into an array
+  var updateArray = [];
+  if (params.nodes.length > 0) {
+    for (let nodeId in allNodes) {
+      if (allNodes.hasOwnProperty(nodeId)) {
+        updateArray.push(allNodes[nodeId]);
+      }
+    }
+    nodes.update(updateArray);
+  } else {
+    for (let nodeId in allNodes) {
+      if (allNodes.hasOwnProperty(nodeId)) {
+        updateArray.push(allNodes[nodeId]);
+      }
+    }
+    nodes.update(updateArray);
+  }
+}
+
+function selectNode(nodes) {
+  network.selectNodes(nodes);
+  neighbourhoodHighlight({ nodes: nodes });
+  return nodes;
+}
+
+function selectNodes(nodes) {
+  network.selectNodes(nodes);
+  filterHighlight({nodes: nodes});
+  return nodes;
+}
+
+function highlightFilter(filter) {
+  let selectedNodes = []
+  let selectedProp = filter['property']
+  if (filter['item'] === 'node') {
+    let allNodes = nodes.get({ returnType: "Object" });
+    for (let nodeId in allNodes) {
+      if (allNodes[nodeId][selectedProp] && filter['value'].includes((allNodes[nodeId][selectedProp]).toString())) {
+        selectedNodes.push(nodeId)
+      }
+    }
+  }
+  else if (filter['item'] === 'edge'){
+    let allEdges = edges.get({returnType: 'object'});
+    // check if the selected property exists for selected edge and select the nodes connected to the edge
+    for (let edge in allEdges) {
+      if (allEdges[edge][selectedProp] && filter['value'].includes((allEdges[edge][selectedProp]).toString())) {
+        selectedNodes.push(allEdges[edge]['from'])
+        selectedNodes.push(allEdges[edge]['to'])
+      }
+    }
+  }
+  selectNodes(selectedNodes)
+}</script>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/dist/vis-network.min.css" integrity="sha512-WgxfT5LWjfszlPHXRmBWHkV2eceiWTOBvrKCNbdgDYTHrT2AeLCGbF4sZlZw3UMN3WtL0tGUoIAKsu8mllg/XA==" crossorigin="anonymous" referrerpolicy="no-referrer" />
+            <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/vis-network.min.js" integrity="sha512-LnvoEWDFrqGHlHmDD2101OrLcbsfkrzoSpvtSQtxK3RMnRV0eOkhhBN2dXHKRrUU8p2DGRTk35n4O8nWSVe1mQ==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+            
+            
+            
+            
+            
+            
+
+        
+<center>
+<h1></h1>
+</center>
+
+<!-- <link rel="stylesheet" href="../node_modules/vis/dist/vis.min.css" type="text/css" />
+<script type="text/javascript" src="../node_modules/vis/dist/vis.js"> </script>-->
+        <link
+          href="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/css/bootstrap.min.css"
+          rel="stylesheet"
+          integrity="sha384-eOJMYsd53ii+scO/bJGFsiCZc+5NDVN2yr8+0RDqr0Ql0h+rP48ckxlpbzKgwra6"
+          crossorigin="anonymous"
+        />
+        <script
+          src="https://cdn.jsdelivr.net/npm/bootstrap@5.0.0-beta3/dist/js/bootstrap.bundle.min.js"
+          integrity="sha384-JEW9xMcG8R+pH31jmWH6WWP0WintQrMb4s7ZOdauHnUtxwoG2vI5DkLtS3qm9Ekf"
+          crossorigin="anonymous"
+        ></script>
+
+
+        <center>
+          <h1></h1>
+        </center>
+        <style type="text/css">
+
+             #mynetwork {
+                 width: 100%;
+                 height: 900px;
+                 background-color: #1a1a2e;
+                 border: 1px solid lightgray;
+                 position: relative;
+                 float: left;
+             }
+
+             
+
+             
+
+             
+        </style>
+    </head>
+
+
+    <body>
+        <div class="card" style="width: 100%">
+            
+            
+            <div id="mynetwork" class="card-body"></div>
+        </div>
+
+        
+        
+
+        <script type="text/javascript">
+
+              // initialize global variables.
+              var edges;
+              var nodes;
+              var allNodes;
+              var allEdges;
+              var nodeColors;
+              var originalNodes;
+              var network;
+              var container;
+              var options, data;
+              var filter = {
+                  item : '',
+                  property : '',
+                  value : []
+              };
+
+              
+
+              
+
+              // This method is responsible for drawing the graph, returns the drawn network
+              function drawGraph() {
+                  var container = document.getElementById('mynetwork');
+
+                  
+
+                  // parsing and collecting nodes and edges from the python
+                  nodes = new vis.DataSet([{"color": "#4ECDC4", "font": {"color": "white"}, "id": "MOVE", "label": "MOVE", "shape": "dot", "size": 50, "title": "MOVE\nType: token\nMentions: 15"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "EV", "label": "EV", "shape": "dot", "size": 31, "title": "EV\nType: concept\nMentions: 8"}, {"color": "#4ECDC4", "font": {"color": "white"}, "id": "NEAR", "label": "NEAR", "shape": "dot", "size": 28, "title": "NEAR\nType: token\nMentions: 4"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "Meta", "label": "Meta", "shape": "dot", "size": 27, "title": "Meta\nType: concept\nMentions: 6"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "DAO", "label": "DAO", "shape": "dot", "size": 27, "title": "DAO\nType: concept\nMentions: 6"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "DeFi", "label": "DeFi", "shape": "dot", "size": 50, "title": "DeFi\nType: concept\nMentions: 22"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "Expected Value", "label": "Expected Value", "shape": "dot", "size": 25, "title": "Expected Value\nType: concept\nMentions: 5"}, {"color": "#FF6B6B", "font": {"color": "white"}, "id": "Uniswap", "label": "Uniswap", "shape": "dot", "size": 50, "title": "Uniswap\nType: protocol\nMentions: 44"}, {"color": "#4ECDC4", "font": {"color": "white"}, "id": "PEPE", "label": "PEPE", "shape": "dot", "size": 42, "title": "PEPE\nType: token\nMentions: 11"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "MEV", "label": "MEV", "shape": "dot", "size": 19, "title": "MEV\nType: concept\nMentions: 2"}, {"color": "#4ECDC4", "font": {"color": "white"}, "id": "SUI", "label": "SUI", "shape": "dot", "size": 34, "title": "SUI\nType: token\nMentions: 7"}, {"color": "#FF6B6B", "font": {"color": "white"}, "id": "GMX", "label": "GMX", "shape": "dot", "size": 50, "title": "GMX\nType: protocol\nMentions: 42"}, {"color": "#FF6B6B", "font": {"color": "white"}, "id": "DYdX", "label": "DYdX", "shape": "dot", "size": 29, "title": "DYdX\nType: protocol\nMentions: 2"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "DEX", "label": "DEX", "shape": "dot", "size": 21, "title": "DEX\nType: concept\nMentions: 3"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "Order Book", "label": "Order Book", "shape": "dot", "size": 19, "title": "Order Book\nType: concept\nMentions: 2"}, {"color": "#FF6B6B", "font": {"color": "white"}, "id": "Blur", "label": "Blur", "shape": "dot", "size": 33, "title": "Blur\nType: protocol\nMentions: 4"}, {"color": "#4ECDC4", "font": {"color": "white"}, "id": "Chainlink", "label": "Chainlink", "shape": "dot", "size": 50, "title": "Chainlink\nType: token\nMentions: 261"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "Cycle", "label": "Cycle", "shape": "dot", "size": 23, "title": "Cycle\nType: concept\nMentions: 4"}, {"color": "#FF6B6B", "font": {"color": "white"}, "id": "Curve", "label": "Curve", "shape": "dot", "size": 37, "title": "Curve\nType: protocol\nMentions: 6"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "Volatility", "label": "Volatility", "shape": "dot", "size": 45, "title": "Volatility\nType: concept\nMentions: 15"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "Risk Management", "label": "Risk Management", "shape": "dot", "size": 21, "title": "Risk Management\nType: concept\nMentions: 3"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "Drawdown", "label": "Drawdown", "shape": "dot", "size": 23, "title": "Drawdown\nType: concept\nMentions: 4"}, {"color": "#FF6B6B", "font": {"color": "white"}, "id": "Base", "label": "Base", "shape": "dot", "size": 29, "title": "Base\nType: protocol\nMentions: 2"}, {"color": "#4ECDC4", "font": {"color": "white"}, "id": "Bitcoin", "label": "Bitcoin", "shape": "dot", "size": 50, "title": "Bitcoin\nType: token\nMentions: 30"}, {"color": "#4ECDC4", "font": {"color": "white"}, "id": "Circle", "label": "Circle", "shape": "dot", "size": 44, "title": "Circle\nType: token\nMentions: 12"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "Market Making", "label": "Market Making", "shape": "dot", "size": 21, "title": "Market Making\nType: concept\nMentions: 3"}, {"color": "#4ECDC4", "font": {"color": "white"}, "id": "Optimism", "label": "Optimism", "shape": "dot", "size": 42, "title": "Optimism\nType: token\nMentions: 11"}, {"color": "#4ECDC4", "font": {"color": "white"}, "id": "Binance", "label": "Binance", "shape": "dot", "size": 38, "title": "Binance\nType: token\nMentions: 9"}, {"color": "#4ECDC4", "font": {"color": "white"}, "id": "Arbitrum", "label": "Arbitrum", "shape": "dot", "size": 46, "title": "Arbitrum\nType: token\nMentions: 13"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "Game Theory", "label": "Game Theory", "shape": "dot", "size": 19, "title": "Game Theory\nType: concept\nMentions: 2"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "Governance", "label": "Governance", "shape": "dot", "size": 19, "title": "Governance\nType: concept\nMentions: 2"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "Airdrop", "label": "Airdrop", "shape": "dot", "size": 29, "title": "Airdrop\nType: concept\nMentions: 7"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "Liquidation", "label": "Liquidation", "shape": "dot", "size": 19, "title": "Liquidation\nType: concept\nMentions: 2"}, {"color": "#4ECDC4", "font": {"color": "white"}, "id": "Ethereum", "label": "Ethereum", "shape": "dot", "size": 50, "title": "Ethereum\nType: token\nMentions: 21"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "Alpha", "label": "Alpha", "shape": "dot", "size": 23, "title": "Alpha\nType: concept\nMentions: 4"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "Tokenomics", "label": "Tokenomics", "shape": "dot", "size": 19, "title": "Tokenomics\nType: concept\nMentions: 2"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "Arbitrage", "label": "Arbitrage", "shape": "dot", "size": 21, "title": "Arbitrage\nType: concept\nMentions: 3"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "Slippage", "label": "Slippage", "shape": "dot", "size": 23, "title": "Slippage\nType: concept\nMentions: 4"}, {"color": "#45B7D1", "font": {"color": "white"}, "id": "Basis Point", "label": "Basis Point", "shape": "dot", "size": 19, "title": "Basis Point\nType: concept\nMentions: 2"}, {"borderWidth": 3, "color": {"background": "#FFA07A", "border": "#888888", "highlight": {"background": "#FFB88C", "border": "#FFFFFF"}}, "font": {"color": "white"}, "id": "Power Law Distribution", "label": "Power Law Distribution", "shape": "star", "size": 32, "title": "Power Law Distribution  [FRAMEWORK]\nCategory: quantitative\nStatus: dormant\nApplications: 2\nVersions: 2\nFirst seen: 2025-05-12\nLast seen: 2025-08-07"}, {"borderWidth": 3, "color": {"background": "#FFA07A", "border": "#888888", "highlight": {"background": "#FFB88C", "border": "#FFFFFF"}}, "font": {"color": "white"}, "id": "Reflexivity Loop", "label": "Reflexivity Loop", "shape": "star", "size": 30, "title": "Reflexivity Loop  [FRAMEWORK]\nCategory: behavioral\nStatus: dormant\nApplications: 1\nVersions: 1\nFirst seen: 2025-07-07\nLast seen: 2025-07-07"}, {"borderWidth": 3, "color": {"background": "#FFA07A", "border": "#888888", "highlight": {"background": "#FFB88C", "border": "#FFFFFF"}}, "font": {"color": "white"}, "id": "Market Making Game Theory", "label": "Market Making Game Theory", "shape": "star", "size": 30, "title": "Market Making Game Theory  [FRAMEWORK]\nCategory: structural\nStatus: dormant\nApplications: 1\nVersions: 1\nFirst seen: 2025-05-12\nLast seen: 2025-05-12"}]);
+                  edges = new vis.DataSet([{"arrows": "to", "color": "#FF6B6B", "from": "Expected Value", "title": "Expected Value --[predicts]--\u003e Volatility\n(count: 2)", "to": "Volatility", "width": 2.0}, {"arrows": "to", "color": "#666666", "from": "Risk Management", "title": "Risk Management --[mentions]--\u003e EV\n(count: 2)", "to": "EV", "width": 2.0}, {"arrows": "to", "color": "#666666", "from": "Expected Value", "title": "Expected Value --[mentions]--\u003e EV\n(count: 3)", "to": "EV", "width": 2.5}, {"arrows": "to", "color": "#666666", "from": "Circle", "title": "Circle --[mentions]--\u003e Market Making\n(count: 1)", "to": "Market Making", "width": 1.5}, {"arrows": "to", "color": "#FFA07A", "from": "Optimism", "title": "Optimism --[compares]--\u003e MOVE\n(count: 3)", "to": "MOVE", "width": 2.5}, {"arrows": "to", "color": "#666666", "from": "Binance", "title": "Binance --[mentions]--\u003e Volatility\n(count: 1)", "to": "Volatility", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Arbitrum", "title": "Arbitrum --[mentions]--\u003e Game Theory\n(count: 1)", "to": "Game Theory", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Arbitrum", "title": "Arbitrum --[mentions]--\u003e Governance\n(count: 1)", "to": "Governance", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Arbitrum", "title": "Arbitrum --[mentions]--\u003e Meta\n(count: 1)", "to": "Meta", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Game Theory", "title": "Game Theory --[mentions]--\u003e Governance\n(count: 1)", "to": "Governance", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Game Theory", "title": "Game Theory --[mentions]--\u003e Meta\n(count: 1)", "to": "Meta", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Arbitrum", "title": "Arbitrum --[mentions]--\u003e Airdrop\n(count: 2)", "to": "Airdrop", "width": 2.0}, {"arrows": "to", "color": "#666666", "from": "Arbitrum", "title": "Arbitrum --[mentions]--\u003e DAO\n(count: 2)", "to": "DAO", "width": 2.0}, {"arrows": "to", "color": "#666666", "from": "DeFi", "title": "DeFi --[mentions]--\u003e Volatility\n(count: 1)", "to": "Volatility", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "MOVE", "title": "MOVE --[mentions]--\u003e Volatility\n(count: 1)", "to": "Volatility", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Bitcoin", "title": "Bitcoin --[mentions]--\u003e MOVE\n(count: 1)", "to": "MOVE", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Bitcoin", "title": "Bitcoin --[mentions]--\u003e EV\n(count: 1)", "to": "EV", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "EV", "title": "EV --[mentions]--\u003e Volatility\n(count: 1)", "to": "Volatility", "width": 1.5}, {"arrows": "to", "color": "#45B7D1", "from": "Bitcoin", "title": "Bitcoin --[derives_from]--\u003e EV\n(count: 1)", "to": "EV", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Bitcoin", "title": "Bitcoin --[mentions]--\u003e Volatility\n(count: 1)", "to": "Volatility", "width": 1.5}, {"arrows": "to", "color": "#FFA07A", "from": "Bitcoin", "title": "Bitcoin --[compares]--\u003e Volatility\n(count: 1)", "to": "Volatility", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Uniswap", "title": "Uniswap --[mentions]--\u003e DeFi\n(count: 8)", "to": "DeFi", "width": 5.0}, {"arrows": "to", "color": "#666666", "from": "Uniswap", "title": "Uniswap --[mentions]--\u003e Ethereum\n(count: 4)", "to": "Ethereum", "width": 3.0}, {"arrows": "to", "color": "#666666", "from": "Uniswap", "title": "Uniswap --[mentions]--\u003e Circle\n(count: 4)", "to": "Circle", "width": 3.0}, {"arrows": "to", "color": "#666666", "from": "Ethereum", "title": "Ethereum --[mentions]--\u003e Circle\n(count: 8)", "to": "Circle", "width": 5.0}, {"arrows": "to", "color": "#666666", "from": "Ethereum", "title": "Ethereum --[mentions]--\u003e Uniswap\n(count: 6)", "to": "Uniswap", "width": 4.0}, {"arrows": "to", "color": "#666666", "from": "Circle", "title": "Circle --[mentions]--\u003e Uniswap\n(count: 3)", "to": "Uniswap", "width": 2.5}, {"arrows": "to", "color": "#666666", "from": "Uniswap", "title": "Uniswap --[mentions]--\u003e Alpha\n(count: 2)", "to": "Alpha", "width": 2.0}, {"arrows": "to", "color": "#FFA07A", "from": "Uniswap", "title": "Uniswap --[compares]--\u003e DeFi\n(count: 4)", "to": "DeFi", "width": 3.0}, {"arrows": "to", "color": "#45B7D1", "from": "NEAR", "title": "NEAR --[derives_from]--\u003e DeFi\n(count: 1)", "to": "DeFi", "width": 1.5}, {"arrows": "to", "color": "#FF6B6B", "from": "DeFi", "title": "DeFi --[predicts]--\u003e Cycle\n(count: 1)", "to": "Cycle", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Cycle", "title": "Cycle --[mentions]--\u003e DeFi\n(count: 1)", "to": "DeFi", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "PEPE", "title": "PEPE --[mentions]--\u003e Ethereum\n(count: 2)", "to": "Ethereum", "width": 2.0}, {"arrows": "to", "color": "#666666", "from": "Ethereum", "title": "Ethereum --[mentions]--\u003e MEV\n(count: 1)", "to": "MEV", "width": 1.5}, {"arrows": "to", "color": "#FFA07A", "from": "SUI", "title": "SUI --[compares]--\u003e PEPE\n(count: 1)", "to": "PEPE", "width": 1.5}, {"arrows": "to", "color": "#FFA07A", "from": "SUI", "title": "SUI --[compares]--\u003e Tokenomics\n(count: 1)", "to": "Tokenomics", "width": 1.5}, {"arrows": "to", "color": "#FFA07A", "from": "PEPE", "title": "PEPE --[compares]--\u003e Tokenomics\n(count: 1)", "to": "Tokenomics", "width": 1.5}, {"arrows": "to", "color": "#FF6B6B", "from": "Ethereum", "title": "Ethereum --[predicts]--\u003e PEPE\n(count: 1)", "to": "PEPE", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "GMX", "title": "GMX --[mentions]--\u003e DeFi\n(count: 7)", "to": "DeFi", "width": 4.5}, {"arrows": "to", "color": "#666666", "from": "GMX", "title": "GMX --[mentions]--\u003e Meta\n(count: 2)", "to": "Meta", "width": 2.0}, {"arrows": "to", "color": "#666666", "from": "GMX", "title": "GMX --[mentions]--\u003e Arbitrum\n(count: 2)", "to": "Arbitrum", "width": 2.0}, {"arrows": "to", "color": "#666666", "from": "Arbitrum", "title": "Arbitrum --[mentions]--\u003e GMX\n(count: 4)", "to": "GMX", "width": 3.0}, {"arrows": "to", "color": "#FFA07A", "from": "GMX", "title": "GMX --[compares]--\u003e Uniswap\n(count: 2)", "to": "Uniswap", "width": 2.0}, {"arrows": "to", "color": "#FFA07A", "from": "GMX", "title": "GMX --[compares]--\u003e EV\n(count: 1)", "to": "EV", "width": 1.5}, {"arrows": "to", "color": "#FFA07A", "from": "GMX", "title": "GMX --[compares]--\u003e Arbitrage\n(count: 1)", "to": "Arbitrage", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "GMX", "title": "GMX --[mentions]--\u003e Arbitrage\n(count: 2)", "to": "Arbitrage", "width": 2.0}, {"arrows": "to", "color": "#666666", "from": "GMX", "title": "GMX --[mentions]--\u003e Bitcoin\n(count: 1)", "to": "Bitcoin", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "GMX", "title": "GMX --[mentions]--\u003e Ethereum\n(count: 2)", "to": "Ethereum", "width": 2.0}, {"arrows": "to", "color": "#666666", "from": "GMX", "title": "GMX --[mentions]--\u003e DYdX\n(count: 1)", "to": "DYdX", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "GMX", "title": "GMX --[mentions]--\u003e Binance\n(count: 2)", "to": "Binance", "width": 2.0}, {"arrows": "to", "color": "#666666", "from": "Chainlink", "title": "Chainlink --[mentions]--\u003e GMX\n(count: 2)", "to": "GMX", "width": 2.0}, {"arrows": "to", "color": "#FFA07A", "from": "GMX", "title": "GMX --[compares]--\u003e Slippage\n(count: 2)", "to": "Slippage", "width": 2.0}, {"arrows": "to", "color": "#666666", "from": "GMX", "title": "GMX --[mentions]--\u003e Airdrop\n(count: 2)", "to": "Airdrop", "width": 2.0}, {"arrows": "to", "color": "#FF6B6B", "from": "GMX", "title": "GMX --[predicts]--\u003e Slippage\n(count: 1)", "to": "Slippage", "width": 1.5}, {"arrows": "to", "color": "#4ECDC4", "from": "Binance", "title": "Binance --[analyzes]--\u003e GMX\n(count: 2)", "to": "GMX", "width": 2.0}, {"arrows": "to", "color": "#4ECDC4", "from": "Binance", "title": "Binance --[analyzes]--\u003e Ethereum\n(count: 1)", "to": "Ethereum", "width": 1.5}, {"arrows": "to", "color": "#4ECDC4", "from": "GMX", "title": "GMX --[analyzes]--\u003e Ethereum\n(count: 1)", "to": "Ethereum", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "GMX", "title": "GMX --[mentions]--\u003e Slippage\n(count: 1)", "to": "Slippage", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Ethereum", "title": "Ethereum --[mentions]--\u003e Binance\n(count: 1)", "to": "Binance", "width": 1.5}, {"arrows": "to", "color": "#FF6B6B", "from": "Arbitrum", "title": "Arbitrum --[predicts]--\u003e Airdrop\n(count: 1)", "to": "Airdrop", "width": 1.5}, {"arrows": "to", "color": "#4ECDC4", "from": "GMX", "title": "GMX --[analyzes]--\u003e DeFi\n(count: 2)", "to": "DeFi", "width": 2.0}, {"arrows": "to", "color": "#666666", "from": "DeFi", "title": "DeFi --[mentions]--\u003e DAO\n(count: 1)", "to": "DAO", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "DAO", "title": "DAO --[mentions]--\u003e Game Theory\n(count: 1)", "to": "Game Theory", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "DAO", "title": "DAO --[mentions]--\u003e Market Making\n(count: 1)", "to": "Market Making", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "DAO", "title": "DAO --[mentions]--\u003e Governance\n(count: 1)", "to": "Governance", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Optimism", "title": "Optimism --[mentions]--\u003e SUI\n(count: 1)", "to": "SUI", "width": 1.5}, {"arrows": "to", "color": "#FFA07A", "from": "SUI", "title": "SUI --[compares]--\u003e Airdrop\n(count: 1)", "to": "Airdrop", "width": 1.5}, {"arrows": "to", "color": "#FF6B6B", "from": "Optimism", "title": "Optimism --[predicts]--\u003e SUI\n(count: 1)", "to": "SUI", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Bitcoin", "title": "Bitcoin --[mentions]--\u003e Ethereum\n(count: 1)", "to": "Ethereum", "width": 1.5}, {"arrows": "to", "color": "#FF6B6B", "from": "Bitcoin", "title": "Bitcoin --[predicts]--\u003e MOVE\n(count: 1)", "to": "MOVE", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Bitcoin", "title": "Bitcoin --[mentions]--\u003e Meta\n(count: 1)", "to": "Meta", "width": 1.5}, {"arrows": "to", "color": "#FFA07A", "from": "Uniswap", "title": "Uniswap --[compares]--\u003e Ethereum\n(count: 1)", "to": "Ethereum", "width": 1.5}, {"arrows": "to", "color": "#FFA07A", "from": "Uniswap", "title": "Uniswap --[compares]--\u003e Circle\n(count: 1)", "to": "Circle", "width": 1.5}, {"arrows": "to", "color": "#FFA07A", "from": "Uniswap", "title": "Uniswap --[compares]--\u003e Binance\n(count: 1)", "to": "Binance", "width": 1.5}, {"arrows": "to", "color": "#FFA07A", "from": "Ethereum", "title": "Ethereum --[compares]--\u003e Circle\n(count: 1)", "to": "Circle", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Uniswap", "title": "Uniswap --[mentions]--\u003e Basis Point\n(count: 2)", "to": "Basis Point", "width": 2.0}, {"arrows": "to", "color": "#666666", "from": "Uniswap", "title": "Uniswap --[mentions]--\u003e Binance\n(count: 1)", "to": "Binance", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Binance", "title": "Binance --[mentions]--\u003e Uniswap\n(count: 1)", "to": "Uniswap", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Ethereum", "title": "Ethereum --[mentions]--\u003e Liquidation\n(count: 1)", "to": "Liquidation", "width": 1.5}, {"arrows": "to", "color": "#FF6B6B", "from": "Arbitrum", "title": "Arbitrum --[predicts]--\u003e DEX\n(count: 1)", "to": "DEX", "width": 1.5}, {"arrows": "to", "color": "#FF6B6B", "from": "Binance", "title": "Binance --[predicts]--\u003e Ethereum\n(count: 1)", "to": "Ethereum", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Ethereum", "title": "Ethereum --[mentions]--\u003e Arbitrum\n(count: 1)", "to": "Arbitrum", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Ethereum", "title": "Ethereum --[mentions]--\u003e DEX\n(count: 1)", "to": "DEX", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "Arbitrum", "title": "Arbitrum --[mentions]--\u003e DEX\n(count: 1)", "to": "DEX", "width": 1.5}, {"arrows": "to", "color": "#666666", "from": "DEX", "title": "DEX --[mentions]--\u003e MEV\n(count: 1)", "to": "MEV", "width": 1.5}, {"arrows": "to", "color": "#FFA07A", "dashes": false, "from": "Power Law Distribution", "title": "Power Law Distribution --[applies_to]--\u003e Bitcoin", "to": "Bitcoin", "width": 2}, {"arrows": "to", "color": "#FFA07A", "dashes": false, "from": "Power Law Distribution", "title": "Power Law Distribution --[applies_to]--\u003e Ethereum", "to": "Ethereum", "width": 2}, {"arrows": "to", "color": "#FFA07A", "dashes": false, "from": "Power Law Distribution", "title": "Power Law Distribution --[applies_to]--\u003e MEV", "to": "MEV", "width": 2}, {"arrows": "to", "color": "#FFA07A", "dashes": false, "from": "Reflexivity Loop", "title": "Reflexivity Loop --[applies_to]--\u003e Bitcoin", "to": "Bitcoin", "width": 2}, {"arrows": "to", "color": "#FFA07A", "dashes": false, "from": "Market Making Game Theory", "title": "Market Making Game Theory --[applies_to]--\u003e Uniswap", "to": "Uniswap", "width": 2}]);
+
+                  nodeColors = {};
+                  allNodes = nodes.get({ returnType: "Object" });
+                  for (nodeId in allNodes) {
+                    nodeColors[nodeId] = allNodes[nodeId].color;
+                  }
+                  allEdges = edges.get({ returnType: "Object" });
+                  // adding nodes and edges to the graph
+                  data = {nodes: nodes, edges: edges};
+
+                  var options = {
+    "configure": {
+        "enabled": false
+    },
+    "edges": {
+        "color": {
+            "inherit": true
+        },
+        "smooth": {
+            "enabled": true,
+            "type": "dynamic"
+        }
+    },
+    "interaction": {
+        "dragNodes": true,
+        "hideEdgesOnDrag": false,
+        "hideNodesOnDrag": false
+    },
+    "physics": {
+        "barnesHut": {
+            "avoidOverlap": 0,
+            "centralGravity": 0.3,
+            "damping": 0.09,
+            "gravitationalConstant": -8000,
+            "springConstant": 0.01,
+            "springLength": 150
+        },
+        "enabled": true,
+        "stabilization": {
+            "enabled": true,
+            "fit": true,
+            "iterations": 1000,
+            "onlyDynamicEdges": false,
+            "updateInterval": 50
+        }
+    }
+};
+
+                  
+
+
+                  
+
+                  network = new vis.Network(container, data, options);
+
+                  
+
+                  
+
+                  
+
+
+                  
+
+                  return network;
+
+              }
+              drawGraph();
+        </script>
+    
+<div style="position:fixed; top:10px; left:10px; background:rgba(0,0,0,0.85);
+     padding:15px; border-radius:10px; font-family:monospace; z-index:1000;
+     max-width:520px;">
+  <h3 style="color:white; margin:0 0 10px 0;">thiccyth0t Knowledge Graph</h3>
+  <div style="color:#aaa; font-size:12px; line-height:1.7;">
+    <span style="color:#FF6B6B;">●</span> Protocol &nbsp;
+    <span style="color:#4ECDC4;">●</span> Token &nbsp;
+    <span style="color:#45B7D1;">●</span> Concept &nbsp;
+    <span style="color:#96CEB4;">●</span> Person &nbsp;
+    <span style="color:#FFEAA7;">●</span> Company &nbsp;
+    <span style="color:#DDA0DD;">●</span> Metric
+    <br>
+    <span style="color:#FFA07A;">★</span> Framework (gold border = active, grey = dormant)
+  </div>
+  <div style="color:#888; font-size:11px; margin-top:8px; line-height:1.6;">
+    <span style="color:#FFA07A;">━</span> applies_to &nbsp;
+    <span style="color:#FFD700;">╌</span> refined_from &nbsp;
+    <span style="color:#FF4500;">╌</span> shifted_from &nbsp;
+    <span style="color:#FF00FF;">┈</span> converges_with
+  </div>
+  <div style="color:#888; font-size:11px; margin-top:8px;">
+    42 nodes · 90 edges · 3 frameworks · Drag to explore
+  </div>
+</div>
+
+</body>
+</html>

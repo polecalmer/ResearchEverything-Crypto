@@ -1,0 +1,15 @@
+---
+source: twitter
+author: TopherGMI
+date: 2024-05-22
+url: https://x.com/TopherGMI/status/1793363320520761783
+title: "@FSCDems @SECGov See you in November"
+type: tweet
+tweet_count: 1
+likes: 1
+tags: [crypto]
+---
+
+**@TopherGMI** | 2024-05-22 | [link](https://x.com/TopherGMI/status/1793363320520761783)
+
+@FSCDems @SECGov See you in November

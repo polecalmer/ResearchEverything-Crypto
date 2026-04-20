@@ -1,0 +1,87 @@
+{
+  "analyst": "thiccyth0t",
+  "model": "synthetic-test",
+  "extracted_at": "2026-04-17T00:00:00Z",
+  "article_count": 3,
+  "batch_count": 1,
+  "frameworks": [
+    {
+      "name": "Power Law Distribution",
+      "description": "Analyzing concentration patterns where a small % controls a large % of resources",
+      "category": "quantitative",
+      "description_variants": [],
+      "first_seen_date": "2025-05-12",
+      "first_seen_article": "substack_2025-05-12_bitcoins-fundamental-value.md",
+      "last_seen_date": "2025-08-07",
+      "last_seen_article": "substack_2025-08-07_state-of-the-machine.md",
+      "applications": [
+        {
+          "article_id": "substack_2025-05-12_bitcoins-fundamental-value.md",
+          "date": "2025-05-12",
+          "context": "Applied to BTC holder distribution showing small wallets hold majority supply",
+          "entities_involved": ["Bitcoin"],
+          "relationships": ["analyzes"],
+          "scope": "narrow",
+          "confidence": 0.85
+        },
+        {
+          "article_id": "substack_2025-08-07_state-of-the-machine.md",
+          "date": "2025-08-07",
+          "context": "Extended power law to validator set concentration and MEV extraction dynamics",
+          "entities_involved": ["Ethereum", "MEV"],
+          "relationships": ["analyzes", "applies_to"],
+          "scope": "broad",
+          "confidence": 0.9
+        }
+      ],
+      "total_applications": 2,
+      "confidence": 0.875
+    },
+    {
+      "name": "Reflexivity Loop",
+      "description": "Feedback loop where price drives narrative which drives capital which drives price",
+      "category": "behavioral",
+      "description_variants": [],
+      "first_seen_date": "2025-07-07",
+      "first_seen_article": "substack_2025-07-07_vibe-trading.md",
+      "last_seen_date": "2025-07-07",
+      "last_seen_article": "substack_2025-07-07_vibe-trading.md",
+      "applications": [
+        {
+          "article_id": "substack_2025-07-07_vibe-trading.md",
+          "date": "2025-07-07",
+          "context": "Price momentum generates narrative which attracts capital, reinforcing the pump",
+          "entities_involved": ["Bitcoin"],
+          "relationships": ["analyzes"],
+          "scope": "narrow",
+          "confidence": 0.8
+        }
+      ],
+      "total_applications": 1,
+      "confidence": 0.8
+    },
+    {
+      "name": "Market Making Game Theory",
+      "description": "Adversarial game between MMs and takers around adverse selection",
+      "category": "structural",
+      "description_variants": [],
+      "first_seen_date": "2025-05-12",
+      "first_seen_article": "substack_2025-05-12_the-market-making-game.md",
+      "last_seen_date": "2025-05-12",
+      "last_seen_article": "substack_2025-05-12_the-market-making-game.md",
+      "applications": [
+        {
+          "article_id": "substack_2025-05-12_the-market-making-game.md",
+          "date": "2025-05-12",
+          "context": "Adverse selection cost as central problem in AMM LP design",
+          "entities_involved": ["Uniswap", "AMM"],
+          "relationships": ["analyzes"],
+          "scope": "narrow",
+          "confidence": 0.9
+        }
+      ],
+      "total_applications": 1,
+      "confidence": 0.9
+    }
+  ]
+}

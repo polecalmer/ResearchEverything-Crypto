@@ -1,0 +1,25 @@
+---
+source: arca-blog
+author: Arca Research Team
+date: 2020-01-27
+url: https://www.ar.ca/blog/crypto-market-recap-01-27-20
+title: "“That’s Our Two Satoshis” — Crypto Activism, Distressed & Value-investing Digital Assets"
+type: article
+topher_mentioned: false
+---
+
+# “That’s Our Two Satoshis” — Crypto Activism, Distressed & Value-investing Digital Assets
+
+**Arca Research Team** | Jan 27, 2020
+
+Digital Assets are Going to Be Tested by a Lot of 2020 Events Digital assets chopped around for most of the week on declining volumes due to the start of Chinese New Year, but ultimately gained 1-2% following a weekend surge. These gains may have been due to rising fears over the spreading Coronavirus, or it may have been due to reports that 3 rockets made a direct hit on the U.S. embassy in Baghdad (to which sources say the U.S. will respond with military measures). Or it could just be normal volatility. One thing is starting to become very clear though -- Bitcoin and the rest of the digital assets industry is going to be tested frequently this year.
+
+Digital Asset Investing Has More Depth Than You Might Think Digital asset investing goes deeper than most people know. Bitcoin is one component of digital assets. It’s the most important component, and the only digital asset truly on the world’s stage competing as a “currency”, but it is still just a single component. The rest of the digital asset space is in its infancy, but has a lot of nuances and depth. The complexity of this non-Bitcoin part of the market is creating fascinating investing opportunities.
+
+And That’s Our Two Satoshis! Thanks for reading everyone! Questions or comments, just let us know.
+
+Statements in this communication may include forward-looking information and/or may be based on various assumptions. The forward-looking statements and other views or opinions expressed are those of the author, and are made as of the date of this publication. Actual future results or occurrences may differ significantly from those anticipated and there is no guarantee that any particular outcome will come to pass. The statements made herein are subject to change at any time. Arca disclaims any obligation to update or revise any statements or views expressed herein. Past performance is not a guarantee of future results and there can be no assurance that any future results will be realized. Some or all of the information provided herein may be or be based on statements of opinion. In addition, certain information provided herein may be based on third-party sources, which is believed to be accurate, but has not been independently verified. Arca and/or certain of its affiliates and/or clients may now, or in the future, hold a financial interest in investments that are the same as or substantially similar to the investments discussed in this commentary. No claims are made as to the profitability of such financial interests, now, in the past or in the future and Arca and/or its clients may sell such financial interests at any time. The information provided herein is not intended to be, nor should it be construed as an offer to sell or a solicitation of any offer to buy any securities, or a solicitation to provide investment advisory services.
+
+Market Recap The List of “Investable” Tokens Is Very Short Apr 6, 2026 | 1 min read Market Recap What Could Go Right? Mar 31, 2026 | 1 min read Market Recap The SEC / CFTC “Frenemy” Relationship Mar 23, 2026 | 1 min read Arca Los Angeles I New York (424) 400-7444 info@ar.ca
+
+Copyright © 2025 Arca Holdings. All Rights Reserved. | Important Disclosures

@@ -1,0 +1,17 @@
+---
+source: arca-blog
+author: Arca Research Team
+date: 2023-10-05
+url: https://www.ar.ca/blog/wdtp-october-10-04-23
+title: "What's Driving Token Prices? October 4, 2023"
+type: article
+topher_mentioned: false
+---
+
+# What's Driving Token Prices? October 4, 2023
+
+**Arca Research Team** | 2023-10-05
+
+Join Katie Talati, Arca’s Head of Research, weekly on Wednesday at 4PM EST / 1PM PST as she shares notable token activity over the past week and her insights on what market events drove these token price movements. Watch Our Founders Video - STRD (-3.7%) - Stride, the liquid staking protocol of the Cosmos ecosystem, put forward a proposal earlier today to merge its project with Cosmos, swapping its STRD token for ATOM tokens. The proposal outlines decentralization as its reasoning for this, as the STRD token which currently serves as a governance token would be replaced by the ATOM token for governing the Stride chain. Details around the price of the buyout and the where the ATOM tokens would come from to perform the swap are unknown and initial feedback on the proposal from the Stride community has not been negative. This is still a developing proposal and could present an interesting M&A event in the near future. - ETH (+3.6%) - Last Thursday, the SEC approved the first Ethereum Futures ETF from Valkyrie Investments, along with a slew of additional ETFs from Van Eck, Proshares, and Bitwise. The ETFs all went live on Monday. Interestingly, VanEck announced it would donate 10% of the proceeds of its ETF to Protocol Guild, a collective of Ethereum core contributors, in order to support continued development on Ethereum. Ethereum initially rallied about 5% on the news of approval but has since retraced and is up 3.6% on the week. - GMX (+8.2%) - Last week, we discussed that the activity around Layer-2 protocol, Arbitrum, was heating up with their newest round of ARB grants and are currently accepting proposals from projects in the community. Already, the program has seen requests for a total of 150M ARB tokens but only 50M tokens have been allocated for this round. Notably, decentralized derivatives project, GMX, submitted a proposal for 13M tokens, just under 25% of the available total. GMX has struggled recently following its v2 upgrade and continues to lose its market share lead that it established late last year and early this year. If approved, this ARB grant (which would be used for trading incentives) could help increase volumes on GMX. GMX currently accounts for less than 10% of overall decentralized derivatives volume, down from its high of over 30% back in November 2022. - RLB (+41%) - Rollbit, a blockchain-based casino, announced yesterday that it has moved its token buy-and-burn on-chain, giving market participants much more certainty around its revenues and burns. Rollbit launched in 2020 but gained prominence at the beginning of 2023 by signing numerous Twitter personalities as partners. The project offers leveraged crypto trading with up to 1000x leverage, slots, Black Jack and other card games, along with sports betting. Anywhere from 10-30% or revenue (depending on the business line) flows to buying and burning the RLB token. As of today, the buybacks are now verifiable on-chain in a bid to promote transparency.
+
+DISCLAIMER: This commentary is provided as general information only and is in no way intended as investment advice, investment research, legal advice, tax advice, a research report, or a recommendation.

@@ -1,0 +1,735 @@
+{
+  "analyst": "defi_monk",
+  "generated_at": "2026-04-18T10:46:05.111Z",
+  "embed_model": "voyage-3-lite",
+  "thresholds": {
+    "refinement": 0.85,
+    "shift": 0.6,
+    "dormancy_days": 183
+  },
+  "frameworks": [
+    {
+      "id": "top-down-revenue-multiple-valuation",
+      "name": "Top Down Revenue Multiple Valuation",
+      "description": "Analytical framework applied across: AERO, Aerodrome, Base, HYPE, Hyperliquid",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Top Down Revenue Multiple Valuation framework with 13 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "AERO",
+            "Aerodrome",
+            "Base",
+            "HYPE",
+            "Hyperliquid",
+            "PUMP",
+            "Polymarket",
+            "Pump.fun"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 13,
+      "entities_connected": [
+        "AERO",
+        "Aerodrome",
+        "Base",
+        "HYPE",
+        "Hyperliquid",
+        "PUMP",
+        "Polymarket",
+        "Pump.fun",
+        "Solana",
+        "fw::AustinBarack::relative-revenue-multiple-valuation",
+        "fw::defi_monk::top-down-revenue-multiple-valuation"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "catalyst-stack-next-leg-up",
+      "name": "Catalyst Stack Next Leg Up",
+      "description": "Analytical framework applied across: Base, Coinbase, HYPE, Hyperliquid, Magic Eden",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Catalyst Stack Next Leg Up framework with 10 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Base",
+            "Coinbase",
+            "HYPE",
+            "Hyperliquid",
+            "Magic Eden",
+            "Ordinals",
+            "Runes",
+            "Solana"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 10,
+      "entities_connected": [
+        "Base",
+        "Coinbase",
+        "HYPE",
+        "Hyperliquid",
+        "Magic Eden",
+        "Ordinals",
+        "Runes",
+        "Solana",
+        "fw::defi_monk::catalyst-stack-next-leg-up"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "real-yield-100-revenue-to-community",
+      "name": "Real Yield 100 Revenue To Community",
+      "description": "Analytical framework applied across: AERO, Aerodrome, HYPE, Hyperliquid, PUMP",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Real Yield 100 Revenue To Community framework with 8 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "AERO",
+            "Aerodrome",
+            "HYPE",
+            "Hyperliquid",
+            "PUMP",
+            "Pump.fun",
+            "fw::RyanWatkins_::protocol-revenue-and-fee-analysis",
+            "fw::defi_monk::real-yield-100-revenue-to-community"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 8,
+      "entities_connected": [
+        "AERO",
+        "Aerodrome",
+        "HYPE",
+        "Hyperliquid",
+        "PUMP",
+        "Pump.fun",
+        "fw::RyanWatkins_::protocol-revenue-and-fee-analysis",
+        "fw::defi_monk::real-yield-100-revenue-to-community"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "vertical-integration-compounding",
+      "name": "Vertical Integration Compounding",
+      "description": "Analytical framework applied across: Aerodrome, Base, Coinbase, HyperEVM, Hyperliquid",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Vertical Integration Compounding framework with 7 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Aerodrome",
+            "Base",
+            "Coinbase",
+            "HyperEVM",
+            "Hyperliquid",
+            "Kinetiq",
+            "fw::defi_monk::vertical-integration-compounding"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 7,
+      "entities_connected": [
+        "Aerodrome",
+        "Base",
+        "Coinbase",
+        "HyperEVM",
+        "Hyperliquid",
+        "Kinetiq",
+        "fw::defi_monk::vertical-integration-compounding"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "reflexive-revenue-dependency",
+      "name": "Reflexive Revenue Dependency",
+      "description": "Analytical framework applied across: Ethereum, Jito, Jupiter, Pump.fun, Raydium",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Reflexive Revenue Dependency framework with 7 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Ethereum",
+            "Jito",
+            "Jupiter",
+            "Pump.fun",
+            "Raydium",
+            "Solana",
+            "fw::defi_monk::reflexive-revenue-dependency"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 7,
+      "entities_connected": [
+        "Ethereum",
+        "Jito",
+        "Jupiter",
+        "Pump.fun",
+        "Raydium",
+        "Solana",
+        "fw::defi_monk::reflexive-revenue-dependency"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "latency-as-moat-performance-frontier",
+      "name": "Latency As Moat Performance Frontier",
+      "description": "Analytical framework applied across: Binance, Bullet, GTE, Hyperliquid, Lighter",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Latency As Moat Performance Frontier framework with 7 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Binance",
+            "Bullet",
+            "GTE",
+            "Hyperliquid",
+            "Lighter",
+            "MegaETH",
+            "Solana"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 7,
+      "entities_connected": [
+        "Binance",
+        "Bullet",
+        "GTE",
+        "Hyperliquid",
+        "Lighter",
+        "MegaETH",
+        "Solana"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "historical-fractal-narrative-rhyme",
+      "name": "Historical Fractal Narrative Rhyme",
+      "description": "Analytical framework applied across: AI tokens, CLOBs, Polymarket, TAO, Tradexyz",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Historical Fractal Narrative Rhyme framework with 6 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "AI tokens",
+            "CLOBs",
+            "Polymarket",
+            "TAO",
+            "Tradexyz",
+            "fw::defi_monk::historical-fractal-narrative-rhyme"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 6,
+      "entities_connected": [
+        "AI tokens",
+        "CLOBs",
+        "Polymarket",
+        "TAO",
+        "Tradexyz",
+        "fw::defi_monk::historical-fractal-narrative-rhyme"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "l1-premium-over-defi-app",
+      "name": "L1 Premium Over Defi App",
+      "description": "Analytical framework applied across: Aptos, HyperEVM, Hyperliquid, Injective, Sei",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "L1 Premium Over Defi App framework with 6 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Aptos",
+            "HyperEVM",
+            "Hyperliquid",
+            "Injective",
+            "Sei",
+            "Sui"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 6,
+      "entities_connected": [
+        "Aptos",
+        "HyperEVM",
+        "Hyperliquid",
+        "Injective",
+        "Sei",
+        "Sui"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "right-to-dream-premium",
+      "name": "Right To Dream Premium",
+      "description": "Analytical framework applied across: AI tokens, DeFi, L1s, Ordinals, Runes",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Right To Dream Premium framework with 6 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "AI tokens",
+            "DeFi",
+            "L1s",
+            "Ordinals",
+            "Runes",
+            "fw::defi_monk::right-to-dream-premium"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 6,
+      "entities_connected": [
+        "AI tokens",
+        "DeFi",
+        "L1s",
+        "Ordinals",
+        "Runes",
+        "fw::defi_monk::right-to-dream-premium"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "emissions-vs-earnings-growth",
+      "name": "Emissions Vs Earnings Growth",
+      "description": "Analytical framework applied across: AERO, Aerodrome, Bitcoin, Ethereum, fw::defi_monk::emissions-vs-earnings-growth",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Emissions Vs Earnings Growth framework with 6 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "AERO",
+            "Aerodrome",
+            "Bitcoin",
+            "Ethereum",
+            "fw::defi_monk::emissions-vs-earnings-growth",
+            "ve(3,3)"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 6,
+      "entities_connected": [
+        "AERO",
+        "Aerodrome",
+        "Bitcoin",
+        "Ethereum",
+        "fw::defi_monk::emissions-vs-earnings-growth",
+        "ve(3,3)"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "brand-equity-community-as-moat",
+      "name": "Brand Equity Community As Moat",
+      "description": "Analytical framework applied across: CLOBs, Hyperliquid, HypurrNFT, MegaETH, fw::defi_monk::brand-equity-community-as-moat",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Brand Equity Community As Moat framework with 5 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "CLOBs",
+            "Hyperliquid",
+            "HypurrNFT",
+            "MegaETH",
+            "fw::defi_monk::brand-equity-community-as-moat"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 5,
+      "entities_connected": [
+        "CLOBs",
+        "Hyperliquid",
+        "HypurrNFT",
+        "MegaETH",
+        "fw::defi_monk::brand-equity-community-as-moat"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "tier-rotation-middle-class-re-rating",
+      "name": "Tier Rotation Middle Class Re Rating",
+      "description": "Analytical framework applied across: DOGE, PEPE, POPCAT, SHIB, WIF",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Tier Rotation Middle Class Re Rating framework with 5 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "DOGE",
+            "PEPE",
+            "POPCAT",
+            "SHIB",
+            "WIF"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 5,
+      "entities_connected": [
+        "DOGE",
+        "PEPE",
+        "POPCAT",
+        "SHIB",
+        "WIF"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "structural-moat-via-trading-pair-composition",
+      "name": "Structural Moat Via Trading Pair Composition",
+      "description": "Analytical framework applied across: Aerodrome, Base, Raydium, Solana, fw::defi_monk::structural-moat-via-trading-pair-composition",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Structural Moat Via Trading Pair Composition framework with 5 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "Aerodrome",
+            "Base",
+            "Raydium",
+            "Solana",
+            "fw::defi_monk::structural-moat-via-trading-pair-composition"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 5,
+      "entities_connected": [
+        "Aerodrome",
+        "Base",
+        "Raydium",
+        "Solana",
+        "fw::defi_monk::structural-moat-via-trading-pair-composition"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "value-accrual-gatekeeping-insider-vs-holder-split",
+      "name": "Value Accrual Gatekeeping Insider Vs Holder Split",
+      "description": "Analytical framework applied across: PUMP, Pump.fun, UNI, Uniswap",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Value Accrual Gatekeeping Insider Vs Holder Split framework with 4 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "PUMP",
+            "Pump.fun",
+            "UNI",
+            "Uniswap"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 4,
+      "entities_connected": [
+        "PUMP",
+        "Pump.fun",
+        "UNI",
+        "Uniswap"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "top-down-tam-share-capture",
+      "name": "Top Down Tam Share Capture",
+      "description": "Analytical framework applied across: AI tokens, Hyperliquid, TON, WBTC",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Top Down Tam Share Capture framework with 4 entity connections",
+          "scope": "broad",
+          "source_article": "",
+          "entities_involved": [
+            "AI tokens",
+            "Hyperliquid",
+            "TON",
+            "WBTC"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 4,
+      "entities_connected": [
+        "AI tokens",
+        "Hyperliquid",
+        "TON",
+        "WBTC"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "winner-take-most-market-dynamics",
+      "name": "Winner Take Most Market Dynamics",
+      "description": "Analytical framework applied across: CLOB DEXs, Hyperliquid, fw::defi_monk::winner-take-most-market-dynamics",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Winner Take Most Market Dynamics framework with 4 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "CLOB DEXs",
+            "Hyperliquid",
+            "fw::defi_monk::winner-take-most-market-dynamics"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 4,
+      "entities_connected": [
+        "CLOB DEXs",
+        "Hyperliquid",
+        "fw::defi_monk::winner-take-most-market-dynamics"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "incumbent-incompatibility-thesis",
+      "name": "Incumbent Incompatibility Thesis",
+      "description": "Analytical framework applied across: Crypto DEXs, Equity brokers, Hyperliquid",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Incumbent Incompatibility Thesis framework with 3 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "Crypto DEXs",
+            "Equity brokers",
+            "Hyperliquid"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 3,
+      "entities_connected": [
+        "Crypto DEXs",
+        "Equity brokers",
+        "Hyperliquid"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "autonomous-buyback-assistance-fund-flywheel",
+      "name": "Autonomous Buyback Assistance Fund Flywheel",
+      "description": "Analytical framework applied across: Assistance Fund, HYPE, Hyperliquid",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Autonomous Buyback Assistance Fund Flywheel framework with 3 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "Assistance Fund",
+            "HYPE",
+            "Hyperliquid"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 3,
+      "entities_connected": [
+        "Assistance Fund",
+        "HYPE",
+        "Hyperliquid"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "sum-of-the-parts-valuation",
+      "name": "Sum Of The Parts Valuation",
+      "description": "Analytical framework applied across: HYPE, HyperEVM, Hyperliquid",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Sum Of The Parts Valuation framework with 3 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "HYPE",
+            "HyperEVM",
+            "Hyperliquid"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 3,
+      "entities_connected": [
+        "HYPE",
+        "HyperEVM",
+        "Hyperliquid"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    },
+    {
+      "id": "time-based-capitulation",
+      "name": "Time Based Capitulation",
+      "description": "Analytical framework applied across: HYPE, Hyperliquid",
+      "category": "qualitative",
+      "versions": [
+        {
+          "version": 1,
+          "date": "2026-04-18",
+          "description": "Time Based Capitulation framework with 2 entity connections",
+          "scope": "narrow",
+          "source_article": "",
+          "entities_involved": [
+            "HYPE",
+            "Hyperliquid"
+          ],
+          "confidence": 0.75
+        }
+      ],
+      "total_applications": 2,
+      "entities_connected": [
+        "HYPE",
+        "Hyperliquid"
+      ],
+      "status": "active",
+      "first_seen": "",
+      "last_seen": "2026-04-18",
+      "confidence": 0.75
+    }
+  ],
+  "stats": {
+    "total_frameworks": 20,
+    "active": 20,
+    "dormant": 0,
+    "refinements_detected": 0,
+    "shifts_detected": 0
+  }
+}

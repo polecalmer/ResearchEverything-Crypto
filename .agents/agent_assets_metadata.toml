@@ -1,0 +1,37 @@
+uploads = []
+
+[[generated]]
+id = "k1xsHGy7XjNDoM4vYmwXO"
+uri = "file://attached_assets/generated_images/sessions_logo_1.png"
+type = "image"
+title = "sessions logo brain network"
+
+[[generated]]
+id = "Az7OUg1gHpED6oK-AEhVo"
+uri = "file://attached_assets/generated_images/sessions_logo_2.png"
+type = "image"
+title = "sessions logo minimal abstract"
+
+[[generated]]
+id = "G1IehLZCo7ut1LD5oOnJU"
+uri = "file://attached_assets/generated_images/sessions_logo_3.png"
+type = "image"
+title = "sessions logo S neural"
+
+[[generated]]
+id = "F3Gry_7trbd7mnXIkoIh1"
+uri = "file://attached_assets/generated_images/sessions_logo_4.png"
+type = "image"
+title = "sessions logo layered knowledge"
+
+[[outputs]]
+id = "2h-DqYWz13H_NSl3qyQdm"
+uri = "file://.local/self-learning-system-note.md"
+type = "text"
+title = "Self-Learning Query System — Architecture Note"
+
+[[outputs]]
+id = "36OyaIYLHnPfsNFFf7f-I"
+uri = "file://.local/repo-brief.md"
+type = "text"
+title = "Sessions.xyz — Contextual Repository Brief"

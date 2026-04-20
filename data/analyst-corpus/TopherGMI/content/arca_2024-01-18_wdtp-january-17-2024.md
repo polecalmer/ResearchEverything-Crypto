@@ -1,0 +1,17 @@
+---
+source: arca-blog
+author: Arca Research Team
+date: 2024-01-18
+url: https://www.ar.ca/blog/wdtp-january-17-2024
+title: "What's Driving Token Prices? January 17, 2024"
+type: article
+topher_mentioned: false
+---
+
+# What's Driving Token Prices? January 17, 2024
+
+**Arca Research Team** | 2024-01-18
+
+Join Katie Talati, Arca’s Head of Research, weekly on Wednesday at 4PM EST / 1PM PST as she shares notable token activity over the past week and her insights on what market events drove these token price movements. Watch Our Founders Video - ARB (-1.8%) - Arbitrum, a Layer-2, voted to create a long-term incentives program via a snapshot vote which would give out 25-45M tokens (about $51M to $92M at current prices) as incentives for long term building on Arbitrum. The vote comes after an incredibly successful incentives program ( Short Term Incentives Program or the STIP), which led to significant rallies for smaller tokens that received a large balance of ARB compared to their market caps. While the proposal passed, it will likely take a few months before we see the distribution of grants since there is a multi-week path for projects to apply and be accepted before the grants will be released. - AAVE (-1.7%) - A forum discussion within Aave, a decentralized lending protocol, is garnering some eyeballs as it deals with the potential launch of Aave’s lending marketplace on the Neon EVM. Neon is a middleware provider that allows Ethereum-based apps to work on Solana, since Solana and Ethereum use different coding languages. Deploying the Aave marketplace on Neon would essentially bring Aave to the Solana ecosystem, keeping the project relevant during a time when users are flocking to Solana en masse. The forum post suggests that Aave should launch on Neon with only 3 lending assets (SOL, mSOL, jitoSOL 1) and one borrowable asset (USDC). Although the initial post seemed fairly straightforward, community members from Aave and Neon debated many of the potential technical issues with the migration including oracle feeds/availability and bridging assets safely which could prolong this proposal progressing. - XRP (-0.1%) - Payments provider, Ripple, announced last week that it would initiate a $285M share buyback program valuing the equity of the company at $11B. The purchase will buy out early investors, however, investors are not allowed to sell more than 6% of their holdings. Brad Garlinghouse, CEO of Ripple, stated that the company plans to do more buybacks in the future and has no intention of going public with the current regulatory climate. - LINK (+11%) - Chainlink, a decentralized oracle network, announced yesterday that it has integrated with Circle to make USDC more interoperable. Chainlink operates CCIP (cross-chain interoperability protocol) which facilitates communication between blockchains and Circle recently launched CCTP (cross-chain transfer protocol) which allows for native USDC to exist cross-chain without the need for mint/redeem via bridges. The partnership will serve any project that wishes to build a cross-chain application that integrates USDC. With the ever increasing number of L1 and L2 blockchains, interoperability solutions such Chainlink’s and Circle’s are crucial.
+
+DISCLAIMER: This commentary is provided as general information only and is in no way intended as investment advice, investment research, legal advice, tax advice, a research report, or a recommendation.
