@@ -1450,36 +1450,43 @@ async function runChartPipeline(
       const adjMcapScale = circulatingSupply > 0 ? circulatingSupply * 0.85 : mcapScale * 0.85;
       console.log(`[ChartPipeline] MCAP=$${(mcap/1e6).toFixed(1)}M, FDV=$${(fdv/1e6).toFixed(1)}M, price=$${currentPrice}`);
 
-      const monthlyRevSum = new Map<string, number>();
-      const monthlyRevDays = new Map<string, number>();
+      const revByDate = new Map<string, number>();
       for (const d of dailyRevenue) {
-        const mk = new Date(d.date * 1000).toISOString().substring(0, 7);
-        monthlyRevSum.set(mk, (monthlyRevSum.get(mk) || 0) + d.revenue);
-        monthlyRevDays.set(mk, (monthlyRevDays.get(mk) || 0) + 1);
+        const dk = new Date(d.date * 1000).toISOString().substring(0, 10);
+        revByDate.set(dk, (revByDate.get(dk) || 0) + d.revenue);
       }
-      const monthlyPrice = new Map<string, { sum: number; count: number }>();
+      const priceByDate = new Map<string, number>();
       for (const p of priceData.prices) {
-        const mk = new Date(p.date * 1000).toISOString().substring(0, 7);
-        const entry = monthlyPrice.get(mk) || { sum: 0, count: 0 };
-        entry.sum += p.price;
-        entry.count++;
-        monthlyPrice.set(mk, entry);
+        const dk = new Date(p.date * 1000).toISOString().substring(0, 10);
+        priceByDate.set(dk, p.price);
       }
 
+      const sortedRevDates = [...revByDate.keys()].sort();
+      const TRAILING_DAYS = 30;
+      const cutoffDate = new Date();
+      cutoffDate.setFullYear(cutoffDate.getFullYear() - 1);
+      const cutoffStr = cutoffDate.toISOString().substring(0, 10);
+
       const chartData: any[] = [];
-      for (const month of [...monthlyRevSum.keys()].sort()) {
-        const revSum = monthlyRevSum.get(month) || 0;
-        const revDays = monthlyRevDays.get(month) || 1;
-        const priceEntry = monthlyPrice.get(month);
-        if (!priceEntry || revSum <= 0) continue;
-        const avgPrice = priceEntry.sum / priceEntry.count;
-        const annualizedRev = (revSum / revDays) * 365;
-        const mcapVal = avgPrice * mcapScale;
+      for (let i = TRAILING_DAYS - 1; i < sortedRevDates.length; i++) {
+        const dateStr = sortedRevDates[i];
+        if (dateStr < cutoffStr) continue;
+        const price = priceByDate.get(dateStr);
+        if (!price) continue;
+        let trailingRevSum = 0;
+        let trailingDays = 0;
+        for (let j = i - TRAILING_DAYS + 1; j <= i; j++) {
+          const rev = revByDate.get(sortedRevDates[j]);
+          if (rev && rev > 0) { trailingRevSum += rev; trailingDays++; }
+        }
+        if (trailingDays < 7 || trailingRevSum <= 0) continue;
+        const annualizedRev = (trailingRevSum / trailingDays) * 365;
+        const mcapVal = price * mcapScale;
         const mcapPe = mcapVal / annualizedRev;
         if (mcapPe <= 0 || mcapPe >= 100000) continue;
-        const row: any = { date: `${month}-15`, mcap_pe: Number(mcapPe.toFixed(2)) };
-        if (fdv > 0) row.fdv_pe = Number(((avgPrice * fdvScale) / annualizedRev).toFixed(2));
-        row.adj_mcap_pe = Number(((avgPrice * adjMcapScale) / annualizedRev).toFixed(2));
+        const row: any = { date: dateStr, mcap_pe: Number(mcapPe.toFixed(2)) };
+        if (fdv > 0) row.fdv_pe = Number(((price * fdvScale) / annualizedRev).toFixed(2));
+        row.adj_mcap_pe = Number(((price * adjMcapScale) / annualizedRev).toFixed(2));
         chartData.push(row);
       }
 
@@ -1492,15 +1499,16 @@ async function runChartPipeline(
       if (chartData[0].adj_mcap_pe !== undefined) yAxes.push({ dataKey: "adj_mcap_pe", label: "Adj MCAP P/E" });
 
       const latest = chartData[chartData.length - 1];
-      const prior = chartData.length >= 4 ? chartData[chartData.length - 4] : chartData[0];
+      const priorIdx = Math.max(0, chartData.length - 91);
+      const prior = chartData[priorIdx];
       const peTrend = latest.mcap_pe < prior.mcap_pe ? "declining" : latest.mcap_pe > prior.mcap_pe ? "rising" : "flat";
 
       const summaryParts = [
         `**${extracted.ticker || extracted.protocol}** currently trades at a **${latest.mcap_pe.toFixed(1)}x** MCAP-based P/E ratio (annualized revenue basis).`,
       ];
       if (latest.fdv_pe) summaryParts.push(`FDV P/E sits at **${latest.fdv_pe.toFixed(1)}x** and Adj MCAP P/E at **${latest.adj_mcap_pe.toFixed(1)}x**.`);
-      summaryParts.push(`The ratio has been ${peTrend} over the past ${Math.min(chartData.length, 3)} months, from ${prior.mcap_pe.toFixed(1)}x to ${latest.mcap_pe.toFixed(1)}x.`);
-      summaryParts.push(`*Data: DeFiLlama (revenue) + CoinGecko (price/mcap). ${chartData.length} monthly observations.*`);
+      summaryParts.push(`The ratio has been ${peTrend} over the past 3 months, from ${prior.mcap_pe.toFixed(1)}x to ${latest.mcap_pe.toFixed(1)}x.`);
+      summaryParts.push(`*Data: DeFiLlama (revenue) + CoinGecko (price/mcap). ${chartData.length} daily observations.*`);
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(`[ChartPipeline] P/E chart complete in ${elapsed}s — ${chartData.length} data points, no agent loop used`);
