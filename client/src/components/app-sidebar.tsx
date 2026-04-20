@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { LayoutDashboard, Building2, Chrome, LogOut, User, Wallet, Activity, FlaskConical, Brain, Network } from "lucide-react";
+import { LayoutDashboard, Building2, Chrome, BarChart3, LogOut, User, Wallet, Activity, FlaskConical, Brain, Network } from "lucide-react";
 import { SessionsMark } from "@/components/sessions-mark";
 import {
   Sidebar,
@@ -25,6 +25,7 @@ const navItems = [
   { title: "Brain", url: "/brain", icon: Brain },
   { title: "Wallet", url: "/wallet", icon: Wallet },
   { title: "Extension", url: "/extension", icon: Chrome },
+  { title: "Data", url: "/data", icon: BarChart3 },
 ];
 
 const ADMIN_EMAILS = ["allmysubscriptions10@proton.me"];
