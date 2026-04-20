@@ -1,4 +1,4 @@
-import { callAnthropicRaw, type AnthropicRawResponse } from "./mpp-client";
+import { callAnthropicRaw, callAnthropicRawStreaming, type AnthropicRawResponse } from "./mpp-client";
 import { executeDuneSQL, isDuneConfigured } from "./dune-client";
 import { discoverTablesForProtocol } from "./dune-mcp-client";
 import { fetchTokenSnapshot } from "./allium-client";
@@ -1927,14 +1927,14 @@ export async function runSessionResearchAgent(
 
     let response: AnthropicRawResponse;
     try {
-      response = await callAnthropicRaw(requestBody);
+      response = await callAnthropicRawStreaming(requestBody);
     } catch (apiErr: any) {
       console.error(`[SessionResearch] API call failed at round ${round + 1}: ${apiErr.message}`);
       if (round === 0 && !apiErr.message.includes("InsufficientBalance") && !apiErr.message.includes("shutting down")) {
         console.log(`[SessionResearch] First-round failure — retrying once after 3s...`);
         await new Promise(r => setTimeout(r, 3000));
         try {
-          response = await callAnthropicRaw(requestBody);
+          response = await callAnthropicRawStreaming(requestBody);
         } catch (retryErr: any) {
           console.error(`[SessionResearch] Retry also failed: ${retryErr.message}`);
           loopError = retryErr.message;
@@ -2168,7 +2168,7 @@ ${perspectives.join("\n\n")}`;
     console.log(`[SessionResearch] No final text — ${wrapReason} — forcing wrap-up call without tools`);
     onStep?.({ type: "thinking", label: loopError ? "Recovering — synthesizing results gathered so far..." : budgetExceeded ? "Budget reached, wrapping up..." : "Wrapping up..." });
     try {
-      const wrapUp = await callAnthropicRaw({
+      const wrapUp = await callAnthropicRawStreaming({
         model: MODELS.OPUS,
         max_tokens: maxTokens,
         system: activeSystemPrompt + perspectiveAddendum + `\n\nIMPORTANT: ${wrapReason}. Synthesize what you learned from the tool results above into your response now. Do not call any more tools.`,
@@ -2212,7 +2212,7 @@ ${perspectives.join("\n\n")}`;
         role: "user",
         content: "Now integrate the multi-perspective analysis below into your response. Absorb the reasoning seamlessly into your own analysis — do NOT name any individual analysts. Reference perspectives generically (e.g. 'from a macro lens…', 'a derivatives-focused view suggests…'). Note agreements and disagreements, and take a synthesized position. Do not repeat yourself, but ADD the perspectives where they strengthen or challenge your analysis." + perspectiveAddendum,
       });
-      const debateWrap = await callAnthropicRaw({
+      const debateWrap = await callAnthropicRawStreaming({
         model: MODELS.OPUS,
         max_tokens: maxTokens,
         system: activeSystemPrompt,

@@ -37,7 +37,7 @@ Focus on user experience and intuitive design.
 
 **Pipeline Stages:** Deals progress through predefined stages: `Discovered -> Researching -> Reaching Out -> In Diligence -> Passed / Invested`.
 
-**AI Enrichment Pipeline:** This multi-step process for deal card generation includes web scraping, company and token identification (with contract address verification), comprehensive research, fact-checking, and due diligence reads. AI agents primarily utilize Claude Opus 4.6 with web search capabilities.
+**AI Enrichment Pipeline:** This multi-step process for deal card generation includes web scraping, company and token identification (with contract address verification), comprehensive research, fact-checking, and due diligence reads. AI agents primarily utilize Claude Opus 4.7 with web search capabilities. The main research agent loop uses streaming API calls (`callAnthropicRawStreaming`) to prevent 524 proxy timeouts — tokens flow continuously so the connection stays alive even for long-running deep research sessions.
 
 **Standalone Liquid Token Research:** Provides deep token analysis (supply, valuation, liquidity, value accrual, risk flags) executed asynchronously by a multi-turn AI agent, with results integrated into company profiles.
 
