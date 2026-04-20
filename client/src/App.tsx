@@ -16,7 +16,6 @@ import Companies from "@/pages/companies";
 import CompanyDetail from "@/pages/company-detail";
 import AddDeal from "@/pages/add-deal";
 import ExtensionPage from "@/pages/extension";
-import DataPage from "@/pages/data";
 import CreditsPage from "@/pages/credits";
 import WalletPage from "@/pages/wallet";
 import ReportViewer from "@/pages/report-viewer";
@@ -113,7 +112,7 @@ function AuthenticatedApp() {
               <Route path="/extension" component={ExtensionPage} />
               <Route path="/credits" component={CreditsPage} />
               <Route path="/wallet" component={WalletPage} />
-              <Route path="/data" component={DataPage} />
+              <Route path="/data">{() => <Redirect to="/research" />}</Route>
               <Route path="/research" component={SessionResearch} />
               <Route path="/shared/research/:token" component={SharedResearch} />
               <Route path="/brain" component={BrainGraph} />

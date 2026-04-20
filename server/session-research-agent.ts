@@ -1288,6 +1288,23 @@ Examples:
 - "Compare HYPE fees vs revenue" → {"protocol": "hyperliquid", "ticker": "HYPE", "metric": "fees", "variants": ["fees", "revenue"]}
 - "Show daily volume for Uniswap" → {"protocol": "uniswap", "ticker": "UNI", "metric": "volume", "variants": []}`;
 
+function checkChartDataSanity(data: any[], yAxes: Array<{ dataKey: string; label: string }>): string | null {
+  if (!data || data.length === 0) return "No data returned";
+
+  for (const y of yAxes) {
+    const values = data.map(d => d[y.dataKey]).filter(v => typeof v === "number" && !isNaN(v));
+    if (values.length === 0) return `No numeric values for "${y.label}"`;
+
+    const nonZero = values.filter(v => v !== 0);
+    if (nonZero.length === 0) return `All values are zero for "${y.label}"`;
+
+    const maxAbs = Math.max(...values.map(Math.abs));
+    if (maxAbs > 1e15) return `Values appear to be raw token amounts for "${y.label}" (max: ${maxAbs.toExponential(2)})`;
+  }
+
+  return null;
+}
+
 function buildChartResponse(
   chartType: "line" | "bar" | "area" | "composed",
   title: string,
@@ -1299,6 +1316,11 @@ function buildChartResponse(
   pipelineInputTokens: number,
   pipelineOutputTokens: number,
 ): ResearchResponse {
+  const sanityIssue = checkChartDataSanity(data, yAxes);
+  if (sanityIssue) {
+    console.log(`[ChartPipeline] Data sanity check failed: ${sanityIssue}`);
+    throw new Error(`Data sanity: ${sanityIssue}`);
+  }
   const chartJson = {
     chartType,
     title,
