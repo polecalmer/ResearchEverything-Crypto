@@ -34,7 +34,7 @@ const CHART_VIEW_OPTIONS: { mode: ChartViewMode; icon: typeof TrendingUp; tip: s
   { mode: "pie", icon: PieChartIcon, tip: "Breakdown" },
 ];
 
-export function InlineChart({ artifact }: { artifact: Artifact }) {
+export function InlineChart({ artifact, hideSave }: { artifact: Artifact; hideSave?: boolean }) {
   const { chartConfig, data, title, subtitle, source, refreshRecipe } = artifact;
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
@@ -345,20 +345,22 @@ export function InlineChart({ artifact }: { artifact: Artifact }) {
               <p className="text-[10px] text-muted-foreground/50 mt-0.5">Latest</p>
             </div>
           )}
-          <button
-            onClick={handleSaveChart}
-            disabled={saving || saved}
-            className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-all border ${
-              saved
-                ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
-                : "text-muted-foreground/60 hover:text-foreground/80 hover:bg-muted/30 border-border/30"
-            }`}
-            data-testid="button-save-chart"
-            title="Save to dashboard"
-          >
-            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : saved ? <Check className="h-3 w-3" /> : <Bookmark className="h-3 w-3" />}
-            {saved ? "Saved" : "Save"}
-          </button>
+          {!hideSave && (
+            <button
+              onClick={handleSaveChart}
+              disabled={saving || saved}
+              className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-all border ${
+                saved
+                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                  : "text-muted-foreground/60 hover:text-foreground/80 hover:bg-muted/30 border-border/30"
+              }`}
+              data-testid="button-save-chart"
+              title="Save to dashboard"
+            >
+              {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : saved ? <Check className="h-3 w-3" /> : <Bookmark className="h-3 w-3" />}
+              {saved ? "Saved" : "Save"}
+            </button>
+          )}
         </div>
       </div>
       <div className="flex items-center gap-1 mt-2 mb-3" data-testid="chart-type-toggle">
