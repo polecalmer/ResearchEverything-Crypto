@@ -22,21 +22,26 @@ export function SessionInspector({ sessionId, messages, thinkingSteps, isStreami
     const sources = new Set<string>();
     let textBlocks = 0;
     let modelBlocks = 0;
-    for (const m of messages || []) {
-      const arts: any[] = (m as any).artifacts || [];
-      for (const a of arts) {
-        if (a?.type === "chart") {
-          if (a.id) charts.add(String(a.id));
-          else charts.add(`${m.id}-${a.title || "chart"}`);
-          if (a.dataSource) sources.add(String(a.dataSource));
-          const recipe = a?.dataSourceConfig?.refreshRecipe;
-          if (recipe?.source) sources.add(String(recipe.source));
-        } else if (a?.type === "model") {
-          modelBlocks += 1;
-        } else if (a?.type === "table") {
-          textBlocks += 1;
+    try {
+      for (const m of messages || []) {
+        const arts: any[] = Array.isArray((m as any)?.artifacts) ? (m as any).artifacts : [];
+        for (const a of arts) {
+          if (!a || typeof a !== "object") continue;
+          if (a.type === "chart") {
+            if (a.id) charts.add(String(a.id));
+            else charts.add(`${m?.id ?? ""}-${a.title || "chart"}`);
+            if (a.dataSource) sources.add(String(a.dataSource));
+            const recipe = a?.dataSourceConfig?.refreshRecipe;
+            if (recipe?.source) sources.add(String(recipe.source));
+          } else if (a.type === "model") {
+            modelBlocks += 1;
+          } else if (a.type === "table") {
+            textBlocks += 1;
+          }
         }
       }
+    } catch (err) {
+      console.warn("[session-inspector] stats aggregation failed", err);
     }
     return {
       charts: charts.size,

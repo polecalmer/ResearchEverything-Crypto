@@ -30,22 +30,23 @@ function getTabFromQuery(search: string): Tab {
 
 export default function Library() {
   const [location] = useLocation();
-  const initialTab = useMemo(
-    () => getTabFromQuery(typeof window !== "undefined" ? window.location.search : ""),
-    [location]
+  const [tab, setTab] = useState<Tab>(() =>
+    getTabFromQuery(typeof window !== "undefined" ? window.location.search : "")
   );
-  const [tab, setTab] = useState<Tab>(initialTab);
 
   useEffect(() => {
-    setTab(getTabFromQuery(window.location.search));
+    const next = getTabFromQuery(window.location.search);
+    setTab((prev) => (prev === next ? prev : next));
   }, [location]);
 
   const updateTab = (next: string) => {
     const t = (TABS as readonly string[]).includes(next) ? (next as Tab) : "reports";
-    setTab(t);
+    setTab((prev) => (prev === t ? prev : t));
     const url = new URL(window.location.href);
-    url.searchParams.set("tab", t);
-    window.history.replaceState({}, "", url.toString());
+    if (url.searchParams.get("tab") !== t) {
+      url.searchParams.set("tab", t);
+      window.history.replaceState({}, "", url.toString());
+    }
   };
 
   return (
