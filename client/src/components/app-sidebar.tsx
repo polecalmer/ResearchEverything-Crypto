@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { LayoutDashboard, Building2, Chrome, BarChart3, LogOut, User, Wallet, Activity, FlaskConical, Network, Library as LibraryIcon, Command } from "lucide-react";
+import { LayoutDashboard, Building2, Chrome, BarChart3, LogOut, User, Wallet, Activity, FlaskConical, Network, Library as LibraryIcon, Command, Shield } from "lucide-react";
 import { SessionsMark } from "@/components/sessions-mark";
 import {
   Sidebar,
@@ -153,6 +153,32 @@ export function AppSidebar() {
                           }`}
                         />
                         {!collapsed && <span className="text-[13px] tracking-tight">Status</span>}
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                  <SidebarMenuItem>
+                    <SidebarMenuButton
+                      asChild
+                      tooltip="Security Audit"
+                      data-active={location === "/admin/security"}
+                      className="group relative h-8 rounded-md text-muted-foreground/75 hover:text-foreground hover:bg-sidebar-accent/40 data-[active=true]:bg-sidebar-accent/60 data-[active=true]:text-foreground transition-all"
+                    >
+                      <Link href="/admin/security" data-testid="link-nav-admin-security">
+                        {!collapsed && (
+                          <span
+                            className={`absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-full transition-all ${
+                              location === "/admin/security"
+                                ? "bg-amber-400/80 shadow-[0_0_8px_rgba(251,191,36,0.5)]"
+                                : "bg-transparent group-hover:bg-amber-400/20"
+                            }`}
+                          />
+                        )}
+                        <Shield
+                          className={`w-3.5 h-3.5 shrink-0 ${
+                            location === "/admin/security" ? "text-amber-400/90" : "text-muted-foreground/60 group-hover:text-foreground/80"
+                          }`}
+                        />
+                        {!collapsed && <span className="text-[13px] tracking-tight">Security</span>}
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

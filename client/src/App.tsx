@@ -21,6 +21,7 @@ import CreditsPage from "@/pages/credits";
 import WalletPage from "@/pages/wallet";
 import ReportViewer from "@/pages/report-viewer";
 import AdminPage from "@/pages/admin";
+import AdminSecurityPage from "@/pages/admin-security";
 import SessionResearch from "@/pages/session-research";
 import BrainGraph from "@/pages/brain-graph";
 import ModelViewer from "@/pages/model-viewer";
@@ -130,6 +131,7 @@ function AuthenticatedApp() {
               <Route path="/map" component={PipelineBrain} />
               <Route path="/models/:id" component={ModelViewer} />
               <Route path="/admin" component={AdminPage} />
+              <Route path="/admin/security" component={AdminSecurityPage} />
               <Route component={NotFound} />
             </Switch>
           </main>
