@@ -12,7 +12,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Shield, Play, Loader2, ChevronRight, Trash2, AlertTriangle, CheckCircle2, AlertCircle, XCircle, RefreshCw } from "lucide-react";
 import { format } from "date-fns";
 import type { SecurityAuditRun, SecurityAuditFinding } from "@shared/schema";
-import { ADMIN_EMAILS, ADMIN_USERNAMES } from "@shared/constants";
 
 const PHASES: Array<{ key: string; label: string; desc: string }> = [
   { key: "recon", label: "Reconnaissance", desc: "Map exposed tools and endpoints" },
@@ -40,16 +39,17 @@ export default function AdminSecurity() {
   const { user } = useAuth();
   const { toast } = useToast();
   const [, navigate] = useLocation();
-  const isAdmin = !!(user && ((ADMIN_EMAILS as readonly string[]).includes(user.email || "") || (ADMIN_USERNAMES as readonly string[]).includes(user.username || "")));
   const [budget, setBudget] = useState("5");
   const [enabledPhases, setEnabledPhases] = useState<string[]>(PHASES.map((p) => p.key));
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
 
   const runsQuery = useQuery<SecurityAuditRun[]>({
     queryKey: ["/api/admin/audits"],
-    enabled: !!user && isAdmin,
+    enabled: !!user,
     refetchInterval: 4000,
+    retry: false,
   });
+  const isAdminDenied = !!runsQuery.error && /403|admin/i.test((runsQuery.error as any)?.message || "");
 
   const detailQuery = useQuery<{ run: SecurityAuditRun; findings: SecurityAuditFinding[] }>({
     queryKey: ["/api/admin/audits", selectedRunId],
@@ -106,7 +106,7 @@ export default function AdminSecurity() {
     setEnabledPhases((curr) => curr.includes(key) ? curr.filter((p) => p !== key) : [...curr, key]);
   };
 
-  if (user && !isAdmin) {
+  if (user && isAdminDenied) {
     return (
       <div className="flex items-center justify-center h-full" data-testid="empty-not-admin">
         <div className="text-center max-w-sm">
