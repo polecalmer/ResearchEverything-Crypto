@@ -431,7 +431,7 @@ function BrainImportPanel({
   );
 }
 
-export default function BrainGraphPage() {
+export default function BrainGraphPage({ embedded = false }: { embedded?: boolean } = {}) {
   const { data, isLoading, error } = useQuery<BrainGraphData>({
     queryKey: ["/api/brain/graph"],
   });
@@ -493,17 +493,19 @@ export default function BrainGraphPage() {
     <div className="flex flex-col h-full overflow-hidden" data-testid="page-brain-graph">
       <Tabs defaultValue="mine" className="flex-1 flex flex-col overflow-hidden">
         <div className="px-6 py-4 border-b border-border flex items-center justify-between gap-4 flex-wrap">
-          <div className="flex items-center gap-3">
-            <Brain className="w-5 h-5 text-muted-foreground" />
-            <div>
-              <h1 className="text-sm font-semibold" data-testid="text-brain-title">Research Brain</h1>
-              <p className="text-xs text-muted-foreground" data-testid="text-brain-subtitle">
-                {isEmpty
-                  ? "Start researching to build your knowledge graph"
-                  : `${entityNames.length} entities, ${(data?.knowledge || []).length} facts, ${(data?.relationships || []).length} relationships`}
-              </p>
+          {!embedded && (
+            <div className="flex items-center gap-3">
+              <Brain className="w-5 h-5 text-muted-foreground" />
+              <div>
+                <h1 className="text-sm font-semibold" data-testid="text-brain-title">Research Brain</h1>
+                <p className="text-xs text-muted-foreground" data-testid="text-brain-subtitle">
+                  {isEmpty
+                    ? "Start researching to build your knowledge graph"
+                    : `${entityNames.length} entities, ${(data?.knowledge || []).length} facts, ${(data?.relationships || []).length} relationships`}
+                </p>
+              </div>
             </div>
-          </div>
+          )}
           <TabsList data-testid="tabs-brain-scope">
             <TabsTrigger value="mine" className="text-xs" data-testid="tab-my-brain">
               <Brain className="w-3 h-3 mr-1.5" />My Brain

@@ -96,12 +96,12 @@ export default function Library() {
         {tab === "reports" && <ReportsTab />}
         {tab === "charts" && (
           <div className="h-full overflow-hidden">
-            <DataStation />
+            <DataStation embedded />
           </div>
         )}
         {tab === "facts" && (
           <div className="h-full overflow-hidden">
-            <BrainGraph />
+            <BrainGraph embedded />
           </div>
         )}
       </div>
