@@ -9,7 +9,8 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Shield, Play, Loader2, ChevronRight, Trash2, AlertTriangle, CheckCircle2, AlertCircle, XCircle, RefreshCw } from "lucide-react";
+import { Shield, Play, Loader2, ChevronRight, Trash2, AlertTriangle, CheckCircle2, AlertCircle, XCircle, RefreshCw, Download } from "lucide-react";
+import { getAuthHeaders } from "@/lib/queryClient";
 import { format } from "date-fns";
 import type { SecurityAuditRun, SecurityAuditFinding } from "@shared/schema";
 
@@ -125,7 +126,33 @@ export default function AdminSecurity() {
         <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
           <Shield className="h-4 w-4 text-amber-400" />
           <span className="text-sm font-semibold">Security Audit</span>
-          <Badge variant="outline" className="text-[9px] ml-auto border-amber-400/40 text-amber-400">ADMIN</Badge>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="ml-auto h-6 px-2 text-[10px]"
+            data-testid="button-export-audits"
+            onClick={async () => {
+              try {
+                const headers = await getAuthHeaders();
+                const r = await fetch("/api/admin/audits/export.zip", { headers });
+                if (!r.ok) throw new Error(`${r.status}`);
+                const blob = await r.blob();
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement("a");
+                a.href = url;
+                a.download = `security-audits-${Date.now()}.zip`;
+                document.body.appendChild(a);
+                a.click();
+                a.remove();
+                URL.revokeObjectURL(url);
+              } catch (e: any) {
+                toast({ title: "Export failed", description: e?.message || "Try again", variant: "destructive" });
+              }
+            }}
+          >
+            <Download className="h-3 w-3 mr-1" />Export
+          </Button>
+          <Badge variant="outline" className="text-[9px] border-amber-400/40 text-amber-400">ADMIN</Badge>
         </div>
 
         <div className="p-4 border-b border-border/30 space-y-3">

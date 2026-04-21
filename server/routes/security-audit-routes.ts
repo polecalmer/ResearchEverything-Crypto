@@ -1,10 +1,11 @@
 import type { Express, Request, Response } from "express";
 import { db } from "../db";
 import { securityAuditRuns, securityAuditFindings } from "@shared/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, inArray } from "drizzle-orm";
 import { requireAuth } from "../auth";
 import { storage } from "../storage";
 import { runSecurityAudit, type Phase } from "../security-audit-agent";
+import AdmZip from "adm-zip";
 
 const ALL_PHASES: Phase[] = ["recon", "prompt_extraction", "data_exfil", "cross_tenant", "output_analysis"];
 
@@ -48,6 +49,48 @@ export function registerSecurityAuditRoutes(app: Express) {
     } catch (err: any) {
       console.error("[security-audit] list error:", err?.message);
       res.status(500).json({ message: "Failed to list audits" });
+    }
+  });
+
+  app.get("/api/admin/audits/export.zip", requireAuth, async (req, res) => {
+    try {
+      if (!(await ensureAdmin(req, res))) return;
+      const runs = await db.select().from(securityAuditRuns).orderBy(desc(securityAuditRuns.startedAt)).limit(200);
+      const runIds = runs.map((r) => r.id);
+      const findings = runIds.length === 0
+        ? []
+        : await db.select().from(securityAuditFindings).where(inArray(securityAuditFindings.runId, runIds));
+      const findingsByRun: Record<string, any[]> = {};
+      for (const f of findings) {
+        (findingsByRun[f.runId] ||= []).push(f);
+      }
+      const zip = new AdmZip();
+      // Aggregate index across all runs
+      const index = runs.map((r) => ({
+        id: r.id,
+        startedAt: r.startedAt,
+        completedAt: r.completedAt,
+        status: r.status,
+        budgetUsd: r.budgetUsd,
+        totalSpentUsd: r.totalSpentUsd,
+        phasesEnabled: r.phasesEnabled,
+        summary: r.summary,
+        findingsCount: (findingsByRun[r.id] || []).length,
+      }));
+      zip.addFile("index.json", Buffer.from(JSON.stringify(index, null, 2), "utf8"));
+      // One JSON per run with full findings
+      for (const r of runs) {
+        const ts = r.startedAt ? new Date(r.startedAt as any).toISOString().replace(/[:.]/g, "-") : "unknown";
+        const name = `runs/${ts}_${r.id.slice(0, 8)}.json`;
+        zip.addFile(name, Buffer.from(JSON.stringify({ run: r, findings: findingsByRun[r.id] || [] }, null, 2), "utf8"));
+      }
+      const buf = zip.toBuffer();
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader("Content-Disposition", `attachment; filename="security-audits-${Date.now()}.zip"`);
+      res.send(buf);
+    } catch (err: any) {
+      console.error("[security-audit] export error:", err?.message);
+      res.status(500).json({ message: "Failed to export audits" });
     }
   });
 
