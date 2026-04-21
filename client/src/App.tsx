@@ -29,6 +29,8 @@ import LandingPage from "@/pages/landing-page";
 import AuthPage from "@/pages/auth-page";
 import SharedResearch from "@/pages/shared-research";
 import DataStation from "@/pages/data-station";
+import Library from "@/pages/library";
+import { CommandPalette } from "@/components/command-palette";
 import { Loader2 } from "lucide-react";
 import { useTrackPageView } from "@/hooks/use-track";
 
@@ -104,6 +106,7 @@ function AuthenticatedApp() {
           <header className="flex items-center gap-1 p-2 border-b border-border/50">
             <SidebarTrigger data-testid="button-sidebar-toggle" />
           </header>
+          <CommandPalette />
           <main className="flex-1 overflow-hidden flex flex-col">
             <Switch>
               <Route path="/" component={Pipeline} />
@@ -116,9 +119,14 @@ function AuthenticatedApp() {
               <Route path="/wallet" component={WalletPage} />
               <Route path="/data" component={DataPage} />
               <Route path="/research" component={SessionResearch} />
-              <Route path="/station" component={DataStation} />
+              <Route path="/library" component={Library} />
+              <Route path="/station">
+                <Redirect to="/library?tab=charts" />
+              </Route>
+              <Route path="/brain">
+                <Redirect to="/library?tab=facts" />
+              </Route>
               <Route path="/shared/research/:token" component={SharedResearch} />
-              <Route path="/brain" component={BrainGraph} />
               <Route path="/map" component={PipelineBrain} />
               <Route path="/models/:id" component={ModelViewer} />
               <Route path="/admin" component={AdminPage} />

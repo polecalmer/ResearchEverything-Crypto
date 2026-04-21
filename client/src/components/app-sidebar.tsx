@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { LayoutDashboard, Building2, Chrome, BarChart3, LogOut, User, Wallet, Activity, FlaskConical, Brain, Network, Radio } from "lucide-react";
+import { LayoutDashboard, Building2, Chrome, BarChart3, LogOut, User, Wallet, Activity, FlaskConical, Network, Library as LibraryIcon, Command } from "lucide-react";
 import { SessionsMark } from "@/components/sessions-mark";
 import {
   Sidebar,
@@ -18,16 +18,21 @@ import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 const navItems = [
+  { title: "Sessions", url: "/research", icon: FlaskConical },
+  { title: "Library", url: "/library", icon: LibraryIcon },
   { title: "Pipeline", url: "/", icon: LayoutDashboard },
   { title: "Map", url: "/map", icon: Network },
   { title: "Companies", url: "/companies", icon: Building2 },
-  { title: "Sessions", url: "/research", icon: FlaskConical },
-  { title: "Data & Viz Hub", url: "/station", icon: Radio },
-  { title: "Brain", url: "/brain", icon: Brain },
   { title: "Wallet", url: "/wallet", icon: Wallet },
   { title: "Extension", url: "/extension", icon: Chrome },
   { title: "Data", url: "/data", icon: BarChart3 },
 ];
+
+function isNavActive(location: string, url: string): boolean {
+  if (url === "/") return location === "/";
+  if (url === "/library") return location === "/library" || location === "/station" || location === "/brain";
+  return location === url || location.startsWith(url + "/");
+}
 
 import { ADMIN_EMAILS, ADMIN_USERNAMES } from "@shared/constants";
 
@@ -78,7 +83,7 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu className="gap-0.5">
               {navItems.map((item, i) => {
-                const active = location === item.url;
+                const active = isNavActive(location, item.url);
                 return (
                   <SidebarMenuItem key={item.title}>
                     <SidebarMenuButton
@@ -137,14 +142,14 @@ export function AppSidebar() {
                           <span
                             className={`absolute left-0 top-1.5 bottom-1.5 w-[2px] rounded-r-full transition-all ${
                               location === "/admin"
-                                ? "bg-fuchsia-400/80 shadow-[0_0_8px_rgba(187,154,247,0.6)]"
-                                : "bg-transparent group-hover:bg-fuchsia-400/20"
+                                ? "bg-amber-400/80 shadow-[0_0_8px_rgba(251,191,36,0.5)]"
+                                : "bg-transparent group-hover:bg-amber-400/20"
                             }`}
                           />
                         )}
                         <Activity
                           className={`w-3.5 h-3.5 shrink-0 ${
-                            location === "/admin" ? "text-fuchsia-400/90" : "text-muted-foreground/60 group-hover:text-foreground/80"
+                            location === "/admin" ? "text-amber-400/90" : "text-muted-foreground/60 group-hover:text-foreground/80"
                           }`}
                         />
                         {!collapsed && <span className="text-[13px] tracking-tight">Status</span>}

@@ -16,6 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
 import { getAuthHeaders, queryClient } from "@/lib/queryClient";
+import { ArtifactActions } from "@/components/artifact-actions";
 import {
   type Artifact, type SessionMessage, type Session,
   type ResearchMode, type ThinkingStep,
@@ -304,6 +305,8 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
     return { disabled: false };
   };
 
+  const [savedChartId, setSavedChartId] = useState<string | null>(null);
+
   const handleSaveChart = async () => {
     setSaving(true);
     try {
@@ -322,9 +325,11 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
         }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Failed to save");
+      const result = await res.json().catch(() => ({}));
+      if (result?.id) setSavedChartId(String(result.id));
       setSaved(true);
       queryClient.invalidateQueries({ queryKey: ["/api/research/charts/saved"] });
-      toast({ title: "Saved", description: `Chart "${title}" saved to your dashboard.` });
+      toast({ title: "Saved to Library", description: `"${title}" — now refreshable as live data.` });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     } finally {
@@ -346,21 +351,24 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
               <p className="text-[10px] text-muted-foreground/50 mt-0.5">Latest</p>
             </div>
           )}
-          {!hideSave && (
+          {!hideSave && !savedChartId && (
             <button
               onClick={handleSaveChart}
               disabled={saving || saved}
               className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-all border ${
                 saved
-                  ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30"
+                  ? "bg-amber-500/10 text-amber-500/90 border-amber-500/30"
                   : "text-muted-foreground/60 hover:text-foreground/80 hover:bg-muted/30 border-border/30"
               }`}
               data-testid="button-save-chart"
-              title="Save to dashboard"
+              title="Save to library"
             >
               {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : saved ? <Check className="h-3 w-3" /> : <Bookmark className="h-3 w-3" />}
               {saved ? "Saved" : "Save"}
             </button>
+          )}
+          {!hideSave && savedChartId && (
+            <ArtifactActions chartId={savedChartId} chartTitle={title} size="xs" />
           )}
         </div>
       </div>

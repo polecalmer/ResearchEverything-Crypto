@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
@@ -13,11 +14,14 @@ import {
 import {
   MessageBubble, DiveDeepButton, ThinkingPanel, ShareBar, InlineChart,
 } from "@/components/research-artifacts";
+import { SessionInspector } from "@/components/session-inspector";
 
 export default function SessionResearch() {
   const { user } = useAuth();
   const { toast } = useToast();
+  const [location, navigate] = useLocation();
   const [activeSessionId, setActiveSessionId] = useState<number | null>(null);
+  const urlBootstrapHandledRef = useRef<string>("");
   const [input, setInput] = useState("");
   const [pendingUserMsg, setPendingUserMsg] = useState<string | null>(null);
   const [thinkingSteps, setThinkingSteps] = useState<ThinkingStep[]>([]);
@@ -65,6 +69,39 @@ export default function SessionResearch() {
     queryKey: [`/api/research/sessions/${activeSessionId}/messages`],
     enabled: !!activeSessionId,
   });
+
+  // Bootstrap from URL params: ?sessionId=N | ?newSession=1 | ?chart=ID
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const search = window.location.search;
+    if (urlBootstrapHandledRef.current === search) return;
+    const params = new URLSearchParams(search);
+    const sessionIdParam = params.get("sessionId");
+    const newSessionParam = params.get("newSession");
+    const chartParam = params.get("chart");
+    if (!sessionIdParam && !newSessionParam && !chartParam) return;
+    urlBootstrapHandledRef.current = search;
+
+    if (chartParam) {
+      setSelectedChartId(chartParam);
+      setActiveSessionId(null);
+      setSidebarTab("charts");
+    } else if (sessionIdParam) {
+      const id = parseInt(sessionIdParam, 10);
+      if (!isNaN(id)) {
+        setActiveSessionId(id);
+        setSelectedChartId(null);
+        setSidebarTab("sessions");
+      }
+    } else if (newSessionParam) {
+      setActiveSessionId(null);
+      setSelectedChartId(null);
+      setSidebarTab("sessions");
+    }
+
+    // Clear params from URL
+    window.history.replaceState({}, "", "/research");
+  }, [location]);
 
   useEffect(() => {
     if (!targetMessageId || messagesQuery.isFetching) return;
@@ -564,7 +601,7 @@ export default function SessionResearch() {
           )}
         </div>
 
-        <div className="border-t border-border/30 px-8 py-4 bg-background/80 backdrop-blur">
+        <div className="border-t border-border/30 px-8 py-4 bg-background/80 backdrop-blur" data-section="composer">
           <div className="max-w-3xl mx-auto flex items-end gap-3">
             <textarea
               ref={inputRef}
@@ -597,6 +634,13 @@ export default function SessionResearch() {
           </div>
         </div>
       </div>
+
+      <SessionInspector
+        sessionId={activeSessionId}
+        messages={messages}
+        thinkingSteps={thinkingSteps}
+        isStreaming={isSending}
+      />
     </div>
   );
 }
