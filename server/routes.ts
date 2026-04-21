@@ -10,6 +10,7 @@ import { registerTokenRoutes } from "./routes/token-routes";
 import { registerDataRoutes } from "./routes/data-routes";
 import { registerAdminRoutes } from "./routes/admin-routes";
 import { registerResearchRoutes } from "./routes/research-routes";
+import { registerSecurityAuditRoutes } from "./routes/security-audit-routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -45,6 +46,7 @@ export async function registerRoutes(
   registerDataRoutes(app);
   registerAdminRoutes(app);
   registerResearchRoutes(app);
+  registerSecurityAuditRoutes(app);
 
   return httpServer;
 }

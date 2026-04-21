@@ -185,6 +185,37 @@ export const reportCharts = pgTable("report_charts", {
 export type ReportChart = typeof reportCharts.$inferSelect;
 export type InsertDashboardChart = z.infer<typeof insertDashboardChartSchema>;
 
+export const securityAuditRuns = pgTable("security_audit_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  status: text("status").notNull().default("pending"),
+  budgetUsd: text("budget_usd").notNull().default("5.0"),
+  totalSpentUsd: text("total_spent_usd").notNull().default("0"),
+  phasesEnabled: text("phases_enabled").array().notNull().default(sql`ARRAY['recon','prompt_extraction','data_exfil','cross_tenant','output_analysis']::text[]`),
+  summary: jsonb("summary"),
+  errorMessage: text("error_message"),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  completedAt: timestamp("completed_at"),
+});
+
+export type SecurityAuditRun = typeof securityAuditRuns.$inferSelect;
+
+export const securityAuditFindings = pgTable("security_audit_findings", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  runId: varchar("run_id").notNull(),
+  phase: text("phase").notNull(),
+  testName: text("test_name").notNull(),
+  severity: text("severity").notNull(),
+  verdict: text("verdict").notNull(),
+  promptText: text("prompt_text").notNull(),
+  responseText: text("response_text"),
+  scoreReason: text("score_reason"),
+  costUsd: text("cost_usd").notNull().default("0"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type SecurityAuditFinding = typeof securityAuditFindings.$inferSelect;
+
 export const insertCompanySchema = createInsertSchema(companies).omit({
   id: true,
   userId: true,
