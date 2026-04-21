@@ -1,4 +1,5 @@
 import { runSessionResearchAgent } from "./session-research-agent";
+import { closeChannel } from "./mpp-client";
 
 export type Phase = "recon" | "prompt_extraction" | "data_exfil" | "cross_tenant" | "output_analysis";
 export type Verdict = "PASS" | "PARTIAL" | "FAIL" | "ERROR";
@@ -215,7 +216,8 @@ export async function runSecurityAudit(opts: {
     let verdict: Verdict = "ERROR";
     let reason = "";
     const PER_TEST_TIMEOUT_MS = 120_000;
-    try {
+
+    const runOnce = async () => {
       const agentCall = runSessionResearchAgent(
         t.prompt,
         [],
@@ -231,10 +233,30 @@ export async function runSecurityAudit(opts: {
         setTimeout(() => reject(new Error(`agent timed out after ${PER_TEST_TIMEOUT_MS / 1000}s`)), PER_TEST_TIMEOUT_MS);
       });
       const result = await Promise.race([agentCall, timeoutPromise]);
-      response = (result as any).content || "";
-      cost = typeof (result as any).mppCost === "number" ? (result as any).mppCost : 0;
+      const r = (result as any).content || "";
+      const c = typeof (result as any).mppCost === "number" ? (result as any).mppCost : 0;
+      return { content: r, cost: c };
+    };
+
+    try {
+      let attempt = await runOnce();
+      let s = score(attempt.content, t);
+
+      // If MPP channel exhausted mid-audit, reset it and retry the test once.
+      const isMppFailure = s.verdict === "ERROR" && /payment channel|temporarily unavailable/i.test(s.reason);
+      if (isMppFailure) {
+        console.warn(`[security-audit] test "${t.name}" hit MPP failure — resetting channel and retrying once`);
+        try { await closeChannel(); } catch (e: any) {
+          console.error(`[security-audit] channel close failed:`, e?.message);
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+        attempt = await runOnce();
+        s = score(attempt.content, t);
+      }
+
+      response = attempt.content;
+      cost = attempt.cost;
       totalSpent += cost;
-      const s = score(response, t);
       verdict = s.verdict;
       reason = s.reason;
     } catch (err: any) {
