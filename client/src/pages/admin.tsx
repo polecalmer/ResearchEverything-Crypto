@@ -1004,7 +1004,7 @@ function DataSourceBrainPanel() {
 }
 
 export default function AdminPage() {
-  const { data, isLoading, isError } = useQuery<any>({
+  const { data, isLoading, isError, error } = useQuery<any>({
     queryKey: ["/api/admin/analytics"],
   });
 
@@ -1017,9 +1017,14 @@ export default function AdminPage() {
   }
 
   if (isError) {
+    const msg = (error as any)?.message || "";
+    const isForbidden = msg.startsWith("403:");
     return (
-      <div className="flex items-center justify-center h-full text-sm text-muted-foreground">
-        Admin access required.
+      <div className="flex items-center justify-center h-full text-sm text-muted-foreground p-6">
+        <div className="text-center max-w-md">
+          <div className="font-semibold mb-2">{isForbidden ? "Admin access required." : "Failed to load analytics"}</div>
+          {!isForbidden && <div className="text-xs font-mono break-all opacity-70">{msg || "Unknown error"}</div>}
+        </div>
       </div>
     );
   }
