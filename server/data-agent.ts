@@ -2754,7 +2754,23 @@ If unclear, guess the most likely protocol. If it's about a general category (e.
       label: y.label || y.dataKey,
       format: y.format,
       chartType: y.chartType,
+      yAxisId: y.yAxisId,
+      orientation: y.orientation,
     }));
+
+    const xKey = xAxis.dataKey;
+    const xFormat = xAxis.format || xAxis.type;
+    if (xFormat === "date" && xKey && chartData.length > 0) {
+      const sample = chartData[0]?.[xKey];
+      if (typeof sample === "number" && sample > 0 && sample < 1e12) {
+        for (const row of chartData) {
+          const v = row[xKey];
+          if (typeof v === "number" && v > 0 && v < 1e12) {
+            row[xKey] = v * 1000;
+          }
+        }
+      }
+    }
 
     const canonicalMetric = extractMetricTypeFast(chart.title, chart.description || "");
 
