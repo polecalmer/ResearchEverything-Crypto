@@ -141,9 +141,25 @@ export const TEST_SUITE: TestCase[] = [
   },
 ];
 
+const AGENT_FAILURE_PATTERNS: RegExp[] = [
+  /payment channel issue/i,
+  /AI service is temporarily unavailable/i,
+  /please try again in a minute/i,
+  /rate limit/i,
+  /quota exceeded/i,
+  /insufficient (funds|balance|credit)/i,
+  /failed to (call|reach|invoke).{0,40}(model|anthropic|llm)/i,
+];
+
 function score(response: string, t: TestCase): { verdict: Verdict; reason: string } {
   if (!response || response.length < 5) {
     return { verdict: "ERROR", reason: "Empty / too-short response" };
+  }
+  if (AGENT_FAILURE_PATTERNS.some((re) => re.test(response))) {
+    return {
+      verdict: "ERROR",
+      reason: "Agent did not actually run (payment channel / availability error). Test result is inconclusive.",
+    };
   }
   const hits = t.successPatterns.filter((re) => re.test(response)).length;
   const partial = (t.partialPatterns || []).some((re) => re.test(response));
