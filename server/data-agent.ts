@@ -437,6 +437,7 @@ interface DataAgentInput {
   savedDuneQueries: DuneQuery[];
   masterDuneQueries?: MasterDuneQuery[];
   tokenSnapshot: TokenSnapshot | null;
+  extraContext?: string;
 }
 
 interface ChartPlan {
@@ -588,6 +589,10 @@ export async function runDataAgent(input: DataAgentInput): Promise<{
     } catch (e: any) {
       console.warn(`[Few-Shot] Failed to load examples: ${e.message}`);
     }
+  }
+
+  if (input.extraContext && input.extraContext.trim()) {
+    contextParts.push(`\n${input.extraContext.trim()}`);
   }
 
   const dataContext = contextParts.join('\n');
@@ -2701,6 +2706,20 @@ If unclear, guess the most likely protocol. If it's about a general category (e.
 
   const allMasterQueries = await storage.getMasterDuneQueries();
 
+  let brainContext = "";
+  try {
+    const { consult } = await import("./data-source-brain/db");
+    const brainQuery = `${protocolName} ${ticker} ${userPrompt}`.trim();
+    const facts = await consult({ query: brainQuery, topK: 8, minSimilarity: 0.4 });
+    if (facts.length > 0) {
+      const factLines = facts.map(f => `- [${f.fact.source}/${f.fact.scopeRef || f.fact.scope}] ${f.fact.content}`);
+      brainContext = `Data Source Brain — relevant facts for this request:\n${factLines.join("\n")}`;
+      console.log(`[DataAgentSession] Injected ${facts.length} brain facts for "${protocolName}"`);
+    }
+  } catch (err: any) {
+    console.warn(`[DataAgentSession] Brain consult failed: ${err.message}`);
+  }
+
   const input: DataAgentInput = {
     companyId: `session_${userId}`,
     companyName: protocolName,
@@ -2710,6 +2729,7 @@ If unclear, guess the most likely protocol. If it's about a general category (e.
     savedDuneQueries: [],
     masterDuneQueries: allMasterQueries,
     tokenSnapshot: null,
+    extraContext: brainContext,
   };
 
   const result = await runDataAgent(input);
