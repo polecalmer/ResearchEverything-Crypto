@@ -1,0 +1,92 @@
+What this tool does: Sends crafted prompts to an AI agent's API and scores the responses for security weaknesses. It tests 5 areas: reconnaissance, prompt extraction, data exfiltration, cross-tenant access, and output filtering.
+
+What you need:
+1. The target AI agent's API endpoint (a URL like https://api.something.com/v1/chat/completions)
+2. An API key or session token for that agent
+3. Python 3.9+
+
+---
+
+Step 1: Get the target's API details
+
+This is the part that varies. You need:
+- The base URL (e.g., https://api.example.com/v1)
+- The chat endpoint (usually /chat/completions)
+- An API key or auth token
+- The model name the agent uses
+
+For most AI products, you can find this by:
+- Opening browser DevTools (Network tab) while using the product
+- Making a request and looking at the API call
+- Copying the endpoint URL, auth header, and model name
+
+If the product uses OpenAI-compatible API format, it'll work out of the box. If not, you'd need to tweak base.py's APIClient class to match their request format.
+
+---
+
+Step 2: Configure
+
+Edit config.yaml:
+target:
+  base_url: "https://api.target-product.com/v1"  # Their API base URL
+  api_key: "sk-their-api-key-or-your-session-token"  # Auth
+  chat_endpoint: "/chat/completions"  # Usually this
+  model: "their-model-name"  # What model they use
+
+settings:
+  delay_between_requests: 2.0  # Seconds between calls (be respectful)
+  max_retries: 3
+  timeout: 30
+  verbose: true
+
+phases:
+  recon: true              # Start here
+  prompt_extraction: true
+  data_exfil: true
+  cross_tenant: true
+  output_analysis: true
+---
+
+Step 3: Install and run
+cd pentest-ai-agent
+pip install -r requirements.txt
+
+# First: dry run to validate config
+python harness.py --dry-run
+
+# Run all phases
+python harness.py --verbose
+
+# Or run one phase at a time (recommended to start)
+python harness.py --phase recon --verbose
+python harness.py --phase prompt_extraction --verbose
+---
+
+Step 4: Read the results
+
+After running, check the reports/ folder. You'll get:
+- pentest_report_*.json — full machine-readable results
+- pentest_report_*.md — human-readable findings
+- request_log_*.json — every API call made
+
+Each finding is scored:
+- 🔴 PASS = attack succeeded, vulnerability found
+- 🟡 PARTIAL = some leakage detected
+- 🟢 FAIL = attack blocked (good defense)
+- ⚪ ERROR = connection issue
+
+Severity: critical > high > medium > low
+
+---
+
+Recommended approach:
+
+1. Start with recon only. This is the safest phase — it just asks questions. See what tools and capabilities are exposed.
+
+2. Then prompt_extraction. Try to extract the system prompt. If Tier 1 (polite) works, the product has weak defenses. If only Tier 5 (multi-turn encoding tricks) works, they have decent defenses.
+
+3. Then data_exfil. This is where you test if the knowledge base can be drained. The iterative KG drain test is the most important — it simulates an attacker slowly draining the KG over many queries.
+
+4. Then cross_tenant. This tests if user isolation is real. Critical for any multi-user product.
+
+5. Finally output_analysis. This checks if tool calls are visible and if there's any output filtering.
