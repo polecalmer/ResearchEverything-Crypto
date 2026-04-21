@@ -23,6 +23,23 @@ async function ensureAdmin(req: Request, res: Response): Promise<string | null> 
 }
 
 export function registerSecurityAuditRoutes(app: Express) {
+  // Mark any orphaned "running" runs from a previous server lifetime as interrupted.
+  // The background loop dies when the process restarts, so the row must not stay "running" forever.
+  (async () => {
+    try {
+      const result = await db.update(securityAuditRuns).set({
+        status: "interrupted",
+        errorMessage: "Server restarted while audit was running",
+        completedAt: new Date(),
+      }).where(eq(securityAuditRuns.status, "running")).returning({ id: securityAuditRuns.id });
+      if (result.length > 0) {
+        console.log(`[security-audit] Marked ${result.length} orphan run(s) as interrupted on boot`);
+      }
+    } catch (err: any) {
+      console.error("[security-audit] orphan recovery failed:", err?.message);
+    }
+  })();
+
   app.get("/api/admin/audits", requireAuth, async (req, res) => {
     try {
       if (!(await ensureAdmin(req, res))) return;
