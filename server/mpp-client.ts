@@ -174,7 +174,7 @@ export function isServerMppReady(): boolean {
 export function getChannelStats() {
   if (!sharedClient) return null;
   return {
-    deposit: CHANNEL_DEPOSIT,
+    deposit: CHANNEL_DEPOSIT_TARGET,
     totalSpent: sharedClient.totalSpent,
     totalVoucherAuthorized: sharedClient.totalVoucherAuthorized,
     requestCount: sharedClient.requestCount,
