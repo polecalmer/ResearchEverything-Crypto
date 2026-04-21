@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Shield, Play, Loader2, ChevronRight, Trash2, AlertTriangle, CheckCircle2, AlertCircle, XCircle } from "lucide-react";
+import { Shield, Play, Loader2, ChevronRight, Trash2, AlertTriangle, CheckCircle2, AlertCircle, XCircle, RefreshCw } from "lucide-react";
 import { format } from "date-fns";
 import type { SecurityAuditRun, SecurityAuditFinding } from "@shared/schema";
 import { ADMIN_EMAILS, ADMIN_USERNAMES } from "@shared/constants";
@@ -87,6 +87,21 @@ export default function AdminSecurity() {
     },
   });
 
+  const resetMpp = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("POST", "/api/admin/mpp-reset", {});
+      return res.json();
+    },
+    onSuccess: (data: any) => {
+      const prev = data?.previous;
+      const summary = prev
+        ? `Closed previous channel (${prev.requestCount} reqs, $${Number(prev.totalSpent).toFixed(4)} spent)`
+        : "No previous channel was active";
+      toast({ title: "MPP channel reset", description: `${summary}. Next call will open a fresh channel.` });
+    },
+    onError: (e: any) => toast({ title: "Reset failed", description: e?.message || "Try again", variant: "destructive" }),
+  });
+
   const togglePhase = (key: string) => {
     setEnabledPhases((curr) => curr.includes(key) ? curr.filter((p) => p !== key) : [...curr, key]);
   };
@@ -155,6 +170,17 @@ export default function AdminSecurity() {
           >
             {startMutation.isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Play className="h-3.5 w-3.5 mr-1.5" />}
             Run audit
+          </Button>
+          <Button
+            onClick={() => resetMpp.mutate()}
+            disabled={resetMpp.isPending}
+            variant="outline"
+            className="w-full h-7 text-[11px]"
+            data-testid="button-reset-mpp"
+            title="Force-close the shared MPP channel. Use this if audits/sessions are returning 'payment channel issue' errors."
+          >
+            {resetMpp.isPending ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : <RefreshCw className="h-3 w-3 mr-1.5" />}
+            Reset MPP channel
           </Button>
         </div>
 
