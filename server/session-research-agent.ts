@@ -1763,6 +1763,7 @@ export async function runSessionResearchAgent(
   onPlan?: (plan: ResearchPlan) => void | Promise<void>,
   userId?: string,
   isDataMode?: boolean,
+  disableStreaming?: boolean,
 ): Promise<ResearchResponse> {
   const isChart = isDataMode || (!forceMode && isChartRequest(userMessage));
 
@@ -2037,7 +2038,7 @@ export async function runSessionResearchAgent(
     };
 
     let response: AnthropicRawResponse;
-    const needsStreaming = !isChart && mode !== "quick";
+    const needsStreaming = !disableStreaming && !isChart && mode !== "quick";
     const apiCall = needsStreaming ? callAnthropicRawStreaming : callAnthropicRaw;
     try {
       response = await apiCall(requestBody);

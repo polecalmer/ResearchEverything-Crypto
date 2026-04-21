@@ -224,6 +224,7 @@ export async function runSecurityAudit(opts: {
         undefined,
         opts.userId,
         false,
+        true, // disableStreaming — audits use non-streaming POST for transport robustness
       );
       response = (result as any).content || "";
       cost = typeof (result as any).mppCost === "number" ? (result as any).mppCost : 0;
