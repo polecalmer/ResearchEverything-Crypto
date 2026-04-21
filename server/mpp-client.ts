@@ -78,6 +78,12 @@ function forceNewChannel() {
   sharedClient = null;
 }
 
+export function resetMppChannel(): { previousState: ReturnType<typeof getChannelStats> } {
+  const prev = getChannelStats();
+  forceNewChannel();
+  return { previousState: prev };
+}
+
 function extractCostFromResponse(response: any, state: MppClientState): { cost: number; source: CostSource } {
   const prevSpent = state.totalSpent;
   const prevVoucher = state.totalVoucherAuthorized;

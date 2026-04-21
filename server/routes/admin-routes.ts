@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { storage } from "../storage";
 import { requireAuth } from "../auth";
-import { getChannelStats } from "../mpp-client";
+import { getChannelStats, resetMppChannel } from "../mpp-client";
 import { checkCostAlert } from "../cost-alert";
 import { getWalletInfo, closeAllChannels, requestCloseChannel, withdrawChannel, getOnChainCostReport } from "../wallet-manager";
 import { analyzeFailurePatterns } from "../data-agent";
@@ -122,6 +122,19 @@ export function registerAdminRoutes(app: Express) {
       userList: userListResult.rows,
       mppChannel: getChannelStats(),
     });
+  });
+
+  app.post("/api/admin/mpp-reset", requireAuth, async (req, res) => {
+    try {
+      const isAdmin = await storage.checkIsAdmin((req as any).user?.id);
+      if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+      const out = resetMppChannel();
+      console.log(`[admin] MPP channel reset by ${(req as any).user?.id}`, out.previousState);
+      res.json({ ok: true, previous: out.previousState, current: getChannelStats() });
+    } catch (e: any) {
+      console.error("[admin/mpp-reset] failed:", e?.message);
+      res.status(500).json({ message: e?.message || "Reset failed" });
+    }
   });
 
   app.get("/api/admin/wallet", requireAuth, async (req, res) => {
