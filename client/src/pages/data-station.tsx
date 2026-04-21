@@ -12,6 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { InlineChart, InlineTable } from "@/components/research-artifacts";
 import type { Artifact } from "@/lib/research-utils";
+import { ArtifactActions, ProvenanceLine } from "@/components/artifact-actions";
 
 interface SavedChart {
   id: string;
@@ -236,13 +237,12 @@ function StationCard({ pc, onRefresh, onDelete, onAddToReport, reports, refreshi
         <InlineChart artifact={pc.artifact} hideSave compact />
       )}
 
-      <div className="px-2 pb-1 -mt-1 flex items-center justify-between text-[8px] text-muted-foreground/35">
-        <span>{format(new Date(pc.updatedAt || pc.createdAt), "MMM d, h:mm a")}</span>
-        {pc.hasRecipe && (
-          <span className="flex items-center gap-1 text-cyan-500/40">
-            <RefreshCw className="h-2 w-2" /> Live data
-          </span>
-        )}
+      <div className="px-2 pb-2 -mt-1 flex items-center justify-between gap-2">
+        <ProvenanceLine
+          source={pc.artifact?.source || (pc.hasRecipe ? "live" : undefined)}
+          lastRefresh={pc.updatedAt || pc.createdAt}
+        />
+        <ArtifactActions chartId={pc.id} chartTitle={pc.title} size="xs" />
       </div>
     </div>
   );
@@ -457,7 +457,7 @@ export default function DataStation() {
   };
 
   return (
-    <div className="flex flex-col h-[calc(100vh-48px)]" data-testid="data-station-page">
+    <div className="flex flex-col h-full min-h-0" data-testid="data-station-page">
       <div className="border-b border-border/15 bg-card/5 px-4 py-2 flex items-center gap-3 shrink-0">
         <div className="flex items-center gap-2">
           <Radio className="h-3.5 w-3.5 text-cyan-400/70" />
