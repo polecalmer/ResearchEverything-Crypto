@@ -134,7 +134,7 @@ export default function AdminSecurity() {
             <Input
               type="number"
               min="0.5"
-              max="50"
+              max="25"
               step="0.5"
               value={budget}
               onChange={(e) => setBudget(e.target.value)}

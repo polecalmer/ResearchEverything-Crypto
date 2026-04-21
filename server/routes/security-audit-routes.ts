@@ -76,8 +76,8 @@ export function registerSecurityAuditRoutes(app: Express) {
         return res.status(400).json({ message: "At least one valid phase is required", validPhases: ALL_PHASES });
       }
       const budgetRaw = Number(req.body?.budgetUsd);
-      if (!Number.isFinite(budgetRaw) || budgetRaw < 0.5 || budgetRaw > 50) {
-        return res.status(400).json({ message: "budgetUsd must be a number between 0.5 and 50" });
+      if (!Number.isFinite(budgetRaw) || budgetRaw < 0.5 || budgetRaw > 25) {
+        return res.status(400).json({ message: "budgetUsd must be a number between 0.5 and 25" });
       }
       const budget = budgetRaw;
 
