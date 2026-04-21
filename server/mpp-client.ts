@@ -184,9 +184,21 @@ function isRetryable(status: number): boolean {
 }
 
 function isChannelError(errMsg: string): boolean {
-  return errMsg.includes("channel") || errMsg.includes("deposit") ||
-    errMsg.includes("insufficient") || errMsg.includes("closed") ||
-    errMsg.includes("expired");
+  const m = errMsg.toLowerCase();
+  return (
+    m.includes("channel closed") ||
+    m.includes("channel expired") ||
+    m.includes("channel not found") ||
+    m.includes("channel terminated") ||
+    m.includes("deposit exceeded") ||
+    m.includes("deposit exhausted") ||
+    m.includes("invalid channel") ||
+    m.includes("insufficientbalance")
+  );
+}
+
+function isTransientChainError(errMsg: string): boolean {
+  return errMsg.includes("Execution reverted") || errMsg.includes("nonce too low") || errMsg.includes("replacement");
 }
 
 async function callAnthropic(request: AnthropicRequest): Promise<AnthropicResponse> {
@@ -255,12 +267,15 @@ async function callAnthropic(request: AnthropicRequest): Promise<AnthropicRespon
       lastError = err as Error;
       const errMsg = (err as any)?.message || "";
 
-      if (errMsg.includes("InsufficientBalance") || errMsg.includes("insufficient funds")) {
-        forceNewChannel();
+      if (errMsg.includes("insufficient funds")) {
         throw new Error("AI service temporarily unavailable — server wallet needs to be topped up.");
       }
-      if (errMsg.includes("Execution reverted")) {
-        forceNewChannel();
+      if (isTransientChainError(errMsg)) {
+        if (attempt < MAX_RETRIES) {
+          console.log(`[MPP-Channel] Transient chain error: "${errMsg.slice(0, 80)}", retrying same channel in ${RETRY_DELAY_MS}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+          continue;
+        }
         throw new Error("AI service payment failed — please try again.");
       }
       if (isChannelError(errMsg)) {
@@ -348,12 +363,15 @@ export async function callAnthropicRaw(request: any): Promise<AnthropicRawRespon
       lastError = err as Error;
       const errMsg = (err as any)?.message || "";
 
-      if (errMsg.includes("InsufficientBalance") || errMsg.includes("insufficient funds")) {
-        forceNewChannel();
+      if (errMsg.includes("insufficient funds")) {
         throw new Error("AI service temporarily unavailable — server wallet needs to be topped up.");
       }
-      if (errMsg.includes("Execution reverted")) {
-        forceNewChannel();
+      if (isTransientChainError(errMsg)) {
+        if (attempt < MAX_RETRIES) {
+          console.log(`[MPP-Channel] Transient chain error: "${errMsg.slice(0, 80)}", retrying same channel in ${RETRY_DELAY_MS}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+          continue;
+        }
         throw new Error("AI service payment failed — please try again.");
       }
       if (isChannelError(errMsg)) {
@@ -523,12 +541,15 @@ export async function callAnthropicRawStreaming(request: any): Promise<Anthropic
       lastError = err as Error;
       const errMsg = (err as any)?.message || "";
 
-      if (errMsg.includes("InsufficientBalance") || errMsg.includes("insufficient funds")) {
-        forceNewChannel();
+      if (errMsg.includes("insufficient funds")) {
         throw new Error("AI service temporarily unavailable — server wallet needs to be topped up.");
       }
-      if (errMsg.includes("Execution reverted")) {
-        forceNewChannel();
+      if (isTransientChainError(errMsg)) {
+        if (attempt < MAX_RETRIES) {
+          console.log(`[MPP-Stream] Transient chain error: "${errMsg.slice(0, 80)}", retrying same channel in ${RETRY_DELAY_MS}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+          continue;
+        }
         throw new Error("AI service payment failed — please try again.");
       }
       if (isChannelError(errMsg)) {
