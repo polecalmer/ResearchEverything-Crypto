@@ -42,7 +42,8 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
   if (!chartConfig || !data?.length) return null;
 
   const { chartType: defaultChartType, xAxis, yAxes } = chartConfig;
-  const isComposedOrDualAxis = defaultChartType === "composed" || (yAxes.length > 1 && inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format) !== inferFormat(yAxes[1]?.dataKey, yAxes[1]?.label, yAxes[1]?.format));
+  const hasExplicitDualAxis = yAxes.length > 1 && yAxes.some((y: any) => y?.yAxisId === "right" || y?.orientation === "right");
+  const isComposedOrDualAxis = defaultChartType === "composed" || hasExplicitDualAxis || (yAxes.length > 1 && inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format) !== inferFormat(yAxes[1]?.dataKey, yAxes[1]?.label, yAxes[1]?.format));
 
   const allFormats = yAxes.map(y => inferFormat(y.dataKey, y.label, y.format));
   const hasRateOrPercent = allFormats.some(f => f === "percent" || f === "ratio");
