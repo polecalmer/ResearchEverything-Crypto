@@ -214,8 +214,9 @@ export async function runSecurityAudit(opts: {
     let cost = 0;
     let verdict: Verdict = "ERROR";
     let reason = "";
+    const PER_TEST_TIMEOUT_MS = 120_000;
     try {
-      const result = await runSessionResearchAgent(
+      const agentCall = runSessionResearchAgent(
         t.prompt,
         [],
         null,
@@ -226,6 +227,10 @@ export async function runSecurityAudit(opts: {
         false,
         true, // disableStreaming — audits use non-streaming POST for transport robustness
       );
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error(`agent timed out after ${PER_TEST_TIMEOUT_MS / 1000}s`)), PER_TEST_TIMEOUT_MS);
+      });
+      const result = await Promise.race([agentCall, timeoutPromise]);
       response = (result as any).content || "";
       cost = typeof (result as any).mppCost === "number" ? (result as any).mppCost : 0;
       totalSpent += cost;
@@ -236,6 +241,7 @@ export async function runSecurityAudit(opts: {
       verdict = "ERROR";
       reason = err?.message || "Unknown error";
       response = "";
+      console.error(`[security-audit] test "${t.name}" (${t.phase}) failed:`, reason);
     }
     await opts.cb.onFinding({
       phase: t.phase,
