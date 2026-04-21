@@ -408,7 +408,7 @@ export default function SessionResearch() {
           <div className="flex items-center gap-1 bg-muted/30 rounded-md p-0.5" data-testid="session-mode-toggle">
             {([
               { key: "research" as const, label: "Research", icon: FlaskConical },
-              { key: "data" as const, label: "Data", icon: BarChart3 },
+              { key: "data" as const, label: "Chart", icon: BarChart3 },
             ]).map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
@@ -504,7 +504,7 @@ export default function SessionResearch() {
           })() : !activeSessionId && messages.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full max-w-lg mx-auto">
               <h2 className="text-lg font-bold text-foreground/90 mb-2">
-                {sessionMode === "data" ? "Data & Charts" : "Sessions"}
+                {sessionMode === "data" ? "Chart Mode" : "Sessions"}
               </h2>
               <p className="text-sm text-muted-foreground/60 mb-8 text-center leading-relaxed">
                 {sessionMode === "data"
