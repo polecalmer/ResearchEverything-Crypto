@@ -909,7 +909,7 @@ function DataSourceBrainPanel() {
     verified_doc: "text-emerald-400",
     verified_runtime: "text-cyan-400",
     observed_once: "text-amber-400",
-    inferred: "text-fuchsia-400",
+    inferred: "text-muted-foreground/70",
     unverified: "text-muted-foreground/60",
   };
 
