@@ -1,8 +1,38 @@
 import { tempo } from "mppx/client";
 import { privateKeyToAccount } from "viem/accounts";
-import { EXTERNAL_URLS } from "./constants";
+import { createPublicClient, http, parseAbi } from "viem";
+import { EXTERNAL_URLS, TOKENS } from "./constants";
 
 const ANTHROPIC_MPP_URL = EXTERNAL_URLS.ANTHROPIC_MPP;
+
+const tempoChain = {
+  id: 4217,
+  name: "Tempo",
+  network: "tempo",
+  nativeCurrency: { name: "USD", symbol: "USD", decimals: 18 },
+  rpcUrls: { default: { http: ["https://rpc.mainnet.tempo.xyz"] } },
+} as const;
+const balanceOfAbi = parseAbi(["function balanceOf(address) view returns (uint256)"]);
+let cachedReadClient: ReturnType<typeof createPublicClient> | null = null;
+function getReadClient() {
+  if (!cachedReadClient) cachedReadClient = createPublicClient({ chain: tempoChain, transport: http() });
+  return cachedReadClient;
+}
+
+async function getUsdcBalance(address: `0x${string}`): Promise<number> {
+  try {
+    const raw = await getReadClient().readContract({
+      address: TOKENS.USDC as `0x${string}`,
+      abi: balanceOfAbi,
+      functionName: "balanceOf",
+      args: [address],
+    }) as bigint;
+    return Number(raw) / 1e6;
+  } catch (err: any) {
+    console.warn(`[MPP-Channel] Could not read USDC balance: ${err?.message}`);
+    return -1;
+  }
+}
 
 export interface AnthropicRequest {
   model: string;
@@ -29,7 +59,9 @@ export interface AnthropicRawResponse {
   costSource: CostSource;
 }
 
-const CHANNEL_DEPOSIT = "50.0";
+const CHANNEL_DEPOSIT_TARGET = 50.0;   // ideal channel deposit (USD)
+const CHANNEL_DEPOSIT_MIN = 2.0;       // never open a channel smaller than this
+const CHANNEL_BALANCE_RESERVE = 0.5;   // leave a small reserve (gas / dust)
 const SHUTDOWN_TIMEOUT_MS = 15000;
 
 interface MppClientState {
@@ -51,13 +83,33 @@ function getAccount() {
   return privateKeyToAccount(privateKey as `0x${string}`);
 }
 
-function getOrCreateClient(): MppClientState {
+async function getOrCreateClient(): Promise<MppClientState> {
   if (sharedClient) return sharedClient;
 
   const account = getAccount();
+
+  // Adapt the channel deposit to the wallet's actual USDC balance.
+  // We can't deposit more than we have, and we want to leave a small reserve.
+  const balance = await getUsdcBalance(account.address as `0x${string}`);
+  let depositUsd: number;
+  if (balance < 0) {
+    // Couldn't read balance; fall back to target and let the SDK error if it must.
+    depositUsd = CHANNEL_DEPOSIT_TARGET;
+    console.warn(`[MPP-Channel] Wallet balance unknown; attempting target deposit $${depositUsd}`);
+  } else {
+    const usable = Math.max(0, balance - CHANNEL_BALANCE_RESERVE);
+    depositUsd = Math.min(CHANNEL_DEPOSIT_TARGET, usable);
+    if (depositUsd < CHANNEL_DEPOSIT_MIN) {
+      throw new Error(
+        `MPP server wallet (${account.address}) has only $${balance.toFixed(4)} USDC — needs at least $${CHANNEL_DEPOSIT_MIN + CHANNEL_BALANCE_RESERVE} USDC to open a payment channel. Please top up the wallet.`
+      );
+    }
+  }
+  const depositStr = depositUsd.toFixed(2);
+
   const session = tempo.session({
     account,
-    maxDeposit: CHANNEL_DEPOSIT,
+    maxDeposit: depositStr,
   });
 
   const state: MppClientState = {
@@ -69,7 +121,7 @@ function getOrCreateClient(): MppClientState {
   };
 
   sharedClient = state;
-  console.log(`[MPP-Channel] Opened shared session (deposit: $${CHANNEL_DEPOSIT}): ${account.address}`);
+  console.log(`[MPP-Channel] Opened shared session (deposit: $${depositStr}, wallet bal: $${balance.toFixed(4)}): ${account.address}`);
   return state;
 }
 
@@ -215,7 +267,7 @@ async function callAnthropic(request: AnthropicRequest): Promise<AnthropicRespon
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const state = getOrCreateClient();
+    const state = await getOrCreateClient();
 
     try {
       const response = await state.session.fetch(ANTHROPIC_MPP_URL, {
@@ -324,7 +376,7 @@ export async function callAnthropicRaw(request: any): Promise<AnthropicRawRespon
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const state = getOrCreateClient();
+    const state = await getOrCreateClient();
 
     try {
       const response = await state.session.fetch(ANTHROPIC_MPP_URL, {
@@ -410,7 +462,7 @@ export async function callAnthropicRawStreaming(request: any): Promise<Anthropic
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
-    const state = getOrCreateClient();
+    const state = await getOrCreateClient();
 
     try {
       const streamRequest = { ...request, stream: true };

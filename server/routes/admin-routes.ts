@@ -129,8 +129,22 @@ export function registerAdminRoutes(app: Express) {
       const isAdmin = await storage.checkIsAdmin((req as any).user?.id);
       if (!isAdmin) return res.status(403).json({ message: "Admin only" });
       const out = resetMppChannel();
-      console.log(`[admin] MPP channel reset by ${(req as any).user?.id}`, out.previousState);
-      res.json({ ok: true, previous: out.previousState, current: getChannelStats() });
+      let walletUsdc: number | null = null;
+      let walletAddress: string | null = null;
+      try {
+        const info = await getWalletInfo();
+        walletUsdc = info.usdcBalance;
+        walletAddress = info.address;
+      } catch (walletErr: any) {
+        console.warn("[admin/mpp-reset] could not read wallet info:", walletErr?.message);
+      }
+      console.log(`[admin] MPP channel reset by ${(req as any).user?.id}`, out.previousState, `walletUsdc=${walletUsdc}`);
+      res.json({
+        ok: true,
+        previous: out.previousState,
+        current: getChannelStats(),
+        wallet: { address: walletAddress, usdcBalance: walletUsdc },
+      });
     } catch (e: any) {
       console.error("[admin/mpp-reset] failed:", e?.message);
       res.status(500).json({ message: e?.message || "Reset failed" });
