@@ -1585,6 +1585,7 @@ async function runChartPipeline(
     const extractResp = await callAnthropicRaw({
       model: MODELS.SONNET,
       max_tokens: 400,
+      temperature: 0,
       system: CHART_EXTRACT_PROMPT,
       messages: [{ role: "user", content: userMessage }],
     });
@@ -1600,6 +1601,46 @@ async function runChartPipeline(
     extracted.transforms = extracted.transforms || [];
     extracted.comparison = extracted.comparison || [];
     extracted.timeRange = extracted.timeRange || "365d";
+
+    // Deterministic post-parser: override LLM extraction with rule-based
+    // signal from the raw user message. The extractor is non-deterministic,
+    // and we've seen identical prompts produce different metric values
+    // ("ma_arr" vs "revenue") on consecutive runs. Belt-and-suspenders.
+    const msg = userMessage.toLowerCase();
+    // Metric: detect MA / annualized / run-rate language
+    const wantsMA = /\b(ma|moving\s*average|trailing|smoothed|30[\s-]?d(ay)?\s*ma|7[\s-]?d(ay)?\s*ma|90[\s-]?d(ay)?\s*ma)\b/.test(msg);
+    const wantsAnnualized = /\b(arr|annualized|annualised|run[\s-]?rate|annual\s*revenue)\b/.test(msg);
+    const wantsRevenue = /\brev(enue)?\b/.test(msg);
+    const wantsFees = /\bfees?\b/.test(msg) && !wantsRevenue;
+    if (wantsAnnualized || (wantsMA && wantsRevenue)) {
+      if (extracted.metric !== "ma_arr" && wantsAnnualized) extracted.metric = "ma_arr";
+      else if (extracted.metric !== "ma_revenue" && wantsMA && wantsRevenue && !wantsAnnualized) extracted.metric = "ma_revenue";
+    } else if (wantsMA && wantsFees) {
+      extracted.metric = "ma_fees";
+    }
+    // Comparison: detect "vs"/"versus"/"compared to"/"overlaid with" + price/tvl/volume
+    const hasVs = /\b(vs\.?|versus|compared\s*to|overlaid\s*with|alongside|over[ -]?la[iy]ed|against)\b/.test(msg);
+    if (hasVs) {
+      const wants = new Set(extracted.comparison || []);
+      if (/\bprice\b/.test(msg)) wants.add("price");
+      if (/\btvl\b/.test(msg)) wants.add("tvl");
+      if (/\bvol(ume)?\b/.test(msg)) wants.add("volume");
+      extracted.comparison = Array.from(wants);
+    }
+    // Time range: detect explicit "last N {days|weeks|months|years}", "YTD", "all-time"
+    const rangeMatch = msg.match(/\blast\s+(\d+)\s*(day|week|month|year|d|w|m|y)s?\b/) ||
+                       msg.match(/\b(\d+)\s*(day|week|month|year|d|w|m|y)s?\b/);
+    if (rangeMatch) {
+      const n = parseInt(rangeMatch[1], 10);
+      const unit = rangeMatch[2][0]; // d/w/m/y
+      const tokenMap: Record<string, string> = { d: "d", w: "w", m: "m", y: "y" };
+      const newRange = `${unit === "m" && n === 6 ? 180 : unit === "m" && n === 3 ? 90 : unit === "m" && n === 1 ? 30 : unit === "y" && n === 1 ? 365 : unit === "w" ? n * 7 : n}${unit === "m" || unit === "y" || unit === "w" ? "d" : tokenMap[unit] || "d"}`;
+      extracted.timeRange = newRange;
+    } else if (/\b(ytd|year[\s-]to[\s-]date)\b/.test(msg)) {
+      extracted.timeRange = "ytd";
+    } else if (/\b(all[\s-]?time|since\s+launch|since\s+inception)\b/.test(msg)) {
+      extracted.timeRange = "all";
+    }
   } catch {
     return { response: null, fallbackContext: "", cost, inputTokens, outputTokens };
   }
@@ -1772,6 +1813,34 @@ async function runChartPipeline(
       };
     } catch (e: any) {
       console.log(`[ChartPipeline] ${recipe.displayLabel} failed: ${e.message}`);
+      // Do NOT fall through to the LLM agent path or the raw revenue/fees
+      // path. Falling through silently produces a *different* chart that
+      // looks plausible but answers a different question (the original
+      // reliability bug: "30D MA ARR vs price" rendered as raw daily
+      // revenue from defillama with a hallucinated subtitle). Instead,
+      // return a plain explanation so the user sees what actually failed.
+      const tickerOrProto = (extracted.ticker || extracted.protocol).toUpperCase();
+      const requested = `${tickerOrProto} ${recipe.displayLabel}${comparisonLabel} — ${rangeLabel}`;
+      const explanation =
+        `I couldn't compute **${requested}**.\n\n` +
+        `**Reason:** ${e.message}\n\n` +
+        `This usually means one of the underlying data sources didn't return enough data for the requested window` +
+        `${(extracted.comparison || []).length > 0 ? ` or a comparison series (${(extracted.comparison || []).join(", ")}) is unavailable for this protocol` : ""}. ` +
+        `I'm intentionally not substituting a different chart — try a shorter window, a different comparison, or remove the overlay.`;
+      return {
+        response: {
+          content: explanation,
+          artifacts: [],
+          mppCost: cost,
+          inputTokens,
+          outputTokens,
+          costBasis: "receipt",
+          toolCalls: ["chart_pipeline_failed"],
+          mode: "focused",
+          modeReason: `recipe ${recipe.key} failed: ${e.message?.slice(0, 80)}`,
+        },
+        fallbackContext: "", cost, inputTokens, outputTokens,
+      };
     }
   }
 
