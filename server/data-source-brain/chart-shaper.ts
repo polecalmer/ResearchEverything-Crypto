@@ -69,13 +69,44 @@ const FMT = (v: number, format: string): string => {
   return v.toFixed(2);
 };
 
+/** Bounded TTL cache for gatherShaperContext results. Most chart sessions
+ *  ask about the same handful of protocols, so caching the brain consult
+ *  output for a short window lets repeat charts skip the consult entirely
+ *  and removes the 500ms timeout-fallback risk on slow consults. */
+const SHAPER_CONTEXT_TTL_MS = 5 * 60 * 1000;
+const SHAPER_CONTEXT_MAX_ENTRIES = 200;
+const shaperContextCache = new Map<string, { facts: string[]; expiresAt: number }>();
+
+function shaperContextCacheKey(protocol: string, denominator?: { protocol: string }): string {
+  const num = (protocol || "").trim().toLowerCase();
+  const den = (denominator?.protocol || "").trim().toLowerCase();
+  return `${num}|${den}`;
+}
+
+/** Test-only hook to reset the in-memory shaper-context cache. */
+export function __resetShaperContextCache(): void {
+  shaperContextCache.clear();
+}
+
 /** Pull short interpretation hints from the data-source brain about the
  *  numerator + denominator protocols. Best-effort — returns [] on any
- *  failure so the shaper still works without context. */
+ *  failure so the shaper still works without context. Results are cached
+ *  in-memory for SHAPER_CONTEXT_TTL_MS to skip repeat consults. */
 export async function gatherShaperContext(
   protocol: string,
   denominator?: { protocol: string },
 ): Promise<string[]> {
+  const cacheKey = shaperContextCacheKey(protocol, denominator);
+  const now = Date.now();
+  const cached = shaperContextCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    // Refresh LRU recency by re-inserting.
+    shaperContextCache.delete(cacheKey);
+    shaperContextCache.set(cacheKey, cached);
+    return cached.facts;
+  }
+  if (cached) shaperContextCache.delete(cacheKey);
+
   const queries = [
     `${protocol} structural facts protocol type fee model`,
   ];
@@ -105,7 +136,16 @@ export async function gatherShaperContext(
       unique.push(c);
     }
   }
-  return unique.slice(0, 4);
+  const facts = unique.slice(0, 4);
+
+  // Bound cache size by evicting oldest entries (Map preserves insertion order).
+  while (shaperContextCache.size >= SHAPER_CONTEXT_MAX_ENTRIES) {
+    const oldestKey = shaperContextCache.keys().next().value;
+    if (oldestKey === undefined) break;
+    shaperContextCache.delete(oldestKey);
+  }
+  shaperContextCache.set(cacheKey, { facts, expiresAt: Date.now() + SHAPER_CONTEXT_TTL_MS });
+  return facts;
 }
 
 /** Compress per-series stats into a JSON block the LLM can reason over. */
