@@ -717,7 +717,7 @@ export async function computeDerivedChart(
     getRevenueSlugs: (slug: string) => string[];
   },
   optionsOrLookback: number | ComputeOptions = 365,
-): Promise<{ data: ComputeResult[]; yAxes: Array<{ dataKey: string; label: string }> }> {
+): Promise<{ data: ComputeResult[]; yAxes: Array<{ dataKey: string; label: string }>; sourcesUsed: DataSourceKey[] }> {
   const opts: ComputeOptions =
     typeof optionsOrLookback === "number" ? { lookbackDays: optionsOrLookback } : optionsOrLookback;
   const lookbackDays = opts.lookbackDays ?? 365;
@@ -779,6 +779,7 @@ export async function computeDerivedChart(
     revenue: "defillama.revenue",
   };
   let denominatorPromise: Promise<Map<string, number>> = Promise.resolve(new Map());
+  let resolvedDenomSource: DataSourceKey | null = null;
   if (recipe.requiresDenominator) {
     if (!opts.denominator) {
       throw new Error(
@@ -808,6 +809,7 @@ export async function computeDerivedChart(
         console.warn(`[DerivedMetrics] denominator resolver dispatch failed: ${e.message}`);
       }
     }
+    resolvedDenomSource = denomSource;
     denominatorPromise = fetchSourceData(denomSource, opts.denominator.protocol, defillama, resolvers);
   }
 
@@ -823,6 +825,22 @@ export async function computeDerivedChart(
   const sourceMap: Record<string, Map<string, number>> = {};
   for (const { key, data } of sourceResults) {
     sourceMap[key] = data;
+  }
+
+  // Track the actual sources that returned data so the chart label credits
+  // the right provider (e.g. stonksonchain rather than the recipe's default
+  // defillama). Only count sources that returned ≥1 datapoint — we don't
+  // want to label a stonksonchain attempt that returned empty.
+  const sourcesUsed: DataSourceKey[] = [];
+  for (let i = 0; i < fetchPlan.length; i++) {
+    const { fetchKey } = fetchPlan[i];
+    const data = sourceResults[i]?.data;
+    if (data && data.size > 0 && !sourcesUsed.includes(fetchKey)) {
+      sourcesUsed.push(fetchKey);
+    }
+  }
+  if (recipe.requiresDenominator && denominatorMap.size > 0 && resolvedDenomSource) {
+    if (!sourcesUsed.includes(resolvedDenomSource)) sourcesUsed.push(resolvedDenomSource);
   }
 
   let marketData = { mcapScale: 0, fdvScale: 0, hasRealFdv: false, adjMcapScale: 0 };

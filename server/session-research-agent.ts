@@ -1392,6 +1392,7 @@ function buildChartResponse(
   pipelineInputTokens: number,
   pipelineOutputTokens: number,
   refreshRecipe?: RefreshRecipe,
+  sourceLabel?: string,
 ): ResearchResponse {
   const sanityIssue = checkChartDataSanity(data, yAxes);
   if (sanityIssue) {
@@ -1407,7 +1408,7 @@ function buildChartResponse(
     const direction = pctChange >= 0 ? "UP" : "DOWN";
     autoSubtitle = `LATEST ${typeof last === "number" ? (Math.abs(last) >= 1e6 ? (last / 1e6).toFixed(1) + "M" : Math.abs(last) >= 1e3 ? (last / 1e3).toFixed(1) + "K" : last.toLocaleString(undefined, { maximumFractionDigits: 1 })) : last} — ${direction} ${Math.abs(pctChange).toFixed(0)}% OVER PERIOD (${data.length} DATA POINTS)`;
   }
-  const source = "DeFiLlama + CoinGecko";
+  const source = sourceLabel || "DeFiLlama + CoinGecko";
   const chartJson: any = {
     chartType,
     title,
@@ -2004,7 +2005,7 @@ export async function runChartPipeline(
     onStep?.({ type: "tool_start", label: `Computing ${recipe.displayLabel} for ${extracted.protocol}`, detail: "deterministic_fetch", round: 0 });
     try {
       const resolvers = { resolveCoinGeckoId, getRevenueSlugs };
-      const { data: chartData, yAxes } = await computeDerivedChart(
+      const { data: chartData, yAxes, sourcesUsed } = await computeDerivedChart(
         recipe,
         extracted.protocol,
         defillama,
@@ -2037,7 +2038,10 @@ export async function runChartPipeline(
         const secondVal = Number(latest[secondKey]);
         if (!isNaN(secondVal)) summaryParts.push(`${yAxes[1].label}: **${fmtVal(secondVal)}**.`);
       }
-      summaryParts.push(`*${chartData.length} daily observations from ${recipe.sources.map(s => s.split(".")[0]).filter((v, i, a) => a.indexOf(v) === i).join(" + ")}.*`);
+      const sourceProviders = (sourcesUsed && sourcesUsed.length > 0 ? sourcesUsed : recipe.sources)
+        .map(s => s.split(".")[0])
+        .filter((v, i, a) => a.indexOf(v) === i);
+      summaryParts.push(`*${chartData.length} daily observations from ${sourceProviders.join(" + ")}.*`);
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(`[ChartPipeline] ${recipe.displayLabel} chart complete in ${elapsed}s — ${chartData.length} data points`);
@@ -2060,7 +2064,15 @@ export async function runChartPipeline(
         ? `${tickerOrProto.toUpperCase()} Share of ${extracted.denominator.protocol.charAt(0).toUpperCase() + extracted.denominator.protocol.slice(1)} ${extracted.denominator.metric.charAt(0).toUpperCase() + extracted.denominator.metric.slice(1)} — ${rangeLabel}`
         : `${tickerOrProto.toUpperCase()} ${recipe.displayLabel}${comparisonLabel} — ${rangeLabel}`;
       const composedType: "line" | "bar" | "area" | "composed" = yAxes.length > 1 ? "composed" : recipe.chartType;
-      const chartResponse = buildChartResponse(composedType, deterministicTitle, chartData, "date", yAxes, summaryParts.join(" "), cost, inputTokens, outputTokens, derivedRecipe);
+      const PROVIDER_LABELS: Record<string, string> = {
+        defillama: "DeFiLlama",
+        coingecko: "CoinGecko",
+        stonksonchain: "Stonksonchain",
+        dune: "Dune",
+        allium: "Allium",
+      };
+      const sourceLabel = sourceProviders.map(p => PROVIDER_LABELS[p] || p).join(" + ") || "DeFiLlama + CoinGecko";
+      const chartResponse = buildChartResponse(composedType, deterministicTitle, chartData, "date", yAxes, summaryParts.join(" "), cost, inputTokens, outputTokens, derivedRecipe, sourceLabel);
 
       // T5: memorialize this chart in the user's brain so identical
       // subsequent requests can short-circuit via T4's cache check.
@@ -2072,7 +2084,7 @@ export async function runChartPipeline(
           ticker: extracted.ticker || "",
           timeRange: extracted.timeRange || "365d",
           comparison: extracted.comparison || [],
-          sources: recipe.sources.map((s) => s.split(".")[0]).filter((v, i, a) => a.indexOf(v) === i),
+          sources: sourceProviders,
           latestValue: isFinite(latestVal) ? latestVal : null,
           latestDate: typeof latest?.date === "string" ? latest.date : null,
           chartPayload: { content: chartResponse.content, artifacts: chartResponse.artifacts },

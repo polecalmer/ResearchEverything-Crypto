@@ -458,6 +458,20 @@ export async function resolveSeriesSource(
 
         const target = ranked.find((r) => r.source === factSource);
         if (target) {
+          // GUARD: stonksonchain's deployer_* endpoints only accept HIP-3
+          // deployer slugs (xyz, felix, …) — they fail/return empty for the
+          // base "hyperliquid"/"hype" protocol itself. Don't promote a
+          // deployer-specific key for the base chain even when the user
+          // pref technically matches the family keyword. The denominator
+          // path needs to fall back to defillama for hyperliquid totals.
+          const isBaseHL = protocolLc === "hyperliquid" || protocolLc === "hype";
+          const isDeployerSpecificKey =
+            typeof target.dataSourceKey === "string" &&
+            target.dataSourceKey.startsWith("stonksonchain.deployer_");
+          if (isBaseHL && isDeployerSpecificKey) {
+            console.log(`[DataSourceBrain] Resolver SKIPPED stonksonchain ${target.dataSourceKey} promotion for base ${protocol} (deployer-only endpoint)`);
+            continue;
+          }
           const oldRank = target.rank;
           target.rank = -100;
           target.reason = `user-pref: ${fact.content.slice(0, 100)}`;
@@ -478,6 +492,14 @@ export async function resolveSeriesSource(
         if (!SPECIALIST_SOURCES.includes(candidate.source)) continue;
         if (!userPrefSpecialistAllow.has(candidate.source)) continue;
         if (candidate.rank <= -100) continue; // already promoted by direct match
+        // Same guard as direct promotion: deployer-specific stonksonchain
+        // keys must not be promoted for the base hyperliquid protocol —
+        // those endpoints require a HIP-3 deployer slug as the coin param.
+        const isBaseHL = protocolLc === "hyperliquid" || protocolLc === "hype";
+        const isDeployerSpecificKey =
+          typeof candidate.dataSourceKey === "string" &&
+          candidate.dataSourceKey.startsWith("stonksonchain.deployer_");
+        if (isBaseHL && isDeployerSpecificKey) continue;
         // hasPositiveCoverage was computed per candidate above; recompute
         // cheaply here by re-checking the brain. Cache-friendly because the
         // earlier consult already warmed everything.
