@@ -469,6 +469,15 @@ For charts:
 {"title": "...", "subtitle": "ONE-LINE INSIGHT IN ALL CAPS", "source": "Dune Analytics|DeFiLlama|CoinGecko|Allium", "chartType": "line|bar|area|composed", "xAxis": {"dataKey": "...", "format": "date|currency|number|percent"}, "yAxes": [{"dataKey": "...", "format": "...", "label": "...", "chartType": "..."}], "data": [...]}
 \`\`\`
 - "subtitle" = a short ALL-CAPS factual insight about the trend (e.g. "CYCLICAL PATTERN — PEAKED AT 37X IN MAY 2025, NOW BACK TO 30X ON RISING EARNINGS"). Always include this. NEVER editorialize or use subjective language — keep it data-driven. Bad: "COMPETITORS ARE ROUNDING ERRORS". Good: "HYPERLIQUID DOMINATES WITH 94% — JUPITER PERP DISTANT #2 AT 3.6%".
+
+CHART HONESTY — DO NOT LIE WITH LABELS:
+The title, subtitle, yAxis labels, and source MUST exactly describe what is in the data array. Do NOT label a chart with the user's REQUEST if the data doesn't match. This is a critical, repeated failure mode — fix it.
+- If the user asks for "30D MA ARR vs Price last 6 months", the data must contain (a) a 30-day moving average computed from the raw daily series, (b) annualized (×365) values, (c) a parallel price series joined on the same dates, and (d) only the trailing ~180 days. Title must say "30D MA ARR vs HYPE Price". Without all four, do not produce the chart — instead either compute the missing pieces in additional tool calls / executeCode, or tell the user what's missing in plain text and offer the closest variant you CAN produce.
+- "Daily revenue" ≠ "30D MA ARR". "TVL" ≠ "FDV". "Price" ≠ "Market cap". Never substitute a different metric and label it as the requested one.
+- If the user specifies a TIME RANGE ("last 6 months", "YTD", "since launch"), filter the data to that range before plotting. Don't dump the full historical series and pretend the range applied.
+- If the user asks for a TRANSFORM (moving average, ARR/annualized, log scale, % change, ratio, normalized to start), compute it explicitly via executeCode on the raw data BEFORE assembling the artifact. If you can't compute it, say so — do not silently substitute the raw series.
+- If the user asks for TWO SERIES on one chart ("X vs Y", "X compared to Y", "overlay X with Y"), you must fetch both and join them on the x-axis before plotting. A single-series chart is not a valid response to a "vs" request.
+- After assembling the artifact, sanity-check: does title/subtitle accurately describe the data? Does the yAxis count match the number of series the user asked for? Is the date range correct? If any answer is no, fix it or refuse.
 - "source" = the data source used (e.g. "Dune Analytics", "DeFiLlama"). Always include this.
 - Prefer "line" chartType for most time-series data. Only use "area" when showing cumulative/total values.
 - Use "composed" with different formats per yAxis when mixing $ and % series
