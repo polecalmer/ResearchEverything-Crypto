@@ -40,35 +40,31 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
-  if (!chartConfig || !data?.length) return null;
 
-  const { chartType: defaultChartType, yAxes } = chartConfig;
+  const safeData = data ?? [];
+  const { chartType: defaultChartType, yAxes } = (chartConfig ?? {}) as any;
+  const safeYAxes: any[] = yAxes ?? [];
+
   // Tolerate older / partial chart payloads that didn't include an explicit xAxis
   // by inferring the first non-yAxis key from the data row.
-  let { xAxis } = chartConfig as any;
-  if (!xAxis?.dataKey && data[0]) {
-    const yKeys = new Set((yAxes || []).map((y: any) => y?.dataKey).filter(Boolean));
-    const inferredKey = Object.keys(data[0]).find((k) => !yKeys.has(k));
+  let xAxis = (chartConfig as any)?.xAxis;
+  if (!xAxis?.dataKey && safeData[0]) {
+    const yKeys = new Set(safeYAxes.map((y: any) => y?.dataKey).filter(Boolean));
+    const inferredKey = Object.keys(safeData[0]).find((k) => !yKeys.has(k));
     if (inferredKey) {
-      const sample = String(data[0][inferredKey] ?? "");
+      const sample = String(safeData[0][inferredKey] ?? "");
       xAxis = { dataKey: inferredKey, format: /^\d{4}-\d{2}/.test(sample) ? "date" : undefined };
     }
   }
-  if (!xAxis?.dataKey || !yAxes?.length) return null;
-  const hasExplicitDualAxis = yAxes.length > 1 && yAxes.some((y: any) => y?.yAxisId === "right" || y?.orientation === "right");
-  const isComposedOrDualAxis = defaultChartType === "composed" || hasExplicitDualAxis || (yAxes.length > 1 && inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format) !== inferFormat(yAxes[1]?.dataKey, yAxes[1]?.label, yAxes[1]?.format));
-
-  const allFormats = yAxes.map(y => inferFormat(y.dataKey, y.label, y.format));
-  const hasRateOrPercent = allFormats.some(f => f === "percent" || f === "ratio");
 
   const [viewMode, setViewMode] = useState<ChartViewMode>(
     (["line", "bar", "area"].includes(defaultChartType) ? defaultChartType : "line") as ChartViewMode
   );
 
   const cumulativeData = useMemo(() => {
-    if (viewMode !== "cumulative") return data;
-    const result = data.map((row: any) => ({ ...row }));
-    for (const y of yAxes) {
+    if (viewMode !== "cumulative") return safeData;
+    const result = safeData.map((row: any) => ({ ...row }));
+    for (const y of safeYAxes) {
       let running = 0;
       for (const row of result) {
         const val = Number(row[y.dataKey]);
@@ -77,27 +73,35 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
       }
     }
     return result;
-  }, [data, yAxes, viewMode]);
+  }, [safeData, safeYAxes, viewMode]);
 
   const pieData = useMemo(() => {
-    if (viewMode !== "pie" || !data.length) return [];
-    const primaryKey = yAxes[0]?.dataKey;
+    if (viewMode !== "pie" || !safeData.length) return [];
+    const primaryKey = safeYAxes[0]?.dataKey;
     if (!primaryKey) return [];
-    if (yAxes.length > 1) {
-      const lastRow = data[data.length - 1];
-      return yAxes.map((y, i) => ({
+    if (safeYAxes.length > 1) {
+      const lastRow = safeData[safeData.length - 1];
+      return safeYAxes.map((y, i) => ({
         name: y.label || y.dataKey.replace(/_/g, " "),
         value: Math.abs(Number(lastRow?.[y.dataKey]) || 0),
         color: CHART_COLORS[i % CHART_COLORS.length],
       })).filter(d => d.value > 0);
     }
-    const recentSlice = data.slice(-Math.min(10, data.length));
+    const recentSlice = safeData.slice(-Math.min(10, safeData.length));
     return recentSlice.map((row: any, i: number) => ({
-      name: String(row[xAxis.dataKey] || `Item ${i}`),
+      name: String(row[xAxis?.dataKey] || `Item ${i}`),
       value: Math.abs(Number(row[primaryKey]) || 0),
       color: CHART_COLORS[i % CHART_COLORS.length],
     })).filter(d => d.value > 0);
-  }, [data, yAxes, xAxis, viewMode]);
+  }, [safeData, safeYAxes, xAxis, viewMode]);
+
+  if (!chartConfig || !data?.length) return null;
+  if (!xAxis?.dataKey || !safeYAxes.length) return null;
+  const hasExplicitDualAxis = safeYAxes.length > 1 && safeYAxes.some((y: any) => y?.yAxisId === "right" || y?.orientation === "right");
+  const isComposedOrDualAxis = defaultChartType === "composed" || hasExplicitDualAxis || (safeYAxes.length > 1 && inferFormat(safeYAxes[0]?.dataKey, safeYAxes[0]?.label, safeYAxes[0]?.format) !== inferFormat(safeYAxes[1]?.dataKey, safeYAxes[1]?.label, safeYAxes[1]?.format));
+
+  const allFormats = safeYAxes.map(y => inferFormat(y.dataKey, y.label, y.format));
+  const hasRateOrPercent = allFormats.some(f => f === "percent" || f === "ratio");
 
   const activeData = viewMode === "cumulative" ? cumulativeData : data;
 
