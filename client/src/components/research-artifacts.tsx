@@ -40,6 +40,7 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
   const { toast } = useToast();
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [savedChartId, setSavedChartId] = useState<string | null>(null);
 
   const safeData = data ?? [];
   const { chartType: defaultChartType, yAxes } = (chartConfig ?? {}) as any;
@@ -320,8 +321,6 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
     }
     return { disabled: false };
   };
-
-  const [savedChartId, setSavedChartId] = useState<string | null>(null);
 
   const handleSaveChart = async () => {
     setSaving(true);
