@@ -1465,6 +1465,13 @@ function ttlForRecipe(metric: string, comparison: string[]): number {
   if (comparison.includes("tvl")) return Math.min(base, 3600);
   return base;
 }
+// A: shared chart cache. All chart-cache facts are written under a sentinel
+// user_id so any user's successful chart can be hit by any other user. Charts
+// are deterministic data primitives, not personal context — they belong in a
+// shared pool. Personal context (notes, observations) still goes under the
+// real user_id elsewhere.
+const SHARED_CHART_USER_ID = "__shared_charts__";
+
 function chartCacheKey(
   metric: string,
   protocol: string,
@@ -1478,12 +1485,11 @@ function chartCacheKey(
 }
 
 /**
- * T4: pre-fetch cache hit. Look up a memorialized chart fact for this user;
- * if its updated_at is within the recipe's TTL, return the cached payload.
- * Returns null on miss or any error (cache is best-effort).
+ * T4: pre-fetch cache hit. Reads from the shared chart pool (any user's
+ * successful chart with the same recipe key counts). Returns null on miss
+ * or any error (cache is best-effort).
  */
 async function readChartCache(
-  userId: string,
   cacheKey: string,
   ttlSeconds: number,
 ): Promise<{ chartPayload: any; ageSeconds: number } | null> {
@@ -1492,7 +1498,7 @@ async function readChartCache(
       SELECT fact, updated_at,
              EXTRACT(EPOCH FROM (now() - updated_at))::int AS age_seconds
       FROM brain_facts
-      WHERE user_id = ${userId} AND fact_id = ${cacheKey}
+      WHERE user_id = ${SHARED_CHART_USER_ID} AND fact_id = ${cacheKey}
       LIMIT 1
     `);
     const row = (rows.rows ?? rows)[0];
@@ -1518,12 +1524,58 @@ async function readChartCache(
 }
 
 /**
- * T5: post-render memorialization. Upsert a fact in brain_facts capturing the
- * computed chart so subsequent identical requests can short-circuit (T4) and
- * so the user's research brain accumulates "what did I look at and when".
+ * B: pre-flight semantic library lookup. Embeds the user's request and
+ * searches the shared chart pool for the closest match by cosine similarity.
+ * Returns a hit only if (a) similarity >= threshold, (b) age <= max TTL of
+ * any recipe (24h — anything older isn't worth showing without recompute).
+ *
+ * Threshold is conservative (0.82) to avoid serving an "HYPE revenue" chart
+ * for a "SOL revenue" question. The embedding includes both the chart topic
+ * and the summary, so paraphrases of the same chart match well.
  */
+async function findSemanticChartMatch(
+  userMessage: string,
+): Promise<{ payload: any; topic: string; ageSeconds: number; similarity: number } | null> {
+  const SIMILARITY_THRESHOLD = 0.82;
+  const MAX_AGE_SECONDS = 24 * 3600;
+  try {
+    const { embed } = await import("./data-source-brain/embeddings");
+    const queryVec = await embed(userMessage, "query");
+    const vec = `[${queryVec.join(",")}]`;
+    const rows: any = await db.execute(sql`
+      SELECT topic, fact,
+             1 - (embedding <=> ${vec}::vector) AS similarity,
+             EXTRACT(EPOCH FROM (now() - updated_at))::int AS age_seconds
+      FROM brain_facts
+      WHERE user_id = ${SHARED_CHART_USER_ID}
+        AND embedding IS NOT NULL
+      ORDER BY embedding <=> ${vec}::vector
+      LIMIT 1
+    `);
+    const row = (rows.rows ?? rows)[0];
+    if (!row) return null;
+    const similarity = Number(row.similarity);
+    const ageSeconds = Number(row.age_seconds);
+    if (similarity < SIMILARITY_THRESHOLD) {
+      console.log(`[ChartPipeline] Semantic miss: best match ${(similarity * 100).toFixed(1)}% < ${SIMILARITY_THRESHOLD * 100}%`);
+      return null;
+    }
+    if (ageSeconds > MAX_AGE_SECONDS) {
+      console.log(`[ChartPipeline] Semantic match too old: ${ageSeconds}s > ${MAX_AGE_SECONDS}s — falling through to recompute`);
+      return null;
+    }
+    let payload: any;
+    try { payload = JSON.parse(row.fact); } catch { return null; }
+    if (!payload?.chartPayload) return null;
+    console.log(`[ChartPipeline] Semantic HIT: "${row.topic}" similarity=${(similarity * 100).toFixed(1)}% age=${ageSeconds}s`);
+    return { payload, topic: row.topic, ageSeconds, similarity };
+  } catch (err: any) {
+    console.warn(`[ChartPipeline] findSemanticChartMatch error:`, err.message);
+    return null;
+  }
+}
+
 async function writeChartCache(
-  userId: string,
   cacheKey: string,
   payload: {
     metric: string;
@@ -1551,7 +1603,7 @@ async function writeChartCache(
     await db.execute(sql`
       INSERT INTO brain_facts (user_id, fact_id, topic, fact, entities, source, date, confidence, embedding, updated_at)
       VALUES (
-        ${userId}, ${cacheKey}, ${topic}, ${fact}, ${entities}::text[],
+        ${SHARED_CHART_USER_ID}, ${cacheKey}, ${topic}, ${fact}, ${entities}::text[],
         ${payload.sources.join("+")}, ${payload.latestDate}, 'verified',
         ${vec}::vector, now()
       )
@@ -1579,6 +1631,43 @@ async function runChartPipeline(
   let cost = 0;
   let inputTokens = 0;
   let outputTokens = 0;
+
+  // B: pre-flight semantic library lookup. Before paying for the extractor
+  // or any data fetches, embed the user's chart request and search the
+  // shared chart pool for a fuzzy match. If we find a fresh, high-similarity
+  // hit, return it immediately. This catches paraphrases ("HYPE annualized
+  // revenue and price last 6m" vs "30D MA ARR vs price 180d") and lets one
+  // user's successful chart serve everyone.
+  try {
+    const semHit = await findSemanticChartMatch(userMessage);
+    if (semHit) {
+      onStep?.({
+        type: "tool_result",
+        label: `Library hit (${semHit.ageSeconds}s old, ${(semHit.similarity * 100).toFixed(0)}% match) — ${semHit.topic}`,
+        detail: "shared_library",
+        round: 0,
+      });
+      const cached = semHit.payload.chartPayload;
+      if (cached?.content && cached?.artifacts) {
+        return {
+          response: {
+            content: cached.content,
+            artifacts: cached.artifacts,
+            mppCost: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            costBasis: "receipt",
+            toolCalls: ["shared_library_hit"],
+            mode: "focused",
+            modeReason: `shared library hit (${(semHit.similarity * 100).toFixed(0)}% similar, ${semHit.ageSeconds}s old)`,
+          },
+          fallbackContext: "", cost, inputTokens, outputTokens,
+        };
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[ChartPipeline] semantic preflight skipped:`, err.message);
+  }
 
   let extracted: { protocol: string; ticker: string; metric: string; variants: string[]; timeRange?: string; transforms?: string[]; comparison?: string[] };
   try {
@@ -1683,7 +1772,7 @@ async function runChartPipeline(
     const cacheKey = chartCacheKey(extracted.metric, extracted.protocol, extracted.comparison || [], lookbackDays, extracted.transforms || []);
     const ttl = ttlForRecipe(extracted.metric, extracted.comparison || []);
     if (userId) {
-      const hit = await readChartCache(userId, cacheKey, ttl);
+      const hit = await readChartCache(cacheKey, ttl);
       if (hit) {
         onStep?.({ type: "tool_result", label: `Cache hit (${hit.ageSeconds}s old) — ${recipe.displayLabel}`, detail: "brain_cache", round: 0 });
         const cached = hit.chartPayload;
@@ -1793,7 +1882,7 @@ async function runChartPipeline(
       // subsequent requests can short-circuit via T4's cache check.
       if (userId) {
         // Fire-and-forget; do NOT block the response.
-        writeChartCache(userId, cacheKey, {
+        writeChartCache(cacheKey, {
           metric: extracted.metric,
           protocol: extracted.protocol,
           ticker: extracted.ticker || "",
