@@ -42,7 +42,19 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
   const [saved, setSaved] = useState(false);
   if (!chartConfig || !data?.length) return null;
 
-  const { chartType: defaultChartType, xAxis, yAxes } = chartConfig;
+  const { chartType: defaultChartType, yAxes } = chartConfig;
+  // Tolerate older / partial chart payloads that didn't include an explicit xAxis
+  // by inferring the first non-yAxis key from the data row.
+  let { xAxis } = chartConfig as any;
+  if (!xAxis?.dataKey && data[0]) {
+    const yKeys = new Set((yAxes || []).map((y: any) => y?.dataKey).filter(Boolean));
+    const inferredKey = Object.keys(data[0]).find((k) => !yKeys.has(k));
+    if (inferredKey) {
+      const sample = String(data[0][inferredKey] ?? "");
+      xAxis = { dataKey: inferredKey, format: /^\d{4}-\d{2}/.test(sample) ? "date" : undefined };
+    }
+  }
+  if (!xAxis?.dataKey || !yAxes?.length) return null;
   const hasExplicitDualAxis = yAxes.length > 1 && yAxes.some((y: any) => y?.yAxisId === "right" || y?.orientation === "right");
   const isComposedOrDualAxis = defaultChartType === "composed" || hasExplicitDualAxis || (yAxes.length > 1 && inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format) !== inferFormat(yAxes[1]?.dataKey, yAxes[1]?.label, yAxes[1]?.format));
 
@@ -89,7 +101,7 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
 
   const activeData = viewMode === "cumulative" ? cumulativeData : data;
 
-  const isDate = xAxis.format === "date" || (data[0]?.[xAxis.dataKey] && /^\d{4}-\d{2}/.test(String(data[0][xAxis.dataKey])));
+  const isDate = xAxis?.format === "date" || (xAxis?.dataKey && data[0]?.[xAxis.dataKey] && /^\d{4}-\d{2}/.test(String(data[0][xAxis.dataKey])));
 
   const lastRow = activeData[activeData.length - 1];
   const primaryKey = yAxes[0]?.dataKey;
