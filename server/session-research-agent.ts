@@ -6,6 +6,8 @@ import * as defillama from "./defillama-client";
 import * as vm from "vm";
 import { retrieveRelevantContext, formatRetrievedContext } from "./brain-retrieval";
 import { storage } from "./storage";
+import { db } from "./db";
+import { sql } from "drizzle-orm";
 import { MODELS } from "./constants";
 import {
   consultForTool,
@@ -34,6 +36,8 @@ export interface RefreshRecipe {
   slug?: string;
   coinId?: string;
   timeWindowDays: number;
+  comparison?: string[];
+  transforms?: string[];
 }
 
 export interface ResearchArtifact {
@@ -1318,27 +1322,39 @@ interface ChartPipelineResult {
   outputTokens: number;
 }
 
-const CHART_EXTRACT_PROMPT = `Extract the protocol/token and metric from this chart request. Return ONLY valid JSON:
-{"protocol": "<protocol name>", "ticker": "<token ticker>", "metric": "<metric category>", "variants": ["<variant1>", ...]}
+const CHART_EXTRACT_PROMPT = `Extract the protocol/token and chart intent from this request. Return ONLY valid JSON:
+{"protocol": "<protocol name>", "ticker": "<token ticker>", "metric": "<metric category>", "variants": ["<variant1>", ...], "timeRange": "<range token>", "transforms": ["<transform>", ...], "comparison": ["<series>", ...]}
 
-metric must be one of: pe_ratio, ps_ratio, take_rate, capital_efficiency, revenue_growth, fee_growth, volume_tvl_ratio, fdv_tvl, revenue, fees, tvl, volume, price, market_share, custom
-variants are specific sub-metrics the user wants (e.g. ["MCAP", "FDV", "Adj MCAP"] for a P/E chart)
+metric must be one of: pe_ratio, ps_ratio, take_rate, capital_efficiency, revenue_growth, fee_growth, volume_tvl_ratio, fdv_tvl, revenue, fees, tvl, volume, price, market_share, ma_arr, ma_revenue, ma_fees, custom
+- ma_arr = moving-average annualized run-rate revenue (revenue → MA → ×365). Use whenever user says "ARR", "annualized revenue", "MA ARR", "run rate", "30D ARR", etc.
+- ma_revenue = moving-average daily revenue (no annualization). Use when user says "smoothed revenue", "30D MA revenue", "trailing average revenue".
+- ma_fees = moving-average daily fees.
+
+variants are specific sub-metrics the user wants (e.g. ["MCAP", "FDV", "Adj MCAP"] for a P/E chart). Use [] if not applicable.
+
+timeRange: short token like "7d", "30d", "90d", "180d", "365d", "ytd", "all". Map natural language as follows: "last week"→"7d", "last month"→"30d", "last quarter"→"90d", "last 3 months"→"90d", "last 6 months"→"180d", "this year"/"YTD"→"ytd", "last year"→"365d", "since launch"/"all-time"→"all". If no range specified, use "365d".
+
+transforms: list of transforms to apply to the primary series, in order. Allowed: "ma:7", "ma:30", "ma:90" (moving average over N days), "annualize" (multiply by 365), "pct_change", "log_scale". Empty array if none. NOTE: "ma_arr" recipe already implies ma:30 + annualize — only add transforms here if the user asks for something extra (e.g. ma_arr with ma:7 instead of 30).
+
+comparison: list of additional series to overlay on the SAME chart. Allowed values: "price" (token price overlay), "tvl" (TVL overlay), "volume" (volume overlay), "fees" (fees overlay), "revenue" (revenue overlay). Use [] if no comparison. ALWAYS populate this when the user says "vs", "versus", "compared to", "overlaid with", or "alongside".
 
 If the request is about a CATEGORY of protocols (e.g. "perps market share", "DEX comparison", "L2 TVL") rather than a single specific protocol, set protocol to "" and ticker to "". The agent loop will handle multi-protocol data fetching.
 
 Examples:
-- "Build a P/E chart for HYPE (MCAP, FDV and Adj MCAP)" → {"protocol": "hyperliquid", "ticker": "HYPE", "metric": "pe_ratio", "variants": ["MCAP", "FDV", "Adj MCAP"]}
-- "Show me AAVE revenue over time" → {"protocol": "aave", "ticker": "AAVE", "metric": "revenue", "variants": []}
-- "Chart SOL TVL trend" → {"protocol": "solana", "ticker": "SOL", "metric": "tvl", "variants": []}
-- "Compare HYPE fees vs revenue" → {"protocol": "hyperliquid", "ticker": "HYPE", "metric": "fees", "variants": ["fees", "revenue"]}
-- "Show daily volume for Uniswap" → {"protocol": "uniswap", "ticker": "UNI", "metric": "volume", "variants": []}
-- "What's Uniswap's take rate trend?" → {"protocol": "uniswap", "ticker": "UNI", "metric": "take_rate", "variants": []}
-- "Capital efficiency of Aave" → {"protocol": "aave", "ticker": "AAVE", "metric": "capital_efficiency", "variants": []}
-- "Revenue growth chart for Hyperliquid" → {"protocol": "hyperliquid", "ticker": "HYPE", "metric": "revenue_growth", "variants": []}
-- "FDV/TVL ratio for Lido" → {"protocol": "lido", "ticker": "LDO", "metric": "fdv_tvl", "variants": []}
-- "Volume to TVL ratio for Curve" → {"protocol": "curve", "ticker": "CRV", "metric": "volume_tvl_ratio", "variants": []}
-- "Build me a chart that tracks current perps market share" → {"protocol": "", "ticker": "", "metric": "market_share", "variants": ["volume", "revenue"]}
-- "DEX volume comparison chart" → {"protocol": "", "ticker": "", "metric": "volume", "variants": []}`;
+- "Chart Hyperliquid 30D MA ARR vs price over the last 6 months" → {"protocol":"hyperliquid","ticker":"HYPE","metric":"ma_arr","variants":[],"timeRange":"180d","transforms":[],"comparison":["price"]}
+- "Show HYPE annualized revenue vs price YTD" → {"protocol":"hyperliquid","ticker":"HYPE","metric":"ma_arr","variants":[],"timeRange":"ytd","transforms":[],"comparison":["price"]}
+- "30D moving average revenue for Aave last quarter" → {"protocol":"aave","ticker":"AAVE","metric":"ma_revenue","variants":[],"timeRange":"90d","transforms":[],"comparison":[]}
+- "Build a P/E chart for HYPE (MCAP, FDV and Adj MCAP)" → {"protocol":"hyperliquid","ticker":"HYPE","metric":"pe_ratio","variants":["MCAP","FDV","Adj MCAP"],"timeRange":"365d","transforms":[],"comparison":[]}
+- "Show me AAVE revenue over time" → {"protocol":"aave","ticker":"AAVE","metric":"revenue","variants":[],"timeRange":"365d","transforms":[],"comparison":[]}
+- "Chart SOL TVL trend last 6 months" → {"protocol":"solana","ticker":"SOL","metric":"tvl","variants":[],"timeRange":"180d","transforms":[],"comparison":[]}
+- "Compare HYPE fees vs revenue" → {"protocol":"hyperliquid","ticker":"HYPE","metric":"fees","variants":["fees","revenue"],"timeRange":"365d","transforms":[],"comparison":["revenue"]}
+- "Show daily volume for Uniswap" → {"protocol":"uniswap","ticker":"UNI","metric":"volume","variants":[],"timeRange":"365d","transforms":[],"comparison":[]}
+- "What's Uniswap's take rate trend?" → {"protocol":"uniswap","ticker":"UNI","metric":"take_rate","variants":[],"timeRange":"365d","transforms":[],"comparison":[]}
+- "Revenue growth chart for Hyperliquid" → {"protocol":"hyperliquid","ticker":"HYPE","metric":"revenue_growth","variants":[],"timeRange":"365d","transforms":[],"comparison":[]}
+- "FDV/TVL ratio for Lido" → {"protocol":"lido","ticker":"LDO","metric":"fdv_tvl","variants":[],"timeRange":"365d","transforms":[],"comparison":[]}
+- "AAVE TVL overlaid with price last 90 days" → {"protocol":"aave","ticker":"AAVE","metric":"tvl","variants":[],"timeRange":"90d","transforms":[],"comparison":["price"]}
+- "Build me a chart that tracks current perps market share" → {"protocol":"","ticker":"","metric":"market_share","variants":["volume","revenue"],"timeRange":"365d","transforms":[],"comparison":[]}
+- "DEX volume comparison chart" → {"protocol":"","ticker":"","metric":"volume","variants":[],"timeRange":"365d","transforms":[],"comparison":[]}`;
 
 function checkChartDataSanity(data: any[], yAxes: Array<{ dataKey: string; label: string }>): string | null {
   if (!data || data.length === 0) return "No data returned";
@@ -1422,20 +1438,153 @@ function buildChartResponse(
   };
 }
 
+// TTL (seconds) per derived recipe family. Keep generous on heavy/slow series.
+const CHART_CACHE_TTL_SECONDS: Record<string, number> = {
+  ma_arr: 24 * 3600,
+  ma_revenue: 24 * 3600,
+  ma_fees: 24 * 3600,
+  revenue: 24 * 3600,
+  fees: 24 * 3600,
+  pe_ratio: 24 * 3600,
+  ps_ratio: 24 * 3600,
+  take_rate: 24 * 3600,
+  capital_efficiency: 24 * 3600,
+  revenue_growth: 24 * 3600,
+  fee_growth: 24 * 3600,
+  fdv_tvl: 3600,
+  volume_tvl_ratio: 3600,
+  tvl: 3600,
+  volume: 3600,
+  price: 5 * 60,
+  market_share: 24 * 3600,
+};
+function ttlForRecipe(metric: string, comparison: string[]): number {
+  const base = CHART_CACHE_TTL_SECONDS[metric] ?? 24 * 3600;
+  // Tighten if comparison includes price (price moves fast).
+  if (comparison.includes("price")) return Math.min(base, 5 * 60);
+  if (comparison.includes("tvl")) return Math.min(base, 3600);
+  return base;
+}
+function chartCacheKey(
+  metric: string,
+  protocol: string,
+  comparison: string[],
+  rangeDays: number,
+  transforms: string[] = [],
+): string {
+  const cmp = [...comparison].map(s => s.toLowerCase()).sort().join("+") || "none";
+  const tx = [...transforms].map(s => s.toLowerCase()).sort().join("+") || "none";
+  return `chart-cache:${metric}:${(protocol || "").toLowerCase()}:${cmp}:${rangeDays}d:${tx}`;
+}
+
+/**
+ * T4: pre-fetch cache hit. Look up a memorialized chart fact for this user;
+ * if its updated_at is within the recipe's TTL, return the cached payload.
+ * Returns null on miss or any error (cache is best-effort).
+ */
+async function readChartCache(
+  userId: string,
+  cacheKey: string,
+  ttlSeconds: number,
+): Promise<{ chartPayload: any; ageSeconds: number } | null> {
+  try {
+    const rows: any = await db.execute(sql`
+      SELECT fact, updated_at,
+             EXTRACT(EPOCH FROM (now() - updated_at))::int AS age_seconds
+      FROM brain_facts
+      WHERE user_id = ${userId} AND fact_id = ${cacheKey}
+      LIMIT 1
+    `);
+    const row = (rows.rows ?? rows)[0];
+    if (!row) return null;
+    const age = Number(row.age_seconds);
+    if (age > ttlSeconds) {
+      console.log(`[ChartPipeline] Cache MISS (stale): ${cacheKey} age=${age}s ttl=${ttlSeconds}s`);
+      return null;
+    }
+    let payload: any;
+    try {
+      payload = JSON.parse(row.fact);
+    } catch {
+      return null;
+    }
+    if (!payload || !payload.chartPayload) return null;
+    console.log(`[ChartPipeline] Cache HIT: ${cacheKey} age=${age}s`);
+    return { chartPayload: payload.chartPayload, ageSeconds: age };
+  } catch (err: any) {
+    console.warn(`[ChartPipeline] readChartCache error:`, err.message);
+    return null;
+  }
+}
+
+/**
+ * T5: post-render memorialization. Upsert a fact in brain_facts capturing the
+ * computed chart so subsequent identical requests can short-circuit (T4) and
+ * so the user's research brain accumulates "what did I look at and when".
+ */
+async function writeChartCache(
+  userId: string,
+  cacheKey: string,
+  payload: {
+    metric: string;
+    protocol: string;
+    ticker: string;
+    timeRange: string;
+    comparison: string[];
+    sources: string[];
+    latestValue: number | null;
+    latestDate: string | null;
+    chartPayload: any;
+    summary: string;
+  },
+): Promise<void> {
+  try {
+    const { embed } = await import("./data-source-brain/embeddings");
+    const topic = `Chart: ${payload.ticker || payload.protocol} ${payload.metric}`;
+    const fact = JSON.stringify(payload);
+    const summaryForEmbedding = `${payload.summary}`.slice(0, 1500);
+    const embedVec = await embed(`${topic}\n${summaryForEmbedding}`, "document");
+    const vec = `[${embedVec.join(",")}]`;
+    const entities = [payload.protocol, payload.ticker, payload.metric, ...payload.comparison]
+      .filter(Boolean)
+      .map((e) => String(e).toLowerCase());
+    await db.execute(sql`
+      INSERT INTO brain_facts (user_id, fact_id, topic, fact, entities, source, date, confidence, embedding, updated_at)
+      VALUES (
+        ${userId}, ${cacheKey}, ${topic}, ${fact}, ${entities}::text[],
+        ${payload.sources.join("+")}, ${payload.latestDate}, 'verified',
+        ${vec}::vector, now()
+      )
+      ON CONFLICT (user_id, fact_id) DO UPDATE SET
+        topic = EXCLUDED.topic,
+        fact = EXCLUDED.fact,
+        entities = EXCLUDED.entities,
+        source = EXCLUDED.source,
+        date = EXCLUDED.date,
+        embedding = EXCLUDED.embedding,
+        updated_at = now()
+    `);
+    console.log(`[ChartPipeline] Memorialized: ${cacheKey}`);
+  } catch (err: any) {
+    console.warn(`[ChartPipeline] writeChartCache error:`, err.message);
+  }
+}
+
 async function runChartPipeline(
   userMessage: string,
   onStep?: (step: ThinkingStep) => void,
+  userId?: string,
 ): Promise<ChartPipelineResult> {
   const startTime = Date.now();
   let cost = 0;
   let inputTokens = 0;
   let outputTokens = 0;
 
-  let extracted: { protocol: string; ticker: string; metric: string; variants: string[] };
+  let extracted: { protocol: string; ticker: string; metric: string; variants: string[]; timeRange?: string; transforms?: string[]; comparison?: string[] };
   try {
     const extractResp = await callAnthropicRaw({
       model: MODELS.SONNET,
-      max_tokens: 300,
+      max_tokens: 400,
       system: CHART_EXTRACT_PROMPT,
       messages: [{ role: "user", content: userMessage }],
     });
@@ -1447,21 +1596,113 @@ async function runChartPipeline(
     if (!extracted.protocol) {
       return { response: null, fallbackContext: "", cost, inputTokens, outputTokens };
     }
+    extracted.variants = extracted.variants || [];
+    extracted.transforms = extracted.transforms || [];
+    extracted.comparison = extracted.comparison || [];
+    extracted.timeRange = extracted.timeRange || "365d";
   } catch {
     return { response: null, fallbackContext: "", cost, inputTokens, outputTokens };
   }
 
-  console.log(`[ChartPipeline] Extracted: protocol=${extracted.protocol}, metric=${extracted.metric}, variants=${extracted.variants?.join(",") || "none"}`);
+  console.log(`[ChartPipeline] Extracted: protocol=${extracted.protocol}, metric=${extracted.metric}, timeRange=${extracted.timeRange}, comparison=[${extracted.comparison.join(",")}], transforms=[${extracted.transforms.join(",")}], variants=[${extracted.variants.join(",")}]`);
 
   const { resolveCoinGeckoId, getRevenueSlugs } = await import("./coingecko-ids");
-  const { lookupDerivedMetric, computeDerivedChart } = await import("./data-source-brain/derived-metrics");
+  const { lookupDerivedMetric, computeDerivedChart, parseTimeRangeToDays } = await import("./data-source-brain/derived-metrics");
+  const lookbackDays = parseTimeRangeToDays(extracted.timeRange, 365);
+
+  // Friendly time-range label for chart titles.
+  const rangeLabel = (() => {
+    const t = (extracted.timeRange || "").toLowerCase();
+    if (t === "ytd") return "YTD";
+    if (t === "all") return "All-Time";
+    const m = t.match(/^(\d+)([dwmy])$/);
+    if (m) {
+      const n = parseInt(m[1], 10);
+      const unit = m[2];
+      if (unit === "d" && n === 7) return "Last 7 Days";
+      if (unit === "d" && n === 30) return "Last 30 Days";
+      if (unit === "d" && n === 90) return "Last 90 Days";
+      if (unit === "d" && n === 180) return "Last 6 Months";
+      if (unit === "d" && n === 365) return "Last Year";
+      if (unit === "d") return `Last ${n} Days`;
+      if (unit === "w") return `Last ${n} Weeks`;
+      if (unit === "m") return `Last ${n} Months`;
+      if (unit === "y") return `Last ${n} Year${n > 1 ? "s" : ""}`;
+    }
+    return "Last Year";
+  })();
+
+  const comparisonLabel = (extracted.comparison || []).length > 0
+    ? ` vs ${extracted.comparison.map((c) => c === "price" ? `${(extracted.ticker || extracted.protocol).toUpperCase()} Price` : c.charAt(0).toUpperCase() + c.slice(1)).join(" & ")}`
+    : "";
 
   const recipe = lookupDerivedMetric(extracted.metric);
   if (recipe) {
+    // T4: cache check before any expensive work
+    const cacheKey = chartCacheKey(extracted.metric, extracted.protocol, extracted.comparison || [], lookbackDays, extracted.transforms || []);
+    const ttl = ttlForRecipe(extracted.metric, extracted.comparison || []);
+    if (userId) {
+      const hit = await readChartCache(userId, cacheKey, ttl);
+      if (hit) {
+        onStep?.({ type: "tool_result", label: `Cache hit (${hit.ageSeconds}s old) — ${recipe.displayLabel}`, detail: "brain_cache", round: 0 });
+        const cached = hit.chartPayload;
+        return {
+          response: {
+            content: cached.content,
+            artifacts: cached.artifacts || [],
+            mppCost: 0,
+            inputTokens: 0,
+            outputTokens: 0,
+            costBasis: "receipt",
+            toolCalls: ["chart_cache_hit"],
+            mode: "focused",
+            modeReason: `chart cache hit (${hit.ageSeconds}s old, ttl ${ttl}s)`,
+          },
+          fallbackContext: "", cost, inputTokens, outputTokens,
+        };
+      }
+    }
+
+    // T2 wire-in: consult the data-source brain to confirm the recipe's
+    // primary source is not known-unavailable for this protocol. We log the
+    // resolved order; if the brain has hard-dropped every candidate we abort
+    // early with a useful error rather than letting the fetch silently
+    // succeed-with-empty.
+    try {
+      const { resolveSeriesSource } = await import("./data-source-brain/agent-hooks");
+      const METRIC_TO_INTENT: Record<string, "daily_revenue" | "daily_fees" | "daily_tvl" | "daily_dex_volume" | "daily_derivatives_volume" | "price_history" | undefined> = {
+        ma_arr: "daily_revenue", ma_revenue: "daily_revenue", revenue: "daily_revenue", revenue_growth: "daily_revenue", pe_ratio: "daily_revenue", ps_ratio: "daily_revenue", take_rate: "daily_revenue",
+        ma_fees: "daily_fees", fees: "daily_fees", fee_growth: "daily_fees",
+        tvl: "daily_tvl", capital_efficiency: "daily_tvl", fdv_tvl: "daily_tvl", volume_tvl_ratio: "daily_tvl",
+        volume: "daily_dex_volume",
+        price: "price_history",
+      };
+      const intent = METRIC_TO_INTENT[extracted.metric];
+      if (intent) {
+        const candidates = await resolveSeriesSource(intent, extracted.protocol);
+        console.log(`[ChartPipeline] Brain-resolved sources for ${intent}/${extracted.protocol}: ${candidates.map(c => `${c.source}(rank=${c.rank})`).join(" → ") || "NONE"}`);
+        if (candidates.length === 0) {
+          throw new Error(`No data source available for ${intent} on ${extracted.protocol} — brain has flagged all candidates as unavailable`);
+        }
+      }
+    } catch (err: any) {
+      // Pre-flight is advisory only unless it was the explicit "no candidates" abort.
+      if (err.message?.includes("brain has flagged all candidates")) {
+        throw err;
+      }
+      console.warn(`[ChartPipeline] Brain pre-flight skipped:`, err.message);
+    }
+
     onStep?.({ type: "tool_start", label: `Computing ${recipe.displayLabel} for ${extracted.protocol}`, detail: "deterministic_fetch", round: 0 });
     try {
       const resolvers = { resolveCoinGeckoId, getRevenueSlugs };
-      const { data: chartData, yAxes } = await computeDerivedChart(recipe, extracted.protocol, defillama, resolvers, 365);
+      const { data: chartData, yAxes } = await computeDerivedChart(
+        recipe,
+        extracted.protocol,
+        defillama,
+        resolvers,
+        { lookbackDays, comparison: (extracted.comparison || []) as any[] },
+      );
 
       onStep?.({ type: "tool_result", label: `Computed ${chartData.length} ${recipe.displayLabel} data points`, detail: "deterministic_fetch", round: 0 });
 
@@ -1498,10 +1739,35 @@ async function runChartPipeline(
         ticker: extracted.ticker,
         metric: extracted.metric,
         dataSource: "derived",
-        timeWindowDays: 365,
+        timeWindowDays: lookbackDays,
+        comparison: extracted.comparison || [],
+        transforms: extracted.transforms || [],
       };
+      const tickerOrProto = extracted.ticker || extracted.protocol;
+      const deterministicTitle = `${tickerOrProto.toUpperCase()} ${recipe.displayLabel}${comparisonLabel} — ${rangeLabel}`;
+      const composedType: "line" | "bar" | "area" | "composed" = yAxes.length > 1 ? "composed" : recipe.chartType;
+      const chartResponse = buildChartResponse(composedType, deterministicTitle, chartData, "date", yAxes, summaryParts.join(" "), cost, inputTokens, outputTokens, derivedRecipe);
+
+      // T5: memorialize this chart in the user's brain so identical
+      // subsequent requests can short-circuit via T4's cache check.
+      if (userId) {
+        // Fire-and-forget; do NOT block the response.
+        writeChartCache(userId, cacheKey, {
+          metric: extracted.metric,
+          protocol: extracted.protocol,
+          ticker: extracted.ticker || "",
+          timeRange: extracted.timeRange || "365d",
+          comparison: extracted.comparison || [],
+          sources: recipe.sources.map((s) => s.split(".")[0]).filter((v, i, a) => a.indexOf(v) === i),
+          latestValue: isFinite(latestVal) ? latestVal : null,
+          latestDate: typeof latest?.date === "string" ? latest.date : null,
+          chartPayload: { content: chartResponse.content, artifacts: chartResponse.artifacts },
+          summary: summaryParts.join(" "),
+        }).catch(() => { /* swallow */ });
+      }
+
       return {
-        response: buildChartResponse(recipe.chartType, `${extracted.ticker || extracted.protocol} ${recipe.displayLabel}`, chartData, "date", yAxes, summaryParts.join(" "), cost, inputTokens, outputTokens, derivedRecipe),
+        response: chartResponse,
         fallbackContext: "", cost, inputTokens, outputTokens,
       };
     } catch (e: any) {
@@ -1678,11 +1944,18 @@ export async function executeRefreshRecipe(recipe: RefreshRecipe): Promise<{ dat
     const derivedRecipe = lookupDerivedMetric(recipe.metric);
     if (!derivedRecipe) throw new Error(`Unknown derived metric: ${recipe.metric}`);
     const resolvers = { resolveCoinGeckoId, getRevenueSlugs };
-    const { data, yAxes } = await computeDerivedChart(derivedRecipe, recipe.protocol, defillama, resolvers, recipe.timeWindowDays);
+    const { data, yAxes } = await computeDerivedChart(
+      derivedRecipe,
+      recipe.protocol,
+      defillama,
+      resolvers,
+      { lookbackDays: recipe.timeWindowDays, comparison: (recipe.comparison || []) as any[] },
+    );
+    const composedType: "line" | "bar" | "area" | "composed" = yAxes.length > 1 ? "composed" : derivedRecipe.chartType;
     return {
       data,
       chartConfig: {
-        chartType: derivedRecipe.chartType,
+        chartType: composedType,
         xAxis: { dataKey: "date", format: "date" },
         yAxes: yAxes.map(y => ({ dataKey: y.dataKey, label: y.label })),
       },
@@ -1804,7 +2077,7 @@ export async function runSessionResearchAgent(
 
     onStep?.({ type: "thinking", label: "Chart mode — fetching data..." });
     try {
-      const pipeline = await runChartPipeline(userMessage, onStep);
+      const pipeline = await runChartPipeline(userMessage, onStep, userId);
       totalCost += pipeline.cost;
       totalInputTokens += pipeline.inputTokens;
       totalOutputTokens += pipeline.outputTokens;
