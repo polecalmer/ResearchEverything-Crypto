@@ -65,6 +65,236 @@ Privy with embedded Tempo wallets.
 - Vite for the client (`dist/public`)
 - esbuild for the server bundle (`dist/index.cjs`)
 
+## Architecture
+
+### System overview
+
+The client and the Chrome extension both talk to a single Express API. Every
+request is authenticated by verifying a Privy access token in `requireAuth`
+(`server/auth.ts`). Route modules in `server/routes/` dispatch to specialised
+agents that share three cross-cutting services: the **Research Brain**
+(entities + verified facts + embeddings), the **Analyst Corpus** (crypto
+analyst writings surfaced as a `analyst_perspective` tool), and the **Usage
+Tracker** (writes `transactions` and `usageEvents`, enforces credit
+paywalls). All AI calls are routed through Tempo's MPP proxy to Anthropic;
+all persistence goes through Drizzle to PostgreSQL.
+
+```mermaid
+graph TB
+    subgraph clients[Clients]
+        ui[React SPA<br/>client/]
+        ext[Chrome Extension<br/>extension/]
+    end
+
+    subgraph api[Express API]
+        authmw[requireAuth<br/>Privy token check]
+        routes[Route modules<br/>research, data, enrichment, billing]
+    end
+
+    subgraph agents[AI Agents]
+        planner[Research Planner<br/>Haiku]
+        sra[Session Research Agent<br/>multi-turn + tools]
+        da[Data Agent<br/>query + chart]
+        enr[Enrichment Pipeline<br/>scrape, identify, research, DD]
+    end
+
+    subgraph services[Shared Services]
+        brain[Research Brain<br/>entities + facts + embeddings]
+        corpus[Analyst Corpus]
+        track[Usage Tracker + Paywall]
+    end
+
+    subgraph ext_svc[External Services]
+        claude[Claude via<br/>Tempo MPP]
+        dune[Dune]
+        llama[DeFiLlama]
+        gecko[CoinGecko]
+        allium[Allium]
+        privy[Privy]
+        stripe[Stripe]
+    end
+
+    db[(PostgreSQL via Drizzle<br/>companies, messages, researchBrains,<br/>dashboardCharts, transactions)]
+
+    ui --> authmw
+    ext --> authmw
+    authmw --> privy
+    authmw --> routes
+    routes --> planner
+    routes --> sra
+    routes --> da
+    routes --> enr
+    routes --> track
+    planner --> claude
+    sra --> claude
+    sra --> corpus
+    sra --> brain
+    da --> claude
+    da --> dune
+    da --> llama
+    da --> gecko
+    da --> allium
+    enr --> claude
+    enr --> dune
+    sra --> db
+    da --> db
+    enr --> db
+    brain --> db
+    track --> stripe
+    track --> db
+```
+
+### Flow 1: Deep research session
+
+Entry point: `POST /api/research/sessions/:id/messages` handled in
+`server/routes/research-routes.ts`. The response is an SSE stream — the UI
+receives `step`, `plan`, `mode`, and `done` events as the agent works. The
+planner (`server/research-planner.ts`) classifies intent and decomposes the
+prompt into a `ResearchPlan`; the Session Research Agent
+(`server/session-research-agent.ts`) then runs a multi-turn loop with three
+tools (`web_search`, `analyst_perspective`, `brain_retrieval`). Extracted
+facts and entities are merged back into the Research Brain with
+contradiction detection before the assistant message is persisted.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant UI as React SPA
+    participant API as Express API
+    participant Plan as Research Planner
+    participant SRA as Session Research Agent
+    participant Claude
+    participant Corpus as Analyst Corpus
+    participant Brain as Research Brain
+    participant DB as PostgreSQL
+
+    User->>UI: Send prompt (Research mode)
+    UI->>API: POST sessions/:id/messages
+    API->>API: requireAuth (Privy)
+    API->>DB: Store user message
+    API->>Brain: Load entities + verified facts
+    API-->>UI: Open SSE stream
+    API->>Plan: Classify intent
+    Plan->>Claude: Decompose prompt (Haiku)
+    Plan-->>API: ResearchPlan
+    API->>SRA: Run loop with plan + brain context
+    loop Multi-turn tool use
+        SRA->>Claude: Call with tools
+        Claude-->>SRA: tool_use
+        alt analyst_perspective
+            SRA->>Corpus: Lookup framework
+            Corpus-->>SRA: Excerpts
+        else brain_retrieval
+            SRA->>Brain: Vector search facts
+            Brain-->>SRA: Relevant facts
+        else web_search
+            SRA->>Claude: Built-in web search
+        end
+        SRA-->>API: step event
+        API-->>UI: SSE step
+    end
+    SRA-->>API: Final response + artifacts
+    API->>Brain: Upsert entities, merge facts, flag contradictions
+    API->>DB: Store assistant message
+    API-->>UI: SSE done (message id, artifacts)
+    UI-->>User: Render response + charts / models
+```
+
+### Flow 2: Chart generation (Data mode)
+
+Entry point: `POST /api/companies/:id/charts/generate` in
+`server/routes/data-routes.ts`, gated by `dataChartPaywall` (credit check).
+The Data Agent (`server/data-agent.ts`) extracts the ticker/protocol, looks
+up proven queries for that entity, and tries data sources in order — Dune
+SQL (`server/dune-client.ts`) first, with automatic fallback to DeFiLlama,
+CoinGecko, or Allium. Results go through a cross-source sanity check; the
+final chart plus a `RefreshRecipe` is saved to `dashboardCharts` so the
+Data Station can refresh it later with one click.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant UI as React SPA
+    participant API as Express API
+    participant DA as Data Agent
+    participant Claude
+    participant Dune
+    participant Llama as DeFiLlama
+    participant Gecko as CoinGecko
+    participant Allium
+    participant DB as PostgreSQL
+
+    User->>UI: Send data prompt
+    UI->>API: POST charts/generate
+    API->>API: requireAuth + paywall
+    API->>DB: Load company, token, proven queries
+    API->>DA: Run with context
+    DA->>Claude: Extract ticker / protocol
+    DA->>DB: Lookup proven queries
+    alt Primary source OK
+        DA->>Dune: executeDuneSQL
+        Dune-->>DA: Rows
+    else Fallback chain
+        DA->>Llama: Protocol metrics
+        Llama-->>DA: Series
+        DA->>Gecko: Token price history
+        Gecko-->>DA: Series
+        DA->>Allium: SQL (holders, transfers)
+        Allium-->>DA: Rows
+    end
+    DA->>DA: Cross-source validate + semantic check
+    DA->>Claude: Build chartConfig + RefreshRecipe
+    DA-->>API: Chart plan
+    API->>DB: INSERT dashboardCharts, transactions, usageEvents
+    API-->>UI: JSON chart array
+    UI-->>User: Render chart
+```
+
+### Flow 3: Deal capture via Chrome extension
+
+Entry point: the context-menu handler in `extension/background.js` POSTs the
+link to `/api/companies/enrich-and-create`
+(`server/routes/enrichment-routes.ts`). The enrichment pipeline
+(`server/enrichment.ts`) runs a sequence of Claude agents — identify the
+entity, detect whether it has a liquid token, optionally find and verify the
+contract, then run research, fact-check, and due-diligence passes. The
+result is written to `companies` (plus `founders` and `tokenProfiles` where
+applicable) and an overlay card is shown in the page.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant BG as extension/background.js
+    participant CS as content.js overlay
+    participant API as Express API
+    participant Scrape as Web Scraper
+    participant Enr as Enrichment Pipeline
+    participant Claude
+    participant DB as PostgreSQL
+
+    User->>BG: Right-click -> Add to Sessions
+    BG->>CS: Inject loading card
+    BG->>API: POST enrich-and-create (url, stage)
+    API->>API: requireAuth
+    API->>Scrape: Fetch + parse page
+    Scrape-->>API: Text + metadata
+    API->>Enr: Start session
+    Enr->>Claude: Identifier (name, domain)
+    Enr->>Claude: Token identifier
+    opt Has liquid token
+        Enr->>Claude: Contract finder + verifier
+    end
+    Enr->>Claude: Researcher (team, traction, sector)
+    Enr->>Claude: Fact-checker
+    Enr->>Claude: Due diligence
+    Enr->>DB: INSERT companies, founders, tokenProfiles
+    Enr->>DB: INSERT transactions, usageEvents
+    Enr-->>API: Enriched company
+    API-->>BG: Company JSON
+    BG->>CS: Show success card with dashboard link
+    CS-->>User: Overlay
+```
+
 ## Project Structure
 
 ```
