@@ -4,6 +4,7 @@ import {
   LineChart, Line, BarChart, Bar, AreaChart, Area,
   ComposedChart, PieChart, Pie, Cell,
   XAxis, YAxis, Tooltip, CartesianGrid, Legend,
+  ReferenceDot, Label as RcLabel,
 } from "recharts";
 import { format } from "date-fns";
 import {
@@ -43,8 +44,23 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
   const [savedChartId, setSavedChartId] = useState<string | null>(null);
 
   const safeData = data ?? [];
-  const { chartType: defaultChartType, yAxes } = (chartConfig ?? {}) as any;
+  const { chartType: defaultChartType, yAxes, annotations: rawAnnotations, smoothing: smoothingMode, axisLayout: shaperAxisLayout } = (chartConfig ?? {}) as any;
   const safeYAxes: any[] = yAxes ?? [];
+  // Brain-shaped annotations: validated server-side against real data points,
+  // so we just need to bucket them by series for the renderer to know which
+  // yAxisId to anchor to in dual-axis charts.
+  const annotationsByKey: Record<string, Array<{ date: any; value: number; label: string }>> = useMemo(() => {
+    const out: Record<string, Array<{ date: any; value: number; label: string }>> = {};
+    if (!Array.isArray(rawAnnotations)) return out;
+    for (const a of rawAnnotations as any[]) {
+      if (!a || typeof a.series !== "string") continue;
+      (out[a.series] = out[a.series] || []).push({ date: a.date, value: Number(a.value), label: String(a.label || "") });
+    }
+    return out;
+  }, [rawAnnotations]);
+  const smoothingSuffix =
+    smoothingMode === "7dma" ? " (7-Day MA)" :
+    smoothingMode === "30dma" ? " (30-Day MA)" : "";
 
   // Tolerate older / partial chart payloads that didn't include an explicit xAxis
   // by inferring the first non-yAxis key from the data row.
@@ -99,7 +115,20 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
   if (!chartConfig || !data?.length) return null;
   if (!xAxis?.dataKey || !safeYAxes.length) return null;
   const hasExplicitDualAxis = safeYAxes.length > 1 && safeYAxes.some((y: any) => y?.yAxisId === "right" || y?.orientation === "right");
-  const isComposedOrDualAxis = defaultChartType === "composed" || hasExplicitDualAxis || (safeYAxes.length > 1 && inferFormat(safeYAxes[0]?.dataKey, safeYAxes[0]?.label, safeYAxes[0]?.format) !== inferFormat(safeYAxes[1]?.dataKey, safeYAxes[1]?.label, safeYAxes[1]?.format));
+  // The brain's shaper can override the dual-axis decision: if it picked
+  // "single", honor that even when there are two series with different
+  // formats (e.g. plotting share-of-volume against share-of-fees as a
+  // single percent axis). If it picked "dual", force composed when there's
+  // more than one series. Falls back to format-mismatch heuristic when the
+  // shaper didn't provide a layout (older artifacts / fallback path).
+  const shaperForcesSingle = shaperAxisLayout === "single";
+  const shaperForcesDual = shaperAxisLayout === "dual" && safeYAxes.length > 1;
+  const isComposedOrDualAxis = !shaperForcesSingle && (
+    shaperForcesDual ||
+    defaultChartType === "composed" ||
+    hasExplicitDualAxis ||
+    (safeYAxes.length > 1 && inferFormat(safeYAxes[0]?.dataKey, safeYAxes[0]?.label, safeYAxes[0]?.format) !== inferFormat(safeYAxes[1]?.dataKey, safeYAxes[1]?.label, safeYAxes[1]?.format))
+  );
 
   const allFormats = safeYAxes.map(y => inferFormat(y.dataKey, y.label, y.format));
   const hasRateOrPercent = allFormats.some(f => f === "percent" || f === "ratio");
@@ -230,6 +259,51 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
       />
     ) : null;
 
+    // Render brain-shaped annotations as ReferenceDots with inline labels.
+    // `withYAxisId` is true only inside the ComposedChart branch (where we
+    // declare left/right axes); single-axis charts (Line/Bar/Area) reject
+    // the `yAxisId` prop on ReferenceDot, so we omit it there.
+    const renderAnnotations = (withYAxisId: boolean) => {
+      const out: JSX.Element[] = [];
+      for (let i = 0; i < yAxes.length; i++) {
+        const y = yAxes[i];
+        const list = annotationsByKey[y.dataKey] || [];
+        if (list.length === 0) continue;
+        const color = CHART_COLORS[i % CHART_COLORS.length];
+        const axisId = i === 0 ? "left" : "right";
+        for (let j = 0; j < list.length; j++) {
+          const a = list[j];
+          const dotProps: any = {
+            x: a.date,
+            y: a.value,
+            r: 4,
+            fill: color,
+            stroke: "#fff",
+            strokeWidth: 1.5,
+            ifOverflow: "extendDomain",
+          };
+          if (withYAxisId) dotProps.yAxisId = axisId;
+          out.push(
+            <ReferenceDot key={`anno-${y.dataKey}-${j}`} {...dotProps}>
+              <RcLabel
+                value={a.label}
+                position="top"
+                offset={8}
+                style={{
+                  fill: "rgba(255,255,255,0.85)",
+                  fontSize: 10.5,
+                  fontWeight: 500,
+                  pointerEvents: "none",
+                  textShadow: "0 1px 2px rgba(0,0,0,0.6)",
+                }}
+              />
+            </ReferenceDot>
+          );
+        }
+      }
+      return out;
+    };
+
     if (isComposedOrDualAxis) {
       return (
         <ComposedChart {...commonProps}>
@@ -267,6 +341,7 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
             }
             return <Line key={y.dataKey} yAxisId={axisId} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.2} dot={false} activeDot={{ r: 3, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "#fff", strokeWidth: 1 }} />;
           })}
+          {renderAnnotations(true)}
         </ComposedChart>
       );
     }
@@ -289,6 +364,7 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
           {yAxes.map((y, i) => (
             <Bar key={y.dataKey} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[2, 2, 0, 0]} maxBarSize={48} />
           ))}
+          {renderAnnotations(false)}
         </BarChart>
       );
     }
@@ -299,6 +375,7 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
           {yAxes.map((y, i) => (
             <Area key={y.dataKey} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={viewMode === "cumulative" ? 0.15 : 0.04} dot={false} />
           ))}
+          {renderAnnotations(false)}
         </AreaChart>
       );
     }
@@ -308,6 +385,7 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
         {yAxes.map((y, i) => (
           <Line key={y.dataKey} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.2} dot={false} activeDot={{ r: 3, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "#fff", strokeWidth: 1 }} />
         ))}
+        {renderAnnotations(false)}
       </LineChart>
     );
   };
@@ -356,7 +434,16 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
     <div className={`rounded-lg border border-border/30 bg-card/40 shadow-sm ${compact ? "my-0 p-2" : "my-5 p-5"}`} style={{ overflow: "visible" }}>
       <div className="flex items-start justify-between mb-1">
         <div className="flex-1 min-w-0">
-          {title && <h4 className={`font-semibold text-foreground/90 tracking-tight ${compact ? "text-xs" : "text-sm"}`}>{title}</h4>}
+          {title && (
+            <h4 className={`font-semibold text-foreground/90 tracking-tight ${compact ? "text-xs" : "text-sm"}`} data-testid="text-chart-title">
+              {title}
+              {smoothingSuffix && (
+                <span className="ml-1.5 text-muted-foreground font-normal" data-testid="text-chart-smoothing-badge">
+                  {smoothingSuffix}
+                </span>
+              )}
+            </h4>
+          )}
           {subtitle && <p className={`font-medium text-emerald-400 uppercase tracking-wider mt-1 leading-snug ${compact ? "text-[9px] line-clamp-1" : "text-[11px]"}`}>{subtitle}</p>}
         </div>
         <div className="flex items-center gap-2 ml-4 shrink-0">

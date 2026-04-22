@@ -63,6 +63,10 @@ export interface ResearchArtifact {
      *  "7dma" | "30dma". When set to a non-"none" value, the data values
      *  under each yAxis dataKey are already smoothed. */
     smoothing?: "none" | "7dma" | "30dma";
+    /** Brain-shaped layout decision: "single" forces one y-axis even with
+     *  two series of mixed format; "dual" forces composed/dual axes. The
+     *  client renderer respects this over the format-mismatch heuristic. */
+    axisLayout?: "single" | "dual";
   };
   refreshRecipe?: RefreshRecipe;
   columns?: string[];
@@ -1404,6 +1408,7 @@ function buildChartResponse(
   shaperExtras?: {
     annotations?: Array<{ date: string; value: number; label: string; series: string }>;
     smoothing?: "none" | "7dma" | "30dma";
+    axisLayout?: "single" | "dual";
   },
 ): ResearchResponse {
   const sanityIssue = checkChartDataSanity(data, yAxes);
@@ -1433,6 +1438,7 @@ function buildChartResponse(
   if (refreshRecipe) chartJson.refreshRecipe = refreshRecipe;
   if (shaperExtras?.annotations && shaperExtras.annotations.length > 0) chartJson.annotations = shaperExtras.annotations;
   if (shaperExtras?.smoothing && shaperExtras.smoothing !== "none") chartJson.smoothing = shaperExtras.smoothing;
+  if (shaperExtras?.axisLayout) chartJson.axisLayout = shaperExtras.axisLayout;
   const artifactBlock = "```artifact:chart\n" + JSON.stringify(chartJson) + "\n```";
   const content = `<!-- mode:focused -->\n${summary}\n\n${artifactBlock}`;
   const artifact: ResearchArtifact = {
@@ -1447,6 +1453,7 @@ function buildChartResponse(
       yAxes: yAxes.map(y => ({ dataKey: y.dataKey, label: y.label })),
       ...(shaperExtras?.annotations && shaperExtras.annotations.length > 0 ? { annotations: shaperExtras.annotations } : {}),
       ...(shaperExtras?.smoothing && shaperExtras.smoothing !== "none" ? { smoothing: shaperExtras.smoothing } : {}),
+      ...(shaperExtras?.axisLayout ? { axisLayout: shaperExtras.axisLayout } : {}),
     },
     ...(refreshRecipe ? { refreshRecipe } : {}),
   };
@@ -2113,7 +2120,6 @@ export async function runChartPipeline(
       const deterministicTitle = recipe.requiresDenominator && extracted.denominator
         ? `${tickerOrProto.toUpperCase()} Share of ${extracted.denominator.protocol.charAt(0).toUpperCase() + extracted.denominator.protocol.slice(1)} ${extracted.denominator.metric.charAt(0).toUpperCase() + extracted.denominator.metric.slice(1)} — ${rangeLabel}`
         : `${tickerOrProto.toUpperCase()} ${recipe.displayLabel}${comparisonLabel} — ${rangeLabel}`;
-      const composedType: "line" | "bar" | "area" | "composed" = yAxes.length > 1 ? "composed" : recipe.chartType;
       const PROVIDER_LABELS: Record<string, string> = {
         defillama: "DeFiLlama",
         coingecko: "CoinGecko",
@@ -2122,8 +2128,19 @@ export async function runChartPipeline(
         allium: "Allium",
       };
       const sourceLabel = sourceProviders.map(p => PROVIDER_LABELS[p] || p).join(" + ") || "DeFiLlama + CoinGecko";
+      // Honor the shaper's axisLayout decision: "single" means render with
+      // one y-axis even when there are 2 series (e.g. share-of-volume vs
+      // share-of-fees both as %); "dual" / default → composed with two axes
+      // when there are multiple series. The client also respects this via
+      // chartConfig.axisLayout so the renderer matches the artifact JSON.
+      const composedType: "line" | "bar" | "area" | "composed" =
+        shaped.axisLayout === "single"
+          ? shaped.chartType
+          : shaped.chartType === "composed" || yAxes.length > 1
+            ? "composed"
+            : shaped.chartType;
       const chartResponse = buildChartResponse(
-        shaped.chartType === "composed" || yAxes.length > 1 ? "composed" : shaped.chartType,
+        composedType,
         deterministicTitle,
         shapedChartData,
         "date",
@@ -2134,7 +2151,7 @@ export async function runChartPipeline(
         outputTokens,
         derivedRecipe,
         sourceLabel,
-        { annotations: safeAnnotations, smoothing: shaped.smoothing },
+        { annotations: safeAnnotations, smoothing: shaped.smoothing, axisLayout: shaped.axisLayout },
       );
 
       // T5: memorialize this chart in the user's brain so identical

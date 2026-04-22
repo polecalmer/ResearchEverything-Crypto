@@ -174,7 +174,7 @@ export function parseContentAndArtifacts(content: string, artifacts?: Artifact[]
         const json = JSON.parse(match[2].trim());
         let artifact: Artifact;
         if (type === "chart") {
-          artifact = { type: "chart", title: json.title || "Chart", data: json.data || [], chartConfig: { chartType: json.chartType || "line", xAxis: json.xAxis || { dataKey: "date" }, yAxes: json.yAxes || [] }, ...(json.refreshRecipe ? { refreshRecipe: json.refreshRecipe } : {}) };
+          artifact = { type: "chart", title: json.title || "Chart", data: json.data || [], chartConfig: { chartType: json.chartType || "line", xAxis: json.xAxis || { dataKey: "date" }, yAxes: json.yAxes || [], ...(json.annotations ? { annotations: json.annotations } : {}), ...(json.smoothing ? { smoothing: json.smoothing } : {}), ...(json.axisLayout ? { axisLayout: json.axisLayout } : {}) }, ...(json.refreshRecipe ? { refreshRecipe: json.refreshRecipe } : {}) };
         } else if (type === "metric_cards") {
           artifact = { type: "metric_cards", title: json.title || "Metrics", data: json.data || [] };
         } else if (type === "table") {

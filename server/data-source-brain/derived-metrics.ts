@@ -21,10 +21,19 @@ export interface DerivedMetricRecipe {
   key: string;
   displayLabel: string;
   description: string;
+  /** AUTHORITATIVE: which data sources feed this recipe's compute(). */
   sources: DataSourceKey[];
   trailingWindowDays: number;
+  /** PRESENTATION FALLBACK ONLY. The Chart Shaper (server/data-source-brain/
+   *  chart-shaper.ts) decides chartType per-request from real series stats
+   *  and brain context; this value is used solely as the fallback when the
+   *  shaper LLM call fails or returns invalid output. Do not rely on this
+   *  to drive the rendered form. */
   chartType: "line" | "bar" | "area";
   format: MetricFormat;
+  /** AUTHORITATIVE for the data shape (dataKey order + labels). The Chart
+   *  Shaper does NOT change yAxes — it only decides smoothing, axisLayout
+   *  (single vs dual rendering), annotations, and prose around them. */
   yAxes: Array<{ dataKey: string; label: string }>;
   compute: (ctx: ComputeContext) => ComputeResult[];
   /** True when the recipe needs a denominator series from a different protocol
