@@ -19,25 +19,6 @@ build = ["npm", "run", "build"]
 publicDir = "dist/public"
 
 [workflows]
-runButton = "Project"
-
-[[workflows.workflow]]
-name = "Project"
-mode = "parallel"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Start application"
-
-[[workflows.workflow]]
-name = "Start application"
-author = "agent"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "npm run dev"
-waitForPort = 5000
 
 [agent]
 integrations = ["javascript_anthropic_ai_integrations:2.0.0", "javascript_log_in_with_replit:2.0.0", "github:1.0.0", "stripe:1.0.0"]
