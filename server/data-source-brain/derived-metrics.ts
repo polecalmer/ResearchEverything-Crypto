@@ -806,29 +806,32 @@ export async function computeDerivedChart(
     }
     let denomSource: DataSourceKey = DENOM_METRIC_TO_SOURCE[opts.denominator.metric];
 
-    // APPLES-TO-APPLES guard: when the numerator was substituted to a
-    // stonksonchain HIP-3 deployer source AND the denominator targets
-    // hyperliquid, we MUST use the matching HIP-3 ecosystem aggregate
-    // (stonksonchain.hip3_total_*) — not defillama's "hyperliquid" series,
-    // which only tracks the spot/main DEX and excludes HIP-3 perp volume.
-    // Mixing them produces ratios >100% (deployer notional > spot total)
-    // which the share filter rejects, leaving an "insufficient data" error.
-    const numeratorIsHip3Deployer = fetchPlan.some(
-      (p) => p.fetchKey === "stonksonchain.deployer_volume" || p.fetchKey === "stonksonchain.deployer_fees",
-    );
-    const denomIsHyperliquid = opts.denominator.protocol.toLowerCase().includes("hyperliquid")
-      || opts.denominator.protocol.toLowerCase() === "hl";
-    if (numeratorIsHip3Deployer && denomIsHyperliquid) {
-      const HIP3_AGG_FOR_METRIC: Record<"volume" | "fees" | "revenue", DataSourceKey | null> = {
-        volume: "stonksonchain.hip3_total_volume",
-        fees: "stonksonchain.hip3_total_fees",
-        revenue: null, // no HIP-3 ecosystem revenue aggregate exposed yet
-      };
-      const aggKey = HIP3_AGG_FOR_METRIC[opts.denominator.metric];
-      if (aggKey) {
-        console.log(`[DerivedMetrics] HIP-3 numerator detected → switching denominator from ${denomSource} → ${aggKey} for apples-to-apples ratio`);
-        denomSource = aggKey;
-      }
+    // PERP-DEX denominator routing: defillama's "dex_volume" adapter for a
+    // perp-first venue like Hyperliquid only counts the spot DEX (~$100M/d)
+    // and excludes perp/HIP-3 volume (~$5–8B/d). Naively dividing by the
+    // spot figure produces ratios well over 100% (e.g. TradeXYZ HIP-3
+    // notional $2B / HL spot $139M = ~1700%) which the share filter
+    // rejects, leaving an "insufficient data" error.
+    //
+    // The user asks for "X share of Hyperliquid TOTAL volume" — meaning
+    // all of HL's trading. For perp-first venues, that's the derivatives
+    // adapter, not the dex adapter. Fees are already aggregated across
+    // products by defillama, so no swap needed for share_fees.
+    const PERP_FIRST_VENUES = new Set([
+      "hyperliquid", "hl",
+      "dydx", "dydx-v4",
+      "gmx", "gmx-v2",
+      "vertex", "vertex-protocol",
+      "drift", "drift-protocol",
+      "aevo",
+      "synfutures",
+      "apex-protocol",
+    ]);
+    const denomProtoLc = opts.denominator.protocol.toLowerCase().trim();
+    const denomIsPerpFirst = PERP_FIRST_VENUES.has(denomProtoLc) || denomProtoLc.includes("hyperliquid");
+    if (denomIsPerpFirst && opts.denominator.metric === "volume" && denomSource === "defillama.dex_volume") {
+      console.log(`[DerivedMetrics] Perp-first venue "${opts.denominator.protocol}" detected → swapping denominator from defillama.dex_volume → defillama.derivatives_volume (the spot adapter excludes perp/HIP-3 volume)`);
+      denomSource = "defillama.derivatives_volume";
     }
 
     const denomIntent = SOURCE_KEY_TO_INTENT[denomSource];
@@ -837,11 +840,12 @@ export async function computeDerivedChart(
         const candidates = await resolveSeriesSource(denomIntent, opts.denominator.protocol, { userId: opts.userId });
         const top = candidates[0];
         if (top && top.dataSourceKey && top.dataSourceKey !== denomSource) {
-          // Don't let user-pref promotion clobber an explicit HIP-3
-          // apples-to-apples decision above — that decision is more specific
-          // than a generic "prefer source X for hyperliquid" preference.
-          if (numeratorIsHip3Deployer && denomIsHyperliquid && (denomSource as string).startsWith("stonksonchain.hip3_")) {
-            console.log(`[DerivedMetrics] Keeping HIP-3 aggregate denominator ${denomSource}; ignoring resolver suggestion ${top.dataSourceKey}`);
+          // Don't let user-pref promotion clobber the perp-first venue
+          // routing above — the venue knowledge is more specific than a
+          // generic "prefer source X" preference, and switching back to
+          // a spot-only or HIP-3-only series would silently mis-scale.
+          if (denomIsPerpFirst && denomSource === "defillama.derivatives_volume") {
+            console.log(`[DerivedMetrics] Keeping perp-first denominator ${denomSource}; ignoring resolver suggestion ${top.dataSourceKey}`);
           } else {
             console.log(`[DerivedMetrics] Resolver substituted denominator ${denomSource} → ${top.dataSourceKey} for ${denomIntent}(${opts.denominator.protocol}) [${top.reason}]`);
             denomSource = top.dataSourceKey as DataSourceKey;
