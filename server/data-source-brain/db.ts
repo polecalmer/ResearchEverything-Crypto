@@ -306,6 +306,33 @@ export async function insertSeedFact(seed: SeedFact): Promise<{ inserted: boolea
 }
 
 /**
+ * Direct DB lookup of user-preference facts. User prefs are stored as regular
+ * data_source_facts with `scope_ref` namespaced as `userpref:<userId>:...`,
+ * so this is a deterministic prefix scan rather than an embedding search.
+ *
+ * Returns the per-user coverage facts the synthesis pass has promoted from
+ * the research brain. Empty array on error or when the user has no prefs.
+ */
+export async function getUserPreferenceFacts(userId: string): Promise<DataSourceFact[]> {
+  if (!userId) return [];
+  try {
+    const rows = await db.execute<DataSourceFact>(sql`
+      SELECT id, source, scope, scope_ref AS "scopeRef", category, content,
+             confidence, source_of_fact AS "sourceOfFact",
+             observed_count AS "observedCount",
+             created_at AS "createdAt", last_seen_at AS "lastSeenAt",
+             stale_at AS "staleAt", dedupe_key AS "dedupeKey", embedding
+      FROM data_source_facts
+      WHERE scope_ref LIKE ${`userpref:${userId}:%`}
+    `);
+    return ((rows as any).rows ?? rows) as DataSourceFact[];
+  } catch (err: any) {
+    console.warn(`[DataSourceBrain] getUserPreferenceFacts failed for ${userId}:`, err.message);
+    return [];
+  }
+}
+
+/**
  * Stats for the admin panel.
  */
 export async function getStats(): Promise<{

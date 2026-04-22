@@ -9,7 +9,11 @@ export type DataSourceKey =
   | "defillama.derivatives_volume"
   | "defillama.yield_pools"
   | "coingecko.price"
-  | "coingecko.market_data";
+  | "coingecko.market_data"
+  | "stonksonchain.deployer_fees"
+  | "stonksonchain.deployer_volume"
+  | "stonksonchain.hip3_total_fees"
+  | "stonksonchain.hip3_total_volume";
 
 export type MetricFormat = "ratio" | "currency" | "percent" | "number";
 
@@ -574,6 +578,46 @@ export async function fetchSourceData(
     }
     case "coingecko.market_data":
       break;
+    case "stonksonchain.deployer_fees": {
+      try {
+        const { getDeployerFeesHistory } = await import("../stonks-client");
+        const m = await getDeployerFeesHistory(protocol, 365);
+        for (const [d, v] of m) dateMap.set(d, v);
+      } catch (e: any) {
+        console.log(`[DerivedMetrics] StonksOnChain deployer_fees fetch failed for '${protocol}': ${e.message}`);
+      }
+      break;
+    }
+    case "stonksonchain.deployer_volume": {
+      try {
+        const { getDeployerVolumeHistory } = await import("../stonks-client");
+        const m = await getDeployerVolumeHistory(protocol, 365);
+        for (const [d, v] of m) dateMap.set(d, v);
+      } catch (e: any) {
+        console.log(`[DerivedMetrics] StonksOnChain deployer_volume fetch failed for '${protocol}': ${e.message}`);
+      }
+      break;
+    }
+    case "stonksonchain.hip3_total_fees": {
+      try {
+        const { getHip3TotalFeesHistory } = await import("../stonks-client");
+        const m = await getHip3TotalFeesHistory(365);
+        for (const [d, v] of m) dateMap.set(d, v);
+      } catch (e: any) {
+        console.log(`[DerivedMetrics] StonksOnChain hip3_total_fees fetch failed: ${e.message}`);
+      }
+      break;
+    }
+    case "stonksonchain.hip3_total_volume": {
+      try {
+        const { getHip3TotalVolumeHistory } = await import("../stonks-client");
+        const m = await getHip3TotalVolumeHistory(365);
+        for (const [d, v] of m) dateMap.set(d, v);
+      } catch (e: any) {
+        console.log(`[DerivedMetrics] StonksOnChain hip3_total_volume fetch failed: ${e.message}`);
+      }
+      break;
+    }
     default:
       break;
   }
@@ -646,7 +690,23 @@ export interface ComputeOptions {
   /** Denominator for ratio/share recipes. The named protocol's metric series
    * is fetched and injected into the compute context as denominatorMap. */
   denominator?: { protocol: string; metric: "volume" | "fees" | "revenue" };
+  /** When provided, the data-source resolver may consult user-preference
+   * facts to redirect a recipe's default source to the user's preferred one
+   * (e.g. stonksonchain instead of defillama for HIP-3 metrics). */
+  userId?: string;
 }
+
+/** Map a DataSourceKey to the resolver's series intent so we can ask the
+ *  brain which source should actually serve it. Keys with no entry are not
+ *  rewritable (e.g. coingecko.market_data is a side-channel fetch). */
+const SOURCE_KEY_TO_INTENT: Partial<Record<DataSourceKey, "daily_revenue" | "daily_fees" | "daily_tvl" | "daily_dex_volume" | "daily_derivatives_volume" | "price_history">> = {
+  "defillama.revenue": "daily_revenue",
+  "defillama.fees": "daily_fees",
+  "defillama.tvl": "daily_tvl",
+  "defillama.dex_volume": "daily_dex_volume",
+  "defillama.derivatives_volume": "daily_derivatives_volume",
+  "coingecko.price": "price_history",
+};
 
 export async function computeDerivedChart(
   recipe: DerivedMetricRecipe,
@@ -676,11 +736,37 @@ export async function computeDerivedChart(
   const extraSources: DataSourceKey[] = comparison.map((c) => COMPARISON_TO_SOURCE[c]);
   const uniqueSources = [...new Set([...recipe.sources, ...extraSources])];
 
-  const sourceDataPromises: Promise<{ key: DataSourceKey; data: Map<string, number> }>[] = [];
+  // RESOLVER DISPATCH: ask the data-source brain whether each recipe source
+  // should be redirected. The resolver checks user preferences and brain
+  // coverage facts; if it picks a different source (e.g. stonksonchain for
+  // a HIP-3 deployer's fees), we substitute that source key but keep the
+  // ORIGINAL key as the storage slot so downstream `ctx.fees` / `ctx.volume`
+  // wiring still works without recipe changes.
+  const { resolveSeriesSource } = await import("./agent-hooks");
+  const fetchPlan: Array<{ storeAs: DataSourceKey; fetchKey: DataSourceKey }> = [];
   for (const src of uniqueSources) {
     if (src === "coingecko.market_data") continue;
+    const intent = SOURCE_KEY_TO_INTENT[src];
+    let fetchKey: DataSourceKey = src;
+    if (intent) {
+      try {
+        const candidates = await resolveSeriesSource(intent, protocol, { userId: opts.userId });
+        const top = candidates[0];
+        if (top && top.dataSourceKey && top.dataSourceKey !== src) {
+          console.log(`[DerivedMetrics] Resolver substituted ${src} → ${top.dataSourceKey} for ${intent}(${protocol}) [${top.reason}]`);
+          fetchKey = top.dataSourceKey as DataSourceKey;
+        }
+      } catch (e: any) {
+        console.warn(`[DerivedMetrics] resolver dispatch failed for ${src}/${protocol}: ${e.message}`);
+      }
+    }
+    fetchPlan.push({ storeAs: src, fetchKey });
+  }
+
+  const sourceDataPromises: Promise<{ key: DataSourceKey; data: Map<string, number> }>[] = [];
+  for (const { storeAs, fetchKey } of fetchPlan) {
     sourceDataPromises.push(
-      fetchSourceData(src, protocol, defillama, resolvers).then(data => ({ key: src, data }))
+      fetchSourceData(fetchKey, protocol, defillama, resolvers).then(data => ({ key: storeAs, data }))
     );
   }
 
@@ -708,7 +794,20 @@ export async function computeDerivedChart(
         `Recipe "${recipe.key}" expects denominator.metric="${recipe.numeratorSource}" but got "${opts.denominator.metric}" — refusing to compute a mismatched ratio`,
       );
     }
-    const denomSource = DENOM_METRIC_TO_SOURCE[opts.denominator.metric];
+    let denomSource: DataSourceKey = DENOM_METRIC_TO_SOURCE[opts.denominator.metric];
+    const denomIntent = SOURCE_KEY_TO_INTENT[denomSource];
+    if (denomIntent) {
+      try {
+        const candidates = await resolveSeriesSource(denomIntent, opts.denominator.protocol, { userId: opts.userId });
+        const top = candidates[0];
+        if (top && top.dataSourceKey && top.dataSourceKey !== denomSource) {
+          console.log(`[DerivedMetrics] Resolver substituted denominator ${denomSource} → ${top.dataSourceKey} for ${denomIntent}(${opts.denominator.protocol}) [${top.reason}]`);
+          denomSource = top.dataSourceKey as DataSourceKey;
+        }
+      } catch (e: any) {
+        console.warn(`[DerivedMetrics] denominator resolver dispatch failed: ${e.message}`);
+      }
+    }
     denominatorPromise = fetchSourceData(denomSource, opts.denominator.protocol, defillama, resolvers);
   }
 

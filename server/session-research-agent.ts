@@ -1987,7 +1987,7 @@ export async function runChartPipeline(
       };
       const intent = METRIC_TO_INTENT[extracted.metric];
       if (intent) {
-        const candidates = await resolveSeriesSource(intent, extracted.protocol);
+        const candidates = await resolveSeriesSource(intent, extracted.protocol, { userId });
         console.log(`[ChartPipeline] Brain-resolved sources for ${intent}/${extracted.protocol}: ${candidates.map(c => `${c.source}(rank=${c.rank})`).join(" → ") || "NONE"}`);
         if (candidates.length === 0) {
           throw new Error(`No data source available for ${intent} on ${extracted.protocol} — brain has flagged all candidates as unavailable`);
@@ -2009,7 +2009,7 @@ export async function runChartPipeline(
         extracted.protocol,
         defillama,
         resolvers,
-        { lookbackDays, comparison: (extracted.comparison || []) as any[], denominator: extracted.denominator },
+        { lookbackDays, comparison: (extracted.comparison || []) as any[], denominator: extracted.denominator, userId },
       );
 
       onStep?.({ type: "tool_result", label: `Computed ${chartData.length} ${recipe.displayLabel} data points`, detail: "deterministic_fetch", round: 0 });

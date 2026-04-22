@@ -4,13 +4,14 @@ import { seedCoinGecko } from "./coingecko.js";
 import { seedDune } from "./dune.js";
 import { seedAllium } from "./allium.js";
 import { seedStonksOnChain } from "./stonksonchain.js";
+import { seedHip3Deployers } from "./hip3-deployers.js";
 
 const SEEDERS: Record<Source, () => SeedFact[]> = {
   defillama: seedDeFiLlama,
   coingecko: seedCoinGecko,
   dune: seedDune,
   allium: seedAllium,
-  stonksonchain: seedStonksOnChain,
+  stonksonchain: () => [...seedStonksOnChain(), ...seedHip3Deployers()],
 };
 
 export function getSeedFacts(source: Source): SeedFact[] {

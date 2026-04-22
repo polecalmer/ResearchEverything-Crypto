@@ -45,13 +45,11 @@ export async function seedDataSourceBrain(opts: { force?: boolean } = {}): Promi
     }
     const facts = getAllSeedFacts();
     let inserted = 0;
-    if (!opts.force) {
-      const [{ c }] = await db.select({ c: sql<number>`count(*)::int` }).from(dataSourceFacts);
-      if (Number(c) >= facts.length) {
-        console.log(`[DataSourceBrain] Seed skipped — table has ${c} facts (>= ${facts.length} seeded).`);
-        return { total: facts.length, inserted: 0 };
-      }
-    }
+    // NOTE: we used to short-circuit when `count(*) >= facts.length`, but that
+    // prevented newly added seed entries from ever landing once runtime
+    // observations grew the table past the initial seed count. Always run the
+    // dedupe-key check below — it's a single COUNT + indexed IN-list lookup
+    // and costs ~1ms even at 10k facts.
     // Filter out facts already present (by dedupe_key) so reseeds are idempotent.
     const allKeys = facts.map((f) => factDedupeKey(f.source, f.scope_ref, f.content));
     const existingRows = await db

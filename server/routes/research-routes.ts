@@ -119,6 +119,23 @@ export function registerResearchRoutes(app: Express) {
     }
   });
 
+  // One-shot backfill: synthesizes data-source-brain facts from the calling
+  // user's existing research_brain.preferences. Idempotent — re-runs are
+  // no-ops via observe()'s dedupe key. Used to seed user prefs for users
+  // whose preferences predate the synthesis pass.
+  app.post("/api/brain/synthesize", requireAuth, async (req, res) => {
+    try {
+      const brainRecord = await storage.getResearchBrain(req.user!.id);
+      const prefs = (brainRecord?.preferences as Record<string, any>) || {};
+      const { synthesizeUserPreferenceFacts } = await import("../brain-synthesis");
+      const result = await synthesizeUserPreferenceFacts(req.user!.id, prefs);
+      res.json({ success: true, ...result });
+    } catch (e: any) {
+      console.error("[BrainSynthesize] Error:", e);
+      res.status(500).json({ message: e.message });
+    }
+  });
+
   app.put("/api/brain/preferences", requireAuth, async (req, res) => {
     try {
       const { preferences } = req.body;
@@ -141,6 +158,17 @@ export function registerResearchRoutes(app: Express) {
       }
 
       await storage.upsertResearchBrain(req.user!.id, { preferences: cleaned });
+
+      // Fire-and-forget synthesis: promote any source mentions to data-brain.
+      (async () => {
+        try {
+          const { synthesizeUserPreferenceFacts } = await import("../brain-synthesis");
+          await synthesizeUserPreferenceFacts(req.user!.id, cleaned);
+        } catch (err: any) {
+          console.warn(`[BrainPreferences] synthesis after PUT failed:`, err.message);
+        }
+      })();
+
       res.json({ success: true });
     } catch (e: any) {
       res.status(500).json({ message: e.message });
@@ -386,6 +414,19 @@ export function registerResearchRoutes(app: Express) {
             meta: mergedMeta,
           });
           console.log(`[SessionResearch] Brain merged: ${Object.keys(mergedEntities).length} entities, ${mergedKnowledge.length} facts, ${mergedRelationships.length} rels, ${newContradictions.length} contradictions`);
+
+          // Fire-and-forget: promote any data-source mentions in preferences
+          // into per-user data-source-brain coverage facts so the resolver
+          // can route future chart requests to the user's preferred sources.
+          (async () => {
+            try {
+              const { synthesizeUserPreferenceFacts } = await import("../brain-synthesis");
+              const mergedPrefs = { ...(existing.preferences as any || {}), ...(result.brainUpdates.preferences || {}) };
+              await synthesizeUserPreferenceFacts(req.user!.id, mergedPrefs);
+            } catch (err: any) {
+              console.warn(`[SessionResearch] brain-synthesis after merge failed:`, err.message);
+            }
+          })();
 
           try {
             const { syncBrainFacts, syncBrainEntities } = await import("../brain-embedding-sync");
