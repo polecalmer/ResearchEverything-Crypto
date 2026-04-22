@@ -1848,6 +1848,18 @@ async function attemptFallback(
 
   console.log(`[Data Agent] Attempting fallback for "${plan.title}" (original: ${plan.dataSource}, error: ${error})`);
 
+  // Safety guard: if the original plan describes a derived/share/ratio metric,
+  // refuse to fall back to a single-protocol raw chart. Substituting
+  // "TradeXYZ share of Hyperliquid volume" with Hyperliquid's raw daily
+  // volume (and slapping the share-% wording on as a subtitle) is the
+  // bug that produced the Frankenstein chart. Better to fail clean and
+  // tell the caller we couldn't compute it.
+  const isDerivedRequest = /\bshare\s+of\b|\bratio\b|\bas\s+(?:a\s+)?%|\bpercentage\s+of\b|\b(?:moving\s+average|annualized|ma[-_\s]?\d+|arr)\b/i.test(combined);
+  if (isDerivedRequest) {
+    console.warn(`[Data Agent] Refusing to fall back on derived/share request "${plan.title}" — would mislead user with a non-derived chart`);
+    return null;
+  }
+
   const isPrice = /\bprice\b|price.?history|price.?chart/i.test(combined);
   const isTvl = /\btvl\b|total.?value.?locked|liquidity/i.test(combined);
   const isBorrowedTvl = /active.?loans|outstanding.?borrow|outstanding.?loan|total.?borrow.?outstanding|total.?active.?loan|borrowed.?tvl/i.test(combined);
@@ -2671,6 +2683,71 @@ export async function runDataAgentForSession(
   const startTime = Date.now();
 
   onStep?.({ type: "thinking", label: "Analyzing your request..." });
+
+  // ─── Pipeline A intercept ──────────────────────────────────────────────
+  // Before falling into the legacy single-query planner, give the new
+  // session-research chart pipeline a shot. It knows how to:
+  //   - decompose share-of/ratio prompts into numerator + denominator fetches
+  //   - fan out multi-chart prompts (e.g. "share of vol AND share of fees")
+  //   - produce deterministic titles + percent-formatted y-axes
+  //   - hit the brain cache on identical/paraphrased re-asks
+  // If it returns successful artifacts, we use them directly. Otherwise we
+  // fall through to the legacy data-agent path, which handles SQL-heavy or
+  // contract-address-aware prompts the new pipeline doesn't yet cover.
+  try {
+    const { runChartPipeline, splitChartIntents } = await import("./session-research-agent");
+    const subPrompts = splitChartIntents(userPrompt);
+    if (subPrompts.length > 1) {
+      console.log(`[DataAgentSession] Pipeline A multi-chart fan-out: ${subPrompts.length} sub-prompts`);
+      onStep?.({ type: "tool_start", label: `Multi-chart fan-out — ${subPrompts.length} charts`, detail: "pipeline_a", round: 0 });
+    } else {
+      console.log(`[DataAgentSession] Pipeline A single-intent attempt`);
+    }
+    // Use allSettled so one sub-prompt throwing doesn't discard others'
+    // successful results. We only fall through to the legacy path if NONE
+    // of the sub-prompts produced actual chart artifacts.
+    const settled = await Promise.allSettled(
+      subPrompts.map((sp) => runChartPipeline(sp, onStep, userId)),
+    );
+    const pipelines = settled.flatMap((s) => (s.status === "fulfilled" ? [s.value] : []));
+    for (const s of settled) {
+      if (s.status === "rejected") {
+        console.warn(`[DataAgentSession] Pipeline A sub-prompt rejected: ${s.reason?.message || s.reason}`);
+      }
+    }
+    // A response with zero artifacts means the pipeline ran but produced
+    // no chart (e.g. derived recipe threw "Insufficient data"). That's
+    // NOT a success — fall through to legacy in that case.
+    const successful = pipelines.filter(
+      (p) => p.response && (p.response.artifacts?.length ?? 0) > 0,
+    );
+    if (successful.length > 0) {
+      const totalCost = pipelines.reduce((s, p) => s + (p.cost || 0), 0);
+      const totalIn = pipelines.reduce((s, p) => s + (p.inputTokens || 0), 0);
+      const totalOut = pipelines.reduce((s, p) => s + (p.outputTokens || 0), 0);
+      const artifacts = successful.flatMap((p) => (p.response!.artifacts || []) as SessionDataAgentResult["artifacts"]);
+      const content = successful.map((p) => p.response!.content).join("\n\n---\n\n");
+      onStep?.({ type: "complete", label: `${artifacts.length} chart${artifacts.length === 1 ? "" : "s"} ready`, detail: "pipeline_a" });
+      const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      console.log(`[DataAgentSession] Pipeline A served ${successful.length}/${subPrompts.length} sub-prompts → ${artifacts.length} artifacts in ${elapsed}s`);
+      return {
+        content,
+        artifacts,
+        mppCost: totalCost,
+        inputTokens: totalIn,
+        outputTokens: totalOut,
+        costBasis: "receipt",
+        toolCalls: [artifacts.length > 1 ? "chart_pipeline_multi" : "chart_pipeline"],
+        mode: "focused",
+        modeReason: artifacts.length > 1
+          ? `multi-chart fan-out (${artifacts.length} charts)`
+          : "data mode (chart pipeline)",
+      };
+    }
+    console.log(`[DataAgentSession] Pipeline A produced no artifacts — falling through to legacy data-agent`);
+  } catch (err: any) {
+    console.warn(`[DataAgentSession] Pipeline A intercept failed (non-fatal): ${err.message}`);
+  }
 
   const { callAnthropicRaw } = await import("./mpp-client");
 

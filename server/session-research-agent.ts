@@ -1765,7 +1765,7 @@ async function memorializeAgentChart(
   }
 }
 
-async function runChartPipeline(
+export async function runChartPipeline(
   userMessage: string,
   onStep?: (step: ThinkingStep) => void,
   userId?: string,
