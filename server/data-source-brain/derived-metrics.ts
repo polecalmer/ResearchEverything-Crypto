@@ -805,14 +805,47 @@ export async function computeDerivedChart(
       );
     }
     let denomSource: DataSourceKey = DENOM_METRIC_TO_SOURCE[opts.denominator.metric];
+
+    // APPLES-TO-APPLES guard: when the numerator was substituted to a
+    // stonksonchain HIP-3 deployer source AND the denominator targets
+    // hyperliquid, we MUST use the matching HIP-3 ecosystem aggregate
+    // (stonksonchain.hip3_total_*) — not defillama's "hyperliquid" series,
+    // which only tracks the spot/main DEX and excludes HIP-3 perp volume.
+    // Mixing them produces ratios >100% (deployer notional > spot total)
+    // which the share filter rejects, leaving an "insufficient data" error.
+    const numeratorIsHip3Deployer = fetchPlan.some(
+      (p) => p.fetchKey === "stonksonchain.deployer_volume" || p.fetchKey === "stonksonchain.deployer_fees",
+    );
+    const denomIsHyperliquid = opts.denominator.protocol.toLowerCase().includes("hyperliquid")
+      || opts.denominator.protocol.toLowerCase() === "hl";
+    if (numeratorIsHip3Deployer && denomIsHyperliquid) {
+      const HIP3_AGG_FOR_METRIC: Record<"volume" | "fees" | "revenue", DataSourceKey | null> = {
+        volume: "stonksonchain.hip3_total_volume",
+        fees: "stonksonchain.hip3_total_fees",
+        revenue: null, // no HIP-3 ecosystem revenue aggregate exposed yet
+      };
+      const aggKey = HIP3_AGG_FOR_METRIC[opts.denominator.metric];
+      if (aggKey) {
+        console.log(`[DerivedMetrics] HIP-3 numerator detected → switching denominator from ${denomSource} → ${aggKey} for apples-to-apples ratio`);
+        denomSource = aggKey;
+      }
+    }
+
     const denomIntent = SOURCE_KEY_TO_INTENT[denomSource];
     if (denomIntent) {
       try {
         const candidates = await resolveSeriesSource(denomIntent, opts.denominator.protocol, { userId: opts.userId });
         const top = candidates[0];
         if (top && top.dataSourceKey && top.dataSourceKey !== denomSource) {
-          console.log(`[DerivedMetrics] Resolver substituted denominator ${denomSource} → ${top.dataSourceKey} for ${denomIntent}(${opts.denominator.protocol}) [${top.reason}]`);
-          denomSource = top.dataSourceKey as DataSourceKey;
+          // Don't let user-pref promotion clobber an explicit HIP-3
+          // apples-to-apples decision above — that decision is more specific
+          // than a generic "prefer source X for hyperliquid" preference.
+          if (numeratorIsHip3Deployer && denomIsHyperliquid && (denomSource as string).startsWith("stonksonchain.hip3_")) {
+            console.log(`[DerivedMetrics] Keeping HIP-3 aggregate denominator ${denomSource}; ignoring resolver suggestion ${top.dataSourceKey}`);
+          } else {
+            console.log(`[DerivedMetrics] Resolver substituted denominator ${denomSource} → ${top.dataSourceKey} for ${denomIntent}(${opts.denominator.protocol}) [${top.reason}]`);
+            denomSource = top.dataSourceKey as DataSourceKey;
+          }
         }
       } catch (e: any) {
         console.warn(`[DerivedMetrics] denominator resolver dispatch failed: ${e.message}`);
