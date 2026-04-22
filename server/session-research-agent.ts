@@ -38,6 +38,11 @@ export interface RefreshRecipe {
   timeWindowDays: number;
   comparison?: string[];
   transforms?: string[];
+  /** Denominator for share/ratio recipes. Required for share_volume,
+   * share_fees, share_revenue — without it, refresh of a saved share chart
+   * will throw on re-compute because the recipe needs both numerator and
+   * denominator series. */
+  denominator?: { protocol: string; metric: "volume" | "fees" | "revenue" };
 }
 
 export interface ResearchArtifact {
@@ -1323,12 +1328,13 @@ interface ChartPipelineResult {
 }
 
 const CHART_EXTRACT_PROMPT = `Extract the protocol/token and chart intent from this request. Return ONLY valid JSON:
-{"protocol": "<protocol name>", "ticker": "<token ticker>", "metric": "<metric category>", "variants": ["<variant1>", ...], "timeRange": "<range token>", "transforms": ["<transform>", ...], "comparison": ["<series>", ...]}
+{"protocol": "<protocol name>", "ticker": "<token ticker>", "metric": "<metric category>", "variants": ["<variant1>", ...], "timeRange": "<range token>", "transforms": ["<transform>", ...], "comparison": ["<series>", ...], "denominator": {"protocol":"<other protocol>","metric":"volume|fees|revenue"}}
 
-metric must be one of: pe_ratio, ps_ratio, take_rate, capital_efficiency, revenue_growth, fee_growth, volume_tvl_ratio, fdv_tvl, revenue, fees, tvl, volume, price, market_share, ma_arr, ma_revenue, ma_fees, custom
+metric must be one of: pe_ratio, ps_ratio, take_rate, capital_efficiency, revenue_growth, fee_growth, volume_tvl_ratio, fdv_tvl, revenue, fees, tvl, volume, price, market_share, ma_arr, ma_revenue, ma_fees, share_volume, share_fees, share_revenue, custom
 - ma_arr = moving-average annualized run-rate revenue (revenue → MA → ×365). Use whenever user says "ARR", "annualized revenue", "MA ARR", "run rate", "30D ARR", etc.
 - ma_revenue = moving-average daily revenue (no annualization). Use when user says "smoothed revenue", "30D MA revenue", "trailing average revenue".
 - ma_fees = moving-average daily fees.
+- share_volume / share_fees / share_revenue = the protocol's daily volume/fees/revenue as a percentage of a DIFFERENT denominator protocol's series. Use whenever the user says "share of <other protocol>'s <metric>", "X as % of Y volume", "X's piece of Y fees", etc. When you set one of these, you MUST also populate the "denominator" field with {protocol:"<denominator protocol>", metric:"volume|fees|revenue"}. The numerator is the top-level "protocol" field; the denominator is a different protocol named in the request.
 
 variants are specific sub-metrics the user wants (e.g. ["MCAP", "FDV", "Adj MCAP"] for a P/E chart). Use [] if not applicable.
 
@@ -1353,6 +1359,8 @@ Examples:
 - "Revenue growth chart for Hyperliquid" → {"protocol":"hyperliquid","ticker":"HYPE","metric":"revenue_growth","variants":[],"timeRange":"365d","transforms":[],"comparison":[]}
 - "FDV/TVL ratio for Lido" → {"protocol":"lido","ticker":"LDO","metric":"fdv_tvl","variants":[],"timeRange":"365d","transforms":[],"comparison":[]}
 - "AAVE TVL overlaid with price last 90 days" → {"protocol":"aave","ticker":"AAVE","metric":"tvl","variants":[],"timeRange":"90d","transforms":[],"comparison":["price"]}
+- "Show TradeXYZ as a share of Hyperliquid total volume" → {"protocol":"tradexyz","ticker":"","metric":"share_volume","variants":[],"timeRange":"365d","transforms":[],"comparison":[],"denominator":{"protocol":"hyperliquid","metric":"volume"}}
+- "dYdX share of Hyperliquid fees last 90 days" → {"protocol":"dydx","ticker":"DYDX","metric":"share_fees","variants":[],"timeRange":"90d","transforms":[],"comparison":[],"denominator":{"protocol":"hyperliquid","metric":"fees"}}
 - "Build me a chart that tracks current perps market share" → {"protocol":"","ticker":"","metric":"market_share","variants":["volume","revenue"],"timeRange":"365d","transforms":[],"comparison":[]}
 - "DEX volume comparison chart" → {"protocol":"","ticker":"","metric":"volume","variants":[],"timeRange":"365d","transforms":[],"comparison":[]}`;
 
@@ -1472,16 +1480,67 @@ function ttlForRecipe(metric: string, comparison: string[]): number {
 // real user_id elsewhere.
 const SHARED_CHART_USER_ID = "__shared_charts__";
 
+/**
+ * Split a chart prompt that contains multiple "share of <denom> <metric>"
+ * mentions into N single-intent sub-prompts. Returns the original message in
+ * a single-element array if no fan-out is detected. Deterministic and cheap
+ * — no LLM call. Conservative: only splits when we see ≥2 distinct
+ * (denom, metric) share-of pairs, since that's the only multi-chart pattern
+ * the bug report explicitly identified.
+ */
+export function splitChartIntents(userMessage: string): string[] {
+  const msg = userMessage.toLowerCase();
+  const re = /\bshare\s+of\s+([a-z][\w-]*?)(?:'s|\s+(?:total|daily))?\s+(volume|fees|revenue)\b/gi;
+  const pairs: Array<{ denom: string; metric: string }> = [];
+  const seen = new Set<string>();
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(msg)) !== null) {
+    const denom = m[1].toLowerCase();
+    const metric = m[2].toLowerCase();
+    const key = `${denom}.${metric}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    pairs.push({ denom, metric });
+  }
+  if (pairs.length < 2) return [userMessage];
+
+  // Find a numerator subject. Take the text before the FIRST "share of" and
+  // strip filler verbs/articles ("show", "plot", "chart", "build", "me",
+  // "the", "a", "for", "as", etc.). Pick the last remaining token (which is
+  // usually the protocol/ticker name). Mixed-case names like "dYdX" are
+  // preserved because we lowercase only for matching, not for slicing.
+  const beforeShareRaw = userMessage.split(/\bshare\s+of\b/i)[0].trim();
+  const STOP = new Set([
+    "show", "plot", "chart", "build", "me", "the", "a", "an", "for", "as",
+    "please", "give", "draw", "graph", "render", "visualize", "create",
+    "of", "and", "vs", "versus", "to", "compared", "compare", "with",
+    "is", "are", "what", "what's", "whats", "let", "lets", "let's",
+  ]);
+  const tokens = beforeShareRaw.split(/[\s,;:]+/).filter((t) => {
+    const l = t.toLowerCase().replace(/[^a-z0-9-]/g, "");
+    return l.length > 0 && !STOP.has(l);
+  });
+  const subject = tokens.length > 0 ? tokens[tokens.length - 1] : "this protocol";
+
+  // Reformulate each pair as a clean single-chart prompt the extractor can
+  // parse unambiguously.
+  return pairs.map(
+    (p) => `${subject} share of ${p.denom} ${p.metric}`,
+  );
+}
+
 function chartCacheKey(
   metric: string,
   protocol: string,
   comparison: string[],
   rangeDays: number,
   transforms: string[] = [],
+  denominator?: { protocol: string; metric: string } | null,
 ): string {
   const cmp = [...comparison].map(s => s.toLowerCase()).sort().join("+") || "none";
   const tx = [...transforms].map(s => s.toLowerCase()).sort().join("+") || "none";
-  return `chart-cache:${metric}:${(protocol || "").toLowerCase()}:${cmp}:${rangeDays}d:${tx}`;
+  const den = denominator ? `${denominator.protocol.toLowerCase()}.${denominator.metric.toLowerCase()}` : "none";
+  return `chart-cache:${metric}:${(protocol || "").toLowerCase()}:${cmp}:${rangeDays}d:${tx}:den=${den}`;
 }
 
 /**
@@ -1722,7 +1781,20 @@ async function runChartPipeline(
   // hit, return it immediately. This catches paraphrases ("HYPE annualized
   // revenue and price last 6m" vs "30D MA ARR vs price 180d") and lets one
   // user's successful chart serve everyone.
+  //
+  // EXCEPTION: skip semantic preflight for "share of <X>" prompts. Share
+  // chart identity depends on BOTH the numerator AND denominator protocol,
+  // but the cached topic/embedding text was historically built without the
+  // denominator (it just says "Share of Volume"). A fuzzy hit can therefore
+  // serve "X share of A volume" when the user asked for "X share of B
+  // volume". The deterministic chartCacheKey path (which DOES include the
+  // denominator) handles caching correctly for share recipes.
+  const isShareOfPrompt = /\bshare\s+of\s+[a-z][\w-]*?(?:'s|\s+(?:total|daily))?\s+(volume|fees|revenue)\b/i.test(userMessage);
   try {
+    if (isShareOfPrompt) {
+      console.log(`[ChartPipeline] Skipping semantic preflight for share-of prompt (denominator-sensitive)`);
+      throw new Error("__skip_semantic_preflight__");
+    }
     const semHit = await findSemanticChartMatch(userMessage);
     if (semHit) {
       onStep?.({
@@ -1750,10 +1822,12 @@ async function runChartPipeline(
       }
     }
   } catch (err: any) {
-    console.warn(`[ChartPipeline] semantic preflight skipped:`, err.message);
+    if (err.message !== "__skip_semantic_preflight__") {
+      console.warn(`[ChartPipeline] semantic preflight skipped:`, err.message);
+    }
   }
 
-  let extracted: { protocol: string; ticker: string; metric: string; variants: string[]; timeRange?: string; transforms?: string[]; comparison?: string[] };
+  let extracted: { protocol: string; ticker: string; metric: string; variants: string[]; timeRange?: string; transforms?: string[]; comparison?: string[]; denominator?: { protocol: string; metric: "volume" | "fees" | "revenue" } };
   try {
     const extractResp = await callAnthropicRaw({
       model: MODELS.SONNET,
@@ -1814,6 +1888,25 @@ async function runChartPipeline(
     } else if (/\b(all[\s-]?time|since\s+launch|since\s+inception)\b/.test(msg)) {
       extracted.timeRange = "all";
     }
+    // Deterministic share-metric detection. The LLM occasionally returns
+    // metric:"volume" (or "fees") for "X share of Y volume" prompts, dropping
+    // the ratio entirely and rendering Y's absolute series with X's name —
+    // exactly the bug we're fixing. Pattern-match "share of <name> <metric>"
+    // (or "<metric> of <name>") to lock in share_* + denominator.
+    const shareMatch = msg.match(/\bshare\s+of\s+([a-z][\w-]*?)(?:'s|\s+(?:total|daily))?\s+(volume|fees|revenue)\b/i);
+    if (shareMatch) {
+      const denomProto = shareMatch[1].toLowerCase();
+      const denomMetric = shareMatch[2].toLowerCase() as "volume" | "fees" | "revenue";
+      const map: Record<string, string> = { volume: "share_volume", fees: "share_fees", revenue: "share_revenue" };
+      extracted.metric = map[denomMetric];
+      extracted.denominator = { protocol: denomProto, metric: denomMetric };
+    } else if (extracted.metric?.startsWith("share_") && !extracted.denominator) {
+      // LLM picked share_* but forgot the denominator. Refuse rather than
+      // silently fall back to the wrong chart.
+      throw new Error(
+        `share_* metric requested but no denominator extracted — refusing to fall through`,
+      );
+    }
   } catch {
     return { response: null, fallbackContext: "", cost, inputTokens, outputTokens };
   }
@@ -1853,7 +1946,7 @@ async function runChartPipeline(
   const recipe = lookupDerivedMetric(extracted.metric);
   if (recipe) {
     // T4: cache check before any expensive work
-    const cacheKey = chartCacheKey(extracted.metric, extracted.protocol, extracted.comparison || [], lookbackDays, extracted.transforms || []);
+    const cacheKey = chartCacheKey(extracted.metric, extracted.protocol, extracted.comparison || [], lookbackDays, extracted.transforms || [], extracted.denominator);
     const ttl = ttlForRecipe(extracted.metric, extracted.comparison || []);
     if (userId) {
       const hit = await readChartCache(cacheKey, ttl);
@@ -1886,9 +1979,10 @@ async function runChartPipeline(
       const { resolveSeriesSource } = await import("./data-source-brain/agent-hooks");
       const METRIC_TO_INTENT: Record<string, "daily_revenue" | "daily_fees" | "daily_tvl" | "daily_dex_volume" | "daily_derivatives_volume" | "price_history" | undefined> = {
         ma_arr: "daily_revenue", ma_revenue: "daily_revenue", revenue: "daily_revenue", revenue_growth: "daily_revenue", pe_ratio: "daily_revenue", ps_ratio: "daily_revenue", take_rate: "daily_revenue",
-        ma_fees: "daily_fees", fees: "daily_fees", fee_growth: "daily_fees",
+        ma_fees: "daily_fees", fees: "daily_fees", fee_growth: "daily_fees", share_fees: "daily_fees",
         tvl: "daily_tvl", capital_efficiency: "daily_tvl", fdv_tvl: "daily_tvl", volume_tvl_ratio: "daily_tvl",
-        volume: "daily_dex_volume",
+        volume: "daily_dex_volume", share_volume: "daily_dex_volume",
+        share_revenue: "daily_revenue",
         price: "price_history",
       };
       const intent = METRIC_TO_INTENT[extracted.metric];
@@ -1915,7 +2009,7 @@ async function runChartPipeline(
         extracted.protocol,
         defillama,
         resolvers,
-        { lookbackDays, comparison: (extracted.comparison || []) as any[] },
+        { lookbackDays, comparison: (extracted.comparison || []) as any[], denominator: extracted.denominator },
       );
 
       onStep?.({ type: "tool_result", label: `Computed ${chartData.length} ${recipe.displayLabel} data points`, detail: "deterministic_fetch", round: 0 });
@@ -1956,9 +2050,15 @@ async function runChartPipeline(
         timeWindowDays: lookbackDays,
         comparison: extracted.comparison || [],
         transforms: extracted.transforms || [],
+        denominator: extracted.denominator,
       };
       const tickerOrProto = extracted.ticker || extracted.protocol;
-      const deterministicTitle = `${tickerOrProto.toUpperCase()} ${recipe.displayLabel}${comparisonLabel} — ${rangeLabel}`;
+      // Share recipes need the denominator named in the title — otherwise
+      // "Share of Volume" is ambiguous (share of WHAT?). Format as
+      // "<NUM> Share of <DENOM> <Metric>".
+      const deterministicTitle = recipe.requiresDenominator && extracted.denominator
+        ? `${tickerOrProto.toUpperCase()} Share of ${extracted.denominator.protocol.charAt(0).toUpperCase() + extracted.denominator.protocol.slice(1)} ${extracted.denominator.metric.charAt(0).toUpperCase() + extracted.denominator.metric.slice(1)} — ${rangeLabel}`
+        : `${tickerOrProto.toUpperCase()} ${recipe.displayLabel}${comparisonLabel} — ${rangeLabel}`;
       const composedType: "line" | "bar" | "area" | "composed" = yAxes.length > 1 ? "composed" : recipe.chartType;
       const chartResponse = buildChartResponse(composedType, deterministicTitle, chartData, "date", yAxes, summaryParts.join(" "), cost, inputTokens, outputTokens, derivedRecipe);
 
@@ -2191,7 +2291,7 @@ export async function executeRefreshRecipe(recipe: RefreshRecipe): Promise<{ dat
       recipe.protocol,
       defillama,
       resolvers,
-      { lookbackDays: recipe.timeWindowDays, comparison: (recipe.comparison || []) as any[] },
+      { lookbackDays: recipe.timeWindowDays, comparison: (recipe.comparison || []) as any[], denominator: recipe.denominator },
     );
     const composedType: "line" | "bar" | "area" | "composed" = yAxes.length > 1 ? "composed" : derivedRecipe.chartType;
     return {
@@ -2319,19 +2419,59 @@ export async function runSessionResearchAgent(
 
     onStep?.({ type: "thinking", label: "Chart mode — fetching data..." });
     try {
-      const pipeline = await runChartPipeline(userMessage, onStep, userId);
-      totalCost += pipeline.cost;
-      totalInputTokens += pipeline.inputTokens;
-      totalOutputTokens += pipeline.outputTokens;
-
-      if (pipeline.response) {
-        console.log(`[SessionResearch] Chart pipeline returned complete response — skipping agent loop entirely`);
-        onStep?.({ type: "complete", label: "Chart ready", detail: "deterministic_pipeline" });
-        return pipeline.response;
+      // Multi-chart fan-out: if the prompt contains multiple distinct
+      // "share of <denom> <metric>" mentions (e.g. "share of HL volume AND
+      // share of HL fees"), reformulate each as its own single-intent
+      // sub-prompt and run them through the pipeline in parallel. The
+      // existing single-chart path handles each sub-prompt unchanged; we
+      // merge the resulting artifacts into one composite response so the
+      // user sees N charts instead of silently dropping the second one.
+      const subPrompts = splitChartIntents(userMessage);
+      let pipelines: ChartPipelineResult[];
+      if (subPrompts.length > 1) {
+        console.log(`[SessionResearch] Multi-chart fan-out: ${subPrompts.length} sub-prompts`);
+        onStep?.({ type: "tool_start", label: `Multi-chart fan-out — ${subPrompts.length} charts`, detail: "multi_chart", round: 0 });
+        pipelines = await Promise.all(
+          subPrompts.map((sp) => runChartPipeline(sp, onStep, userId)),
+        );
+      } else {
+        pipelines = [await runChartPipeline(userMessage, onStep, userId)];
       }
 
-      if (pipeline.fallbackContext) {
-        chartPrefetchContext = pipeline.fallbackContext;
+      for (const p of pipelines) {
+        totalCost += p.cost;
+        totalInputTokens += p.inputTokens;
+        totalOutputTokens += p.outputTokens;
+      }
+
+      const successful = pipelines.filter((p) => p.response);
+      if (successful.length > 0) {
+        if (successful.length === 1) {
+          console.log(`[SessionResearch] Chart pipeline returned complete response — skipping agent loop entirely`);
+          onStep?.({ type: "complete", label: "Chart ready", detail: "deterministic_pipeline" });
+          return successful[0].response!;
+        }
+        // Merge multiple chart responses into one composite ResearchResponse
+        // by concatenating content and stacking artifacts.
+        console.log(`[SessionResearch] Merging ${successful.length} chart responses`);
+        onStep?.({ type: "complete", label: `${successful.length} charts ready`, detail: "multi_chart" });
+        const merged: ResearchResponse = {
+          content: successful.map((p) => p.response!.content).join("\n\n---\n\n"),
+          artifacts: successful.flatMap((p) => p.response!.artifacts || []),
+          mppCost: successful.reduce((s, p) => s + (p.response!.mppCost || 0), 0),
+          inputTokens: successful.reduce((s, p) => s + (p.response!.inputTokens || 0), 0),
+          outputTokens: successful.reduce((s, p) => s + (p.response!.outputTokens || 0), 0),
+          costBasis: "receipt",
+          toolCalls: ["chart_pipeline_multi"],
+          mode: "focused",
+          modeReason: `multi-chart fan-out (${successful.length} charts)`,
+        };
+        return merged;
+      }
+
+      const firstFallback = pipelines.find((p) => p.fallbackContext)?.fallbackContext;
+      if (firstFallback) {
+        chartPrefetchContext = firstFallback;
         console.log(`[SessionResearch] Chart pipeline provided proven query context — using agent loop`);
       }
     } catch (e: any) {

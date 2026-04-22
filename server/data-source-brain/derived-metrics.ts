@@ -23,6 +23,13 @@ export interface DerivedMetricRecipe {
   format: MetricFormat;
   yAxes: Array<{ dataKey: string; label: string }>;
   compute: (ctx: ComputeContext) => ComputeResult[];
+  /** True when the recipe needs a denominator series from a different protocol
+   * (e.g. "share of Hyperliquid total volume"). The pipeline resolves and
+   * fetches the denominator and injects it as ctx.denominatorMap. */
+  requiresDenominator?: boolean;
+  /** Which numerator source the share recipe reads. Used to pick the matching
+   * denominator source when fetching from another protocol. */
+  numeratorSource?: "volume" | "fees" | "revenue";
 }
 
 export interface ComputeContext {
@@ -36,6 +43,9 @@ export interface ComputeContext {
   hasRealFdv: boolean;
   adjMcapScale: number;
   trailingWindowDays: number;
+  /** Denominator series (date → value) from a different protocol, used by
+   * share/ratio recipes. Empty Map when not applicable. */
+  denominatorMap: Map<string, number>;
 }
 
 export interface ComputeResult {
@@ -344,6 +354,87 @@ export const DERIVED_METRIC_REGISTRY: Record<string, DerivedMetricRecipe> = {
     },
   },
 
+  share_volume: {
+    key: "share_volume",
+    displayLabel: "Share of Volume",
+    description: "Daily trading volume of the numerator protocol as a percentage of a denominator protocol's daily volume.",
+    sources: ["defillama.dex_volume"],
+    trailingWindowDays: 1,
+    chartType: "area",
+    format: "percent",
+    yAxes: [{ dataKey: "share_pct", label: "Share %" }],
+    requiresDenominator: true,
+    numeratorSource: "volume",
+    compute: (ctx) => {
+      if (ctx.denominatorMap.size === 0) return [];
+      const dates = [...ctx.volume.keys()].sort();
+      const results: ComputeResult[] = [];
+      for (const dateStr of dates) {
+        const num = ctx.volume.get(dateStr);
+        const den = ctx.denominatorMap.get(dateStr);
+        if (!num || !den || den <= 0) continue;
+        const pct = (num / den) * 100;
+        if (pct < 0 || pct > 100) continue;
+        results.push({ date: dateStr, share_pct: Number(pct.toFixed(3)) });
+      }
+      return results;
+    },
+  },
+
+  share_fees: {
+    key: "share_fees",
+    displayLabel: "Share of Fees",
+    description: "Daily fees of the numerator protocol as a percentage of a denominator protocol's daily fees.",
+    sources: ["defillama.fees"],
+    trailingWindowDays: 1,
+    chartType: "area",
+    format: "percent",
+    yAxes: [{ dataKey: "share_pct", label: "Share %" }],
+    requiresDenominator: true,
+    numeratorSource: "fees",
+    compute: (ctx) => {
+      if (ctx.denominatorMap.size === 0) return [];
+      const dates = [...ctx.fees.keys()].sort();
+      const results: ComputeResult[] = [];
+      for (const dateStr of dates) {
+        const num = ctx.fees.get(dateStr);
+        const den = ctx.denominatorMap.get(dateStr);
+        if (!num || !den || den <= 0) continue;
+        const pct = (num / den) * 100;
+        if (pct < 0 || pct > 100) continue;
+        results.push({ date: dateStr, share_pct: Number(pct.toFixed(3)) });
+      }
+      return results;
+    },
+  },
+
+  share_revenue: {
+    key: "share_revenue",
+    displayLabel: "Share of Revenue",
+    description: "Daily revenue of the numerator protocol as a percentage of a denominator protocol's daily revenue.",
+    sources: ["defillama.revenue"],
+    trailingWindowDays: 1,
+    chartType: "area",
+    format: "percent",
+    yAxes: [{ dataKey: "share_pct", label: "Share %" }],
+    requiresDenominator: true,
+    numeratorSource: "revenue",
+    compute: (ctx) => {
+      if (ctx.denominatorMap.size === 0) return [];
+      const dates = [...ctx.revenue.keys()].sort();
+      const results: ComputeResult[] = [];
+      for (const dateStr of dates) {
+        const num = ctx.revenue.get(dateStr);
+        const den = ctx.denominatorMap.get(dateStr);
+        if (!num || !den || den <= 0) continue;
+        const pct = (num / den) * 100;
+        if (pct < 0 || pct > 100) continue;
+        results.push({ date: dateStr, share_pct: Number(pct.toFixed(3)) });
+      }
+      return results;
+    },
+  },
+
   fdv_tvl: {
     key: "fdv_tvl",
     displayLabel: "FDV/TVL Ratio",
@@ -552,6 +643,9 @@ export type ComparisonSeries = "price" | "tvl" | "volume" | "fees" | "revenue";
 export interface ComputeOptions {
   lookbackDays?: number;
   comparison?: ComparisonSeries[];
+  /** Denominator for ratio/share recipes. The named protocol's metric series
+   * is fetched and injected into the compute context as denominatorMap. */
+  denominator?: { protocol: string; metric: "volume" | "fees" | "revenue" };
 }
 
 export async function computeDerivedChart(
@@ -590,7 +684,43 @@ export async function computeDerivedChart(
     );
   }
 
-  const sourceResults = await Promise.all(sourceDataPromises);
+  // Denominator fetch (for share/ratio recipes that need a series from a
+  // different protocol). We pick the source key based on the requested
+  // denominator metric, then resolve+fetch in parallel with primary sources.
+  const DENOM_METRIC_TO_SOURCE: Record<"volume" | "fees" | "revenue", DataSourceKey> = {
+    volume: "defillama.dex_volume",
+    fees: "defillama.fees",
+    revenue: "defillama.revenue",
+  };
+  let denominatorPromise: Promise<Map<string, number>> = Promise.resolve(new Map());
+  if (recipe.requiresDenominator) {
+    if (!opts.denominator) {
+      throw new Error(
+        `Recipe "${recipe.key}" requires a denominator (e.g. {protocol:"hyperliquid", metric:"volume"}) but none was provided`,
+      );
+    }
+    // Hard consistency check: a share_volume recipe MUST be paired with a
+    // volume denominator, share_fees with fees, etc. Otherwise the chart
+    // will silently mix incompatible series (e.g. compute volume/fees and
+    // label it as "share of volume").
+    if (recipe.numeratorSource && opts.denominator.metric !== recipe.numeratorSource) {
+      throw new Error(
+        `Recipe "${recipe.key}" expects denominator.metric="${recipe.numeratorSource}" but got "${opts.denominator.metric}" — refusing to compute a mismatched ratio`,
+      );
+    }
+    const denomSource = DENOM_METRIC_TO_SOURCE[opts.denominator.metric];
+    denominatorPromise = fetchSourceData(denomSource, opts.denominator.protocol, defillama, resolvers);
+  }
+
+  const [sourceResults, denominatorMap] = await Promise.all([
+    Promise.all(sourceDataPromises),
+    denominatorPromise,
+  ]);
+  if (recipe.requiresDenominator && denominatorMap.size === 0) {
+    throw new Error(
+      `Denominator series for ${opts.denominator!.protocol} (${opts.denominator!.metric}) returned no data — cannot compute ${recipe.displayLabel}`,
+    );
+  }
   const sourceMap: Record<string, Map<string, number>> = {};
   for (const { key, data } of sourceResults) {
     sourceMap[key] = data;
@@ -617,6 +747,7 @@ export async function computeDerivedChart(
     hasRealFdv: marketData.hasRealFdv,
     adjMcapScale: marketData.adjMcapScale,
     trailingWindowDays: recipe.trailingWindowDays,
+    denominatorMap,
   };
 
   const allData = recipe.compute(ctx);
