@@ -467,15 +467,6 @@ export default function DataStation({ embedded = false }: { embedded?: boolean }
         )}
 
         <div className="flex items-center gap-1 overflow-x-auto">
-          <button
-            onClick={() => { setActiveView("protocols"); setActiveProtocol(null); setActiveReport(null); }}
-            className={`px-2 py-1 rounded text-[10px] whitespace-nowrap transition-colors ${
-              activeView === "protocols" && !activeProtocol && !activeReport ? "bg-muted/25 text-foreground/90" : "text-muted-foreground/50 hover:text-foreground/70 hover:bg-muted/10"
-            }`}
-            data-testid="button-all-protocols"
-          >
-            All ({protocolGroups.length})
-          </button>
           {protocolGroups.map(([protocol, pCharts]) => (
             <button
               key={protocol}
@@ -592,30 +583,18 @@ export default function DataStation({ embedded = false }: { embedded?: boolean }
                     />
                   );
                 })()
-              ) : (
-                <>
-                  <div className="mb-3">
-                    <h2 className="text-sm font-semibold text-foreground/90">All Protocols</h2>
-                    <p className="text-[10px] text-muted-foreground/40 mt-0.5">
-                      {parsed.length} charts across {protocolGroups.length} protocol{protocolGroups.length !== 1 ? "s" : ""}
-                    </p>
-                  </div>
-                  {protocolGroups.map(([protocol, pCharts]) => (
-                    <div key={protocol} id={`protocol-${protocol}`}>
-                      <ProtocolDashboard
-                        protocol={protocol}
-                        charts={pCharts}
-                        onRefresh={handleRefresh}
-                        onDelete={handleDelete}
-                        onAddToReport={handleAddToReport}
-                        reports={reports}
-                        refreshingId={refreshingId}
-                        onRefreshProtocol={handleRefreshProtocol}
-                      />
-                    </div>
-                  ))}
-                </>
-              )}
+              ) : protocolGroups[0] ? (
+                <ProtocolDashboard
+                  protocol={protocolGroups[0][0]}
+                  charts={protocolGroups[0][1]}
+                  onRefresh={handleRefresh}
+                  onDelete={handleDelete}
+                  onAddToReport={handleAddToReport}
+                  reports={reports}
+                  refreshingId={refreshingId}
+                  onRefreshProtocol={handleRefreshProtocol}
+                />
+              ) : null}
             </div>
           )}
       </div>
