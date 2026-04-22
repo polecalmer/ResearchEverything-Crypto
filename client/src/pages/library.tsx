@@ -19,7 +19,7 @@ interface Report {
   updatedAt: string;
 }
 
-const TABS = ["reports", "charts", "facts"] as const;
+const TABS = ["reports", "charts", "brain"] as const;
 type Tab = typeof TABS[number];
 
 function getTabFromQuery(search: string): Tab {
@@ -58,7 +58,7 @@ export default function Library() {
               Library
             </h1>
             <p className="text-xs text-muted-foreground/70 mt-0.5">
-              Everything your sessions have produced — Reports, live Charts, and learned Facts.
+              Everything your sessions have produced — Reports, live Charts, and your Brain.
             </p>
           </div>
         </div>
@@ -81,12 +81,12 @@ export default function Library() {
               Charts
             </TabsTrigger>
             <TabsTrigger
-              value="facts"
+              value="brain"
               className="h-7 px-3 text-[12px] data-[state=active]:bg-accent data-[state=active]:shadow-none"
-              data-testid="tab-facts"
+              data-testid="tab-brain"
             >
               <Brain className="w-3.5 h-3.5 mr-1.5" />
-              Facts
+              Brain
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -99,7 +99,7 @@ export default function Library() {
             <DataStation embedded />
           </div>
         )}
-        {tab === "facts" && (
+        {tab === "brain" && (
           <div className="h-full overflow-hidden">
             <BrainGraph embedded />
           </div>

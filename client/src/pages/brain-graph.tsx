@@ -9,6 +9,8 @@ import { AnalystLensesView } from "@/components/analyst-lenses";
 import { DataBrainView } from "@/components/data-brain-view";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
+import { ADMIN_EMAILS, ADMIN_USERNAMES } from "@shared/constants";
 import {
   ForceGraph,
   TYPE_COLORS,
@@ -435,6 +437,8 @@ export default function BrainGraphPage({ embedded = false }: { embedded?: boolea
   const { data, isLoading, error } = useQuery<BrainGraphData>({
     queryKey: ["/api/brain/graph"],
   });
+  const { user } = useAuth();
+  const isAdmin = !!(user && (ADMIN_EMAILS.includes(user.email || "") || ADMIN_USERNAMES.includes(user.username || "")));
 
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [showImport, setShowImport] = useState(false);
@@ -506,17 +510,19 @@ export default function BrainGraphPage({ embedded = false }: { embedded?: boolea
               </div>
             </div>
           )}
-          <TabsList data-testid="tabs-brain-scope">
-            <TabsTrigger value="mine" className="text-xs" data-testid="tab-my-brain">
-              <Brain className="w-3 h-3 mr-1.5" />My Brain
-            </TabsTrigger>
-            <TabsTrigger value="analysts" className="text-xs" data-testid="tab-analyst-lenses">
-              <Users className="w-3 h-3 mr-1.5" />Analyst Lenses
-            </TabsTrigger>
-            <TabsTrigger value="data" className="text-xs" data-testid="tab-data-brain">
-              <Database className="w-3 h-3 mr-1.5" />Data Brain
-            </TabsTrigger>
-          </TabsList>
+          {isAdmin ? (
+            <TabsList data-testid="tabs-brain-scope">
+              <TabsTrigger value="mine" className="text-xs" data-testid="tab-my-brain">
+                <Brain className="w-3 h-3 mr-1.5" />My Brain
+              </TabsTrigger>
+              <TabsTrigger value="analysts" className="text-xs" data-testid="tab-analyst-lenses">
+                <Users className="w-3 h-3 mr-1.5" />Analyst Lenses
+              </TabsTrigger>
+              <TabsTrigger value="data" className="text-xs" data-testid="tab-data-brain">
+                <Database className="w-3 h-3 mr-1.5" />Data Brain
+              </TabsTrigger>
+            </TabsList>
+          ) : null}
           <div className="flex items-center gap-3">
             {data?.meta && data.meta.totalSessions > 0 && (
               <div className="flex items-center gap-4 text-xs text-muted-foreground">
