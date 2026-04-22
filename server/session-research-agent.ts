@@ -1622,6 +1622,90 @@ async function writeChartCache(
   }
 }
 
+/**
+ * Memorialize a chart produced by the LLM-agent path (i.e. a chart that did
+ * NOT come through the deterministic recipe pipeline). The recipe pipeline
+ * has structured intent (metric/protocol/comparison/range) and writes via
+ * writeChartCache; agent charts are free-form, so we synthesize a cache key
+ * from a hash of the user message + chart title and embed the user message
+ * itself so the semantic library lookup can surface it for paraphrases.
+ */
+async function memorializeAgentChart(
+  userMessage: string,
+  chartArtifact: ResearchArtifact,
+  finalText: string,
+): Promise<void> {
+  try {
+    if (chartArtifact.type !== "chart") return;
+    if (!chartArtifact.data || chartArtifact.data.length === 0) return;
+    const { embed } = await import("./data-source-brain/embeddings");
+    const crypto = await import("node:crypto");
+
+    const title = chartArtifact.title || "Untitled chart";
+    // Stable cache key — same user message + same chart title hashes the same.
+    const hash = crypto
+      .createHash("sha256")
+      .update(`${userMessage}|${title}`)
+      .digest("hex")
+      .slice(0, 16);
+    const cacheKey = `chart-cache:agent:${hash}`;
+
+    // Build a compact summary from the surrounding text (first 1500 chars
+    // of the final response) so the embedding has rich context, while the
+    // primary embedding signal is still the user's actual question.
+    const summary = (finalText || "").replace(/```[\s\S]*?```/g, "").slice(0, 1500);
+    const embedText = `${userMessage}\n${title}\n${summary}`.slice(0, 4000);
+    const embedVec = await embed(embedText, "document");
+    const vec = `[${embedVec.join(",")}]`;
+
+    const yAxes: any[] = (chartArtifact.chartConfig?.yAxes || []) as any[];
+    const metricLabel =
+      yAxes.map((y: any) => y?.label || y?.dataKey).filter(Boolean).join(" + ") || "agent";
+    const topic = `Chart: ${title}`;
+    const entities = [title.toLowerCase(), ...yAxes.map((y: any) => String(y?.dataKey || "").toLowerCase())]
+      .filter(Boolean);
+
+    const payload = {
+      metric: metricLabel,
+      protocol: "",
+      ticker: "",
+      timeRange: "agent",
+      comparison: [],
+      sources: chartArtifact.source ? [String(chartArtifact.source)] : ["agent"],
+      latestValue: null,
+      latestDate: null,
+      chartPayload: {
+        // Reconstruct a minimal "chart response" the same shape as
+        // buildChartResponse so semantic-hit consumers can rehydrate it
+        // identically to recipe-path cache hits.
+        content: title,
+        artifacts: [chartArtifact],
+      },
+      summary,
+    };
+    const fact = JSON.stringify(payload);
+
+    await db.execute(sql`
+      INSERT INTO brain_facts (user_id, fact_id, topic, fact, entities, source, date, confidence, embedding, updated_at)
+      VALUES (
+        ${SHARED_CHART_USER_ID}, ${cacheKey}, ${topic}, ${fact}, ${entities}::text[],
+        ${payload.sources.join("+")}, ${null}, 'verified',
+        ${vec}::vector, now()
+      )
+      ON CONFLICT (user_id, fact_id) DO UPDATE SET
+        topic = EXCLUDED.topic,
+        fact = EXCLUDED.fact,
+        entities = EXCLUDED.entities,
+        source = EXCLUDED.source,
+        embedding = EXCLUDED.embedding,
+        updated_at = now()
+    `);
+    console.log(`[ChartPipeline] Memorialized (agent): ${cacheKey} — "${title}"`);
+  } catch (err: any) {
+    console.warn(`[ChartPipeline] memorializeAgentChart error:`, err.message);
+  }
+}
+
 async function runChartPipeline(
   userMessage: string,
   onStep?: (step: ThinkingStep) => void,
@@ -2796,6 +2880,19 @@ ${perspectives.join("\n\n")}`;
   }
 
   const artifacts = parseArtifacts(finalText);
+
+  // Memorialize agent-path charts into the shared library so future
+  // semantic-lookup hits (any user, paraphrased question) can short-circuit
+  // to this exact chart payload. Recipe-path charts are already memorialized
+  // inside runChartPipeline; this covers the LLM-agent path which produces
+  // free-form charts (e.g. composed supply dynamics charts) that previously
+  // never reached the cache.
+  for (const art of artifacts) {
+    if (art.type === "chart" && art.data && art.data.length > 0) {
+      // Fire-and-forget; never block the response on cache writes.
+      memorializeAgentChart(userMessage, art, finalText).catch(() => { /* swallow */ });
+    }
+  }
 
   return {
     content: finalText,
