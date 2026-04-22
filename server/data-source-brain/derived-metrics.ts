@@ -277,6 +277,73 @@ export const DERIVED_METRIC_REGISTRY: Record<string, DerivedMetricRecipe> = {
     },
   },
 
+  ma_arr: {
+    key: "ma_arr",
+    displayLabel: "30D MA Annualized Run-Rate Revenue",
+    description: "30-day moving average of daily revenue, annualized (×365). Smooths daily noise into a run-rate.",
+    sources: ["defillama.revenue"],
+    trailingWindowDays: 30,
+    chartType: "line",
+    format: "currency",
+    yAxes: [{ dataKey: "arr", label: "Annualized Run-Rate Revenue" }],
+    compute: (ctx) => {
+      const revDates = [...ctx.revenue.keys()].sort();
+      const results: ComputeResult[] = [];
+      for (let i = ctx.trailingWindowDays - 1; i < revDates.length; i++) {
+        const dateStr = revDates[i];
+        const { sum, days } = trailingAvg(ctx.revenue, revDates, i, ctx.trailingWindowDays);
+        if (days < 7 || sum <= 0) continue;
+        const annualizedRev = (sum / days) * 365;
+        results.push({ date: dateStr, arr: Number(annualizedRev.toFixed(0)) });
+      }
+      return results;
+    },
+  },
+
+  ma_revenue: {
+    key: "ma_revenue",
+    displayLabel: "30D MA Daily Revenue",
+    description: "30-day trailing average of daily protocol revenue (no annualization).",
+    sources: ["defillama.revenue"],
+    trailingWindowDays: 30,
+    chartType: "line",
+    format: "currency",
+    yAxes: [{ dataKey: "ma_revenue", label: "30D MA Revenue" }],
+    compute: (ctx) => {
+      const revDates = [...ctx.revenue.keys()].sort();
+      const results: ComputeResult[] = [];
+      for (let i = ctx.trailingWindowDays - 1; i < revDates.length; i++) {
+        const dateStr = revDates[i];
+        const { sum, days } = trailingAvg(ctx.revenue, revDates, i, ctx.trailingWindowDays);
+        if (days < 7 || sum <= 0) continue;
+        results.push({ date: dateStr, ma_revenue: Number((sum / days).toFixed(0)) });
+      }
+      return results;
+    },
+  },
+
+  ma_fees: {
+    key: "ma_fees",
+    displayLabel: "30D MA Daily Fees",
+    description: "30-day trailing average of daily total fees.",
+    sources: ["defillama.fees"],
+    trailingWindowDays: 30,
+    chartType: "line",
+    format: "currency",
+    yAxes: [{ dataKey: "ma_fees", label: "30D MA Fees" }],
+    compute: (ctx) => {
+      const feeDates = [...ctx.fees.keys()].sort();
+      const results: ComputeResult[] = [];
+      for (let i = ctx.trailingWindowDays - 1; i < feeDates.length; i++) {
+        const dateStr = feeDates[i];
+        const { sum, days } = trailingAvg(ctx.fees, feeDates, i, ctx.trailingWindowDays);
+        if (days < 7 || sum <= 0) continue;
+        results.push({ date: dateStr, ma_fees: Number((sum / days).toFixed(0)) });
+      }
+      return results;
+    },
+  },
+
   fdv_tvl: {
     key: "fdv_tvl",
     displayLabel: "FDV/TVL Ratio",
@@ -456,6 +523,37 @@ export async function fetchMarketData(
   }
 }
 
+/** Parse a tokenized time range ("180d", "6m", "1y", "ytd", "all") to lookback days. */
+export function parseTimeRangeToDays(timeRange: string | undefined | null, fallbackDays: number = 365): number {
+  if (!timeRange) return fallbackDays;
+  const t = timeRange.trim().toLowerCase();
+  if (t === "all") return 100000;
+  if (t === "ytd") {
+    const now = new Date();
+    const jan1 = new Date(now.getFullYear(), 0, 1);
+    return Math.max(1, Math.ceil((now.getTime() - jan1.getTime()) / 86400000));
+  }
+  const m = t.match(/^(\d+)\s*([dwmy])$/);
+  if (m) {
+    const n = parseInt(m[1], 10);
+    const unit = m[2];
+    if (unit === "d") return n;
+    if (unit === "w") return n * 7;
+    if (unit === "m") return Math.round(n * 30.44);
+    if (unit === "y") return n * 365;
+  }
+  const justDigits = t.match(/^(\d+)$/);
+  if (justDigits) return parseInt(justDigits[1], 10);
+  return fallbackDays;
+}
+
+export type ComparisonSeries = "price" | "tvl" | "volume" | "fees" | "revenue";
+
+export interface ComputeOptions {
+  lookbackDays?: number;
+  comparison?: ComparisonSeries[];
+}
+
 export async function computeDerivedChart(
   recipe: DerivedMetricRecipe,
   protocol: string,
@@ -464,11 +562,27 @@ export async function computeDerivedChart(
     resolveCoinGeckoId: (slug: string) => string | undefined;
     getRevenueSlugs: (slug: string) => string[];
   },
-  lookbackDays: number = 365,
+  optionsOrLookback: number | ComputeOptions = 365,
 ): Promise<{ data: ComputeResult[]; yAxes: Array<{ dataKey: string; label: string }> }> {
-  const sourceDataPromises: Promise<{ key: DataSourceKey; data: Map<string, number> }>[] = [];
-  const uniqueSources = [...new Set(recipe.sources)];
+  const opts: ComputeOptions =
+    typeof optionsOrLookback === "number" ? { lookbackDays: optionsOrLookback } : optionsOrLookback;
+  const lookbackDays = opts.lookbackDays ?? 365;
+  const comparison = (opts.comparison ?? []).filter(
+    (c, i, a) => a.indexOf(c) === i && c !== undefined,
+  ) as ComparisonSeries[];
 
+  // Map comparison series to DataSourceKey, then merge with recipe sources.
+  const COMPARISON_TO_SOURCE: Record<ComparisonSeries, DataSourceKey> = {
+    price: "coingecko.price",
+    tvl: "defillama.tvl",
+    volume: "defillama.dex_volume",
+    fees: "defillama.fees",
+    revenue: "defillama.revenue",
+  };
+  const extraSources: DataSourceKey[] = comparison.map((c) => COMPARISON_TO_SOURCE[c]);
+  const uniqueSources = [...new Set([...recipe.sources, ...extraSources])];
+
+  const sourceDataPromises: Promise<{ key: DataSourceKey; data: Map<string, number> }>[] = [];
   for (const src of uniqueSources) {
     if (src === "coingecko.market_data") continue;
     sourceDataPromises.push(
@@ -506,15 +620,53 @@ export async function computeDerivedChart(
   };
 
   const allData = recipe.compute(ctx);
+
+  // Attach comparison series. Each comparison key gets its own column on each row.
+  // We only attach if the recipe doesn't already produce that column (e.g. a
+  // P/E recipe already uses prices internally — no need to overlay raw price).
+  const COMPARISON_COL: Record<ComparisonSeries, { dataKey: string; label: string; ctxMap: Map<string, number> }> = {
+    price: { dataKey: "price", label: `${protocol.toUpperCase()} Price`, ctxMap: ctx.prices },
+    tvl: { dataKey: "comp_tvl", label: "TVL", ctxMap: ctx.tvl },
+    volume: { dataKey: "comp_volume", label: "Volume", ctxMap: ctx.volume },
+    fees: { dataKey: "comp_fees", label: "Fees", ctxMap: ctx.fees },
+    revenue: { dataKey: "comp_revenue", label: "Revenue", ctxMap: ctx.revenue },
+  };
+  const recipeKeys = new Set(recipe.yAxes.map((y) => y.dataKey));
+  const appliedComparisons: Array<{ dataKey: string; label: string }> = [];
+  for (const c of comparison) {
+    const meta = COMPARISON_COL[c];
+    if (!meta || recipeKeys.has(meta.dataKey)) continue;
+    if (meta.ctxMap.size === 0) {
+      console.log(`[DerivedMetrics] Comparison "${c}" requested but ${c} series is empty for ${protocol} — skipping overlay`);
+      continue;
+    }
+    let attached = 0;
+    for (const row of allData) {
+      const v = meta.ctxMap.get(row.date as string);
+      if (typeof v === "number" && !isNaN(v)) {
+        row[meta.dataKey] = v;
+        attached++;
+      }
+    }
+    if (attached > 0) {
+      appliedComparisons.push({ dataKey: meta.dataKey, label: meta.label });
+      console.log(`[DerivedMetrics] Comparison "${c}" attached to ${attached}/${allData.length} rows`);
+    }
+  }
+
   const filtered = allData.filter(row => row.date >= cutoffStr);
 
   if (filtered.length < 3) {
     throw new Error(`Insufficient data for ${recipe.displayLabel}: only ${filtered.length} points`);
   }
 
-  const actualYAxes = recipe.yAxes.filter(yAxis =>
+  const baseYAxes = recipe.yAxes.filter(yAxis =>
     filtered.some(row => row[yAxis.dataKey] !== undefined)
   );
+  const finalYAxes = [
+    ...(baseYAxes.length > 0 ? baseYAxes : recipe.yAxes),
+    ...appliedComparisons,
+  ];
 
-  return { data: filtered, yAxes: actualYAxes.length > 0 ? actualYAxes : recipe.yAxes };
+  return { data: filtered, yAxes: finalYAxes };
 }

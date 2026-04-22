@@ -243,6 +243,131 @@ export async function observeToolError(
 }
 
 /**
+ * Resolve which data source(s) should serve a given series intent for a protocol.
+ *
+ * Inputs:
+ *   intent — semantic series type ("daily_revenue", "daily_fees", "daily_tvl",
+ *            "daily_dex_volume", "daily_derivatives_volume", "price_history")
+ *   protocol — protocol slug or name (e.g. "hyperliquid")
+ *
+ * Returns a ranked list of {source, scopeRef, reason, confidence}. The first
+ * entry is the recommended source. Caller fetches in order and falls through
+ * on empty.
+ *
+ * Strategy:
+ *   1. Start with a static default ranking per intent (DeFiLlama-first for
+ *      most metrics, CoinGecko for price).
+ *   2. Consult the data-source brain for known coverage facts about
+ *      (source, protocol). Demote any source the brain has flagged as
+ *      empty/missing for this protocol; promote sources with positive
+ *      verified coverage observations.
+ *   3. Drop entries the brain has high confidence are unavailable.
+ */
+export type SeriesIntent =
+  | "daily_revenue"
+  | "daily_fees"
+  | "daily_tvl"
+  | "daily_dex_volume"
+  | "daily_derivatives_volume"
+  | "price_history";
+
+export interface ResolvedSource {
+  source: Source;
+  scopeRef: string;
+  reason: string;
+  rank: number;
+}
+
+const STATIC_DEFAULTS: Record<SeriesIntent, ResolvedSource[]> = {
+  daily_revenue: [
+    { source: "defillama", scopeRef: "defillama:/summary/fees/{slug}", reason: "primary fees+revenue endpoint", rank: 0 },
+    { source: "dune", scopeRef: "dune:proven_queries", reason: "fallback: proven query library", rank: 1 },
+  ],
+  daily_fees: [
+    { source: "defillama", scopeRef: "defillama:/summary/fees/{slug}", reason: "primary fees+revenue endpoint", rank: 0 },
+    { source: "dune", scopeRef: "dune:proven_queries", reason: "fallback: proven query library", rank: 1 },
+  ],
+  daily_tvl: [
+    { source: "defillama", scopeRef: "defillama:/protocol/{slug}", reason: "primary protocol TVL endpoint", rank: 0 },
+    { source: "dune", scopeRef: "dune:proven_queries", reason: "fallback: proven query library", rank: 1 },
+  ],
+  daily_dex_volume: [
+    { source: "defillama", scopeRef: "defillama:/summary/dexs/{slug}", reason: "primary DEX volume endpoint", rank: 0 },
+    { source: "dune", scopeRef: "dune:proven_queries", reason: "fallback: proven query library", rank: 1 },
+  ],
+  daily_derivatives_volume: [
+    { source: "defillama", scopeRef: "defillama:/summary/derivatives/{slug}", reason: "primary derivatives endpoint", rank: 0 },
+    { source: "dune", scopeRef: "dune:proven_queries", reason: "fallback: proven query library", rank: 1 },
+  ],
+  price_history: [
+    { source: "defillama", scopeRef: "defillama:coins/prices/chart", reason: "DeFiLlama price-history coins endpoint", rank: 0 },
+    { source: "coingecko", scopeRef: "coingecko:/coins/{id}/market_chart", reason: "fallback: CoinGecko market chart", rank: 1 },
+  ],
+};
+
+const NEGATIVE_KEYWORDS: Record<SeriesIntent, string[]> = {
+  daily_revenue: ["no revenue", "no fees", "not tracked"],
+  daily_fees: ["no fees", "no revenue", "not tracked"],
+  daily_tvl: ["no tvl", "not tracked"],
+  daily_dex_volume: ["no volume", "no dex", "not tracked"],
+  daily_derivatives_volume: ["no derivatives", "no volume", "not tracked"],
+  price_history: ["no price", "not listed", "not found"],
+};
+
+export async function resolveSeriesSource(
+  intent: SeriesIntent,
+  protocol: string,
+): Promise<ResolvedSource[]> {
+  const defaults = STATIC_DEFAULTS[intent].map((d) => ({
+    ...d,
+    scopeRef: d.scopeRef.replace("{slug}", protocol.toLowerCase()),
+  }));
+  if (!protocol) return defaults;
+
+  const negKeywords = NEGATIVE_KEYWORDS[intent] || [];
+  const protocolLc = protocol.toLowerCase();
+  const ranked: ResolvedSource[] = [];
+
+  for (const candidate of defaults) {
+    let scoreAdjust = 0;
+    let demotionReason = "";
+    try {
+      const hits = await consult({
+        query: `${intent} ${protocol}`,
+        source: candidate.source,
+        category: "coverage",
+        topK: 3,
+        minSimilarity: 0.5,
+      });
+      for (const h of hits) {
+        const c = h.fact.content.toLowerCase();
+        if (!c.includes(protocolLc)) continue;
+        const isStrong = h.fact.confidence === "verified_runtime" || h.fact.confidence === "verified_doc" || (h.fact.confidence === "observed_once" && h.fact.observedCount >= 2);
+        const isNegative = negKeywords.some((k) => c.includes(k));
+        if (isStrong && isNegative) {
+          scoreAdjust += 100;
+          demotionReason = `brain: "${h.fact.content.slice(0, 80)}"`;
+          break;
+        }
+        if (isStrong && c.includes("succeeded")) {
+          scoreAdjust -= 1;
+        }
+      }
+    } catch (err: any) {
+      console.warn(`[DataSourceBrain] resolveSeriesSource consult failed for ${intent}/${candidate.source}:`, err.message);
+    }
+    if (scoreAdjust < 100) {
+      ranked.push({ ...candidate, rank: candidate.rank + scoreAdjust, reason: demotionReason || candidate.reason });
+    } else {
+      console.log(`[DataSourceBrain] Resolver dropped ${candidate.source} for ${intent}(${protocol}): ${demotionReason}`);
+    }
+  }
+
+  ranked.sort((a, b) => a.rank - b.rank);
+  return ranked.length > 0 ? ranked : defaults;
+}
+
+/**
  * Record a system learning — a reusable rule the system has discovered
  * through runtime experience. Deduplicates on scope+scopeKey+ruleType.
  * If a matching learning exists, increments appliedCount and bumps confidence.
