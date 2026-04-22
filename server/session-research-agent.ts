@@ -2456,19 +2456,32 @@ export async function runSessionResearchAgent(
         totalOutputTokens += p.outputTokens;
       }
 
-      const successful = pipelines.filter((p) => p.response);
+      const hasChartArtifact = (r: ResearchResponse | null) =>
+        !!r && Array.isArray(r.artifacts) && r.artifacts.some((a: any) => a?.type === "chart");
+      const chartSuccess = pipelines.filter((p) => hasChartArtifact(p.response));
+      const explainOnly = pipelines.filter((p) => p.response && !hasChartArtifact(p.response));
+      console.log(
+        `[SessionResearch] Multi-chart fan-out outcome: ${chartSuccess.length} chart(s), ${explainOnly.length} explain-only, ${pipelines.length - chartSuccess.length - explainOnly.length} no-response`,
+      );
+      const successful = chartSuccess;
       if (successful.length > 0) {
-        if (successful.length === 1) {
+        if (successful.length === 1 && explainOnly.length === 0) {
           console.log(`[SessionResearch] Chart pipeline returned complete response — skipping agent loop entirely`);
           onStep?.({ type: "complete", label: "Chart ready", detail: "deterministic_pipeline" });
           return successful[0].response!;
         }
         // Merge multiple chart responses into one composite ResearchResponse
-        // by concatenating content and stacking artifacts.
-        console.log(`[SessionResearch] Merging ${successful.length} chart responses`);
+        // by concatenating content and stacking artifacts. Append explain-only
+        // failures (sub-prompts that produced no chart artifact) so the user
+        // can see why the missing chart didn't render.
+        console.log(`[SessionResearch] Merging ${successful.length} chart responses (+ ${explainOnly.length} explain-only)`);
         onStep?.({ type: "complete", label: `${successful.length} charts ready`, detail: "multi_chart" });
+        const mergeParts = [
+          ...successful.map((p) => p.response!.content),
+          ...explainOnly.map((p) => `_(no chart rendered for one sub-prompt)_\n\n${p.response!.content}`),
+        ];
         const merged: ResearchResponse = {
-          content: successful.map((p) => p.response!.content).join("\n\n---\n\n"),
+          content: mergeParts.join("\n\n---\n\n"),
           artifacts: successful.flatMap((p) => p.response!.artifacts || []),
           mppCost: successful.reduce((s, p) => s + (p.response!.mppCost || 0), 0),
           inputTokens: successful.reduce((s, p) => s + (p.response!.inputTokens || 0), 0),

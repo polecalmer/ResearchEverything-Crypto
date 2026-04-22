@@ -916,5 +916,5 @@ export async function computeDerivedChart(
     ...appliedComparisons,
   ];
 
-  return { data: filtered, yAxes: finalYAxes };
+  return { data: filtered, yAxes: finalYAxes, sourcesUsed };
 }

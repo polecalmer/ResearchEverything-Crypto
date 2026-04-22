@@ -1,0 +1,63 @@
+The user wants to see TradeXYZ's share of Hyperliquid's total volume and fees over time. Let me think about how to approach this.
+
+TradeXYZ is an RWA perpetuals protocol built on Hyperliquid. I need to find:
+1. TradeXYZ's daily volume and fees
+2. Hyperliquid's total daily volume and fees
+3. Calculate TradeXYZ's share of each
+
+Let me load the relevant skills and then query the data.
+
+From previous sessions, TradeXYZ controls 92% of the RWA perp market and is the #2 global perpetual DEX by volume. 
+
+I'll need to resolve the TradeXYZ entity to get the correct slug, then pull daily metrics for both TradeXYZ and Hyperliquid to compare their volumes and fees over time.Now I need to query daily data for both TradeXYZ and Hyperliquid to compute TradeXYZ's share of Hyperliquid's total volume and fees. 
+
+TradeXYZ is a protocol built on Hyperliquid. I need to get daily metrics for both protocols and calculate:
+1. TradeXYZ volume / Hyperliquid total volume
+2. TradeXYZ fees / Hyperliquid total fees
+
+Let me query the daily metrics for both protocols. I'll use `metrics_protocol_daily` for both.
+
+TradeXYZ slug: `tradexyz`
+Hyperliquid slug: `hyperliquid`
+
+
+I'll pull the 1-day volume and fees data for both, then use code to calculate the share ratios.Now I have data for both protocols. Let me use execute_code to pivot this into share calculations.
+
+I need to:
+1. Group by date
+2. Find Hyperliquid's values and TradeXYZ's values
+3. Calculate TradeXYZ's share = tradexyz / hyperliquid * 100
+
+Note: TradeXYZ data starts from Nov 2, 2025. Hyperliquid starts earlier.Great, now I have the share data. I can see:
+- Volume share ranges from 0.32% to 45.65%
+- Fees share ranges from 0.78% to 21.2%
+
+Now let me generate two charts - one for volume share and one for fees share. I could do this as a combo with two lines (both are % share over time, which is a STOCK-like metric showing proportions). 
+
+Actually, these are ratios (percentage shares) over time. They are more like STOCK metrics (snapshots of share at a point in time) so I'll use line charts. 
+
+I'm deciding between combining both into one chart with dual series or keeping them separate. Since they're both percentages on the same scale, I can use a line chart with two series instead of a combo chart, which is really only needed when mixing STOCK and FLOW metrics. I need to reshape the data properly for a multi-series line chart using the series_name_field approach.
+
+Actually, I can just pass both columns directly to y_fields and let the charting function handle it as two lines on the same axis. With 171 data points, the chart should render cleanly without needing to smooth it with a moving average, so I'll plot the metrics directly.
+
+Wait, I'm noticing the volume share has a dramatic spike to 45.6% on April 8th, 2026, while fees max out at 21.2%. The scales will look uneven, but since both are percentages I can keep them on the same axis. Let me apply a 7-day rolling average to smooth out the daily volatility and make the trends clearer.Now I'll generate two charts:
+1. TradeXYZ share of Hyperliquid volume (7-day MA) - line chart
+2. TradeXYZ share of Hyperliquid fees (7-day MA) - line chart
+
+I can put both on the same chart since they're both in %, or create two separate charts.
+
+Since they have very different scales (volume share peaks at 34.4% 7DMA, fees share peaks at 13.5% 7DMA), I might want to use a dual-axis chart. But they're both %, so same axis could work too.
+
+
+I'm leaning toward a single chart with both percentage series on the same axis for simplicity, using the volume and fees share fields together. I'm generating the two line charts now - one showing TradeXYZ's volume share over time and another for their fees share, which will make the different scales easy to compare.Now let me write up the response with the charts and analysis.
+
+Key stats from the data:
+- Volume share: 7DMA ranges from 0.53% to 34.43%, with current being around the 34% level (peaked around Apr 12). Average is 12.62%, median is 10.61%.
+- Fees share: 7DMA ranges from 1.12% to 13.51%, peaked around Mar 25. Average is 5.453%, median is 4.77%.
+
+The interesting thing is that TradeXYZ's volume share is much higher than its fees share. This makes sense if TradeXYZ RWA perps have lower fee rates than standard crypto perps on Hyperliquid.
+
+
+TradeXYZ has shown impressive growth since launching in early November 2025, with the 7DMA volume share hitting a peak of 34.4% in mid-April and a single-day spike reaching 45.65% just before that. The fees share peaked slightly earlier at 13.5% in late March. The growth trajectory suggests the platform gained meaningful traction through late November and into the following months.
+
+What's striking is that fees share has consistently lagged behind volume share — TradeXYZ is capturing significant trading volume but generating proportionally less revenue, which likely reflects lower fee structures on their RWA perpetuals products designed to attract institutional traders.
