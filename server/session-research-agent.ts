@@ -55,6 +55,14 @@ export interface ResearchArtifact {
     chartType: "line" | "bar" | "area" | "composed";
     xAxis: { dataKey: string; label?: string; format?: string };
     yAxes: Array<{ dataKey: string; label?: string; format?: string; chartType?: string }>;
+    /** Optional callout markers placed at specific (date, value) points and
+     *  anchored to a yAxis dataKey. Shaped by the brain's chart-shaper step.
+     *  Older artifacts without this field render normally. */
+    annotations?: Array<{ date: string; value: number; label: string; series: string }>;
+    /** Smoothing applied server-side to the data before send: "none" |
+     *  "7dma" | "30dma". When set to a non-"none" value, the data values
+     *  under each yAxis dataKey are already smoothed. */
+    smoothing?: "none" | "7dma" | "30dma";
   };
   refreshRecipe?: RefreshRecipe;
   columns?: string[];
@@ -1393,6 +1401,10 @@ function buildChartResponse(
   pipelineOutputTokens: number,
   refreshRecipe?: RefreshRecipe,
   sourceLabel?: string,
+  shaperExtras?: {
+    annotations?: Array<{ date: string; value: number; label: string; series: string }>;
+    smoothing?: "none" | "7dma" | "30dma";
+  },
 ): ResearchResponse {
   const sanityIssue = checkChartDataSanity(data, yAxes);
   if (sanityIssue) {
@@ -1419,6 +1431,8 @@ function buildChartResponse(
     yAxes: yAxes.map(y => ({ dataKey: y.dataKey, label: y.label })),
   };
   if (refreshRecipe) chartJson.refreshRecipe = refreshRecipe;
+  if (shaperExtras?.annotations && shaperExtras.annotations.length > 0) chartJson.annotations = shaperExtras.annotations;
+  if (shaperExtras?.smoothing && shaperExtras.smoothing !== "none") chartJson.smoothing = shaperExtras.smoothing;
   const artifactBlock = "```artifact:chart\n" + JSON.stringify(chartJson) + "\n```";
   const content = `<!-- mode:focused -->\n${summary}\n\n${artifactBlock}`;
   const artifact: ResearchArtifact = {
@@ -1431,6 +1445,8 @@ function buildChartResponse(
       chartType,
       xAxis: { dataKey: xAxisKey, format: "date" },
       yAxes: yAxes.map(y => ({ dataKey: y.dataKey, label: y.label })),
+      ...(shaperExtras?.annotations && shaperExtras.annotations.length > 0 ? { annotations: shaperExtras.annotations } : {}),
+      ...(shaperExtras?.smoothing && shaperExtras.smoothing !== "none" ? { smoothing: shaperExtras.smoothing } : {}),
     },
     ...(refreshRecipe ? { refreshRecipe } : {}),
   };
@@ -2015,36 +2031,70 @@ export async function runChartPipeline(
 
       onStep?.({ type: "tool_result", label: `Computed ${chartData.length} ${recipe.displayLabel} data points`, detail: "deterministic_fetch", round: 0 });
 
-      const primaryKey = yAxes[0].dataKey;
-      const latest = chartData[chartData.length - 1];
-      const priorIdx = Math.max(0, chartData.length - 91);
-      const prior = chartData[priorIdx];
-      const latestVal = Number(latest[primaryKey]);
-      const priorVal = Number(prior[primaryKey]);
-
-      const fmtVal = (v: number) => {
-        if (recipe.format === "ratio") return `${v.toFixed(1)}x`;
-        if (recipe.format === "percent") return `${v.toFixed(1)}%`;
-        if (recipe.format === "currency") return v >= 1e9 ? `$${(v/1e9).toFixed(2)}B` : v >= 1e6 ? `$${(v/1e6).toFixed(1)}M` : v >= 1e3 ? `$${(v/1e3).toFixed(1)}K` : `$${v.toFixed(0)}`;
-        return v.toFixed(2);
-      };
-
-      const trend = latestVal < priorVal ? "declining" : latestVal > priorVal ? "rising" : "flat";
-      const summaryParts = [
-        `**${extracted.ticker || extracted.protocol}** ${recipe.displayLabel}: **${fmtVal(latestVal)}** (${trend} from ${fmtVal(priorVal)} over ~3 months).`,
-      ];
-      if (yAxes.length > 1) {
-        const secondKey = yAxes[1].dataKey;
-        const secondVal = Number(latest[secondKey]);
-        if (!isNaN(secondVal)) summaryParts.push(`${yAxes[1].label}: **${fmtVal(secondVal)}**.`);
-      }
       const sourceProviders = (sourcesUsed && sourcesUsed.length > 0 ? sourcesUsed : recipe.sources)
         .map(s => s.split(".")[0])
         .filter((v, i, a) => a.indexOf(v) === i);
-      summaryParts.push(`*${chartData.length} daily observations from ${sourceProviders.join(" + ")}.*`);
+
+      // ─── Chart Shaper ────────────────────────────────────────────────
+      // Brain decides chart form, smoothing, annotations, and prose using
+      // the deterministic series stats and (optional) research-brain
+      // interpretation context. Falls back gracefully on LLM failure so
+      // the chart always renders.
+      const { computeChartStats, applySmoothing } = await import("./data-source-brain/series-stats");
+      const { shapeChart, gatherShaperContext } = await import("./data-source-brain/chart-shaper");
+      const stats = computeChartStats(chartData, yAxes);
+      const contextFacts = await gatherShaperContext(extracted.protocol, extracted.denominator);
+      onStep?.({ type: "tool_start", label: `Shaping chart presentation`, detail: "chart_shaper", round: 0 });
+      const shaped = await shapeChart({
+        recipe,
+        rows: chartData,
+        yAxes,
+        stats,
+        userQuestion: userMessage,
+        ticker: extracted.ticker || extracted.protocol,
+        protocol: extracted.protocol,
+        denominator: extracted.denominator,
+        contextFacts,
+      });
+      onStep?.({ type: "tool_result", label: `Shaper picked ${shaped.chartType}/${shaped.smoothing} (${shaped.annotations.length} callouts)`, detail: "chart_shaper", round: 0 });
+
+      // Apply smoothing transform to the data BEFORE building the artifact
+      // so the client renders smoothed values directly under the same
+      // dataKeys (no renderer change required for smoothing itself).
+      let shapedChartData = chartData;
+      if (shaped.smoothing === "7dma" || shaped.smoothing === "30dma") {
+        const window = shaped.smoothing === "7dma" ? 7 : 30;
+        shapedChartData = applySmoothing(chartData, yAxes.map((a) => a.dataKey), window);
+      }
+
+      // Drop annotations that don't reference a date present in the
+      // (possibly smoothed) data — the renderer would have nothing to
+      // anchor to. Snap the value to the actual data point so the marker
+      // sits exactly on the line.
+      const dateIndex = new Map(shapedChartData.map((r: any, i: number) => [String(r.date), i]));
+      const safeAnnotations = shaped.annotations.flatMap((a) => {
+        const idx = dateIndex.get(a.date);
+        if (idx == null) return [];
+        const row: any = shapedChartData[idx];
+        const realVal = Number(row?.[a.series]);
+        if (!Number.isFinite(realVal)) return [];
+        return [{ date: a.date, value: realVal, label: a.label, series: a.series }];
+      });
+
+      // Source attribution suffix appended to the shaper's prose so the
+      // user always sees which sources fed the chart.
+      const sourceLabelInline = sourceProviders.join(" + ") || "defillama";
+      const summary = `${shaped.prose}\n\n*${shapedChartData.length} daily observations from ${sourceLabelInline}${shaped.smoothing !== "none" ? ` (${shaped.smoothing.toUpperCase()} smoothed)` : ""}.*`;
+
+      // Latest value for cache + log line — read from shaped (post-smoothing)
+      // data so cache reflects what the user actually sees.
+      const primaryKey = yAxes[0].dataKey;
+      const latest = shapedChartData[shapedChartData.length - 1];
+      const latestVal = Number(latest?.[primaryKey]);
 
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-      console.log(`[ChartPipeline] ${recipe.displayLabel} chart complete in ${elapsed}s — ${chartData.length} data points`);
+      console.log(`[ChartShaper] form=${shaped.chartType}+${shaped.smoothing} annotations=${safeAnnotations.length} prose_source=${shaped.proseSource}`);
+      console.log(`[ChartPipeline] ${recipe.displayLabel} chart complete in ${elapsed}s — ${shapedChartData.length} data points`);
 
       const derivedRecipe: RefreshRecipe = {
         protocol: extracted.protocol,
@@ -2072,7 +2122,20 @@ export async function runChartPipeline(
         allium: "Allium",
       };
       const sourceLabel = sourceProviders.map(p => PROVIDER_LABELS[p] || p).join(" + ") || "DeFiLlama + CoinGecko";
-      const chartResponse = buildChartResponse(composedType, deterministicTitle, chartData, "date", yAxes, summaryParts.join(" "), cost, inputTokens, outputTokens, derivedRecipe, sourceLabel);
+      const chartResponse = buildChartResponse(
+        shaped.chartType === "composed" || yAxes.length > 1 ? "composed" : shaped.chartType,
+        deterministicTitle,
+        shapedChartData,
+        "date",
+        yAxes,
+        summary,
+        cost,
+        inputTokens,
+        outputTokens,
+        derivedRecipe,
+        sourceLabel,
+        { annotations: safeAnnotations, smoothing: shaped.smoothing },
+      );
 
       // T5: memorialize this chart in the user's brain so identical
       // subsequent requests can short-circuit via T4's cache check.
@@ -2088,7 +2151,7 @@ export async function runChartPipeline(
           latestValue: isFinite(latestVal) ? latestVal : null,
           latestDate: typeof latest?.date === "string" ? latest.date : null,
           chartPayload: { content: chartResponse.content, artifacts: chartResponse.artifacts },
-          summary: summaryParts.join(" "),
+          summary,
         }).catch(() => { /* swallow */ });
       }
 
