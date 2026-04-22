@@ -2027,6 +2027,33 @@ export async function runChartPipeline(
 
     onStep?.({ type: "tool_start", label: `Computing ${recipe.displayLabel} for ${extracted.protocol}`, detail: "deterministic_fetch", round: 0 });
     try {
+      // Kick off the brain context lookup in parallel with the data fetch.
+      // The shaper only needs this when building its prompt, so issuing both
+      // concurrently shaves the brain-consult latency (~200–400ms) off the
+      // critical path. A short timeout ensures a slow brain consult can never
+      // block the chart response — we degrade gracefully to no-context shaping.
+      const chartShaperImport = import("./data-source-brain/chart-shaper");
+      const contextFactsPromise: Promise<string[]> = (async () => {
+        const CONTEXT_TIMEOUT_MS = 500;
+        let timer: NodeJS.Timeout | undefined;
+        try {
+          const { gatherShaperContext } = await chartShaperImport;
+          const lookup = gatherShaperContext(extracted.protocol, extracted.denominator);
+          const timeout = new Promise<string[]>((resolve) => {
+            timer = setTimeout(() => {
+              console.warn(`[ChartShaper] context lookup exceeded ${CONTEXT_TIMEOUT_MS}ms — proceeding without brain facts`);
+              resolve([]);
+            }, CONTEXT_TIMEOUT_MS);
+          });
+          return await Promise.race<string[]>([lookup, timeout]);
+        } catch (err: any) {
+          console.warn(`[ChartShaper] context lookup failed:`, err?.message ?? err);
+          return [];
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      })();
+
       const resolvers = { resolveCoinGeckoId, getRevenueSlugs };
       const { data: chartData, yAxes, sourcesUsed } = await computeDerivedChart(
         recipe,
@@ -2048,9 +2075,10 @@ export async function runChartPipeline(
       // interpretation context. Falls back gracefully on LLM failure so
       // the chart always renders.
       const { computeChartStats, applySmoothing } = await import("./data-source-brain/series-stats");
-      const { shapeChart, gatherShaperContext } = await import("./data-source-brain/chart-shaper");
+      const { shapeChart } = await chartShaperImport;
       const stats = computeChartStats(chartData, yAxes);
-      const contextFacts = await gatherShaperContext(extracted.protocol, extracted.denominator);
+      // Join the brain context lookup that was kicked off in parallel above.
+      const contextFacts = await contextFactsPromise;
       onStep?.({ type: "tool_start", label: `Shaping chart presentation`, detail: "chart_shaper", round: 0 });
       const shaped = await shapeChart({
         recipe,
