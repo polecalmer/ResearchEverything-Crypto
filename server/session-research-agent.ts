@@ -2568,25 +2568,55 @@ export async function runSessionResearchAgent(
         !!r && Array.isArray(r.artifacts) && r.artifacts.some((a: any) => a?.type === "chart");
       const chartSuccess = pipelines.filter((p) => hasChartArtifact(p.response));
       const explainOnly = pipelines.filter((p) => p.response && !hasChartArtifact(p.response));
+      // Sub-prompts that returned NO response at all (extractor failure,
+      // proven-query fall-through, or any silent miss). Without surfacing
+      // these, a fan-out where one sub-prompt produces null gets reduced to
+      // the single-success branch below and the missing chart vanishes
+      // silently — exactly the bug we hit with "share of HL volume AND share
+      // of HL fees" where only the fees chart rendered. Synthesize a placeholder
+      // explain-only entry so the merge branch always runs in fan-out mode.
+      const noResponse = pipelines
+        .map((p, i) => ({ p, i }))
+        .filter(({ p }) => !p.response);
+      const noResponseSurrogates: Array<{ response: ResearchResponse }> = noResponse.map(({ i }) => ({
+        response: {
+          content:
+            `I couldn't render the chart for **${subPrompts[i]}**. ` +
+            `The extractor returned no usable metric, or every fallback path declined to produce data — ` +
+            `try rephrasing that sub-request on its own.`,
+          artifacts: [],
+          mppCost: 0,
+          inputTokens: 0,
+          outputTokens: 0,
+          costBasis: "receipt",
+          toolCalls: ["chart_pipeline_no_response"],
+          mode: "focused",
+          modeReason: "fan-out sub-prompt produced null response",
+        },
+      }));
       console.log(
-        `[SessionResearch] Multi-chart fan-out outcome: ${chartSuccess.length} chart(s), ${explainOnly.length} explain-only, ${pipelines.length - chartSuccess.length - explainOnly.length} no-response`,
+        `[SessionResearch] Multi-chart fan-out outcome: ${chartSuccess.length} chart(s), ${explainOnly.length} explain-only, ${noResponse.length} no-response (surfaced as explain-only)`,
       );
       const successful = chartSuccess;
       if (successful.length > 0) {
-        if (successful.length === 1 && explainOnly.length === 0) {
+        // Only short-circuit to single-response when this WAS a single-prompt
+        // run (no fan-out happened). For fan-outs, even one missing sub-prompt
+        // must be surfaced so the user can see what didn't render.
+        if (subPrompts.length === 1 && successful.length === 1 && explainOnly.length === 0 && noResponse.length === 0) {
           console.log(`[SessionResearch] Chart pipeline returned complete response — skipping agent loop entirely`);
           onStep?.({ type: "complete", label: "Chart ready", detail: "deterministic_pipeline" });
           return successful[0].response!;
         }
         // Merge multiple chart responses into one composite ResearchResponse
         // by concatenating content and stacking artifacts. Append explain-only
-        // failures (sub-prompts that produced no chart artifact) so the user
-        // can see why the missing chart didn't render.
-        console.log(`[SessionResearch] Merging ${successful.length} chart responses (+ ${explainOnly.length} explain-only)`);
+        // failures (sub-prompts that produced no chart artifact) AND no-response
+        // surrogates so the user can see why each missing chart didn't render.
+        console.log(`[SessionResearch] Merging ${successful.length} chart responses (+ ${explainOnly.length} explain-only, + ${noResponseSurrogates.length} surfaced no-response)`);
         onStep?.({ type: "complete", label: `${successful.length} charts ready`, detail: "multi_chart" });
         const mergeParts = [
           ...successful.map((p) => p.response!.content),
           ...explainOnly.map((p) => `_(no chart rendered for one sub-prompt)_\n\n${p.response!.content}`),
+          ...noResponseSurrogates.map((p) => `_(no chart rendered for one sub-prompt)_\n\n${p.response.content}`),
         ];
         const merged: ResearchResponse = {
           content: mergeParts.join("\n\n---\n\n"),
