@@ -130,7 +130,20 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
 
   const activeData = viewMode === "cumulative" ? cumulativeData : data;
 
-  const isDate = xAxis?.format === "date" || (xAxis?.dataKey && data[0]?.[xAxis.dataKey] && /^\d{4}-\d{2}/.test(String(data[0][xAxis.dataKey])));
+  // Detect a date axis from one of three signals:
+  //  1. explicit xAxis.format === "date"
+  //  2. ISO string (e.g. "2025-04-23")
+  //  3. numeric unix timestamp in seconds (~1e9..1e10) or milliseconds
+  //     (~1e12..1e13). Older saved charts stored `date` as a unix int and,
+  //     without this branch, the renderer formatted them as currency
+  //     ("$1.78B") on the x-axis.
+  const xSample = xAxis?.dataKey ? data[0]?.[xAxis.dataKey] : undefined;
+  const isUnixSeconds = typeof xSample === "number" && xSample > 1e9 && xSample < 1e10;
+  const isUnixMillis = typeof xSample === "number" && xSample > 1e12 && xSample < 1e14;
+  const xKeyLooksLikeDate = typeof xAxis?.dataKey === "string" && /(^|_)(date|time|timestamp|day)(_|$)/i.test(xAxis.dataKey);
+  const isDate = xAxis?.format === "date"
+    || (xSample != null && /^\d{4}-\d{2}/.test(String(xSample)))
+    || ((isUnixSeconds || isUnixMillis) && xKeyLooksLikeDate);
 
   const lastRow = activeData[activeData.length - 1];
   const primaryKey = yAxes[0]?.dataKey;
@@ -138,9 +151,19 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
   const latestFmt = inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format);
   const latestValue = latestRaw != null ? formatValue(latestRaw, viewMode === "cumulative" ? "number" : latestFmt) : null;
 
+  // Coerce a date-like value (ISO string, JS Date, unix seconds, unix ms) into
+  // a JS Date. Older saved charts persist `date` as unix seconds, which the
+  // Date constructor would otherwise parse as 1970-01-21 (~1.78B ms).
+  const toDate = (val: any): Date => {
+    if (typeof val === "number") {
+      return new Date(isUnixSeconds ? val * 1000 : val);
+    }
+    return new Date(val);
+  };
+
   const xTickFormatter = (val: any) => {
     if (isDate) {
-      try { return format(new Date(val), "MMM ''yy"); } catch { return val; }
+      try { return format(toDate(val), "MMM ''yy"); } catch { return val; }
     }
     return formatValue(val, xAxis.format);
   };
@@ -157,7 +180,7 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
     for (const row of activeData) {
       const v = row[xAxis.dataKey];
       if (v == null) continue;
-      const d = new Date(v);
+      const d = toDate(v);
       if (isNaN(d.getTime())) continue;
       const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
       if (seen.has(key)) continue;
@@ -173,7 +196,7 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
 
   const tooltipLabelFormatter = (val: any) => {
     if (isDate) {
-      try { return format(new Date(val), "MMM d, yyyy"); } catch { return val; }
+      try { return format(toDate(val), "MMM d, yyyy"); } catch { return val; }
     }
     return String(val);
   };

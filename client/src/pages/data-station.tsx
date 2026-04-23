@@ -137,6 +137,16 @@ function parseChart(chart: SavedChart): ParsedChart {
   try { parsedConfig = JSON.parse(chart.chartConfig || "{}"); } catch {}
   try { dsConfig = JSON.parse(chart.dataSourceConfig || "{}"); } catch {}
 
+  // Older saved charts (data-agent path) stored description as
+  // "subtitle|||description" — without splitting we render both halves jammed
+  // together with literal triple-pipes in the middle. Keep just the leading
+  // subtitle segment, which is the human-readable summary line.
+  const cleanedDescription = (() => {
+    const desc = chart.description || "";
+    if (!desc.includes("|||")) return desc;
+    return desc.split("|||")[0].trim();
+  })();
+
   const recipe = dsConfig.refreshRecipe;
   const canRefresh = !!recipe
     || (chart.dataSource === "dune" && !!dsConfig.queryId)
@@ -148,14 +158,14 @@ function parseChart(chart: SavedChart): ParsedChart {
   const artifact: Artifact = isTable ? {
     type: "table",
     title: chart.title,
-    subtitle: chart.description || undefined,
+    subtitle: cleanedDescription || undefined,
     source: recipe?.dataSource || dsConfig?.source || undefined,
     data: parsedData,
     columns: parsedConfig?.columns || (parsedData[0] ? Object.keys(parsedData[0]) : []),
   } : {
     type: "chart",
     title: chart.title,
-    subtitle: chart.description || undefined,
+    subtitle: cleanedDescription || undefined,
     source: recipe?.dataSource || dsConfig?.source || undefined,
     data: parsedData,
     chartConfig: parsedConfig,
