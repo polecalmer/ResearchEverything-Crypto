@@ -188,19 +188,6 @@ function StationCard({ pc, onRefresh, onDelete, onAddToReport, reports, refreshi
   return (
     <div className="relative group" data-testid={`chart-card-${pc.id}`}>
       <div className="absolute top-2 right-2 z-10 flex items-center gap-0.5">
-        {pc.hasRecipe && (
-          <button
-            onClick={() => onRefresh(pc.id)}
-            disabled={isRefreshing}
-            className={`p-1.5 rounded-md bg-card/80 backdrop-blur-sm border border-border/20 text-muted-foreground/40 hover:text-cyan-400 hover:border-cyan-500/30 transition-all ${
-              isRefreshing ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-            }`}
-            title="Refresh live data"
-            data-testid={`button-refresh-chart-${pc.id}`}
-          >
-            <RefreshCw className={`h-3 w-3 ${isRefreshing ? "animate-spin text-cyan-400" : ""}`} />
-          </button>
-        )}
         <div className="relative opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             onClick={() => setShowMenu(!showMenu)}
@@ -244,7 +231,21 @@ function StationCard({ pc, onRefresh, onDelete, onAddToReport, reports, refreshi
           source={pc.artifact?.source || (pc.hasRecipe ? "live" : undefined)}
           lastRefresh={pc.updatedAt || pc.createdAt}
         />
-        <ArtifactActions chartId={pc.id} chartTitle={pc.title} size="xs" />
+        <div className="flex items-center gap-1">
+          {pc.hasRecipe && (
+            <button
+              onClick={() => onRefresh(pc.id)}
+              disabled={isRefreshing}
+              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground/50 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all"
+              title="Refresh live data"
+              data-testid={`button-refresh-chart-${pc.id}`}
+            >
+              <RefreshCw className={`h-3 w-3 ${isRefreshing ? "animate-spin text-cyan-400" : ""}`} />
+              <span className="hidden sm:inline">{isRefreshing ? "Refreshing…" : "Refresh"}</span>
+            </button>
+          )}
+          <ArtifactActions chartId={pc.id} chartTitle={pc.title} size="xs" />
+        </div>
       </div>
     </div>
   );

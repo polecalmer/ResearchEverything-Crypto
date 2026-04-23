@@ -53,6 +53,12 @@ export interface RefreshRecipe {
     displayLabel: string;
     format: "ratio" | "currency" | "percent" | "number";
   };
+  /** Presentation hints chosen by the chart shaper. Persisted on the recipe
+   * so that refresh re-applies the same smoothing window and axis layout the
+   * user originally saw — otherwise refresh re-fetches raw data and the
+   * "(7-Day MA)" indicator drops off the saved chart. */
+  smoothing?: "none" | "7dma" | "30dma";
+  axisLayout?: "single" | "dual";
 }
 
 export interface ResearchArtifact {
@@ -2324,6 +2330,8 @@ export async function runChartPipeline(
               format: derivation.format,
             }
           : undefined,
+        smoothing: shaped.smoothing,
+        axisLayout: shaped.axisLayout,
       };
       const tickerOrProto = extracted.ticker || extracted.protocol;
       // Preserve the user's original casing for protocol/ticker names. The
@@ -2618,12 +2626,23 @@ export async function executeRefreshRecipe(
         { lookbackDays: recipe.timeWindowDays, userId: opts?.userId },
         evaluator,
       );
+      // Re-apply the same smoothing window the user originally saw so the
+      // refreshed line keeps the same shape (and the "(7-Day MA)" badge
+      // stays truthful). Without this, refresh swaps in raw daily data and
+      // the chart visibly de-smooths.
+      let outData = data;
+      if (recipe.smoothing === "7dma" || recipe.smoothing === "30dma") {
+        const window = recipe.smoothing === "7dma" ? 7 : 30;
+        outData = applySmoothing(data, yAxes.map(y => y.dataKey), window);
+      }
       return {
-        data,
+        data: outData,
         chartConfig: {
           chartType: "line",
           xAxis: { dataKey: "date", format: "date" },
           yAxes: yAxes.map(y => ({ dataKey: y.dataKey, label: y.label })),
+          ...(recipe.smoothing && recipe.smoothing !== "none" ? { smoothing: recipe.smoothing } : {}),
+          ...(recipe.axisLayout ? { axisLayout: recipe.axisLayout } : {}),
         },
       };
     }
@@ -2649,12 +2668,19 @@ export async function executeRefreshRecipe(
       },
     );
     const composedType: "line" | "bar" | "area" | "composed" = yAxes.length > 1 ? "composed" : derivedRecipe.chartType;
+    let outData2 = data;
+    if (recipe.smoothing === "7dma" || recipe.smoothing === "30dma") {
+      const window = recipe.smoothing === "7dma" ? 7 : 30;
+      outData2 = applySmoothing(data, yAxes.map(y => y.dataKey), window);
+    }
     return {
-      data,
+      data: outData2,
       chartConfig: {
         chartType: composedType,
         xAxis: { dataKey: "date", format: "date" },
         yAxes: yAxes.map(y => ({ dataKey: y.dataKey, label: y.label })),
+        ...(recipe.smoothing && recipe.smoothing !== "none" ? { smoothing: recipe.smoothing } : {}),
+        ...(recipe.axisLayout ? { axisLayout: recipe.axisLayout } : {}),
       },
     };
   }
