@@ -49,7 +49,7 @@ export interface RefreshRecipe {
    * recipes. */
   derivation?: {
     formula: string;
-    components: Array<{ name: string; intent: string; protocol?: string }>;
+    components: Array<{ name: string; intent: import("./data-source-brain/metric-decomposer").BaseIntent; protocol?: string }>;
     displayLabel: string;
     format: "ratio" | "currency" | "percent" | "number";
   };
@@ -2611,7 +2611,7 @@ export async function executeRefreshRecipe(
       const evaluator = compileFormula(recipe.derivation.formula);
       const resolvers = { resolveCoinGeckoId, getRevenueSlugs };
       const { data, yAxes } = await computeDerivationChart(
-        recipe.derivation as any,
+        recipe.derivation,
         recipe.protocol,
         defillama,
         resolvers,
