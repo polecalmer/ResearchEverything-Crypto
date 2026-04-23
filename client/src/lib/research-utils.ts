@@ -49,12 +49,23 @@ export interface Session {
 }
 
 export interface ThinkingStep {
-  type: "thinking" | "tool_start" | "tool_result" | "analyzing" | "complete";
+  type:
+    | "thinking"
+    | "tool_start"
+    | "tool_result"
+    | "analyzing"
+    | "complete"
+    | "sub_question_started"
+    | "sub_question_progress"
+    | "sub_question_done"
+    | "synthesis_started";
   label: string;
   detail?: string;
   round?: number;
   totalRounds?: number;
   timestamp?: number;
+  subQuestionId?: string;
+  subQuestionText?: string;
 }
 
 export type PartType = "text" | "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote";

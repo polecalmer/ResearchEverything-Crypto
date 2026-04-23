@@ -3095,6 +3095,66 @@ export async function runSessionResearchAgent(
   const REFLECTION_ROUND_IDX = mode === "deep" ? 3 : -1;
 
   let loopError: string | null = null;
+  // ─── Parallel deep branch (feature-flagged) ────────────────────────────────
+  // When DEEP_RESEARCH_PARALLEL=1, deep mode with a usable plan diverts to a
+  // sub-question parallel pipeline instead of the sequential 15-round loop.
+  // Quick / focused / chart-fallback paths are unaffected.
+  if (
+    process.env.DEEP_RESEARCH_PARALLEL === "1" &&
+    mode === "deep" &&
+    !isChart &&
+    plan &&
+    plan.sub_questions.length >= 2
+  ) {
+    try {
+      const branchResult = await runParallelDeepBranch({
+        userMessage,
+        plan,
+        history,
+        brain,
+        brainContext,
+        activeSystemPrompt,
+        anthropicTools,
+        onStep,
+        userId,
+        spendBudgetUsd: SPEND_BUDGET_USD,
+        startingTotals: { cost: totalCost, inputTokens: totalInputTokens, outputTokens: totalOutputTokens, voucher: anyCostSourceVoucher },
+      });
+      totalCost = branchResult.totals.cost;
+      totalInputTokens = branchResult.totals.inputTokens;
+      totalOutputTokens = branchResult.totals.outputTokens;
+      anyCostSourceVoucher = branchResult.totals.voucher;
+      finalText = branchResult.finalText;
+      toolCalls.push(...branchResult.toolCalls);
+      pendingBrainUpdate = branchResult.brainUpdate ?? pendingBrainUpdate;
+      needsContinuation = branchResult.needsContinuation;
+      const artifacts = parseArtifacts(finalText);
+      for (const art of artifacts) {
+        if (art.type === "chart" && art.data && art.data.length > 0) {
+          memorializeAgentChart(userMessage, art, finalText).catch(() => { /* swallow */ });
+        }
+      }
+      return {
+        content: finalText,
+        artifacts,
+        mppCost: totalCost,
+        inputTokens: totalInputTokens,
+        outputTokens: totalOutputTokens,
+        costBasis: anyCostSourceVoucher ? "voucher_estimate" : "receipt",
+        toolCalls,
+        brainUpdates: pendingBrainUpdate,
+        mode,
+        modeReason,
+        plan,
+        needsContinuation,
+      };
+    } catch (parallelErr: any) {
+      console.error(`[ParallelDeep] Pipeline failed — falling back to sequential loop: ${parallelErr.message}`);
+      onStep?.({ type: "thinking", label: "Parallel pipeline hit a snag, falling back to sequential analysis..." });
+      // Fall through to the existing loop below.
+    }
+  }
+
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
     console.log(`[SessionResearch] Round ${round + 1}/${MAX_TOOL_ROUNDS}`);
 
@@ -3470,6 +3530,609 @@ ${perspectives.join("\n\n")}`;
     mode,
     modeReason,
     plan,
+    needsContinuation,
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// PARALLEL DEEP RESEARCH PIPELINE (feature-flagged via DEEP_RESEARCH_PARALLEL)
+// ─────────────────────────────────────────────────────────────────────────────
+// Splits a deep-mode ResearchPlan into per-sub-question workers that run in
+// parallel (with a concurrency cap and a per-request tool-result cache), then
+// runs a single Opus synthesis pass that integrates worker findings with the
+// multi-analyst perspective addendum. Designed to preserve every quality
+// guarantee of the sequential loop (brain grounding, charts, contradictions,
+// genuine insight) while collapsing wall-clock time.
+
+interface ParallelTotals {
+  cost: number;
+  inputTokens: number;
+  outputTokens: number;
+  voucher: boolean;
+}
+
+function stableStringify(obj: any): string {
+  if (obj === null || typeof obj === "undefined") return "null";
+  if (typeof obj !== "object") return JSON.stringify(obj);
+  if (Array.isArray(obj)) return "[" + obj.map(stableStringify).join(",") + "]";
+  const keys = Object.keys(obj).sort();
+  return "{" + keys.map(k => JSON.stringify(k) + ":" + stableStringify(obj[k])).join(",") + "}";
+}
+
+class ToolResultCache {
+  private map = new Map<string, string>();
+  private hits = 0;
+  private misses = 0;
+  key(name: string, input: any): string {
+    try {
+      const norm = stableStringify(input);
+      return `${name}:${norm}`;
+    } catch {
+      return `${name}:${Math.random()}`;
+    }
+  }
+  get(name: string, input: any): string | null {
+    const k = this.key(name, input);
+    if (this.map.has(k)) { this.hits++; return this.map.get(k)!; }
+    this.misses++;
+    return null;
+  }
+  set(name: string, input: any, val: string): void {
+    this.map.set(this.key(name, input), val);
+  }
+  stats() { return { hits: this.hits, misses: this.misses, size: this.map.size }; }
+}
+
+interface SubQuestionWorkerResult {
+  subQuestionId: string;
+  subQuestionText: string;
+  text: string;            // Findings markdown, may include ```artifact:* blocks
+  toolCalls: string[];
+  cost: number;
+  inputTokens: number;
+  outputTokens: number;
+  voucher: boolean;
+  brainUpdate?: BrainUpdate;
+  error?: string;
+}
+
+function buildWorkerSystemPrompt(
+  brainContext: string,
+  sq: import("./research-planner").SubQuestion,
+  mainQuestion: string,
+): string {
+  const fwBlock = sq.resolvedFramework
+    ? `\n\n## Framework to apply: ${sq.resolvedFramework.name}\n${sq.resolvedFramework.description}\n\nProcedural steps:\n${sq.resolvedFramework.steps.map((s, i) => `${i + 1}. ${s}`).join("\n")}`
+    : "";
+
+  const typesBlock = sq.types.length > 0 ? `\nTypes: ${sq.types.join(", ")}` : "";
+  const toolsHint = sq.suggested_tools.length > 0
+    ? `\nSuggested tools: ${sq.suggested_tools.join(", ")}`
+    : "";
+
+  return `${BASE_PROMPT}
+
+You are a SUB-QUESTION RESEARCHER. The user's overall question is being decomposed into parallel sub-questions, each handled by a separate worker. Your job is to deeply research ONE sub-question and return concise, evidence-rich findings that the synthesis stage will weave into a final report.
+
+# OVERALL QUESTION
+"${mainQuestion}"
+
+# YOUR SUB-QUESTION
+"${sq.text}"${typesBlock}${toolsHint}${fwBlock}
+
+# RULES
+- Stay focused on YOUR sub-question. Do NOT try to answer the overall question.
+- Use tools to fetch live data. Cite numbers with their sources inline.
+- If the data clearly answers the sub-question, stop calling tools — synthesis happens later.
+- Output a tight findings block (2-6 short paragraphs) plus any artifacts (charts, tables, metric_cards) that materially advance the answer. Use the standard \`\`\`artifact:chart / artifact:table / artifact:metric_cards / artifact:callout\`\`\` JSON blocks exactly as you would in a normal response. The synthesizer will preserve them verbatim.
+- Lead with what is KNOWN, then what is UNCERTAIN, then any contradictions you spotted (with sources).
+- Do NOT call analyst_perspective — perspectives are gathered at synthesis level.
+- If you learn something durable about an entity, relationship, or fact that should persist beyond this session, you MAY call update_research_brain ONCE near the end of your work. Keep it scoped to your sub-question.
+- Maximum 5 tool rounds. Be efficient.${brainContext}`;
+}
+
+async function runSubQuestionWorker(opts: {
+  sq: import("./research-planner").SubQuestion;
+  mainQuestion: string;
+  brainContext: string;
+  toolCache: ToolResultCache;
+  workerTools: any[];
+  onProgress: (label: string) => void;
+}): Promise<SubQuestionWorkerResult> {
+  const { sq, mainQuestion, brainContext, toolCache, workerTools, onProgress } = opts;
+  const MAX_ROUNDS = 5;
+  const MAX_TOKENS = 8000;
+  const MAX_RESULT_CHARS = 60000;
+
+  const systemPrompt = buildWorkerSystemPrompt(brainContext, sq, mainQuestion);
+  const messages: Array<{ role: string; content: any }> = [
+    { role: "user", content: sq.text },
+  ];
+
+  let cost = 0, inputTokens = 0, outputTokens = 0, voucher = false;
+  const toolCalls: string[] = [];
+  let finalText = "";
+  let error: string | undefined;
+  let workerBrainUpdate: BrainUpdate | undefined;
+  const callSignatures: string[] = [];
+
+  for (let round = 0; round < MAX_ROUNDS; round++) {
+    let response: AnthropicRawResponse;
+    try {
+      response = await callAnthropicRawStreaming({
+        model: MODELS.SONNET,
+        max_tokens: MAX_TOKENS,
+        system: systemPrompt,
+        messages,
+        tools: workerTools,
+      });
+    } catch (apiErr: any) {
+      console.error(`[ParallelDeep:worker:${sq.id}] API call failed round ${round + 1}: ${apiErr.message}`);
+      if (round === 0) {
+        await new Promise(r => setTimeout(r, 2000));
+        try {
+          response = await callAnthropicRawStreaming({
+            model: MODELS.SONNET, max_tokens: MAX_TOKENS, system: systemPrompt, messages, tools: workerTools,
+          });
+        } catch (retryErr: any) {
+          error = `worker_api_failed: ${retryErr.message}`;
+          break;
+        }
+      } else {
+        error = `worker_api_failed: ${apiErr.message}`;
+        break;
+      }
+    }
+
+    cost += response.mppCost;
+    inputTokens += response.usage?.input_tokens || 0;
+    outputTokens += response.usage?.output_tokens || 0;
+    if (response.costSource === "voucher_estimate") voucher = true;
+
+    const textBlocks = response.content.filter((b: any) => b.type === "text");
+    const outputText = textBlocks.map((b: any) => b.text).join("");
+    const hasToolUse = response.content.some((b: any) => b.type === "tool_use");
+
+    if (!hasToolUse || response.stop_reason === "end_turn") {
+      finalText = outputText;
+      break;
+    }
+
+    messages.push({ role: "assistant", content: response.content });
+    const toolResults: any[] = [];
+
+    for (const block of response.content as any[]) {
+      if (block.type !== "tool_use") {
+        if (block.type === "web_search_tool_result" || block.type === "server_tool_use") {
+          toolCalls.push("web_search");
+        }
+        continue;
+      }
+      const inputStr = JSON.stringify(block.input);
+      toolCalls.push(block.name);
+
+      const sig = `${block.name}:${inputStr}`;
+      callSignatures.push(sig);
+      if (callSignatures.filter(s => s === sig).length >= 3) {
+        toolResults.push({
+          type: "tool_result", tool_use_id: block.id,
+          content: JSON.stringify({ error: "LOOP_DETECTED: identical call repeated. Synthesize what you have." }),
+        });
+        continue;
+      }
+
+      // Brain-update tool: capture and acknowledge in-line, no external IO.
+      if (block.name === "update_research_brain") {
+        workerBrainUpdate = block.input as BrainUpdate;
+        const ec = Object.keys(workerBrainUpdate.entities || {}).length;
+        const fc = (workerBrainUpdate.facts || []).length;
+        const rc = (workerBrainUpdate.relationships || []).length;
+        toolResults.push({
+          type: "tool_result", tool_use_id: block.id,
+          content: JSON.stringify({ status: "recorded", entities: ec, facts: fc, relationships: rc }),
+        });
+        continue;
+      }
+
+      // Cache hit?
+      const cached = toolCache.get(block.name, block.input);
+      let result: string;
+      if (cached !== null) {
+        result = cached;
+        onProgress(`${sq.id}: cached ${block.name}`);
+      } else {
+        const shortCircuit = getBinding(block.name)
+          ? await shouldShortCircuit(block.name, block.input).catch(() => null)
+          : null;
+        if (shortCircuit) {
+          result = shortCircuit;
+        } else {
+          const brainHint = getBinding(block.name)
+            ? await consultForTool(block.name, block.input).catch(() => "")
+            : "";
+          const raw = await executeTool(block.name, block.input);
+          let parsedError: string | null = null;
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed.error) parsedError = String(parsed.error);
+          } catch {}
+          if (parsedError) {
+            void observeToolError(block.name, block.input, parsedError);
+          } else {
+            void observeToolSuccess(block.name, block.input, "ok");
+          }
+          result = brainHint
+            ? `<brain_context>\n${brainHint}\n</brain_context>\n<tool_output>\n${raw}\n</tool_output>`
+            : raw;
+          toolCache.set(block.name, block.input, result);
+          onProgress(`${sq.id}: ${toolLabel(block.name, block.input)}`);
+        }
+      }
+
+      toolResults.push({
+        type: "tool_result",
+        tool_use_id: block.id,
+        content: result.slice(0, MAX_RESULT_CHARS),
+      });
+    }
+
+    if (toolResults.length === 0) {
+      finalText = outputText;
+      break;
+    }
+    messages.push({ role: "user", content: toolResults });
+
+    const sub = drainSubCallCosts();
+    if (sub.cost > 0) {
+      cost += sub.cost;
+      inputTokens += sub.inputTokens;
+      outputTokens += sub.outputTokens;
+      if (sub.anyCostSourceVoucher) voucher = true;
+    }
+  }
+
+  // If we exhausted rounds without a final-text turn, force a wrap-up.
+  if (!finalText) {
+    try {
+      const wrap = await callAnthropicRawStreaming({
+        model: MODELS.SONNET,
+        max_tokens: MAX_TOKENS,
+        system: systemPrompt + "\n\nIMPORTANT: max tool rounds reached. Synthesize what you have learned into your findings now. Do not call any more tools.",
+        messages,
+      });
+      cost += wrap.mppCost;
+      inputTokens += wrap.usage?.input_tokens || 0;
+      outputTokens += wrap.usage?.output_tokens || 0;
+      if (wrap.costSource === "voucher_estimate") voucher = true;
+      finalText = wrap.content
+        .filter((b: any) => b.type === "text")
+        .map((b: any) => b.text)
+        .join("");
+    } catch (wrapErr: any) {
+      error = error || `worker_wrap_failed: ${wrapErr.message}`;
+    }
+  }
+
+  return {
+    subQuestionId: sq.id,
+    subQuestionText: sq.text,
+    text: finalText || `_Sub-question ${sq.id} produced no findings._`,
+    toolCalls,
+    cost,
+    inputTokens,
+    outputTokens,
+    voucher,
+    brainUpdate: workerBrainUpdate,
+    error,
+  };
+}
+
+// Topological wave ordering on plan.depends_on. Ignores cycles by demoting
+// any sub-question with unresolved deps to the latest wave. Returns sub-q
+// objects grouped by wave; each wave runs to completion before the next.
+function planToWaves(plan: import("./research-planner").ResearchPlan): import("./research-planner").SubQuestion[][] {
+  const remaining = new Map(plan.sub_questions.map(q => [q.id, q]));
+  const done = new Set<string>();
+  const waves: import("./research-planner").SubQuestion[][] = [];
+  let safety = plan.sub_questions.length + 2;
+  while (remaining.size > 0 && safety-- > 0) {
+    const wave: import("./research-planner").SubQuestion[] = [];
+    for (const q of Array.from(remaining.values())) {
+      const deps: string[] = q.depends_on || [];
+      if (deps.every((d: string) => done.has(d) || !remaining.has(d))) wave.push(q);
+    }
+    if (wave.length === 0) {
+      // Dependency cycle — flush everything left as final wave.
+      waves.push(Array.from(remaining.values()));
+      break;
+    }
+    waves.push(wave);
+    for (const q of wave) { done.add(q.id); remaining.delete(q.id); }
+  }
+  return waves;
+}
+
+async function runWavesWithConcurrency(
+  waves: import("./research-planner").SubQuestion[][],
+  concurrency: number,
+  runOne: (sq: import("./research-planner").SubQuestion) => Promise<SubQuestionWorkerResult>,
+  shouldHalt?: () => boolean,
+): Promise<SubQuestionWorkerResult[]> {
+  const results: SubQuestionWorkerResult[] = [];
+  for (const wave of waves) {
+    if (shouldHalt?.()) {
+      console.warn(`[ParallelDeep] Halting before wave (${wave.length} sub-questions skipped) — budget guard tripped`);
+      for (const sq of wave) {
+        results.push({
+          subQuestionId: sq.id, subQuestionText: sq.text,
+          text: `_Skipped due to budget guard tripping before this wave._`,
+          toolCalls: [], cost: 0, inputTokens: 0, outputTokens: 0, voucher: false,
+          error: "budget_halt",
+        });
+      }
+      continue;
+    }
+    const queue = [...wave];
+    const inFlight: Promise<void>[] = [];
+    const launch = async () => {
+      while (queue.length > 0) {
+        const sq = queue.shift()!;
+        try { results.push(await runOne(sq)); }
+        catch (err: any) {
+          results.push({
+            subQuestionId: sq.id, subQuestionText: sq.text,
+            text: `_Worker for ${sq.id} crashed: ${err.message}_`,
+            toolCalls: [], cost: 0, inputTokens: 0, outputTokens: 0, voucher: false,
+            error: err.message,
+          });
+        }
+      }
+    };
+    const lanes = Math.min(concurrency, wave.length);
+    for (let i = 0; i < lanes; i++) inFlight.push(launch());
+    await Promise.all(inFlight);
+  }
+  return results;
+}
+
+function mergeWorkerBrainUpdates(updates: Array<BrainUpdate | undefined>): BrainUpdate | null {
+  const merged: BrainUpdate = { entities: {}, relationships: [], facts: [] };
+  let any = false;
+  for (const u of updates) {
+    if (!u) continue;
+    any = true;
+    for (const [name, data] of Object.entries(u.entities || {})) {
+      merged.entities![name] = { ...(merged.entities![name] || {}), ...(data as any) };
+    }
+    if (Array.isArray(u.relationships)) merged.relationships!.push(...u.relationships);
+    if (Array.isArray(u.facts)) merged.facts!.push(...(u.facts as any));
+  }
+  return any ? merged : null;
+}
+
+interface ParallelBranchResult {
+  finalText: string;
+  toolCalls: string[];
+  totals: ParallelTotals;
+  brainUpdate: BrainUpdate | null;
+  needsContinuation: boolean;
+}
+
+async function runParallelDeepBranch(opts: {
+  userMessage: string;
+  plan: import("./research-planner").ResearchPlan;
+  history: Array<{ role: string; content: string }>;
+  brain: BrainGraph | null;
+  brainContext: string;
+  activeSystemPrompt: string;
+  anthropicTools: any[];
+  onStep?: (s: any) => void;
+  userId?: string;
+  spendBudgetUsd: number;
+  startingTotals: ParallelTotals;
+}): Promise<ParallelBranchResult> {
+  const { userMessage, plan, brainContext, activeSystemPrompt, anthropicTools, onStep, spendBudgetUsd } = opts;
+  const t0 = Date.now();
+  console.log(`[ParallelDeep] phase=plan sub_qs=${plan.sub_questions.length} playbook=${plan.playbook_used || "none"} confidence=${plan.confidence.toFixed(2)}`);
+
+  const totals: ParallelTotals = { ...opts.startingTotals };
+  const allToolCalls: string[] = [];
+
+  // Workers can't call analyst_perspective or update_research_brain (synthesis owns those)
+  const workerTools = anthropicTools.filter((t: any) =>
+    t.name !== "analyst_perspective" && t.name !== "update_research_brain"
+  );
+
+  const toolCache = new ToolResultCache();
+  const waves = planToWaves(plan);
+  const subQCount = plan.sub_questions.length;
+  const concurrency = subQCount <= 3 ? subQCount : 3;
+
+  onStep?.({
+    type: "thinking",
+    label: `Provisioning ${subQCount} parallel researchers (${waves.length} wave${waves.length === 1 ? "" : "s"}, concurrency ${concurrency})...`,
+  });
+
+  // Emit per-sub-q "started" events up front so the inspector can render slots.
+  for (const sq of plan.sub_questions) {
+    onStep?.({
+      type: "sub_question_started",
+      label: sq.text,
+      subQuestionId: sq.id,
+      subQuestionText: sq.text,
+    });
+  }
+
+  // Kick off analyst perspectives in parallel with the workers — they're
+  // independent of sub-question execution and the synthesizer needs them.
+  onStep?.({ type: "thinking", label: "Gathering multi-perspective analysis in parallel..." });
+  const perspectivePromise = (async () => {
+    const analysts = ["TopherGMI", "shaundadevens", "thiccyth0t"] as const;
+    const settled = await Promise.allSettled(
+      analysts.map(async (a) => ({ analyst: a, result: await generateAnalystPerspective(a, userMessage) }))
+    );
+    const perspectives: string[] = [];
+    let pCost = 0, pIn = 0, pOut = 0, pVoucher = false;
+    for (const r of settled) {
+      if (r.status !== "fulfilled") continue;
+      pCost += r.value.result.cost;
+      pIn += r.value.result.inputTokens;
+      pOut += r.value.result.outputTokens;
+      if (r.value.result.costSource === "voucher_estimate") pVoucher = true;
+      try {
+        const parsed = JSON.parse(r.value.result.payload);
+        if (parsed.reasoning) {
+          const lensLabel = r.value.analyst === "TopherGMI" ? "Macro & Market Structure Lens"
+            : r.value.analyst === "shaundadevens" ? "Protocol Economics & DeFi Mechanics Lens"
+            : "Derivatives & Quantitative Lens";
+          perspectives.push(`### ${lensLabel}\n${parsed.reasoning}`);
+        }
+      } catch {}
+    }
+    return { perspectives, cost: pCost, inputTokens: pIn, outputTokens: pOut, voucher: pVoucher };
+  })();
+
+  const tWorkersStart = Date.now();
+  const workerResults = await runWavesWithConcurrency(waves, concurrency, async (sq) => {
+    return runOneWorker(sq);
+  }, () => totals.cost >= spendBudgetUsd);
+
+  async function runOneWorker(sq: import("./research-planner").SubQuestion) {
+    const tw = Date.now();
+    onStep?.({
+      type: "sub_question_progress",
+      label: `Researching: ${sq.text}`,
+      subQuestionId: sq.id,
+      subQuestionText: sq.text,
+    });
+    const r = await runSubQuestionWorker({
+      sq, mainQuestion: userMessage, brainContext, toolCache, workerTools,
+      onProgress: (label) => onStep?.({
+        type: "sub_question_progress",
+        label,
+        subQuestionId: sq.id,
+        subQuestionText: sq.text,
+      }),
+    });
+    const dt = Date.now() - tw;
+    console.log(`[ParallelDeep] worker ${sq.id} done in ${(dt / 1000).toFixed(1)}s, ${r.toolCalls.length} tools, $${r.cost.toFixed(4)}${r.error ? ` (error: ${r.error})` : ""}`);
+    onStep?.({
+      type: "sub_question_done",
+      label: r.error ? `Failed: ${sq.text}` : `Answered: ${sq.text}`,
+      subQuestionId: sq.id,
+      subQuestionText: sq.text,
+      detail: `${r.toolCalls.length} tool calls, ${(dt / 1000).toFixed(1)}s`,
+    });
+    return r;
+  }
+  const tWorkersEnd = Date.now();
+  console.log(`[ParallelDeep] phase=workers done in ${((tWorkersEnd - tWorkersStart) / 1000).toFixed(1)}s, cache=${JSON.stringify(toolCache.stats())}`);
+
+  for (const wr of workerResults) {
+    totals.cost += wr.cost;
+    totals.inputTokens += wr.inputTokens;
+    totals.outputTokens += wr.outputTokens;
+    if (wr.voucher) totals.voucher = true;
+    allToolCalls.push(...wr.toolCalls);
+  }
+
+  const persp = await perspectivePromise.catch((e: any) => {
+    console.warn(`[ParallelDeep] Perspective fanout failed (non-fatal): ${e.message}`);
+    return { perspectives: [] as string[], cost: 0, inputTokens: 0, outputTokens: 0, voucher: false };
+  });
+  totals.cost += persp.cost;
+  totals.inputTokens += persp.inputTokens;
+  totals.outputTokens += persp.outputTokens;
+  if (persp.voucher) totals.voucher = true;
+
+  // Budget guard before synthesis.
+  if (totals.cost >= spendBudgetUsd) {
+    console.warn(`[ParallelDeep] Budget exceeded before synthesis ($${totals.cost.toFixed(4)} >= $${spendBudgetUsd})`);
+  }
+
+  // ─── Synthesis ───────────────────────────────────────────────────────────
+  onStep?.({ type: "synthesis_started", label: `Synthesizing ${workerResults.length} sub-question findings into a unified report...` });
+
+  const dossier = workerResults
+    .sort((a, b) => a.subQuestionId.localeCompare(b.subQuestionId))
+    .map(r => {
+      const status = r.error ? ` (worker note: ${r.error})` : "";
+      return `## Sub-question ${r.subQuestionId}: ${r.subQuestionText}${status}\n\n${r.text.trim()}`;
+    })
+    .join("\n\n---\n\n");
+
+  const perspectiveAddendum = persp.perspectives.length > 0
+    ? `\n\n# MULTI-PERSPECTIVE ANALYSIS
+The following are reasoning traces from three different analytical perspectives on the user's question. You MUST:
+1. Integrate these perspectives into your synthesis — do not ignore them.
+2. Note where they converge (strong signal) and where they diverge (key uncertainties).
+3. Absorb the reasoning seamlessly — do NOT name the individual analysts. Reference perspectives generically (e.g. "from a macro-structural lens…", "a derivatives-focused analysis suggests…", "examining the protocol economics…").
+4. Take a final synthesized position that weighs these perspectives against the data the workers gathered.
+
+${persp.perspectives.join("\n\n")}`
+    : "";
+
+  const synthesisInstructions = `\n\n# SYNTHESIS INSTRUCTIONS
+You are now the SYNTHESIZER. Below are findings from ${workerResults.length} parallel sub-question workers, each of whom researched ONE facet of the user's question with live data. Compose ONE unified report that:
+
+1. Directly answers the user's overall question with a clear thesis or position.
+2. Weaves the worker findings together — do NOT just concatenate them. Identify cross-cutting themes, contradictions between sub-questions, and second-order implications that no single worker could see.
+3. **Preserve every \`\`\`artifact:chart\`\`\`, \`\`\`artifact:table\`\`\`, \`\`\`artifact:metric_cards\`\`\`, \`\`\`artifact:callout\`\`\`, \`\`\`artifact:comparison\`\`\` and \`\`\`artifact:quote\`\`\` block from the worker findings VERBATIM, embedding each exactly once at the most relevant point in your narrative.** Do not paraphrase, regenerate, or drop these blocks. They are live data and must reach the user intact.
+4. Surface contradictions: where workers disagree or where data conflicts with the user's prior beliefs (from brain context), call it out explicitly.
+5. End with a contrarian-or-catch callout (\`\`\`artifact:callout\`\`\` with variant: "contrarian" or "catch") if you spot something non-obvious.
+6. Integrate the multi-perspective analysis below as part of the narrative — reference perspectives generically, never name analysts.
+
+The user does NOT see the worker dossier — only your synthesis. Make every important number, citation, and chart from the dossier survive into your output.
+
+# WORKER FINDINGS DOSSIER
+
+${dossier}${perspectiveAddendum}`;
+
+  let finalText = "";
+  let needsContinuation = false;
+  try {
+    const synthesis = await callAnthropicRawStreaming({
+      model: MODELS.OPUS,
+      max_tokens: 16000,
+      system: activeSystemPrompt,
+      messages: [
+        { role: "user", content: userMessage + synthesisInstructions },
+      ],
+    });
+    totals.cost += synthesis.mppCost;
+    totals.inputTokens += synthesis.usage?.input_tokens || 0;
+    totals.outputTokens += synthesis.usage?.output_tokens || 0;
+    if (synthesis.costSource === "voucher_estimate") totals.voucher = true;
+    finalText = synthesis.content
+      .filter((b: any) => b.type === "text")
+      .map((b: any) => b.text)
+      .join("");
+    onStep?.({ type: "complete", label: "Composing final analysis" });
+  } catch (synthErr: any) {
+    console.error(`[ParallelDeep] Synthesis call failed: ${synthErr.message}`);
+    // Fallback: assemble worker outputs directly so the user gets SOMETHING
+    // with the artifacts intact.
+    needsContinuation = true;
+    finalText = `_Synthesis stage failed (${synthErr.message}). Returning raw sub-question findings — please re-run for a polished report._\n\n${dossier}`;
+  }
+
+  const tEnd = Date.now();
+  const artifactsParsed = parseArtifacts(finalText);
+  console.log(`[ParallelDeep] phase=synthesis done in ${((tEnd - tWorkersEnd) / 1000).toFixed(1)}s, total wall=${((tEnd - t0) / 1000).toFixed(1)}s, cost=$${totals.cost.toFixed(4)}, tokens=${totals.inputTokens}→${totals.outputTokens}, parsed_artifacts=${artifactsParsed.length}, tool_calls=${allToolCalls.length}, cache_hits=${toolCache.stats().hits}/${toolCache.stats().hits + toolCache.stats().misses}`);
+
+  const mergedBrain = mergeWorkerBrainUpdates(workerResults.map(r => r.brainUpdate));
+  if (mergedBrain) {
+    const ec = Object.keys(mergedBrain.entities || {}).length;
+    const fc = (mergedBrain.facts || []).length;
+    const rc = (mergedBrain.relationships || []).length;
+    console.log(`[ParallelDeep] Merged brain updates from workers: ${ec} entities, ${fc} facts, ${rc} relationships`);
+  }
+
+  return {
+    finalText,
+    toolCalls: allToolCalls,
+    totals,
+    brainUpdate: mergedBrain,
     needsContinuation,
   };
 }

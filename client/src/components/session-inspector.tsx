@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   Sparkles, BarChart3, FileText, Database, ChevronRight, ChevronLeft,
-  Brain, Activity,
+  Brain, Activity, GitBranch, CheckCircle2, Loader2, AlertCircle,
 } from "lucide-react";
 import type { SessionMessage, ThinkingStep } from "@/lib/research-utils";
 
@@ -50,6 +50,32 @@ export function SessionInspector({ sessionId, messages, thinkingSteps, isStreami
       sources: Array.from(sources),
     };
   }, [messages]);
+
+  // Roll up parallel sub-question progress from the step stream so the
+  // user can watch the deep pipeline's wave structure live.
+  const subQuestions = useMemo(() => {
+    const map = new Map<string, { id: string; text: string; status: "pending" | "running" | "done" | "failed"; lastLabel?: string; detail?: string }>();
+    for (const step of thinkingSteps || []) {
+      const id = step.subQuestionId;
+      if (!id) continue;
+      const text = step.subQuestionText || step.label || id;
+      const existing = map.get(id) || { id, text, status: "pending" as const };
+      if (step.type === "sub_question_started") {
+        map.set(id, { ...existing, text, status: existing.status === "done" || existing.status === "failed" ? existing.status : "pending" });
+      } else if (step.type === "sub_question_progress") {
+        map.set(id, { ...existing, text, status: existing.status === "done" || existing.status === "failed" ? existing.status : "running", lastLabel: step.label });
+      } else if (step.type === "sub_question_done") {
+        const failed = (step.label || "").toLowerCase().startsWith("failed");
+        map.set(id, { ...existing, text, status: failed ? "failed" : "done", detail: step.detail });
+      }
+    }
+    return Array.from(map.values());
+  }, [thinkingSteps]);
+
+  const synthesisStarted = useMemo(
+    () => (thinkingSteps || []).some(s => s.type === "synthesis_started"),
+    [thinkingSteps],
+  );
 
   const brainHits = useMemo(() => {
     let total = 0;
@@ -117,6 +143,45 @@ export function SessionInspector({ sessionId, messages, thinkingSteps, isStreami
           </div>
         ) : (
           <>
+            {subQuestions.length > 0 && (
+              <Section title="Sub-questions" icon={<GitBranch className="w-3 h-3" />}>
+                <div className="space-y-1.5">
+                  {subQuestions.map((sq) => (
+                    <div key={sq.id} className="flex items-start gap-1.5" data-testid={`sub-question-${sq.id}`}>
+                      <span className="mt-0.5 shrink-0">
+                        {sq.status === "done" ? (
+                          <CheckCircle2 className="w-3 h-3 text-emerald-500/90" />
+                        ) : sq.status === "failed" ? (
+                          <AlertCircle className="w-3 h-3 text-red-500/90" />
+                        ) : sq.status === "running" ? (
+                          <Loader2 className="w-3 h-3 text-amber-500/90 animate-spin" />
+                        ) : (
+                          <span className="inline-block w-3 h-3 rounded-full border border-muted-foreground/40" />
+                        )}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className={`text-[10.5px] leading-tight ${sq.status === "done" ? "text-foreground/80" : sq.status === "failed" ? "text-red-500/90" : "text-foreground/90"}`}>
+                          {sq.text}
+                        </div>
+                        {sq.status === "running" && sq.lastLabel && (
+                          <div className="text-[9.5px] text-muted-foreground/70 truncate" title={sq.lastLabel}>{sq.lastLabel}</div>
+                        )}
+                        {sq.status === "done" && sq.detail && (
+                          <div className="text-[9.5px] text-muted-foreground/60 tabular-nums">{sq.detail}</div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {synthesisStarted && (
+                    <div className="mt-2 pt-2 border-t border-border/40 flex items-center gap-1.5 text-[10px] text-amber-500/90">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Synthesizing findings…
+                    </div>
+                  )}
+                </div>
+              </Section>
+            )}
+
             <Section title="Brain" icon={<Brain className="w-3 h-3" />}>
               {isStreaming && brainHits === 0 ? (
                 <Row label="Consulting brain" value="…" muted />
