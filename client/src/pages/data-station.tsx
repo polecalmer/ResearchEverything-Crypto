@@ -192,7 +192,9 @@ function StationCard({ pc, onRefresh, onDelete, onAddToReport, reports, refreshi
           <button
             onClick={() => onRefresh(pc.id)}
             disabled={isRefreshing}
-            className="p-1.5 rounded-md bg-card/80 backdrop-blur-sm border border-border/20 text-muted-foreground/40 hover:text-cyan-400 hover:border-cyan-500/30 transition-all"
+            className={`p-1.5 rounded-md bg-card/80 backdrop-blur-sm border border-border/20 text-muted-foreground/40 hover:text-cyan-400 hover:border-cyan-500/30 transition-all ${
+              isRefreshing ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+            }`}
             title="Refresh live data"
             data-testid={`button-refresh-chart-${pc.id}`}
           >
