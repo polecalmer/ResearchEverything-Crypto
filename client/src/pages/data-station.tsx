@@ -185,6 +185,15 @@ function StationCard({ pc, onRefresh, onDelete, onAddToReport, reports, refreshi
   const [showMenu, setShowMenu] = useState(false);
   const isRefreshing = refreshingId === pc.id;
 
+  // Skip ghost rows: saved charts whose data failed to parse or whose chart
+  // config is missing render an empty body, leaving just a footer row with
+  // a timestamp and action buttons floating in the grid. Hiding the whole
+  // card prevents those phantom strips at the top of each protocol section.
+  const hasRenderableContent = pc.isTable
+    ? pc.parsedData?.length > 0
+    : pc.parsedData?.length > 0 && pc.parsedConfig?.yAxes?.length > 0;
+  if (!hasRenderableContent) return null;
+
   return (
     <div className="relative group" data-testid={`chart-card-${pc.id}`}>
       <div className="absolute top-2 right-2 z-10 flex items-center gap-0.5">
