@@ -2473,7 +2473,10 @@ Pick the most relevant query, execute it, then render the chart.
   return { response: null, fallbackContext: "", cost, inputTokens, outputTokens };
 }
 
-export async function executeRefreshRecipe(recipe: RefreshRecipe): Promise<{ data: any[]; chartConfig: any }> {
+export async function executeRefreshRecipe(
+  recipe: RefreshRecipe,
+  opts?: { userId?: string },
+): Promise<{ data: any[]; chartConfig: any }> {
   const { resolveCoinGeckoId, getRevenueSlugs } = await import("./coingecko-ids");
   const { lookupDerivedMetric, computeDerivedChart } = await import("./data-source-brain/derived-metrics");
 
@@ -2481,12 +2484,23 @@ export async function executeRefreshRecipe(recipe: RefreshRecipe): Promise<{ dat
     const derivedRecipe = lookupDerivedMetric(recipe.metric);
     if (!derivedRecipe) throw new Error(`Unknown derived metric: ${recipe.metric}`);
     const resolvers = { resolveCoinGeckoId, getRevenueSlugs };
+    // userId is critical: without it the source resolver falls back to its
+    // generic STATIC_DEFAULTS (defillama first), which silently breaks share
+    // charts whose numerator is a HIP-3 deployer like tradexyz — defillama's
+    // dex adapter has no perp/HIP-3 volume so the numerator series is empty
+    // and the share comes back as 0 points. With userId the resolver promotes
+    // the user's stonksonchain preference, mirroring the original render.
     const { data, yAxes } = await computeDerivedChart(
       derivedRecipe,
       recipe.protocol,
       defillama,
       resolvers,
-      { lookbackDays: recipe.timeWindowDays, comparison: (recipe.comparison || []) as any[], denominator: recipe.denominator },
+      {
+        lookbackDays: recipe.timeWindowDays,
+        comparison: (recipe.comparison || []) as any[],
+        denominator: recipe.denominator,
+        userId: opts?.userId,
+      },
     );
     const composedType: "line" | "bar" | "area" | "composed" = yAxes.length > 1 ? "composed" : derivedRecipe.chartType;
     return {

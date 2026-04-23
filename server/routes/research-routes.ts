@@ -903,7 +903,11 @@ export function registerResearchRoutes(app: Express) {
         const existingConfig = JSON.parse(chart.chartConfig || "{}");
         result = { data: rows, chartConfig: existingConfig };
       } else {
-        result = await executeRefreshRecipe(recipe);
+        // Pass userId so the resolver inside the derived-metrics pipeline can
+        // promote the user's stonksonchain (or other) preference — without
+        // it, share-of-X charts whose numerator is a HIP-3 deployer silently
+        // resolve to defillama.dex_volume (empty) and refresh returns 0 pts.
+        result = await executeRefreshRecipe(recipe, { userId: req.user!.id });
       }
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(`[RefreshChart] Done in ${elapsed}s — ${result.data.length} data points`);
