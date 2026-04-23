@@ -11,8 +11,7 @@ import {
   Loader2, CheckCircle2, ChevronDown, Brain, Search, BarChart3,
   Share2, Link2, Check, X, Lightbulb, AlertTriangle, Zap, Eye,
   Quote as QuoteIcon, ArrowDown, ArrowUp, RefreshCw,
-  Bookmark, Microscope, Table2, TrendingUp, PieChart as PieChartIcon,
-  AreaChart as AreaChartIcon,
+  Bookmark, Microscope, Table2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -27,14 +26,6 @@ import {
 } from "@/lib/research-utils";
 
 type ChartViewMode = "line" | "bar" | "area" | "cumulative" | "pie";
-
-const CHART_VIEW_OPTIONS: { mode: ChartViewMode; icon: typeof TrendingUp; tip: string }[] = [
-  { mode: "line", icon: TrendingUp, tip: "Line" },
-  { mode: "bar", icon: BarChart3, tip: "Bar" },
-  { mode: "area", icon: AreaChartIcon, tip: "Area" },
-  { mode: "cumulative", icon: ArrowUp, tip: "Cumulative" },
-  { mode: "pie", icon: PieChartIcon, tip: "Breakdown" },
-];
 
 export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifact; hideSave?: boolean; compact?: boolean }) {
   const { chartConfig, data, title, subtitle, source, refreshRecipe } = artifact;
@@ -74,9 +65,13 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
     }
   }
 
-  const [viewMode, setViewMode] = useState<ChartViewMode>(
-    (["line", "bar", "area"].includes(defaultChartType) ? defaultChartType : "line") as ChartViewMode
-  );
+  // The chart shaper picks the best chart type per recipe; we honor that as
+  // the default and only let the user toggle the cumulative view (which
+  // runs a running-sum transform and renders as area). Per-user line/bar/
+  // area/pie overrides were noisy and rarely useful.
+  const baseChartType = (["line", "bar", "area"].includes(defaultChartType) ? defaultChartType : "line") as ChartViewMode;
+  const [cumulative, setCumulative] = useState(false);
+  const viewMode: ChartViewMode = cumulative ? "cumulative" : baseChartType;
 
   const cumulativeData = useMemo(() => {
     if (viewMode !== "cumulative") return safeData;
@@ -502,28 +497,21 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
           )}
         </div>
       </div>
-      {!compact && (
+      {!compact && !isDisabled("cumulative").disabled && (
         <div className="flex items-center gap-1 mt-2 mb-3" data-testid="chart-type-toggle">
-          {CHART_VIEW_OPTIONS.map(({ mode, icon: Icon, tip }) => {
-            const { disabled, reason } = isDisabled(mode);
-            if (disabled) return null;
-            return (
-              <button
-                key={mode}
-                onClick={() => setViewMode(mode)}
-                title={tip}
-                data-testid={`chart-toggle-${mode}`}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-medium flex items-center gap-1.5 transition-all ${
-                  viewMode === mode
-                    ? "bg-primary/15 text-primary border border-primary/30"
-                    : "text-muted-foreground/50 hover:text-muted-foreground/80 hover:bg-muted/30 border border-transparent"
-                }`}
-              >
-                <Icon size={12} strokeWidth={viewMode === mode ? 2.2 : 1.5} />
-                {tip}
-              </button>
-            );
-          })}
+          <button
+            onClick={() => setCumulative((c) => !c)}
+            title="Toggle cumulative (running sum)"
+            data-testid="chart-toggle-cumulative"
+            className={`px-2.5 py-1 rounded-md text-[11px] font-medium flex items-center gap-1.5 transition-all ${
+              cumulative
+                ? "bg-primary/15 text-primary border border-primary/30"
+                : "text-muted-foreground/50 hover:text-muted-foreground/80 hover:bg-muted/30 border border-transparent"
+            }`}
+          >
+            <ArrowUp size={12} strokeWidth={cumulative ? 2.2 : 1.5} />
+            Cumulative
+          </button>
         </div>
       )}
       <div style={{ overflow: "visible" }} className={compact ? "mt-1" : "mt-2"}>
