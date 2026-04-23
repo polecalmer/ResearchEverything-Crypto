@@ -2058,7 +2058,9 @@ export async function runChartPipeline(
     ? ` vs ${extracted.comparison.map((c) => c === "price" ? `${(extracted.ticker || extracted.protocol).toUpperCase()} Price` : c.charAt(0).toUpperCase() + c.slice(1)).join(" & ")}`
     : "";
 
-  let recipe = lookupDerivedMetric(extracted.metric);
+  type DerivedMetricRecipe = NonNullable<ReturnType<typeof lookupDerivedMetric>>;
+  type DataSourceKey = DerivedMetricRecipe["sources"][number];
+  let recipe: DerivedMetricRecipe | undefined = lookupDerivedMetric(extracted.metric);
   // Gap 1 — Metric Decomposer. When no hand-coded recipe matches (or the
   // intent extractor labelled the metric "custom"), ask the decomposer to
   // express the user's metric as a formula over base intents. On success we
@@ -2082,7 +2084,7 @@ export async function runChartPipeline(
         // Synthesize a DerivedMetricRecipe-shaped object. The compute()
         // function is intentionally a stub — we never call it; the pipeline
         // detects key="derived_custom" and runs computeDerivationChart.
-        const intentSourceMap: Record<string, any> = {
+        const intentSourceMap: Record<string, DataSourceKey> = {
           daily_fees: "defillama.fees",
           daily_revenue: "defillama.revenue",
           daily_tvl: "defillama.tvl",
@@ -2090,8 +2092,10 @@ export async function runChartPipeline(
           daily_derivatives_volume: "defillama.derivatives_volume",
           price_history: "coingecko.price",
         };
-        const synthSources = Array.from(new Set(derivation.components.map(c => intentSourceMap[c.intent]).filter(Boolean)));
-        recipe = {
+        const synthSources: DataSourceKey[] = Array.from(
+          new Set(derivation.components.map((c) => intentSourceMap[c.intent]).filter((s): s is DataSourceKey => Boolean(s))),
+        );
+        const synthRecipe: DerivedMetricRecipe = {
           key: "derived_custom",
           displayLabel: derivation.displayLabel,
           description: derivation.reasoning,
@@ -2101,7 +2105,8 @@ export async function runChartPipeline(
           format: derivation.format,
           yAxes: [{ dataKey: "value", label: derivation.displayLabel }],
           compute: () => [],
-        } as any;
+        };
+        recipe = synthRecipe;
         console.log(`[ChartPipeline] Decomposer derived "${derivation.phrase}" → ${derivation.displayLabel} (formula: ${derivation.formula}; source: ${derivation.source})`);
       }
     } catch (err: any) {
