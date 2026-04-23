@@ -150,6 +150,32 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
     return formatValue(val, xAxis.format);
   };
 
+  // For date axes, Recharts auto-picks ticks across the data range and our
+  // "MMM ''yy" formatter then collapses them into duplicate month labels
+  // ("Feb '26" repeated 5 times). Pre-compute one tick per month (using the
+  // first observation in that calendar month) so labels are guaranteed unique
+  // — Recharts will render exactly these and skip its own auto-thinning.
+  const monthlyDateTicks = useMemo(() => {
+    if (!isDate || !activeData?.length || !xAxis?.dataKey) return undefined;
+    const seen = new Set<string>();
+    const ticks: (string | number)[] = [];
+    for (const row of activeData) {
+      const v = row[xAxis.dataKey];
+      if (v == null) continue;
+      const d = new Date(v);
+      if (isNaN(d.getTime())) continue;
+      const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      ticks.push(v);
+    }
+    // Only override Recharts' default if we have a sensible tick count.
+    // 1 month of daily data shouldn't collapse to a single label, and very
+    // long ranges (>2yr / 24mo) need Recharts' auto-thinning to avoid
+    // overcrowding even the monthly grid.
+    return ticks.length >= 2 && ticks.length <= 24 ? ticks : undefined;
+  }, [activeData, isDate, xAxis?.dataKey]);
+
   const tooltipLabelFormatter = (val: any) => {
     if (isDate) {
       try { return format(new Date(val), "MMM d, yyyy"); } catch { return val; }
@@ -230,6 +256,8 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
         axisLine={false}
         tickLine={false}
         tickMargin={8}
+        ticks={monthlyDateTicks}
+        interval={monthlyDateTicks ? 0 : "preserveStartEnd"}
       />
     );
     const tip = (

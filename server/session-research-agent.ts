@@ -1376,6 +1376,49 @@ Examples:
 - "Build me a chart that tracks current perps market share" → {"protocol":"","ticker":"","metric":"market_share","variants":["volume","revenue"],"timeRange":"365d","transforms":[],"comparison":[]}
 - "DEX volume comparison chart" → {"protocol":"","ticker":"","metric":"volume","variants":[],"timeRange":"365d","transforms":[],"comparison":[]}`;
 
+// Recover the user's original casing for a brand/protocol/ticker string.
+// The intent extractor lowercases everything ("tradexyz", "hyperliquid"), so
+// without this helper title strings come out as "TRADEXYZ" — wrong for
+// camelCase brands like "TradeXYZ" or "dYdX". Strategy:
+//   1. Case-insensitive search in the original user message → use that span
+//   2. Small registry of well-known mixed-case names
+//   3. Fallback: Title Case (first letter capitalized)
+const BRAND_CASING_REGISTRY: Record<string, string> = {
+  tradexyz: "TradeXYZ",
+  dydx: "dYdX",
+  thorchain: "THORChain",
+  pancakeswap: "PancakeSwap",
+  sushiswap: "SushiSwap",
+  uniswap: "Uniswap",
+  curve: "Curve",
+  aave: "Aave",
+  hyperliquid: "Hyperliquid",
+  pumpfun: "Pump.fun",
+  jupiter: "Jupiter",
+  raydium: "Raydium",
+  gmx: "GMX",
+};
+function preserveBrandCasing(name: string, userMessage: string): string {
+  if (!name) return name;
+  const trimmed = name.trim();
+  if (!trimmed) return trimmed;
+  // 1. Try to find the literal word (case-insensitive) in the user's message.
+  if (userMessage) {
+    const escaped = trimmed.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const m = userMessage.match(new RegExp(`\\b${escaped}\\b`, "i"));
+    if (m && m[0]) return m[0];
+  }
+  // 2. Registry lookup.
+  const reg = BRAND_CASING_REGISTRY[trimmed.toLowerCase()];
+  if (reg) return reg;
+  // 3. Already mixed-case? Keep as-is.
+  if (trimmed !== trimmed.toLowerCase() && trimmed !== trimmed.toUpperCase()) return trimmed;
+  // 4. All-caps short tickers (BTC, ETH, HYPE) stay caps.
+  if (trimmed === trimmed.toUpperCase() && trimmed.length <= 5) return trimmed;
+  // 5. Default: capitalize first letter.
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
 function checkChartDataSanity(data: any[], yAxes: Array<{ dataKey: string; label: string }>): string | null {
   if (!data || data.length === 0) return "No data returned";
 
@@ -1419,11 +1462,30 @@ function buildChartResponse(
   const primaryKey = yAxes[0]?.dataKey;
   const first = data[0]?.[primaryKey];
   const last = data[data.length - 1]?.[primaryKey];
+  // Detect the unit of the primary series so the subtitle reads as
+  // "LATEST 7.3%" or "LATEST $4.9B" instead of a bare number. We sniff the
+  // dataKey + label rather than threading an explicit format flag through
+  // every caller — the existing client-side `inferFormat` uses the same
+  // signal so the chart's y-axis ticks already render with the right unit.
+  const label0 = (yAxes[0]?.label || "").toLowerCase();
+  const key0 = (yAxes[0]?.dataKey || "").toLowerCase();
+  const sig = `${key0} ${label0}`;
+  const isPercent = /(^|_)pct(\b|_)|share_pct|\bpercent\b|%|\bshare\b/.test(sig);
+  const isCurrency =
+    !isPercent &&
+    /\b(revenue|fees?|volume|tvl|mcap|market_?cap|fdv|price|usd|notional|liquidity)\b/.test(sig);
+  const unitPrefix = isCurrency ? "$" : "";
+  const unitSuffix = isPercent ? "%" : "";
   let autoSubtitle = "";
   if (typeof first === "number" && typeof last === "number" && first !== 0) {
     const pctChange = ((last - first) / Math.abs(first)) * 100;
     const direction = pctChange >= 0 ? "UP" : "DOWN";
-    autoSubtitle = `LATEST ${typeof last === "number" ? (Math.abs(last) >= 1e6 ? (last / 1e6).toFixed(1) + "M" : Math.abs(last) >= 1e3 ? (last / 1e3).toFixed(1) + "K" : last.toLocaleString(undefined, { maximumFractionDigits: 1 })) : last} — ${direction} ${Math.abs(pctChange).toFixed(0)}% OVER PERIOD (${data.length} DATA POINTS)`;
+    const compactLast =
+      Math.abs(last) >= 1e9 ? (last / 1e9).toFixed(2) + "B" :
+      Math.abs(last) >= 1e6 ? (last / 1e6).toFixed(1) + "M" :
+      Math.abs(last) >= 1e3 ? (last / 1e3).toFixed(1) + "K" :
+      last.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    autoSubtitle = `LATEST ${unitPrefix}${compactLast}${unitSuffix} — ${direction} ${Math.abs(pctChange).toFixed(0)}% OVER PERIOD (${data.length} DATA POINTS)`;
   }
   const source = sourceLabel || "DeFiLlama + CoinGecko";
   const chartJson: any = {
@@ -2142,12 +2204,25 @@ export async function runChartPipeline(
         denominator: extracted.denominator,
       };
       const tickerOrProto = extracted.ticker || extracted.protocol;
+      // Preserve the user's original casing for protocol/ticker names. The
+      // extractor lowercases everything ("tradexyz", "hyperliquid"), so a
+      // naive toUpperCase produces "TRADEXYZ" — shouty and wrong for
+      // mixed-case brand names like "TradeXYZ" or "dYdX". Recover by
+      // case-insensitive lookup in the original user message; fall back to
+      // a small registry of known mixed-case names; finally Title Case.
+      const displayName = preserveBrandCasing(tickerOrProto, userMessage);
+      const denomDisplay = extracted.denominator
+        ? preserveBrandCasing(extracted.denominator.protocol, userMessage)
+        : "";
+      const denomMetricDisplay = extracted.denominator
+        ? extracted.denominator.metric.charAt(0).toUpperCase() + extracted.denominator.metric.slice(1)
+        : "";
       // Share recipes need the denominator named in the title — otherwise
       // "Share of Volume" is ambiguous (share of WHAT?). Format as
       // "<NUM> Share of <DENOM> <Metric>".
       const deterministicTitle = recipe.requiresDenominator && extracted.denominator
-        ? `${tickerOrProto.toUpperCase()} Share of ${extracted.denominator.protocol.charAt(0).toUpperCase() + extracted.denominator.protocol.slice(1)} ${extracted.denominator.metric.charAt(0).toUpperCase() + extracted.denominator.metric.slice(1)} — ${rangeLabel}`
-        : `${tickerOrProto.toUpperCase()} ${recipe.displayLabel}${comparisonLabel} — ${rangeLabel}`;
+        ? `${displayName} Share of ${denomDisplay} ${denomMetricDisplay} — ${rangeLabel}`
+        : `${displayName} ${recipe.displayLabel}${comparisonLabel} — ${rangeLabel}`;
       const PROVIDER_LABELS: Record<string, string> = {
         defillama: "DeFiLlama",
         coingecko: "CoinGecko",

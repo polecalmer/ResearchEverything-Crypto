@@ -210,7 +210,13 @@ const FALLBACK_SHAPED = (input: ShaperInput, source: "fallback" | "brain"): Shap
   // Mimic the prior hardcoded summary so we never regress.
   const primary = input.stats.series[0];
   const fmtVal = (v: number) => FMT(v, input.recipe.format);
-  const ticker = (input.ticker || input.protocol).toUpperCase();
+  const rawName = input.ticker || input.protocol;
+  // Don't shout brand names — preserve any mixed-case the user typed (e.g.
+  // "TradeXYZ"); for lower-only protocol slugs from the extractor, just
+  // capitalize the first letter so prose reads "Tradexyz" rather than "TRADEXYZ".
+  const ticker = rawName === rawName.toLowerCase()
+    ? rawName.charAt(0).toUpperCase() + rawName.slice(1)
+    : rawName;
   const trend = primary?.trend === "rising" ? "rising" : primary?.trend === "falling" ? "declining" : "flat";
   const latestStr = primary?.last ? fmtVal(primary.last.value) : "—";
   const firstStr = primary?.first ? fmtVal(primary.first.value) : "—";
