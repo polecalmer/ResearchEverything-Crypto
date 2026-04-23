@@ -43,6 +43,16 @@ export interface RefreshRecipe {
    * will throw on re-compute because the recipe needs both numerator and
    * denominator series. */
   denominator?: { protocol: string; metric: "volume" | "fees" | "revenue" };
+  /** When metric === "custom" and dataSource === "derived", this carries the
+   * LLM-proposed derivation spec needed to replay the chart on refresh. The
+   * formula is re-compiled in executeRefreshRecipe. Absent for hand-coded
+   * recipes. */
+  derivation?: {
+    formula: string;
+    components: Array<{ name: string; intent: string; protocol?: string }>;
+    displayLabel: string;
+    format: "ratio" | "currency" | "percent" | "number";
+  };
 }
 
 export interface ResearchArtifact {
@@ -1615,6 +1625,25 @@ export function splitChartIntents(userMessage: string): string[] {
   );
 }
 
+/** Stable fingerprint of an LLM-proposed derivation. Used in cache keys so
+ * two different formulas under the literal label "custom" don't collide.
+ * Components are sorted by name for canonical ordering. */
+function derivationFingerprint(d: { formula: string; components: Array<{ name: string; intent: string; protocol?: string }>; format: string }): string {
+  const norm = (s: string) => s.toLowerCase().replace(/\s+/g, "");
+  const compSig = [...d.components]
+    .map(c => `${c.name}:${c.intent}:${(c.protocol || "").toLowerCase()}`)
+    .sort()
+    .join("|");
+  const raw = `${norm(d.formula)}::${compSig}::${d.format}`;
+  // Short non-cryptographic hash (FNV-1a) keeps the cache key compact.
+  let h = 0x811c9dc5;
+  for (let i = 0; i < raw.length; i++) {
+    h ^= raw.charCodeAt(i);
+    h = (h + ((h << 1) + (h << 4) + (h << 7) + (h << 8) + (h << 24))) >>> 0;
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
 function chartCacheKey(
   metric: string,
   protocol: string,
@@ -2029,10 +2058,66 @@ export async function runChartPipeline(
     ? ` vs ${extracted.comparison.map((c) => c === "price" ? `${(extracted.ticker || extracted.protocol).toUpperCase()} Price` : c.charAt(0).toUpperCase() + c.slice(1)).join(" & ")}`
     : "";
 
-  const recipe = lookupDerivedMetric(extracted.metric);
+  let recipe = lookupDerivedMetric(extracted.metric);
+  // Gap 1 — Metric Decomposer. When no hand-coded recipe matches (or the
+  // intent extractor labelled the metric "custom"), ask the decomposer to
+  // express the user's metric as a formula over base intents. On success we
+  // synthesize a recipe-shaped object so the existing pipeline (resolver
+  // dispatch, chart shaper, cache, refresh) runs unchanged; the compute step
+  // branches on `recipe.key === "derived_custom"` and calls
+  // `computeDerivationChart` instead of `computeDerivedChart`.
+  let derivation: import("./data-source-brain/metric-decomposer").Derivation | null = null;
+  let derivationEvaluator: ((env: Record<string, number>) => number) | null = null;
+  if (!recipe || extracted.metric === "custom") {
+    try {
+      const { decomposeMetric, compileFormula } = await import("./data-source-brain/metric-decomposer");
+      derivation = await decomposeMetric({
+        userMessage,
+        protocol: extracted.protocol,
+        ticker: extracted.ticker,
+        denominator: extracted.denominator,
+      });
+      if (derivation) {
+        derivationEvaluator = compileFormula(derivation.formula);
+        // Synthesize a DerivedMetricRecipe-shaped object. The compute()
+        // function is intentionally a stub — we never call it; the pipeline
+        // detects key="derived_custom" and runs computeDerivationChart.
+        const intentSourceMap: Record<string, any> = {
+          daily_fees: "defillama.fees",
+          daily_revenue: "defillama.revenue",
+          daily_tvl: "defillama.tvl",
+          daily_dex_volume: "defillama.dex_volume",
+          daily_derivatives_volume: "defillama.derivatives_volume",
+          price_history: "coingecko.price",
+        };
+        const synthSources = Array.from(new Set(derivation.components.map(c => intentSourceMap[c.intent]).filter(Boolean)));
+        recipe = {
+          key: "derived_custom",
+          displayLabel: derivation.displayLabel,
+          description: derivation.reasoning,
+          sources: synthSources,
+          trailingWindowDays: 7,
+          chartType: "line",
+          format: derivation.format,
+          yAxes: [{ dataKey: "value", label: derivation.displayLabel }],
+          compute: () => [],
+        } as any;
+        console.log(`[ChartPipeline] Decomposer derived "${derivation.phrase}" → ${derivation.displayLabel} (formula: ${derivation.formula}; source: ${derivation.source})`);
+      }
+    } catch (err: any) {
+      console.warn(`[ChartPipeline] Decomposer attempt failed: ${err.message}`);
+    }
+  }
   if (recipe) {
-    // T4: cache check before any expensive work
-    const cacheKey = chartCacheKey(extracted.metric, extracted.protocol, extracted.comparison || [], lookbackDays, extracted.transforms || [], extracted.denominator);
+    // T4: cache check before any expensive work. For derived custom metrics
+    // we extend the cache key with a derivation fingerprint (formula +
+    // sorted component names/intents/protocols) so two different decomposed
+    // formulas under the literal metric label "custom" never collide on the
+    // same protocol/range/comparison/transforms/denominator combination.
+    const cacheMetricKey = derivation
+      ? `custom:${derivationFingerprint(derivation)}`
+      : extracted.metric;
+    const cacheKey = chartCacheKey(cacheMetricKey, extracted.protocol, extracted.comparison || [], lookbackDays, extracted.transforms || [], extracted.denominator);
     const ttl = ttlForRecipe(extracted.metric, extracted.comparison || []);
     if (userId) {
       const hit = await readChartCache(cacheKey, ttl);
@@ -2117,13 +2202,25 @@ export async function runChartPipeline(
       })();
 
       const resolvers = { resolveCoinGeckoId, getRevenueSlugs };
-      const { data: chartData, yAxes, sourcesUsed } = await computeDerivedChart(
-        recipe,
-        extracted.protocol,
-        defillama,
-        resolvers,
-        { lookbackDays, comparison: (extracted.comparison || []) as any[], denominator: extracted.denominator, userId },
-      );
+      const { data: chartData, yAxes, sourcesUsed } = recipe.key === "derived_custom" && derivation && derivationEvaluator
+        ? await (async () => {
+            const { computeDerivationChart } = await import("./data-source-brain/derived-metrics");
+            return computeDerivationChart(
+              derivation!,
+              extracted.protocol,
+              defillama,
+              resolvers,
+              { lookbackDays, userId },
+              derivationEvaluator!,
+            );
+          })()
+        : await computeDerivedChart(
+            recipe,
+            extracted.protocol,
+            defillama,
+            resolvers,
+            { lookbackDays, comparison: (extracted.comparison || []) as any[], denominator: extracted.denominator, userId },
+          );
 
       onStep?.({ type: "tool_result", label: `Computed ${chartData.length} ${recipe.displayLabel} data points`, detail: "deterministic_fetch", round: 0 });
 
@@ -2193,6 +2290,15 @@ export async function runChartPipeline(
       console.log(`[ChartShaper] form=${shaped.chartType}+${shaped.smoothing} annotations=${safeAnnotations.length} prose_source=${shaped.proseSource}`);
       console.log(`[ChartPipeline] ${recipe.displayLabel} chart complete in ${elapsed}s — ${shapedChartData.length} data points`);
 
+      // Cache successful LLM-proposed derivations to the brain so the second
+      // user asking for the same metric gets a deterministic cache hit
+      // instead of a fresh LLM call. Fire-and-forget — never blocks render.
+      if (derivation && derivation.source === "llm") {
+        import("./data-source-brain/metric-decomposer")
+          .then(({ cacheDerivation }) => cacheDerivation(derivation!, extracted.protocol))
+          .catch((err) => console.warn(`[ChartPipeline] derivation cache write failed: ${err.message}`));
+      }
+
       const derivedRecipe: RefreshRecipe = {
         protocol: extracted.protocol,
         ticker: extracted.ticker,
@@ -2202,6 +2308,17 @@ export async function runChartPipeline(
         comparison: extracted.comparison || [],
         transforms: extracted.transforms || [],
         denominator: extracted.denominator,
+        // Persist the derivation spec so executeRefreshRecipe can re-run it
+        // without consulting the LLM again. Without this a saved decomposed
+        // chart can't refresh (lookupDerivedMetric would return undefined).
+        derivation: derivation
+          ? {
+              formula: derivation.formula,
+              components: derivation.components,
+              displayLabel: derivation.displayLabel,
+              format: derivation.format,
+            }
+          : undefined,
       };
       const tickerOrProto = extracted.ticker || extracted.protocol;
       // Preserve the user's original casing for protocol/ticker names. The
@@ -2481,6 +2598,30 @@ export async function executeRefreshRecipe(
   const { lookupDerivedMetric, computeDerivedChart } = await import("./data-source-brain/derived-metrics");
 
   if (recipe.dataSource === "derived") {
+    // Decomposed custom metrics: replay the persisted derivation spec via
+    // computeDerivationChart instead of looking up a hand-coded recipe.
+    if (recipe.derivation) {
+      const { compileFormula } = await import("./data-source-brain/metric-decomposer");
+      const { computeDerivationChart } = await import("./data-source-brain/derived-metrics");
+      const evaluator = compileFormula(recipe.derivation.formula);
+      const resolvers = { resolveCoinGeckoId, getRevenueSlugs };
+      const { data, yAxes } = await computeDerivationChart(
+        recipe.derivation as any,
+        recipe.protocol,
+        defillama,
+        resolvers,
+        { lookbackDays: recipe.timeWindowDays, userId: opts?.userId },
+        evaluator,
+      );
+      return {
+        data,
+        chartConfig: {
+          chartType: "line",
+          xAxis: { dataKey: "date", format: "date" },
+          yAxes: yAxes.map(y => ({ dataKey: y.dataKey, label: y.label })),
+        },
+      };
+    }
     const derivedRecipe = lookupDerivedMetric(recipe.metric);
     if (!derivedRecipe) throw new Error(`Unknown derived metric: ${recipe.metric}`);
     const resolvers = { resolveCoinGeckoId, getRevenueSlugs };

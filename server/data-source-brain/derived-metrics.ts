@@ -964,3 +964,132 @@ export async function computeDerivedChart(
 
   return { data: filtered, yAxes: finalYAxes, sourcesUsed };
 }
+
+// ─── Derivation runner (Gap 1: Metric Decomposer) ──────────────────────────
+// Runs an LLM-proposed derivation (formula over base intents) through the
+// same fetch + resolver + sanity pipeline as a hand-coded recipe, then
+// returns a chart-shaped result the existing buildChartResponse path can
+// consume. Each component fetches its own series; results are aligned by
+// date intersection and the formula is evaluated per date.
+
+const INTENT_TO_SOURCE_KEY: Record<
+  "daily_fees" | "daily_revenue" | "daily_tvl" | "daily_dex_volume" | "daily_derivatives_volume" | "price_history",
+  DataSourceKey
+> = {
+  daily_fees: "defillama.fees",
+  daily_revenue: "defillama.revenue",
+  daily_tvl: "defillama.tvl",
+  daily_dex_volume: "defillama.dex_volume",
+  daily_derivatives_volume: "defillama.derivatives_volume",
+  price_history: "coingecko.price",
+};
+
+export interface DerivationRunResult {
+  data: ComputeResult[];
+  yAxes: Array<{ dataKey: string; label: string }>;
+  sourcesUsed: DataSourceKey[];
+}
+
+export async function computeDerivationChart(
+  derivation: {
+    formula: string;
+    components: Array<{ name: string; intent: keyof typeof INTENT_TO_SOURCE_KEY; protocol?: string }>;
+    displayLabel: string;
+    format: "ratio" | "currency" | "percent" | "number";
+  },
+  protocol: string,
+  defillama: DefiLlamaClient,
+  resolvers: {
+    resolveCoinGeckoId: (slug: string) => string | undefined;
+    getRevenueSlugs: (slug: string) => string[];
+  },
+  opts: { lookbackDays?: number; userId?: string },
+  evaluator: (env: Record<string, number>) => number,
+): Promise<DerivationRunResult> {
+  const lookbackDays = opts.lookbackDays ?? 365;
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - lookbackDays);
+  const cutoffStr = cutoff.toISOString().substring(0, 10);
+
+  const { resolveSeriesSource } = await import("./agent-hooks");
+
+  // Build resolved fetch plan per component.
+  type Plan = { name: string; fetchKey: DataSourceKey; protocol: string };
+  const plans: Plan[] = [];
+  const sourcesUsed: DataSourceKey[] = [];
+
+  for (const c of derivation.components) {
+    const proto = (c.protocol && c.protocol.trim()) || protocol;
+    let fetchKey: DataSourceKey = INTENT_TO_SOURCE_KEY[c.intent];
+    try {
+      const candidates = await resolveSeriesSource(c.intent, proto, { userId: opts.userId });
+      const top = candidates[0];
+      if (top && top.dataSourceKey && top.dataSourceKey !== fetchKey) {
+        console.log(`[Derivation] Resolver substituted ${fetchKey} → ${top.dataSourceKey} for ${c.intent}(${proto}) [${top.reason}]`);
+        fetchKey = top.dataSourceKey as DataSourceKey;
+      }
+    } catch (e: any) {
+      console.warn(`[Derivation] resolver dispatch failed for ${c.intent}/${proto}: ${e.message}`);
+    }
+    plans.push({ name: c.name, fetchKey, protocol: proto });
+    if (!sourcesUsed.includes(fetchKey)) sourcesUsed.push(fetchKey);
+  }
+
+  // Parallel fetch.
+  const fetchResults = await Promise.all(
+    plans.map(async (p) => {
+      const data = await fetchSourceData(p.fetchKey, p.protocol, defillama, resolvers);
+      return { name: p.name, data };
+    }),
+  );
+
+  // Date intersection: only dates present in EVERY component.
+  if (fetchResults.length === 0) {
+    throw new Error(`Derivation "${derivation.displayLabel}" has no components`);
+  }
+  let common: Set<string> = new Set(fetchResults[0].data.keys());
+  for (let i = 1; i < fetchResults.length; i++) {
+    const next = new Set<string>();
+    for (const d of fetchResults[i].data.keys()) {
+      if (common.has(d)) next.add(d);
+    }
+    common = next;
+  }
+
+  const sortedDates = [...common].filter((d) => d >= cutoffStr).sort();
+  const out: ComputeResult[] = [];
+  let evalErrors = 0;
+  for (const date of sortedDates) {
+    const env: Record<string, number> = {};
+    let bad = false;
+    for (const fr of fetchResults) {
+      const v = fr.data.get(date);
+      if (v === undefined || !Number.isFinite(v)) { bad = true; break; }
+      env[fr.name] = v;
+    }
+    if (bad) continue;
+    let val: number;
+    try {
+      val = evaluator(env);
+    } catch {
+      evalErrors++;
+      continue;
+    }
+    if (!Number.isFinite(val)) continue;
+    out.push({ date, value: val });
+  }
+
+  if (out.length < 3) {
+    throw new Error(
+      `Insufficient data for derived metric "${derivation.displayLabel}": only ${out.length} aligned points (components: ${plans.map(p => `${p.name}=${p.fetchKey}/${p.protocol}`).join(", ")})`,
+    );
+  }
+  if (evalErrors > 0) {
+    console.warn(`[Derivation] ${evalErrors} formula evaluation errors for "${derivation.displayLabel}"`);
+  }
+
+  const yAxes: Array<{ dataKey: string; label: string }> = [
+    { dataKey: "value", label: derivation.displayLabel },
+  ];
+  return { data: out, yAxes, sourcesUsed };
+}

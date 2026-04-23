@@ -38,6 +38,8 @@ Focus on user experience and intuitive design.
 
 **Derived Metric Registry:** Defines `DerivedMetricRecipe` entries for computing metrics like P/E ratio, P/S ratio, and capital efficiency.
 
+**Metric Decomposer (Gap 1):** When a chart request asks for a metric with no hand-coded recipe (e.g. "Maple NIM", "Aave loan-to-deposit ratio"), `server/data-source-brain/metric-decomposer.ts` asks an LLM to express it as a safe-AST formula over the six base intents (daily_fees / daily_revenue / daily_tvl / daily_dex_volume / daily_derivatives_volume / price_history). `computeDerivationChart` in `derived-metrics.ts` fetches each component through the same resolver dispatch as recipes, aligns by date intersection, and evaluates per date. Successful LLM derivations are written back to the data brain as `category:"definition"` facts keyed by `derivation:<protocol>:<phrase>`; the next request for the same metric gets a deterministic cache hit (direct DB lookup by `scope_ref`, with semantic consult as paraphrase fallback). The derivation spec is persisted in the chart's `RefreshRecipe` so saved custom charts can refresh without re-calling the LLM. Cache-key collisions across distinct custom formulas are prevented by an FNV-1a fingerprint over the formula + sorted components + format.
+
 **Data Station (`/station`):** A dashboard for all saved charts, allowing organization into named collections and bulk refreshing.
 
 **Financial Models (Model Viewer):** Displays saved financial models from session research in a spreadsheet-style UI. The extraction pipeline parses structured artifacts into typed sections, assumptions, and sources. The viewer supports scenario analysis, CSV download, and Google Sheets export.
