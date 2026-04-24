@@ -14,7 +14,7 @@ Every session leaves a trace. Knowledge compounds. Tomorrow's research stands on
 - Export any research session as a print-ready memo.
 - Organise deal flow and track the protocols you care about.
 
-Early access and product information: **[sessions.xyz](https://sessions.xyz)**
+Early access and product information: **[researcheverything.xyz](https://researcheverything.xyz)**
 
 ---
 
