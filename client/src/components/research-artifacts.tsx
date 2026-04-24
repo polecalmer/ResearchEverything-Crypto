@@ -1193,7 +1193,7 @@ export function MessageBubble({
             data-testid={`button-add-report-${msg.id}`}
           >
             {reportState === "saving" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : reportState === "saved" ? <Check className="w-3.5 h-3.5" /> : <Bookmark className="w-3.5 h-3.5" />}
-            {reportState === "saving" ? "Saving..." : reportState === "saved" ? "Saved" : "Add to Reports"}
+            {reportState === "saving" ? "Saving..." : reportState === "saved" ? "Saved" : "Save Memo to Library"}
           </button>
         )}
         <a
@@ -1205,7 +1205,7 @@ export function MessageBubble({
           title="Open a print-ready memo for this prompt & response"
         >
           <FileDown className="w-3.5 h-3.5" />
-          Memo (PDF)
+          Download Memo
         </a>
       </div>
       <div className="max-w-full">

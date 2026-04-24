@@ -298,7 +298,7 @@ export default function SessionResearch() {
         throw new Error(err.message);
       }
       const data = await res.json();
-      toast({ title: "Saved to Reports", description: `Report "${data.title}" created. View it in your reports.` });
+      toast({ title: "Saved to Library", description: `Memo "${data.title}" saved. Find it under Library → Memos.` });
     } catch (e: any) {
       toast({ title: "Error", description: e.message, variant: "destructive" });
     }

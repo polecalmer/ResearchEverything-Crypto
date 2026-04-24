@@ -17,6 +17,10 @@ interface Report {
   description: string | null;
   createdAt: string;
   updatedAt: string;
+  // Source session + message the memo was saved from. Populated by
+  // save-to-report. Older rows may be null; we fall back to /reports/:id.
+  sourceConversationId: number | null;
+  sourceMessageId: number | null;
 }
 
 const TABS = ["reports", "charts", "brain"] as const;
@@ -58,7 +62,7 @@ export default function Library() {
               Library
             </h1>
             <p className="text-xs text-muted-foreground/70 mt-0.5">
-              Everything your sessions have produced — Reports, live Charts, and your Brain.
+              Everything your sessions have produced — Memos, live Charts, and your Brain.
             </p>
           </div>
         </div>
@@ -70,7 +74,7 @@ export default function Library() {
               data-testid="tab-reports"
             >
               <FileText className="w-3.5 h-3.5 mr-1.5" />
-              Reports
+              Memos
             </TabsTrigger>
             <TabsTrigger
               value="charts"
@@ -135,7 +139,7 @@ function ReportsTab() {
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Search reports…"
+            placeholder="Search memos…"
             className="h-9 pl-8 text-sm"
             data-testid="input-search-reports"
           />
@@ -149,36 +153,45 @@ function ReportsTab() {
           <div className="text-center py-16 text-sm text-muted-foreground">
             {reports.length === 0 ? (
               <>
-                No reports yet. Save chart blocks from a session to start a report.
+                No memos yet. Save a session response with "Save Memo to Library" to start one.
               </>
             ) : (
-              <>No reports match "{q}".</>
+              <>No memos match "{q}".</>
             )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {filtered.map((r) => (
-              <Link key={r.id} href={`/reports/${r.id}`}>
-                <Card
-                  className="p-4 cursor-pointer hover-elevate active-elevate-2 transition-all"
-                  data-testid={`card-report-${r.id}`}
-                >
-                  <div className="flex items-start justify-between gap-2 mb-1">
-                    <h3 className="text-sm font-medium leading-snug" data-testid={`text-report-title-${r.id}`}>
-                      {r.title}
-                    </h3>
-                    <Badge variant="outline" className="text-[10px] shrink-0">Report</Badge>
-                  </div>
-                  {r.description && (
-                    <p className="text-xs text-muted-foreground/80 line-clamp-2 mb-2">{r.description}</p>
-                  )}
-                  <div className="text-[10px] text-muted-foreground/60 tabular-nums">
-                    Updated {formatDistanceToNow(new Date(r.updatedAt), { addSuffix: true })} ·{" "}
-                    {format(new Date(r.createdAt), "MMM d, yyyy")}
-                  </div>
-                </Card>
-              </Link>
-            ))}
+            {filtered.map((r) => {
+              // Prefer the memo view (same rendering as download) when the
+              // memo was saved from a session. Fall back to the legacy report
+              // viewer for old rows that were saved before we tracked source.
+              const href =
+                r.sourceConversationId != null && r.sourceMessageId != null
+                  ? `/memo/${r.sourceConversationId}/${r.sourceMessageId}?preview=1`
+                  : `/reports/${r.id}`;
+              return (
+                <Link key={r.id} href={href}>
+                  <Card
+                    className="p-4 cursor-pointer hover-elevate active-elevate-2 transition-all"
+                    data-testid={`card-report-${r.id}`}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <h3 className="text-sm font-medium leading-snug" data-testid={`text-report-title-${r.id}`}>
+                        {r.title}
+                      </h3>
+                      <Badge variant="outline" className="text-[10px] shrink-0">Memo</Badge>
+                    </div>
+                    {r.description && (
+                      <p className="text-xs text-muted-foreground/80 line-clamp-2 mb-2">{r.description}</p>
+                    )}
+                    <div className="text-[10px] text-muted-foreground/60 tabular-nums">
+                      Updated {formatDistanceToNow(new Date(r.updatedAt), { addSuffix: true })} ·{" "}
+                      {format(new Date(r.createdAt), "MMM d, yyyy")}
+                    </div>
+                  </Card>
+                </Link>
+              );
+            })}
           </div>
         )}
       </div>
