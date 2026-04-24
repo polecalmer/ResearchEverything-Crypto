@@ -23,6 +23,7 @@ import ReportViewer from "@/pages/report-viewer";
 import AdminPage from "@/pages/admin";
 import AdminSecurityPage from "@/pages/admin-security";
 import SessionResearch from "@/pages/session-research";
+import MemoView from "@/pages/memo-view";
 import BrainGraph from "@/pages/brain-graph";
 import ModelViewer from "@/pages/model-viewer";
 import PipelineBrain from "@/pages/pipeline-brain";
@@ -120,6 +121,7 @@ function AuthenticatedApp() {
               <Route path="/wallet" component={WalletPage} />
               <Route path="/data" component={DataPage} />
               <Route path="/research" component={SessionResearch} />
+              <Route path="/memo/:sessionId/:msgId" component={MemoView} />
               <Route path="/library" component={Library} />
               <Route path="/station">
                 <Redirect to="/library?tab=charts" />

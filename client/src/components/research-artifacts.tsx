@@ -11,7 +11,7 @@ import {
   Loader2, CheckCircle2, ChevronDown, Brain, Search, BarChart3,
   Share2, Link2, Check, X, Lightbulb, AlertTriangle, Zap, Eye,
   Quote as QuoteIcon, ArrowDown, ArrowUp, RefreshCw,
-  Bookmark, Microscope, Table2,
+  Bookmark, Microscope, Table2, FileDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/use-toast";
@@ -161,38 +161,87 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
     return new Date(val);
   };
 
-  const xTickFormatter = (val: any) => {
-    if (isDate) {
-      try { return format(toDate(val), "MMM ''yy"); } catch { return val; }
+  // Choose x-axis tick density AND format based on the span of the data.
+  //   <= 60 days  → show 5-7 evenly-spaced daily ticks,  format "MMM d"
+  //   <= 2 years  → one tick per month,                  format "MMM ''yy"
+  //   >  2 years  → let recharts auto-thin on its own,   format "MMM ''yy"
+  // This fixes the "30 days of daily data collapses to just 2 month labels"
+  // bug that made short-range charts look wrong in memos.
+  const { dateTicks, dateFormat } = useMemo(() => {
+    if (!isDate || !activeData?.length || !xAxis?.dataKey) {
+      return { dateTicks: undefined as (string | number)[] | undefined, dateFormat: "MMM ''yy" };
     }
-    return formatValue(val, xAxis.format);
-  };
-
-  // For date axes, Recharts auto-picks ticks across the data range and our
-  // "MMM ''yy" formatter then collapses them into duplicate month labels
-  // ("Feb '26" repeated 5 times). Pre-compute one tick per month (using the
-  // first observation in that calendar month) so labels are guaranteed unique
-  // — Recharts will render exactly these and skip its own auto-thinning.
-  const monthlyDateTicks = useMemo(() => {
-    if (!isDate || !activeData?.length || !xAxis?.dataKey) return undefined;
-    const seen = new Set<string>();
-    const ticks: (string | number)[] = [];
+    const rowValues: Array<string | number> = [];
+    const dates: Date[] = [];
     for (const row of activeData) {
       const v = row[xAxis.dataKey];
       if (v == null) continue;
       const d = toDate(v);
       if (isNaN(d.getTime())) continue;
+      rowValues.push(v);
+      dates.push(d);
+    }
+    if (dates.length < 2) return { dateTicks: undefined, dateFormat: "MMM ''yy" };
+    const spanDays = (dates[dates.length - 1].getTime() - dates[0].getTime()) / 86400000;
+
+    // Target ~6-7 axis labels regardless of range, so labels never collide.
+    const TARGET_TICKS = 7;
+
+    if (spanDays <= 60) {
+      // Daily range: evenly-spaced, include first + last, but never let the
+      // last tick render less than half-step away from the previous (prevents
+      // "Apr 22 | Apr 23" collisions at the right edge).
+      const n = rowValues.length;
+      const step = Math.max(1, Math.floor((n - 1) / (TARGET_TICKS - 1)));
+      const chosenIdx: number[] = [];
+      for (let i = 0; i < n; i += step) chosenIdx.push(i);
+      const lastIdx = n - 1;
+      const prev = chosenIdx[chosenIdx.length - 1];
+      if (prev !== lastIdx) {
+        if (lastIdx - prev < Math.ceil(step / 2)) {
+          chosenIdx[chosenIdx.length - 1] = lastIdx; // swap instead of append
+        } else {
+          chosenIdx.push(lastIdx);
+        }
+      }
+      return { dateTicks: chosenIdx.map(i => rowValues[i]), dateFormat: "MMM d" };
+    }
+
+    // Longer range: collect calendar-month ticks, then downsample so we
+    // never render more than ~7 labels (prevents the "Apr'25/May'25" collision
+    // that happens when all 12-13 months of a yearly chart try to fit).
+    const seen = new Set<string>();
+    const monthly: (string | number)[] = [];
+    for (let i = 0; i < rowValues.length; i++) {
+      const d = dates[i];
       const key = `${d.getUTCFullYear()}-${d.getUTCMonth()}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      ticks.push(v);
+      monthly.push(rowValues[i]);
     }
-    // Only override Recharts' default if we have a sensible tick count.
-    // 1 month of daily data shouldn't collapse to a single label, and very
-    // long ranges (>2yr / 24mo) need Recharts' auto-thinning to avoid
-    // overcrowding even the monthly grid.
-    return ticks.length >= 2 && ticks.length <= 24 ? ticks : undefined;
+    if (monthly.length < 2) return { dateTicks: undefined, dateFormat: "MMM ''yy" };
+
+    const step = Math.max(1, Math.ceil(monthly.length / TARGET_TICKS));
+    const sampledIdx: number[] = [];
+    for (let i = 0; i < monthly.length; i += step) sampledIdx.push(i);
+    const lastMonthIdx = monthly.length - 1;
+    const prevMonthIdx = sampledIdx[sampledIdx.length - 1];
+    if (prevMonthIdx !== lastMonthIdx) {
+      if (lastMonthIdx - prevMonthIdx < Math.ceil(step / 2)) {
+        sampledIdx[sampledIdx.length - 1] = lastMonthIdx;
+      } else {
+        sampledIdx.push(lastMonthIdx);
+      }
+    }
+    return { dateTicks: sampledIdx.map(i => monthly[i]), dateFormat: "MMM ''yy" };
   }, [activeData, isDate, xAxis?.dataKey]);
+
+  const xTickFormatter = (val: any) => {
+    if (isDate) {
+      try { return format(toDate(val), dateFormat); } catch { return val; }
+    }
+    return formatValue(val, xAxis.format);
+  };
 
   const tooltipLabelFormatter = (val: any) => {
     if (isDate) {
@@ -274,8 +323,10 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
         axisLine={false}
         tickLine={false}
         tickMargin={8}
-        ticks={monthlyDateTicks}
-        interval={monthlyDateTicks ? 0 : "preserveStartEnd"}
+        ticks={dateTicks}
+        interval={dateTicks ? 0 : "preserveStartEnd"}
+        padding={{ left: 18, right: 8 }}
+        minTickGap={32}
       />
     );
     const tip = (
@@ -888,12 +939,48 @@ export function DiveDeepButton({ onDiveDeep }: { onDiveDeep: (text: string) => v
   );
 }
 
+function formatElapsed(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m > 0 ? `${m}:${String(s).padStart(2, "0")}` : `${s}s`;
+}
+
 export function ThinkingPanel({ steps }: { steps: ThinkingStep[] }) {
   const [expanded, setExpanded] = useState(true);
-  if (steps.length === 0) return null;
+  const startRef = useRef<number | null>(null);
+  const frozenRef = useRef<number | null>(null);
+  const [tick, setTick] = useState(0);
+
+  // Reset refs when steps empties out (new run starting).
+  if (steps.length === 0) {
+    startRef.current = null;
+    frozenRef.current = null;
+  } else if (startRef.current === null) {
+    startRef.current = Date.now();
+  }
 
   const latestLabel = steps[steps.length - 1]?.label || "Thinking...";
   const isComplete = steps[steps.length - 1]?.type === "complete";
+
+  // Freeze elapsed at completion so the final time stays visible.
+  if (isComplete && frozenRef.current === null && startRef.current !== null) {
+    frozenRef.current = Math.floor((Date.now() - startRef.current) / 1000);
+  }
+
+  useEffect(() => {
+    if (isComplete || startRef.current === null) return;
+    const id = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, [isComplete]);
+
+  if (steps.length === 0) return null;
+
+  const elapsed =
+    frozenRef.current !== null
+      ? frozenRef.current
+      : startRef.current !== null
+        ? Math.floor((Date.now() - startRef.current) / 1000)
+        : 0;
 
   return (
     <div className="mb-4 rounded-lg border border-border/30 bg-card/20 overflow-hidden" data-testid="thinking-panel">
@@ -905,6 +992,13 @@ export function ThinkingPanel({ steps }: { steps: ThinkingStep[] }) {
         {!isComplete && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary/60" />}
         {isComplete && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500/70" />}
         <span className="text-xs text-foreground/60 flex-1 truncate">{latestLabel}</span>
+        <span
+          className="text-[10px] tabular-nums text-muted-foreground/60 shrink-0"
+          data-testid="thinking-elapsed"
+          title={isComplete ? "Total time" : "Elapsed"}
+        >
+          {formatElapsed(elapsed)}
+        </span>
         <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground/40 transition-transform ${expanded ? "" : "-rotate-90"}`} />
       </button>
       {expanded && (
@@ -1101,6 +1195,17 @@ export function MessageBubble({
             {reportState === "saving" ? "Saving..." : reportState === "saved" ? "Saved" : "Add to Reports"}
           </button>
         )}
+        <a
+          href={`/memo/${msg.conversationId}/${msg.id}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs px-2.5 py-1 rounded-md border flex items-center gap-1.5 transition-colors border-border/40 text-muted-foreground/60 hover:text-foreground hover:border-border/60 hover:bg-muted/20"
+          data-testid={`button-download-memo-${msg.id}`}
+          title="Open a print-ready memo for this prompt & response"
+        >
+          <FileDown className="w-3.5 h-3.5" />
+          Memo (PDF)
+        </a>
       </div>
       <div className="max-w-full">
         {parts.map((part, i) => {

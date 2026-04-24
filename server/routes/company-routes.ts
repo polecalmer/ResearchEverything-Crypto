@@ -168,14 +168,41 @@ export function registerCompanyRoutes(app: Express) {
 
   app.get("/api/reports/:id", requireAuth, async (req, res) => {
     const report = await storage.getReport(req.params.id);
-    if (!report) return res.status(404).json({ message: "Report not found" });
-    if (report.userId !== req.user!.id) return res.status(403).json({ message: "Not authorized" });
-    res.json(report);
+    if (report) {
+      if (report.userId !== req.user!.id) return res.status(403).json({ message: "Not authorized" });
+      return res.json({ ...report, kind: "company" });
+    }
+    const { researchReports } = await import("@shared/schema");
+    const { db: dbImport } = await import("../db");
+    const { eq, and } = await import("drizzle-orm");
+    const [rr] = await dbImport.select().from(researchReports)
+      .where(and(eq(researchReports.id, req.params.id), eq(researchReports.userId, req.user!.id)));
+    if (!rr) return res.status(404).json({ message: "Report not found" });
+    res.json({
+      id: rr.id,
+      userId: rr.userId,
+      title: rr.title,
+      content: rr.content ?? "",
+      status: "completed",
+      companyId: null,
+      createdAt: rr.createdAt,
+      kind: "research",
+    });
   });
 
   app.delete("/api/reports/:id", requireAuth, async (req, res) => {
     const result = await storage.deleteReport(req.params.id, req.user!.id);
-    if (!result) return res.status(404).json({ message: "Report not found" });
-    res.json({ message: "Report deleted", companyId: result.companyId });
+    if (result) {
+      return res.json({ message: "Report deleted", companyId: result.companyId, kind: "company" });
+    }
+    const { researchReports, reportCharts } = await import("@shared/schema");
+    const { db: dbImport } = await import("../db");
+    const { eq, and } = await import("drizzle-orm");
+    const [rr] = await dbImport.select().from(researchReports)
+      .where(and(eq(researchReports.id, req.params.id), eq(researchReports.userId, req.user!.id)));
+    if (!rr) return res.status(404).json({ message: "Report not found" });
+    await dbImport.delete(reportCharts).where(eq(reportCharts.reportId, req.params.id));
+    await dbImport.delete(researchReports).where(eq(researchReports.id, req.params.id));
+    res.json({ message: "Report deleted", companyId: null, kind: "research" });
   });
 }

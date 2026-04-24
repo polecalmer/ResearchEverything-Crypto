@@ -152,7 +152,10 @@ export function formatValue(val: any, fmt?: string): string {
   return n.toLocaleString(undefined, { maximumFractionDigits: 4 });
 }
 
-const MODE_RE = /^<!--\s*mode:(quick|focused|deep)\s*-->\s*\n?/;
+// Tolerate the close tag showing up as literal `-->`, a unicode right arrow
+// `→`, or any other stray whitespace — we've seen the agent/renderer produce
+// variants and the rule comment should always be stripped from the display.
+const MODE_RE = /^<!--\s*mode:(quick|focused|deep)\s*(?:-->|→|—>|-->)?\s*\n?/i;
 const CONTINUATION_RE = /<!--\s*needs_continuation\s*-->\s*\n?/;
 
 export function extractMode(content: string): { mode: ResearchMode | null; cleaned: string; needsContinuation: boolean } {

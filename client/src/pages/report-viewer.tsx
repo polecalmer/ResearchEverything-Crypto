@@ -6,6 +6,27 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Report } from "@shared/schema";
 import { useEffect, useState } from "react";
+import { parseContentAndArtifacts } from "@/lib/research-utils";
+import {
+  MarkdownText,
+  MetricCards,
+  InlineChart,
+  InlineTable,
+  CalloutBlock,
+  ComparisonBlock,
+  QuoteBlock,
+} from "@/components/research-artifacts";
+
+type ReportView = (Report & { kind?: "company" }) | {
+  id: string;
+  userId: string;
+  title: string;
+  content: string;
+  status: "completed";
+  companyId: null;
+  createdAt: string;
+  kind: "research";
+};
 
 function escapeHtml(text: string): string {
   return text
@@ -129,7 +150,7 @@ export default function ReportViewer() {
   const [pollingEnabled, setPollingEnabled] = useState(true);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  const { data: report, isLoading, error } = useQuery<Report>({
+  const { data: report, isLoading, error } = useQuery<ReportView>({
     queryKey: ["/api/reports", id],
     refetchInterval: pollingEnabled ? 3000 : false,
   });
@@ -145,11 +166,17 @@ export default function ReportViewer() {
       const res = await apiRequest("DELETE", `/api/reports/${id}`);
       return res.json();
     },
-    onSuccess: (data: { companyId: string }) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/companies", data.companyId] });
-      queryClient.invalidateQueries({ queryKey: ["/api/companies", data.companyId, "reports"] });
-      toast({ title: "Report deleted" });
-      navigate(`/companies/${data.companyId}`);
+    onSuccess: (data: { companyId: string | null; kind?: "company" | "research" }) => {
+      if (data.companyId) {
+        queryClient.invalidateQueries({ queryKey: ["/api/companies", data.companyId] });
+        queryClient.invalidateQueries({ queryKey: ["/api/companies", data.companyId, "reports"] });
+        toast({ title: "Report deleted" });
+        navigate(`/companies/${data.companyId}`);
+      } else {
+        queryClient.invalidateQueries({ queryKey: ["/api/research/reports"] });
+        toast({ title: "Report deleted" });
+        navigate(`/library`);
+      }
     },
     onError: (error: any) => {
       toast({ title: "Failed to delete report", description: error.message, variant: "destructive" });
@@ -193,10 +220,10 @@ export default function ReportViewer() {
     <div className="h-full overflow-y-auto bg-white dark:bg-[#1a1a1a]">
       <div className="max-w-3xl mx-auto px-8 py-6">
         <div className="flex items-center justify-between mb-6">
-          <Link href={`/companies/${report.companyId}`}>
+          <Link href={report.companyId ? `/companies/${report.companyId}` : "/library"}>
             <Button variant="ghost" size="sm" className="gap-1.5 text-xs" data-testid="button-back-to-company">
               <ArrowLeft className="w-3.5 h-3.5" />
-              Back to deal
+              {report.companyId ? "Back to deal" : "Back to library"}
             </Button>
           </Link>
           {!isGenerating && report.content && (
@@ -264,11 +291,26 @@ export default function ReportViewer() {
                 {new Date(report.createdAt).toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" })}
               </p>
             </div>
-            <div
-              className="report-body"
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(report.content) }}
-              data-testid="report-content"
-            />
+            {report.kind === "research" ? (
+              <div className="report-body" data-testid="report-content">
+                {parseContentAndArtifacts(report.content).map((part, i) => {
+                  if (part.type === "text" && part.content) return <MarkdownText key={i} text={part.content} />;
+                  if (part.type === "metric_cards" && part.artifact) return <MetricCards key={i} artifact={part.artifact} />;
+                  if (part.type === "chart" && part.artifact) return <InlineChart key={i} artifact={part.artifact} />;
+                  if (part.type === "table" && part.artifact) return <InlineTable key={i} artifact={part.artifact} />;
+                  if (part.type === "callout" && part.artifact) return <CalloutBlock key={i} artifact={part.artifact} />;
+                  if (part.type === "comparison" && part.artifact) return <ComparisonBlock key={i} artifact={part.artifact} />;
+                  if (part.type === "quote" && part.artifact) return <QuoteBlock key={i} artifact={part.artifact} />;
+                  return null;
+                })}
+              </div>
+            ) : (
+              <div
+                className="report-body"
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(report.content) }}
+                data-testid="report-content"
+              />
+            )}
           </article>
         )}
       </div>

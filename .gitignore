@@ -4,3 +4,17 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
+.env
+.env.local
+.env.*.local
+
+# Editor / agent config
+.claude/
+.vscode/
+.idea/
+
+# Local scratch / sed tempfiles
+sed*
+
+# PDFs generated during memo testing
+*.pdf

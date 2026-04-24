@@ -9,8 +9,37 @@ export interface RetrievedContext {
   facts: BrainFact[];
   contradictions: Array<{ factIdOld: string; factIdNew: string; summary: string; date: string }>;
   preferences: Record<string, any>;
+  methodology: Array<{ scopeKey: string; ruleText: string; confidence: number }>;
   meta: BrainGraph["meta"] | null;
   retrievalSummary: string;
+}
+
+// Fetches synthesis-discipline rules from system_learnings. Always-on rules
+// (scope='global', ruleType='synthesis_discipline') are loaded unconditionally;
+// additional rules whose scopeKey tokens overlap the query are also included.
+async function retrieveMethodologyRules(query: string): Promise<Array<{ scopeKey: string; ruleText: string; confidence: number }>> {
+  try {
+    const rows = await db.execute(sql`
+      SELECT scope_key, rule_text, confidence
+      FROM system_learnings
+      WHERE is_active = true
+        AND rule_type = 'synthesis_discipline'
+        AND (scope = 'global' OR scope_key = ANY(
+          SELECT unnest(string_to_array(lower(${query}), ' '))
+        ))
+      ORDER BY confidence DESC, applied_count DESC
+      LIMIT 8
+    `);
+    const raw: any[] = (rows as any).rows ?? rows;
+    return raw.map((r: any) => ({
+      scopeKey: r.scope_key,
+      ruleText: r.rule_text,
+      confidence: Number(r.confidence || 50),
+    }));
+  } catch (err: any) {
+    console.warn(`[BrainRetrieval] Methodology rule fetch failed: ${err.message}`);
+    return [];
+  }
 }
 
 const MAX_BRAIN_CONTEXT_CHARS = 12000;
@@ -219,10 +248,10 @@ function legacyGetRelatedEntities(entityName: string, relationships: BrainRelati
   return Array.from(related);
 }
 
-function legacyRetrieve(
+async function legacyRetrieve(
   query: string,
   brain: BrainGraph,
-): RetrievedContext {
+): Promise<RetrievedContext> {
   const allEntityNames = Object.keys(brain.entities || {});
   const allRelationships = brain.relationships || [];
   const allFacts = brain.knowledge || [];
@@ -287,16 +316,18 @@ function legacyRetrieve(
     return entities.some(e => relatedEntityNames.has(e));
   });
 
+  const methodology = await retrieveMethodologyRules(query);
   return {
     entities: relevantEntities,
     relationships: relevantRelationships,
     facts: relevantFacts.slice(0, 50),
     contradictions: relevantContradictions.slice(0, 10),
     preferences: brain.preferences || {},
+    methodology,
     meta: brain.meta || null,
     retrievalSummary: directMatches.length > 0
-      ? `[legacy] Matched: ${directMatches.join(", ")}. ${Object.keys(relevantEntities).length} entities, ${relevantFacts.length} facts`
-      : `[legacy] Keyword search: ${relevantFacts.length} facts`,
+      ? `[legacy] Matched: ${directMatches.join(", ")}. ${Object.keys(relevantEntities).length} entities, ${relevantFacts.length} facts, ${methodology.length} rules`
+      : `[legacy] Keyword search: ${relevantFacts.length} facts, ${methodology.length} rules`,
   };
 }
 
@@ -306,14 +337,18 @@ export async function retrieveRelevantContext(
   userId?: string,
 ): Promise<RetrievedContext> {
   if (!brain) {
+    const methodology = await retrieveMethodologyRules(query);
     return {
       entities: {},
       relationships: [],
       facts: [],
       contradictions: [],
       preferences: {},
+      methodology,
       meta: null,
-      retrievalSummary: "No prior research brain",
+      retrievalSummary: methodology.length > 0
+        ? `No prior research brain, ${methodology.length} rules`
+        : "No prior research brain",
     };
   }
 
@@ -418,7 +453,8 @@ export async function retrieveRelevantContext(
     confidence: sf.confidence,
   } as BrainFact));
 
-  const summary = `[hybrid] ${scoredFacts.length} facts (top sim: ${scoredFacts[0]?.vectorSim?.toFixed(3) ?? "n/a"}), ${scoredEntities.length} entities, ${relationships.length} rels`;
+  const methodology = await retrieveMethodologyRules(query);
+  const summary = `[hybrid] ${scoredFacts.length} facts (top sim: ${scoredFacts[0]?.vectorSim?.toFixed(3) ?? "n/a"}), ${scoredEntities.length} entities, ${relationships.length} rels, ${methodology.length} rules`;
 
   return {
     entities,
@@ -426,13 +462,19 @@ export async function retrieveRelevantContext(
     facts: topFacts,
     contradictions: contradictions.slice(0, 10),
     preferences: brain.preferences || {},
+    methodology,
     meta: brain.meta || null,
     retrievalSummary: summary,
   };
 }
 
 export function formatRetrievedContext(ctx: RetrievedContext): string {
-  if (Object.keys(ctx.entities).length === 0 && ctx.facts.length === 0 && Object.keys(ctx.preferences).length === 0) {
+  if (
+    Object.keys(ctx.entities).length === 0 &&
+    ctx.facts.length === 0 &&
+    Object.keys(ctx.preferences).length === 0 &&
+    (ctx.methodology?.length || 0) === 0
+  ) {
     return "";
   }
 
@@ -441,6 +483,18 @@ export function formatRetrievedContext(ctx: RetrievedContext): string {
 
   sections.push(`[Retrieval: ${ctx.retrievalSummary}]`);
   charBudget -= sections[0].length;
+
+  // Methodology rules lead the context — they shape HOW the agent answers,
+  // not WHAT it knows. Budget capped so they can't crowd out facts.
+  if (ctx.methodology?.length > 0) {
+    const methodLines = ctx.methodology.map(m => `- [${m.scopeKey}] ${m.ruleText}`);
+    const block = "METHODOLOGY RULES (must follow):\n" + methodLines.join("\n");
+    const cap = Math.min(block.length, 1500);
+    if (cap <= charBudget) {
+      sections.push(block.slice(0, cap));
+      charBudget -= cap;
+    }
+  }
 
   const prefBlock = formatPreferences(ctx.preferences);
   if (prefBlock) {

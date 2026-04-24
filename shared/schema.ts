@@ -168,6 +168,13 @@ export const researchReports = pgTable("research_reports", {
   userId: varchar("user_id").notNull(),
   title: text("title").notNull(),
   description: text("description"),
+  // Optional full-text body — populated when a whole session message is saved
+  // as a report via POST /api/research/messages/:msgId/save-to-report. Chart-
+  // grouped reports (created via POST /api/research/reports) leave this null
+  // and attach charts via the report_charts join table instead.
+  content: text("content"),
+  sourceConversationId: integer("source_conversation_id"),
+  sourceMessageId: integer("source_message_id"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

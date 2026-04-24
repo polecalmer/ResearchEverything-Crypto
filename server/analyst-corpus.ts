@@ -6,8 +6,10 @@
  *   2. searchAnalystFrameworks: vector over the analyst's evolved frameworks
  *      (named, versioned reasoning patterns extracted from their writing).
  *
- * Results are scoped per-analyst so a deep query can fan out across all three
- * lenses in parallel and the agent can attribute claims to the source analyst.
+ * Results are scoped per-analyst so a deep query can fan out across all
+ * configured analyst lenses in parallel and the agent can attribute claims
+ * to the source analyst. The full analyst roster is defined by ANALYST_NAMES
+ * in shared/schema.ts.
  */
 import { sql } from "drizzle-orm";
 import { db } from "./db";

@@ -22,6 +22,7 @@ export const MPP_FLAT_FEE = "0.50";
 
 export const EXTERNAL_URLS = {
   ANTHROPIC_MPP: "https://anthropic.mpp.tempo.xyz/v1/messages",
+  OPENROUTER_MPP: "https://openrouter.mpp.tempo.xyz/v1/chat/completions",
   DUNE_MCP: "https://api.dune.com/mcp/v1",
   VOYAGE_EMBEDDINGS: "https://api.voyageai.com/v1/embeddings",
   TEMPO_RPC: "https://rpc.mainnet.tempo.xyz",

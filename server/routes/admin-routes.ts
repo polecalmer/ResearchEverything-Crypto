@@ -415,8 +415,31 @@ export function registerAdminRoutes(app: Express) {
     const isAdmin = await storage.checkIsAdmin(req.user!.id);
     if (!isAdmin) return res.status(403).json({ message: "Admin only" });
     try {
-      const learnings = await storage.getAllActiveLearnings();
+      const includeInactive = req.query.includeInactive === "true";
+      const learnings = includeInactive
+        ? await storage.getAllLearnings()
+        : await storage.getAllActiveLearnings();
       res.json(learnings);
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  app.patch("/api/admin/learnings/:id", requireAuth, async (req, res) => {
+    const isAdmin = await storage.checkIsAdmin(req.user!.id);
+    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
+    try {
+      const patch: Record<string, any> = {};
+      if (typeof req.body.ruleText === "string") patch.ruleText = req.body.ruleText;
+      if (typeof req.body.scope === "string") patch.scope = req.body.scope;
+      if (typeof req.body.scopeKey === "string") patch.scopeKey = req.body.scopeKey;
+      if (typeof req.body.ruleType === "string") patch.ruleType = req.body.ruleType;
+      if (typeof req.body.confidence === "number") patch.confidence = req.body.confidence;
+      if (typeof req.body.isActive === "boolean") patch.isActive = req.body.isActive;
+      if (Object.keys(patch).length === 0) return res.status(400).json({ message: "No fields to update" });
+      const updated = await storage.updateLearning(req.params.id, patch);
+      if (!updated) return res.status(404).json({ message: "Learning not found" });
+      res.json(updated);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

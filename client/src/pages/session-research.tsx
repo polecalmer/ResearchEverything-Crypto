@@ -147,6 +147,19 @@ export default function SessionResearch() {
     setIsSending(true);
     setThinkingSteps([]);
 
+    const STREAM_IDLE_MS = 60_000;
+    const controller = new AbortController();
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    const armIdle = () => {
+      if (idleTimer) clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => {
+        controller.abort(new DOMException("Stream idle timeout", "AbortError"));
+      }, STREAM_IDLE_MS);
+    };
+
+    let gotDone = false;
+    let explicitServerError: string | null = null;
+
     try {
       const authHeaders = await getAuthHeaders();
       const headers: Record<string, string> = { "Content-Type": "application/json", ...authHeaders };
@@ -156,6 +169,7 @@ export default function SessionResearch() {
         headers,
         credentials: "include",
         body: JSON.stringify({ message, forceMode: opts?.forceMode, refreshBrain: opts?.refreshBrain, sessionMode }),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -169,11 +183,12 @@ export default function SessionResearch() {
       const decoder = new TextDecoder();
       let buffer = "";
       let currentEvent = "";
-      let gotDone = false;
 
+      armIdle();
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        armIdle();
         buffer += decoder.decode(value, { stream: true });
 
         const lines = buffer.split("\n");
@@ -191,24 +206,43 @@ export default function SessionResearch() {
               } else if (currentEvent === "done") {
                 gotDone = true;
               } else if (currentEvent === "error") {
-                throw new Error(data.message || "Research failed");
+                explicitServerError = data.message || "Research failed";
               }
-            } catch (e: any) {
-              if (currentEvent === "error") throw e;
-            }
+            } catch {}
             currentEvent = "";
-          } else if (line.startsWith(":")) {
           }
+        }
+      }
+
+      if (explicitServerError) throw new Error(explicitServerError);
+
+      queryClient.invalidateQueries({ queryKey: [`/api/research/sessions/${sessionId}/messages`] });
+      queryClient.invalidateQueries({ queryKey: ["/api/research/sessions"] });
+    } catch (err: any) {
+      const isAbort = err?.name === "AbortError" || /aborted|idle/i.test(err?.message || "");
+      const friendly = explicitServerError
+        ? explicitServerError
+        : isAbort
+          ? "Stream connection lost. The research may still be running on the server — refreshing shortly."
+          : (err?.message || "Research failed");
+      toast({ title: explicitServerError ? "Error" : "Connection interrupted", description: friendly, variant: "destructive" });
+
+      // If the connection dropped (not an explicit server error), the server may
+      // still be completing the research. Poll the messages endpoint a few times
+      // to pick up the final result instead of leaving the user stuck.
+      if (!explicitServerError && !gotDone) {
+        for (let i = 0; i < 6; i++) {
+          await new Promise(r => setTimeout(r, 5000));
+          await queryClient.invalidateQueries({ queryKey: [`/api/research/sessions/${sessionId}/messages`] });
+          const fresh: any = queryClient.getQueryData([`/api/research/sessions/${sessionId}/messages`]);
+          if (Array.isArray(fresh) && fresh.some((m: any) => m.role === "assistant" && new Date(m.createdAt).getTime() > Date.now() - 120_000)) break;
         }
       }
 
       queryClient.invalidateQueries({ queryKey: [`/api/research/sessions/${sessionId}/messages`] });
       queryClient.invalidateQueries({ queryKey: ["/api/research/sessions"] });
-    } catch (err: any) {
-      toast({ title: "Error", description: err.message || "Research failed", variant: "destructive" });
-      queryClient.invalidateQueries({ queryKey: [`/api/research/sessions/${sessionId}/messages`] });
-      queryClient.invalidateQueries({ queryKey: ["/api/research/sessions"] });
     } finally {
+      if (idleTimer) clearTimeout(idleTimer);
       setPendingUserMsg(null);
       setIsSending(false);
     }

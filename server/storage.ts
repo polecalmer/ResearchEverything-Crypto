@@ -120,6 +120,11 @@ export interface IStorage {
   incrementLearningApplied(id: string): Promise<void>;
   deactivateLearning(id: string): Promise<void>;
   getAllActiveLearnings(): Promise<SystemLearning[]>;
+  getAllLearnings(): Promise<SystemLearning[]>;
+  updateLearning(
+    id: string,
+    patch: Partial<{ ruleText: string; scope: string; scopeKey: string; ruleType: string; confidence: number; isActive: boolean }>,
+  ): Promise<SystemLearning | undefined>;
 
   // ═══ Eval system ═══
   logQueryAttempt(data: InsertQueryAttempt): Promise<QueryAttempt>;
@@ -762,6 +767,29 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(systemLearnings)
       .where(eq(systemLearnings.isActive, true))
       .orderBy(desc(systemLearnings.confidence));
+  }
+
+  async getAllLearnings(): Promise<SystemLearning[]> {
+    return db.select().from(systemLearnings)
+      .orderBy(desc(systemLearnings.isActive), desc(systemLearnings.confidence));
+  }
+
+  async updateLearning(
+    id: string,
+    patch: Partial<{ ruleText: string; scope: string; scopeKey: string; ruleType: string; confidence: number; isActive: boolean }>,
+  ): Promise<SystemLearning | undefined> {
+    const set: Record<string, any> = { updatedAt: new Date() };
+    if (patch.ruleText !== undefined) set.ruleText = patch.ruleText;
+    if (patch.scope !== undefined) set.scope = patch.scope;
+    if (patch.scopeKey !== undefined) set.scopeKey = patch.scopeKey.toLowerCase().trim();
+    if (patch.ruleType !== undefined) set.ruleType = patch.ruleType;
+    if (patch.confidence !== undefined) set.confidence = patch.confidence;
+    if (patch.isActive !== undefined) set.isActive = patch.isActive;
+    const [updated] = await db.update(systemLearnings)
+      .set(set)
+      .where(eq(systemLearnings.id, id))
+      .returning();
+    return updated;
   }
 
   // ═══════════════════════════════════════════════════════════════

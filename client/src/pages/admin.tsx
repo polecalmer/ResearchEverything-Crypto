@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Users, Activity, DollarSign, Building2, TrendingUp, Radio, Wallet, RefreshCw, XCircle, ArrowDownCircle, ExternalLink, BarChart3, Calendar, Clock, Scale, AlertTriangle, CheckCircle2, HelpCircle, Flag, Bell, BellOff, Settings, Send, Brain } from "lucide-react";
+import { Loader2, Users, Activity, DollarSign, Building2, TrendingUp, Radio, Wallet, RefreshCw, XCircle, ArrowDownCircle, ExternalLink, BarChart3, Calendar, Clock, Scale, AlertTriangle, CheckCircle2, HelpCircle, Flag, Bell, BellOff, Settings, Send, Brain, BookOpen, Plus, Pencil, Save, Power } from "lucide-react";
 import { format } from "date-fns";
 import { useState, useMemo } from "react";
 import { apiRequest, queryClient } from "@/lib/queryClient";
@@ -1003,6 +1003,400 @@ function DataSourceBrainPanel() {
   );
 }
 
+interface SystemLearning {
+  id: string;
+  scope: string;
+  scopeKey: string;
+  ruleType: string;
+  ruleText: string;
+  confidence: number;
+  source: string;
+  triggeredBy: string | null;
+  appliedCount: number;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+function SystemLearningsPanel() {
+  const qc = useQueryClient();
+  const [showInactive, setShowInactive] = useState(false);
+  const [filterType, setFilterType] = useState<string>("all");
+  const [filterScope, setFilterScope] = useState<string>("all");
+  const [searchQ, setSearchQ] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<Partial<SystemLearning>>({});
+  const [showNewForm, setShowNewForm] = useState(false);
+  const [newDraft, setNewDraft] = useState<Partial<SystemLearning>>({
+    scope: "global",
+    scopeKey: "global",
+    ruleType: "synthesis_discipline",
+    ruleText: "",
+  });
+
+  const queryKey = showInactive
+    ? ["/api/admin/learnings", { includeInactive: true }]
+    : ["/api/admin/learnings"];
+
+  const { data: rules = [], isLoading, refetch, isFetching } = useQuery<SystemLearning[]>({
+    queryKey,
+    queryFn: async () => {
+      const url = showInactive
+        ? "/api/admin/learnings?includeInactive=true"
+        : "/api/admin/learnings";
+      const res = await fetch(url, { credentials: "include" });
+      if (!res.ok) throw new Error(`${res.status}: ${await res.text()}`);
+      return res.json();
+    },
+    refetchInterval: false,
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (draft: Partial<SystemLearning>) => {
+      const res = await apiRequest("POST", "/api/admin/learnings", draft);
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/learnings"] });
+      setShowNewForm(false);
+      setNewDraft({ scope: "global", scopeKey: "global", ruleType: "synthesis_discipline", ruleText: "" });
+    },
+  });
+
+  const patchMutation = useMutation({
+    mutationFn: async ({ id, patch }: { id: string; patch: Partial<SystemLearning> }) => {
+      const res = await apiRequest("PATCH", `/api/admin/learnings/${id}`, patch);
+      return res.json();
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["/api/admin/learnings"] });
+      setEditingId(null);
+      setEditDraft({});
+    },
+  });
+
+  const deactivateMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const res = await apiRequest("DELETE", `/api/admin/learnings/${id}`);
+      return res.json();
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["/api/admin/learnings"] }),
+  });
+
+  const types = useMemo(() => Array.from(new Set(rules.map(r => r.ruleType))).sort(), [rules]);
+  const scopes = useMemo(() => Array.from(new Set(rules.map(r => r.scope))).sort(), [rules]);
+
+  const filtered = useMemo(() => {
+    const needle = searchQ.trim().toLowerCase();
+    return rules.filter(r => {
+      if (filterType !== "all" && r.ruleType !== filterType) return false;
+      if (filterScope !== "all" && r.scope !== filterScope) return false;
+      if (needle && ![r.scopeKey, r.ruleText, r.ruleType, r.source, r.triggeredBy || ""].some(s => s.toLowerCase().includes(needle))) return false;
+      return true;
+    });
+  }, [rules, filterType, filterScope, searchQ]);
+
+  const startEdit = (r: SystemLearning) => {
+    setEditingId(r.id);
+    setEditDraft({ ruleText: r.ruleText, confidence: r.confidence, scopeKey: r.scopeKey, scope: r.scope, ruleType: r.ruleType });
+  };
+
+  const saveEdit = () => {
+    if (!editingId) return;
+    patchMutation.mutate({ id: editingId, patch: editDraft });
+  };
+
+  const toggleActive = (r: SystemLearning) => {
+    patchMutation.mutate({ id: r.id, patch: { isActive: !r.isActive } });
+  };
+
+  const sourceColor: Record<string, string> = {
+    benchmark: "text-emerald-400/80",
+    manual: "text-cyan-400/80",
+    user_feedback: "text-amber-400/80",
+    auto: "text-muted-foreground/60",
+  };
+
+  const typeColor: Record<string, string> = {
+    synthesis_discipline: "text-purple-400/80",
+    routing_override: "text-blue-400/80",
+    sql_pattern: "text-cyan-400/80",
+    slug_hint: "text-emerald-400/80",
+    table_warning: "text-amber-400/80",
+    data_caveat: "text-rose-400/80",
+  };
+
+  return (
+    <div className="rounded border border-border/40 bg-card/30 overflow-hidden" data-testid="system-learnings-panel">
+      <div className="px-4 py-3 border-b border-border/30 flex items-center gap-2">
+        <BookOpen className="w-3.5 h-3.5 text-purple-400" />
+        <h2 className="text-[12px] font-medium text-foreground/80 tracking-tight">System Learnings</h2>
+        <span className="ml-auto flex items-center gap-3">
+          <span className="text-[10px] text-muted-foreground/40" data-testid="text-learnings-total">
+            {filtered.length}{filtered.length !== rules.length ? ` / ${rules.length}` : ""} rules
+          </span>
+          <button
+            onClick={() => setShowNewForm(!showNewForm)}
+            className="text-[10px] text-muted-foreground/60 hover:text-foreground/70 transition-colors flex items-center gap-1"
+            data-testid="button-new-rule"
+          >
+            <Plus className="w-3 h-3" />
+            New
+          </button>
+          <button
+            onClick={() => setShowInactive(!showInactive)}
+            className={`text-[10px] transition-colors ${showInactive ? "text-amber-400/80" : "text-muted-foreground/60 hover:text-foreground/70"}`}
+            data-testid="button-toggle-inactive"
+          >
+            {showInactive ? "Hide inactive" : "Show inactive"}
+          </button>
+          <button
+            onClick={() => refetch()}
+            disabled={isFetching}
+            className="text-[10px] text-muted-foreground/60 hover:text-foreground/70 transition-colors flex items-center gap-1"
+            data-testid="button-refresh-learnings"
+          >
+            <RefreshCw className={`w-3 h-3 ${isFetching ? "animate-spin" : ""}`} />
+          </button>
+        </span>
+      </div>
+
+      <div className="px-4 py-2 border-b border-border/20 flex items-center gap-2 flex-wrap">
+        <input
+          type="text"
+          value={searchQ}
+          onChange={e => setSearchQ(e.target.value)}
+          placeholder="Search rules…"
+          className="text-[11px] px-2 py-1 bg-background/40 border border-border/40 rounded flex-1 min-w-[150px] text-foreground/80 focus:outline-none focus:border-border/60"
+          data-testid="input-search-learnings"
+        />
+        <select
+          value={filterScope}
+          onChange={e => setFilterScope(e.target.value)}
+          className="text-[11px] px-2 py-1 bg-background/40 border border-border/40 rounded text-foreground/70 focus:outline-none"
+          data-testid="select-filter-scope"
+        >
+          <option value="all">All scopes</option>
+          {scopes.map(s => <option key={s} value={s}>{s}</option>)}
+        </select>
+        <select
+          value={filterType}
+          onChange={e => setFilterType(e.target.value)}
+          className="text-[11px] px-2 py-1 bg-background/40 border border-border/40 rounded text-foreground/70 focus:outline-none"
+          data-testid="select-filter-type"
+        >
+          <option value="all">All types</option>
+          {types.map(t => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </div>
+
+      {showNewForm && (
+        <div className="px-4 py-3 border-b border-border/20 bg-background/20 space-y-2" data-testid="new-rule-form">
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="text-[10px] text-muted-foreground/50 uppercase tracking-wide">Scope</label>
+              <select
+                value={newDraft.scope}
+                onChange={e => setNewDraft({ ...newDraft, scope: e.target.value })}
+                className="w-full text-[11px] px-2 py-1 bg-background/40 border border-border/40 rounded text-foreground/80 mt-0.5"
+              >
+                <option value="global">global</option>
+                <option value="protocol">protocol</option>
+                <option value="metric">metric</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-[10px] text-muted-foreground/50 uppercase tracking-wide">Scope Key</label>
+              <input
+                type="text"
+                value={newDraft.scopeKey || ""}
+                onChange={e => setNewDraft({ ...newDraft, scopeKey: e.target.value })}
+                className="w-full text-[11px] px-2 py-1 bg-background/40 border border-border/40 rounded text-foreground/80 mt-0.5"
+                placeholder="e.g. hyperliquid, peer_comparison"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-muted-foreground/50 uppercase tracking-wide">Rule Type</label>
+              <input
+                type="text"
+                value={newDraft.ruleType || ""}
+                onChange={e => setNewDraft({ ...newDraft, ruleType: e.target.value })}
+                className="w-full text-[11px] px-2 py-1 bg-background/40 border border-border/40 rounded text-foreground/80 mt-0.5"
+                placeholder="synthesis_discipline, routing_override, …"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-[10px] text-muted-foreground/50 uppercase tracking-wide">Rule Text</label>
+            <textarea
+              value={newDraft.ruleText || ""}
+              onChange={e => setNewDraft({ ...newDraft, ruleText: e.target.value })}
+              rows={3}
+              className="w-full text-[11px] px-2 py-1 bg-background/40 border border-border/40 rounded text-foreground/80 mt-0.5 font-mono leading-relaxed"
+              placeholder="Instruction for future queries (max 200-500 chars ideal)"
+            />
+          </div>
+          <div className="flex items-center gap-2 justify-end">
+            <button
+              onClick={() => setShowNewForm(false)}
+              className="text-[11px] px-2.5 py-1 text-muted-foreground/70 hover:text-foreground/80"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => createMutation.mutate(newDraft)}
+              disabled={!newDraft.ruleText || !newDraft.ruleType || !newDraft.scopeKey || createMutation.isPending}
+              className="text-[11px] px-2.5 py-1 bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 disabled:opacity-40 rounded border border-purple-500/30"
+              data-testid="button-save-new-rule"
+            >
+              {createMutation.isPending ? "Saving…" : "Save rule"}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="max-h-[28rem] overflow-y-auto">
+        {isLoading ? (
+          <div className="p-6 flex items-center justify-center">
+            <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+          </div>
+        ) : filtered.length === 0 ? (
+          <p className="p-6 text-[11px] text-muted-foreground/40 italic text-center">
+            {rules.length === 0 ? "No rules yet." : "No rules match your filters."}
+          </p>
+        ) : (
+          <div className="divide-y divide-border/20">
+            {filtered.map(r => {
+              const isEditing = editingId === r.id;
+              return (
+                <div
+                  key={r.id}
+                  className={`px-4 py-2.5 text-[11px] ${!r.isActive ? "opacity-50" : ""}`}
+                  data-testid={`row-learning-${r.id}`}
+                >
+                  <div className="flex items-start gap-2 mb-1">
+                    <span className={`font-mono text-[10px] shrink-0 ${typeColor[r.ruleType] || "text-muted-foreground/60"}`}>
+                      {r.ruleType}
+                    </span>
+                    <span className="text-muted-foreground/40 font-mono text-[10px] shrink-0">
+                      [{r.scope}/{r.scopeKey}]
+                    </span>
+                    <span className={`text-[10px] shrink-0 ${sourceColor[r.source] || "text-muted-foreground/60"}`}>
+                      {r.source}
+                    </span>
+                    <span className="text-muted-foreground/40 font-mono text-[10px] shrink-0" title="Applied count">
+                      ×{r.appliedCount}
+                    </span>
+                    <span className="text-muted-foreground/40 font-mono text-[10px] shrink-0" title="Confidence">
+                      {r.confidence}%
+                    </span>
+                    {!r.isActive && (
+                      <span className="text-[10px] text-amber-400/70 shrink-0">inactive</span>
+                    )}
+                    <span className="ml-auto flex items-center gap-1.5 shrink-0">
+                      {isEditing ? (
+                        <>
+                          <button
+                            onClick={saveEdit}
+                            disabled={patchMutation.isPending}
+                            className="text-emerald-400/70 hover:text-emerald-400 transition-colors"
+                            title="Save"
+                            data-testid={`button-save-edit-${r.id}`}
+                          >
+                            <Save className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => { setEditingId(null); setEditDraft({}); }}
+                            className="text-muted-foreground/60 hover:text-foreground/80"
+                            title="Cancel"
+                          >
+                            <XCircle className="w-3 h-3" />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            onClick={() => startEdit(r)}
+                            className="text-muted-foreground/50 hover:text-foreground/80 transition-colors"
+                            title="Edit"
+                            data-testid={`button-edit-${r.id}`}
+                          >
+                            <Pencil className="w-3 h-3" />
+                          </button>
+                          <button
+                            onClick={() => toggleActive(r)}
+                            disabled={patchMutation.isPending}
+                            className={`transition-colors ${r.isActive ? "text-muted-foreground/50 hover:text-rose-400/80" : "text-amber-400/70 hover:text-emerald-400/80"}`}
+                            title={r.isActive ? "Deactivate" : "Reactivate"}
+                            data-testid={`button-toggle-active-${r.id}`}
+                          >
+                            <Power className="w-3 h-3" />
+                          </button>
+                        </>
+                      )}
+                    </span>
+                  </div>
+
+                  {isEditing ? (
+                    <div className="space-y-1.5">
+                      <textarea
+                        value={editDraft.ruleText || ""}
+                        onChange={e => setEditDraft({ ...editDraft, ruleText: e.target.value })}
+                        rows={3}
+                        className="w-full text-[11px] px-2 py-1 bg-background/40 border border-border/40 rounded text-foreground/80 font-mono leading-relaxed"
+                        data-testid={`input-edit-rule-text-${r.id}`}
+                      />
+                      <div className="grid grid-cols-4 gap-1.5">
+                        <input
+                          value={editDraft.scope || ""}
+                          onChange={e => setEditDraft({ ...editDraft, scope: e.target.value })}
+                          placeholder="scope"
+                          className="text-[10px] px-1.5 py-0.5 bg-background/40 border border-border/40 rounded text-foreground/70"
+                        />
+                        <input
+                          value={editDraft.scopeKey || ""}
+                          onChange={e => setEditDraft({ ...editDraft, scopeKey: e.target.value })}
+                          placeholder="scopeKey"
+                          className="text-[10px] px-1.5 py-0.5 bg-background/40 border border-border/40 rounded text-foreground/70"
+                        />
+                        <input
+                          value={editDraft.ruleType || ""}
+                          onChange={e => setEditDraft({ ...editDraft, ruleType: e.target.value })}
+                          placeholder="ruleType"
+                          className="text-[10px] px-1.5 py-0.5 bg-background/40 border border-border/40 rounded text-foreground/70"
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={editDraft.confidence ?? 0}
+                          onChange={e => setEditDraft({ ...editDraft, confidence: Number(e.target.value) })}
+                          placeholder="confidence"
+                          className="text-[10px] px-1.5 py-0.5 bg-background/40 border border-border/40 rounded text-foreground/70"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-foreground/75 leading-relaxed whitespace-pre-wrap" data-testid={`text-rule-${r.id}`}>
+                      {r.ruleText}
+                    </p>
+                  )}
+
+                  {r.triggeredBy && !isEditing && (
+                    <p className="text-[9px] text-muted-foreground/40 mt-1 font-mono">
+                      triggered by: {r.triggeredBy}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function AdminPage() {
   const { data, isLoading, isError, error } = useQuery<any>({
     queryKey: ["/api/admin/analytics"],
@@ -1053,6 +1447,8 @@ export default function AdminPage() {
         <CostReportPanel />
 
         <DataSourceBrainPanel />
+
+        <SystemLearningsPanel />
 
         <ReconciliationPanel />
 

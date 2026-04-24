@@ -1,11 +1,12 @@
+import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupAuth } from "./auth";
 import { serveStatic } from "./static";
 import { createServer } from "http";
-import { runMigrations } from "stripe-replit-sync";
-import { getStripeSync } from "./stripeClient";
 import { WebhookHandlers } from "./webhookHandlers";
+
+const STRIPE_ENABLED = process.env.ENABLE_STRIPE === "1";
 
 const app = express();
 const httpServer = createServer(app);
@@ -23,19 +24,21 @@ async function initStripe() {
   }
 
   try {
+    const { runMigrations } = await import("stripe-replit-sync");
+    const { getStripeSync } = await import("./stripeClient");
+
     console.log('Initializing Stripe schema...');
     await runMigrations({ databaseUrl, schema: 'stripe' });
     console.log('Stripe schema ready');
 
     const stripeSync = await getStripeSync();
 
-    const domains = process.env.REPLIT_DOMAINS;
-    if (domains) {
+    const publicBaseUrl = process.env.PUBLIC_BASE_URL;
+    if (publicBaseUrl && publicBaseUrl.startsWith("https://")) {
       try {
         console.log('Setting up managed webhook...');
-        const webhookBaseUrl = `https://${domains.split(',')[0]}`;
         const result = await stripeSync.findOrCreateManagedWebhook(
-          `${webhookBaseUrl}/api/stripe/webhook`
+          `${publicBaseUrl.replace(/\/$/, '')}/api/stripe/webhook`
         );
         if (result?.webhook) {
           console.log(`Webhook configured: ${result.webhook.url}`);
@@ -46,7 +49,7 @@ async function initStripe() {
         console.error('Webhook setup failed (non-fatal):', webhookErr);
       }
     } else {
-      console.log('No REPLIT_DOMAINS set, skipping webhook setup');
+      console.log('PUBLIC_BASE_URL not https, skipping managed webhook setup');
     }
 
     stripeSync.syncBackfill()
@@ -57,32 +60,38 @@ async function initStripe() {
   }
 }
 
-initStripe().catch(err => console.error('Stripe init error:', err));
+if (STRIPE_ENABLED) {
+  initStripe().catch(err => console.error('Stripe init error:', err));
+} else {
+  console.log('[Stripe] Disabled (set ENABLE_STRIPE=1 to enable)');
+}
 
-app.post(
-  '/api/stripe/webhook',
-  express.raw({ type: 'application/json' }),
-  async (req, res) => {
-    const signature = req.headers['stripe-signature'];
-    if (!signature) {
-      return res.status(400).json({ error: 'Missing stripe-signature' });
-    }
-
-    try {
-      const sig = Array.isArray(signature) ? signature[0] : signature;
-      if (!Buffer.isBuffer(req.body)) {
-        console.error('STRIPE WEBHOOK ERROR: req.body is not a Buffer');
-        return res.status(500).json({ error: 'Webhook processing error' });
+if (STRIPE_ENABLED) {
+  app.post(
+    '/api/stripe/webhook',
+    express.raw({ type: 'application/json' }),
+    async (req, res) => {
+      const signature = req.headers['stripe-signature'];
+      if (!signature) {
+        return res.status(400).json({ error: 'Missing stripe-signature' });
       }
 
-      await WebhookHandlers.processWebhook(req.body as Buffer, sig);
-      res.status(200).json({ received: true });
-    } catch (error: any) {
-      console.error('Webhook error:', error.message);
-      res.status(400).json({ error: 'Webhook processing error' });
+      try {
+        const sig = Array.isArray(signature) ? signature[0] : signature;
+        if (!Buffer.isBuffer(req.body)) {
+          console.error('STRIPE WEBHOOK ERROR: req.body is not a Buffer');
+          return res.status(500).json({ error: 'Webhook processing error' });
+        }
+
+        await WebhookHandlers.processWebhook(req.body as Buffer, sig);
+        res.status(200).json({ received: true });
+      } catch (error: any) {
+        console.error('Webhook error:', error.message);
+        res.status(400).json({ error: 'Webhook processing error' });
+      }
     }
-  }
-);
+  );
+}
 
 app.use(
   express.json({
@@ -193,4 +202,34 @@ app.use((req, res, next) => {
       log(`serving on port ${port}`);
     },
   );
+
+  const SHUTDOWN_DRAIN_MS = 15_000;
+  let shuttingDown = false;
+  const shutdown = async (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    log(`[shutdown] ${signal} received — draining for up to ${SHUTDOWN_DRAIN_MS}ms`);
+
+    const { markMppShuttingDown, closeChannel } = await import("./mpp-client");
+    markMppShuttingDown();
+
+    const forceTimer = setTimeout(() => {
+      console.error(`[shutdown] drain timeout — forcing exit`);
+      process.exit(1);
+    }, SHUTDOWN_DRAIN_MS);
+    forceTimer.unref();
+
+    httpServer.close(async () => {
+      try {
+        await closeChannel();
+      } catch (e: any) {
+        console.error(`[shutdown] closeChannel error: ${e.message}`);
+      }
+      clearTimeout(forceTimer);
+      log(`[shutdown] clean exit`);
+      process.exit(0);
+    });
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 })();

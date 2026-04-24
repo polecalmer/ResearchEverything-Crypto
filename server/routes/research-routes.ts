@@ -5,6 +5,31 @@ import { requireAuth } from "../auth";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
 
+const MAX_GLOBAL_RESEARCH = Number(process.env.MAX_GLOBAL_RESEARCH || 3);
+const MAX_PER_USER_RESEARCH = Number(process.env.MAX_PER_USER_RESEARCH || 1);
+const inflightPerUser = new Map<string, number>();
+let inflightGlobal = 0;
+
+function tryAcquireResearchSlot(userId: string): boolean {
+  const userCount = inflightPerUser.get(userId) || 0;
+  if (inflightGlobal >= MAX_GLOBAL_RESEARCH) return false;
+  if (userCount >= MAX_PER_USER_RESEARCH) return false;
+  inflightGlobal++;
+  inflightPerUser.set(userId, userCount + 1);
+  return true;
+}
+
+function releaseResearchSlot(userId: string): void {
+  inflightGlobal = Math.max(0, inflightGlobal - 1);
+  const userCount = (inflightPerUser.get(userId) || 1) - 1;
+  if (userCount <= 0) inflightPerUser.delete(userId);
+  else inflightPerUser.set(userId, userCount);
+}
+
+export function getResearchInflight() {
+  return { global: inflightGlobal, perUser: Object.fromEntries(inflightPerUser) };
+}
+
 export function registerResearchRoutes(app: Express) {
   app.get("/api/research/sessions", requireAuth, async (req, res) => {
     try {
@@ -205,11 +230,13 @@ export function registerResearchRoutes(app: Express) {
 
   app.post("/api/research/sessions/:id/messages", requireAuth, async (req, res) => {
     let keepalive: ReturnType<typeof setInterval> | null = null;
+    let slotAcquired = false;
+    const userId = req.user!.id;
     try {
       const id = parseInt(req.params.id);
       if (isNaN(id)) return res.status(400).json({ message: "Invalid session ID" });
       const session = await storage.getConversation(id);
-      if (!session || session.userId !== req.user!.id) {
+      if (!session || session.userId !== userId) {
         return res.status(404).json({ message: "Session not found" });
       }
 
@@ -221,20 +248,41 @@ export function registerResearchRoutes(app: Express) {
       const validModes = ["quick", "focused", "deep"];
       const mode: "quick" | "focused" | "deep" | undefined = validModes.includes(forceMode) ? forceMode : undefined;
 
+      if (!tryAcquireResearchSlot(userId)) {
+        res.setHeader("Retry-After", "10");
+        return res.status(429).json({
+          message: `Research concurrency limit reached (${inflightGlobal}/${MAX_GLOBAL_RESEARCH} global, ${inflightPerUser.get(userId) || 0}/${MAX_PER_USER_RESEARCH} per user). Wait for an in-flight request to finish.`,
+        });
+      }
+      slotAcquired = true;
+
       res.writeHead(200, {
         "Content-Type": "text/event-stream",
-        "Cache-Control": "no-cache",
+        "Cache-Control": "no-cache, no-transform",
         "Connection": "keep-alive",
         "X-Accel-Buffering": "no",
       });
       res.flushHeaders();
 
+      let clientClosed = false;
+      const stopKeepalive = () => { if (keepalive) { clearInterval(keepalive); keepalive = null; } };
+      req.on("close", () => {
+        clientClosed = true;
+        stopKeepalive();
+        console.log(`[SessionResearch] Client disconnected mid-stream (session ${session.id})`);
+      });
+
+      const safeWrite = (chunk: string) => {
+        if (clientClosed || res.writableEnded) return;
+        try { res.write(chunk); } catch { /* socket gone */ }
+      };
+
       keepalive = setInterval(() => {
-        res.write(": keepalive\n\n");
+        safeWrite(": keepalive\n\n");
       }, 15000);
 
       const sendEvent = (event: string, data: any) => {
-        res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+        safeWrite(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       };
 
       const userMsg = await storage.createMessage({
@@ -487,6 +535,8 @@ export function registerResearchRoutes(app: Express) {
         res.write(`event: error\ndata: ${JSON.stringify({ message: e.message })}\n\n`);
         res.end();
       }
+    } finally {
+      if (slotAcquired) releaseResearchSlot(userId);
     }
   });
 
@@ -580,14 +630,18 @@ export function registerResearchRoutes(app: Express) {
       const content = msg.content.replace(/^<!--\s*mode:\w+\s*-->\s*\n?/, "");
       const firstLine = content.split("\n").find(l => l.trim())?.replace(/^#+\s*/, "").slice(0, 100) || "Session Research";
       const title = `${conversation.title || "Session"} — ${firstLine}`;
+      const description = content.replace(/^#+\s*/mg, "").trim().slice(0, 240);
 
-      const report = await storage.createReport({
-        companyId: "session-research",
+      const { researchReports } = await import("@shared/schema");
+      const { db: dbImport } = await import("../db");
+      const [report] = await dbImport.insert(researchReports).values({
         userId,
         title,
+        description,
         content,
-        status: "complete",
-      });
+        sourceConversationId: conversation.id,
+        sourceMessageId: msg.id,
+      }).returning();
 
       res.json({ id: report.id, title: report.title });
     } catch (e: any) {

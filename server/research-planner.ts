@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import { callAnthropicRaw } from "./mpp-client";
+import { ANALYST_NAMES, ANALYST_DISPLAY } from "@shared/schema";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -177,7 +178,8 @@ ${playbooks.playbooks.map(p => `- ${p.id} (${p.name}): ${p.description}\n  trigg
 4. depends_on lists sub-question ids that must be answered first. No cycles. Leaf sub-questions have empty depends_on.
 5. suggested_tools should be the union of required_tools and recommended_tools across the assigned types. Add others only when clearly justified. analyst_perspective is particularly powerful for valuation, tokenomics, and narrative questions — suggest it when a sub-question could benefit from an analyst's reasoning perspective.
 6. artifact_hint is the single artifact type the execution agent should produce for this sub-question.
-7. lens (optional) names an analyst slug ("TopherGMI", "shaundadevens", "thiccyth0t") whose framework should be queried for this sub-question.
+7. lens (optional) names an analyst slug whose framework should be queried for this sub-question. Pick the analyst whose area best matches the sub-question:
+${ANALYST_NAMES.map(n => `   - "${n}" — ${ANALYST_DISPLAY[n]}`).join("\n")}
 8. synthesis_required = true when there are 3+ sub-questions or the prompt asks for a "view"/"thesis"/"recommendation".
 9. confidence: 0.0-1.0. Drop below 0.5 if the prompt is ambiguous about subject, scope, or intent.
 

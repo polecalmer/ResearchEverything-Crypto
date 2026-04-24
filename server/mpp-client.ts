@@ -59,7 +59,7 @@ export interface AnthropicRawResponse {
   costSource: CostSource;
 }
 
-const CHANNEL_DEPOSIT_TARGET = 50.0;   // ideal channel deposit (USD)
+const CHANNEL_DEPOSIT_TARGET = 35.0;   // ideal channel deposit (USD) — auto-clamped to wallet balance
 const CHANNEL_DEPOSIT_MIN = 2.0;       // never open a channel smaller than this
 const CHANNEL_BALANCE_RESERVE = 0.5;   // leave a small reserve (gas / dust)
 const SHUTDOWN_TIMEOUT_MS = 15000;
@@ -126,8 +126,16 @@ async function getOrCreateClient(): Promise<MppClientState> {
 }
 
 function forceNewChannel() {
-  console.log(`[MPP-Channel] Forcing new channel (previous: ${sharedClient?.requestCount || 0} requests, $${sharedClient?.totalSpent.toFixed(4) || 0} spent, voucher: $${sharedClient?.totalVoucherAuthorized.toFixed(4) || 0})`);
+  const old = sharedClient;
+  console.log(`[MPP-Channel] Forcing new channel (previous: ${old?.requestCount || 0} requests, $${old?.totalSpent.toFixed(4) || 0} spent, voucher: $${old?.totalVoucherAuthorized.toFixed(4) || 0})`);
   sharedClient = null;
+  // Close the orphaned channel in the background so its on-chain deposit is
+  // reclaimed to the wallet instead of staying locked forever.
+  if (old?.session) {
+    old.session.close()
+      .then(() => console.log(`[MPP-Channel] Orphaned channel closed — deposit reclaimed.`))
+      .catch((err: any) => console.warn(`[MPP-Channel] Could not close orphaned channel (funds may be locked until manual close): ${err?.message || err}`));
+  }
 }
 
 export function resetMppChannel(): { previousState: ReturnType<typeof getChannelStats> } {
@@ -211,31 +219,59 @@ async function closeChannel(): Promise<void> {
 
 export { closeChannel };
 
-let shutdownHandled = false;
-
-async function gracefulShutdown(signal: string) {
-  if (shutdownHandled) return;
-  shutdownHandled = true;
+export function markMppShuttingDown() {
   isShuttingDown = true;
-
-  console.log(`[MPP-Channel] ${signal} received — closing channel before exit...`);
-
-  const shutdownTimer = setTimeout(() => {
-    console.error(`[MPP-Channel] Shutdown timeout (${SHUTDOWN_TIMEOUT_MS}ms) — forcing exit`);
-    process.exit(1);
-  }, SHUTDOWN_TIMEOUT_MS);
-  shutdownTimer.unref();
-
-  await closeChannel();
-  clearTimeout(shutdownTimer);
-  process.exit(0);
 }
-
-process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
-process.on("SIGINT", () => gracefulShutdown("SIGINT"));
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 4000;
+const STREAM_IDLE_TIMEOUT_MS = 60_000; // abort if no chunk received within this window
+const REQUEST_TOTAL_TIMEOUT_MS = 15 * 60_000; // absolute ceiling per streaming request
+
+interface IdleAbortHandle {
+  signal: AbortSignal;
+  reset: () => void;
+  cancel: () => void;
+}
+
+function armIdleAbort(idleMs: number, totalMs: number): IdleAbortHandle {
+  const ctrl = new AbortController();
+  let idleTimer: NodeJS.Timeout | null = null;
+  let totalTimer: NodeJS.Timeout | null = null;
+
+  const reset = () => {
+    if (idleTimer) clearTimeout(idleTimer);
+    idleTimer = setTimeout(() => {
+      ctrl.abort(new Error(`stream idle for ${idleMs}ms — aborting (terminated)`));
+    }, idleMs);
+  };
+  reset();
+
+  totalTimer = setTimeout(() => {
+    ctrl.abort(new Error(`stream exceeded ${totalMs}ms total — aborting`));
+  }, totalMs);
+
+  const cancel = () => {
+    if (idleTimer) clearTimeout(idleTimer);
+    if (totalTimer) clearTimeout(totalTimer);
+  };
+  return { signal: ctrl.signal, reset, cancel };
+}
+
+// Exposed for sibling MPP clients (e.g. OpenRouter) that reuse the same payment channel.
+export function _mppInternals() {
+  return {
+    getOrCreateClient,
+    forceNewChannel,
+    extractCostFromResponse,
+    isRetryable,
+    isChannelError,
+    isTransientChainError,
+    isShuttingDown: () => isShuttingDown,
+    MAX_RETRIES,
+    RETRY_DELAY_MS,
+  };
+}
 
 function isRetryable(status: number): boolean {
   return status >= 500 || status === 429;
@@ -391,6 +427,14 @@ export async function callAnthropicRaw(request: any): Promise<AnthropicRawRespon
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "Unknown error");
+        if (response.status === 402 && errorText.includes("amount-exceeds-deposit")) {
+          console.log(`[MPP-Channel] Deposit exceeded — forcing new channel and retrying (attempt ${attempt + 1}/${MAX_RETRIES})...`);
+          forceNewChannel();
+          if (attempt < MAX_RETRIES) {
+            await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+            continue;
+          }
+        }
         if (isRetryable(response.status) && attempt < MAX_RETRIES) {
           const delay = (response.status === 524 || response.status === 408) ? Math.min(30000, 10000 * (attempt + 1)) : RETRY_DELAY_MS * (attempt + 1);
           console.log(`[MPP-Channel] Retryable error ${response.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
@@ -464,6 +508,7 @@ export async function callAnthropicRawStreaming(request: any): Promise<Anthropic
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const state = await getOrCreateClient();
 
+    const idleAbort = armIdleAbort(STREAM_IDLE_TIMEOUT_MS, REQUEST_TOTAL_TIMEOUT_MS);
     try {
       const streamRequest = { ...request, stream: true };
       const response = await state.session.fetch(ANTHROPIC_MPP_URL, {
@@ -474,10 +519,19 @@ export async function callAnthropicRawStreaming(request: any): Promise<Anthropic
           "x-api-key": "mpp",
         },
         body: JSON.stringify(streamRequest),
-      });
+        signal: idleAbort.signal,
+      } as any);
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "Unknown error");
+        if (response.status === 402 && errorText.includes("amount-exceeds-deposit")) {
+          console.log(`[MPP-Stream] Deposit exceeded — forcing new channel and retrying (attempt ${attempt + 1}/${MAX_RETRIES})...`);
+          forceNewChannel();
+          if (attempt < MAX_RETRIES) {
+            await new Promise((r) => setTimeout(r, RETRY_DELAY_MS));
+            continue;
+          }
+        }
         if (isRetryable(response.status) && attempt < MAX_RETRIES) {
           const delay = (response.status === 524 || response.status === 408) ? Math.min(30000, 10000 * (attempt + 1)) : RETRY_DELAY_MS * (attempt + 1);
           console.log(`[MPP-Stream] Retryable error ${response.status}, retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
@@ -508,6 +562,7 @@ export async function callAnthropicRawStreaming(request: any): Promise<Anthropic
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
+        idleAbort.reset();
 
         buffer += decoder.decode(value, { stream: true });
         const lines = buffer.split("\n");
@@ -588,6 +643,7 @@ export async function callAnthropicRawStreaming(request: any): Promise<Anthropic
 
       console.log(`[MPP-Stream] Request #${state.requestCount}: cost $${mppCost.toFixed(4)} [${costSource}] | ${inputTokens} in, ${outputTokens} out, ${contentBlocks.length} blocks`);
 
+      idleAbort.cancel();
       return {
         content: contentBlocks,
         usage: { input_tokens: inputTokens, output_tokens: outputTokens },
@@ -596,6 +652,7 @@ export async function callAnthropicRawStreaming(request: any): Promise<Anthropic
         costSource,
       };
     } catch (err) {
+      idleAbort.cancel();
       lastError = err as Error;
       const errMsg = (err as any)?.message || "";
 
@@ -618,10 +675,11 @@ export async function callAnthropicRawStreaming(request: any): Promise<Anthropic
         }
       }
       const is524 = errMsg.includes("524") || errMsg.includes("timeout");
-      const isRetryableError = errMsg.includes("fetch") || is524 || errMsg.includes("502") || errMsg.includes("503") || errMsg.includes("ECONNRESET") || errMsg.includes("429") || errMsg.includes("terminated") || errMsg.includes("network") || errMsg.includes("aborted");
+      const isIdleAbort = errMsg.includes("stream idle for") || errMsg.includes("stream exceeded");
+      const isRetryableError = errMsg.includes("fetch") || is524 || errMsg.includes("502") || errMsg.includes("503") || errMsg.includes("ECONNRESET") || errMsg.includes("429") || errMsg.includes("terminated") || errMsg.includes("network") || errMsg.includes("aborted") || isIdleAbort;
       if (attempt < MAX_RETRIES && isRetryableError) {
         const delay = is524 ? Math.min(30000, 10000 * (attempt + 1)) : RETRY_DELAY_MS * (attempt + 1);
-        console.log(`[MPP-Stream] Error: "${errMsg.slice(0, 80)}", retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
+        console.log(`[MPP-Stream] ${isIdleAbort ? "Idle abort" : "Error"}: "${errMsg.slice(0, 80)}", retrying in ${delay}ms (attempt ${attempt + 1}/${MAX_RETRIES})...`);
         await new Promise((r) => setTimeout(r, delay));
         continue;
       }
