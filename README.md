@@ -10,7 +10,7 @@ Sessions is an interactive, iterative research platform powered by AI. It runs d
 
 - **Research sessions** — ask any crypto question and get a multi-round, tool-using analyst response with charts, tables, callouts, and verified numbers.
 - **Deterministic chart pipeline** — "show me HYPE ARR vs price last 6 months" routes to a pre-indexed chart generator (not the agent loop) for speed and correctness.
-- **Analyst lenses** — eight indexed analysts (TopherGMI, shaundadevens, thiccyth0t, CryptoHayes, AustinBarack, defi_monk, RyanWatkins_, robbiepetersen_) can be invoked as reasoning perspectives via `analyst_perspective`.
+- **Analyst lenses** — a curated roster of crypto analysts can be invoked as reasoning perspectives via `analyst_perspective` to apply their specific frameworks to new questions.
 - **The Brain** — entities, facts, relationships, preferences, and methodology rules from every session, retrieved via hybrid (vector + text) search for context on future runs.
 - **Self-improving benchmark** — a 500+ case benchmark runs the agent, scores it against ground truth, and auto-generates prompt rules on failures. Currently at 89.6% accuracy.
 - **Memos (PDF)** — one-click export of a prompt + response as a Bloomberg-style printable memo with a dedicated cover page, static chart snapshots, and clean typography.
