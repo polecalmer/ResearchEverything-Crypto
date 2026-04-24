@@ -5,6 +5,7 @@ import { format } from "date-fns";
 import { Loader2, Printer, ArrowLeft } from "lucide-react";
 import type { SessionMessage, Session } from "@/lib/research-utils";
 import { parseContentAndArtifacts, extractMode, CHART_COLORS, inferFormat, formatValue } from "@/lib/research-utils";
+import { ErrorBoundary } from "@/components/error-boundary";
 import {
   MarkdownText,
   MetricCards,
@@ -288,6 +289,7 @@ export default function MemoView() {
 
           <div className="memo-body" data-testid="memo-body">
             {parts.map((part, i) => {
+              const renderPart = () => {
               if (part.type === "text" && part.content) return <MarkdownText key={i} text={part.content} />;
               if (part.type === "metric_cards" && part.artifact) return <MetricCards key={i} artifact={part.artifact} />;
               if (part.type === "chart" && part.artifact) {
@@ -358,6 +360,11 @@ export default function MemoView() {
               if (part.type === "comparison" && part.artifact) return <ComparisonBlock key={i} artifact={part.artifact} />;
               if (part.type === "quote" && part.artifact) return <QuoteBlock key={i} artifact={part.artifact} />;
               return null;
+              };
+              const rendered = renderPart();
+              return rendered == null
+                ? null
+                : <ErrorBoundary key={`eb-${i}`} label={part.type}>{rendered}</ErrorBoundary>;
             })}
           </div>
 

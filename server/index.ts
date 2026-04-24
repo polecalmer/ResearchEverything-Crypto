@@ -171,18 +171,11 @@ app.use((req, res, next) => {
   })();
   try { startTelegramBot(); } catch (e: any) { console.log("[Telegram] Bot startup skipped:", e.message); }
 
-  app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
-
-    console.error("Internal Server Error:", err);
-
-    if (res.headersSent) {
-      return next(err);
-    }
-
-    return res.status(status).json({ message });
-  });
+  // Central error handler — uses HttpError + serialises consistently. See
+  // server/error-middleware.ts. Route handlers should throw HttpError
+  // (badRequest / notFound / etc.) instead of catching + res.status() inline.
+  const { errorMiddleware } = await import("./error-middleware");
+  app.use(errorMiddleware);
 
   if (process.env.NODE_ENV === "production") {
     serveStatic(app);

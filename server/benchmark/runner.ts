@@ -1,12 +1,27 @@
 /**
  * Autonomous Benchmark Runner
- * 
+ *
  * The autoresearch loop for the data agent. Runs benchmark cases through
  * the agent, scores results against reference data, analyzes failures,
  * proposes improvements, and merges what works.
- * 
+ *
  * Run: npx tsx server/benchmark/runner.ts [--subset N] [--analyze-only]
+ *
+ * Debug tip: many probes silently continue when an upstream fails. Run with
+ * BENCHMARK_DEBUG=1 to surface every probe failure with context — essential
+ * when a whole run reports 0 passed cases and you can't tell why.
  */
+
+// probeFail is called from the many probe-style try/catch blocks below.
+// Silent by default (probes are expected to fail often), verbose when
+// BENCHMARK_DEBUG=1 is set so runs that mysteriously fail at 0 cases can be
+// diagnosed without editing the source.
+function probeFail(ctx: string, err: unknown): void {
+  if (process.env.BENCHMARK_DEBUG === "1") {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.warn(`[benchmark/probe] ${ctx}: ${msg.slice(0, 200)}`);
+  }
+}
 
 import { storage } from "../storage";
 import { db } from "../db";
@@ -83,11 +98,11 @@ async function resolveSlugWithHints(
     try {
       const tvl = await defillama.getProtocolTvl(storedSlug);
       if (tvl && tvl.length > 0) return storedSlug;
-    } catch {}
+    } catch (e) { probeFail(`storedSlug tvl ${storedSlug}`, e); }
     try {
       const fees = await defillama.getProtocolFees(storedSlug);
       if (fees && (fees.dailyFees?.length > 0 || fees.total24h)) return storedSlug;
-    } catch {}
+    } catch (e) { probeFail(`storedSlug fees ${storedSlug}`, e); }
   }
 
   // 2. Try slug hints from learned rules
@@ -97,11 +112,11 @@ async function resolveSlugWithHints(
     try {
       const tvl = await defillama.getProtocolTvl(hint);
       if (tvl && tvl.length > 0) return hint;
-    } catch {}
+    } catch (e) { probeFail(`hint tvl ${hint}`, e); }
     try {
       const fees = await defillama.getProtocolFees(hint);
       if (fees && (fees.dailyFees?.length > 0 || fees.total24h)) return hint;
-    } catch {}
+    } catch (e) { probeFail(`hint fees ${hint}`, e); }
   }
 
   // 3. Fall back to standard resolution
@@ -475,7 +490,7 @@ ${topRules.map(l => `- [${l.ruleType}] ${l.ruleText}`).join("\n")}`;
           const pk = pkLookup.rows?.[0];
           if (pk?.coingecko_id) mcapCoinId = pk.coingecko_id as string;
           else if (pk?.gecko_id) mcapCoinId = pk.gecko_id as string;
-        } catch {}
+        } catch (e) { probeFail(`mcap coinId lookup for ${testCase.protocol}`, e); }
         const cgRes = await fetch(`https://api.coingecko.com/api/v3/coins/${mcapCoinId}/market_chart?vs_currency=usd&days=365`);
         if (cgRes.ok) {
           const cgData = await cgRes.json();
@@ -503,7 +518,7 @@ ${topRules.map(l => `- [${l.ruleType}] ${l.ruleText}`).join("\n")}`;
           const pk = pkLookup.rows?.[0];
           if (pk?.coingecko_id) coinId = pk.coingecko_id as string;
           else if (pk?.gecko_id) coinId = pk.gecko_id as string;
-        } catch {}
+        } catch (e) { probeFail(`coinId lookup for ${testCase.protocol}`, e); }
 
         if (testCase.metricType === "market_cap") {
           // Fetch market cap time series from CoinGecko market_chart
@@ -569,7 +584,7 @@ ${topRules.map(l => `- [${l.ruleType}] ${l.ruleText}`).join("\n")}`;
                 fallbackSource = "defillama-coins:" + tryId;
                 break;
               }
-            } catch {}
+            } catch (e) { probeFail(`price fallback ${tryId}`, e); }
           }
         } else if (plan.dataSource === "defillama" && (plan.dataSourceConfig?.endpoint === "revenue" || plan.dataSourceConfig?.endpoint === "fees")) {
           // DeFiLlama revenue/fees empty → check if protocol has revenue data at all
@@ -1550,21 +1565,21 @@ async function handleCompoundCase(
       if (rev?.dailyRevenue?.length > 0) {
         forcedMetrics.set("revenue", rev.dailyRevenue.map((d: any) => ({ date: d.date, value: d.revenue })));
       }
-    } catch {}
+    } catch (e) { probeFail(`compound forced-revenue ${slug}`, e); }
     try {
       // Fees
       const fees = await defillama.getProtocolFees(slug);
       if (fees?.dailyFees?.length > 0) {
         forcedMetrics.set("fees", fees.dailyFees.map((d: any) => ({ date: d.date, value: d.fees })));
       }
-    } catch {}
+    } catch (e) { probeFail(`compound forced-fees ${slug}`, e); }
     try {
       // TVL
       const tvlData = await defillama.getProtocolTvl(slug);
       if (tvlData?.length > 0) {
         forcedMetrics.set("tvl", tvlData.map((d: any) => ({ date: d.date, value: d.totalLiquidityUSD || d.tvl || d.value })));
       }
-    } catch {}
+    } catch (e) { probeFail(`compound forced-tvl ${slug}`, e); }
 
     // Use forced DeFiLlama data as agent outputs (synthetic plan indices)
     let planIdx = 0;

@@ -14,6 +14,7 @@ import {
   Bookmark, Microscope, Table2, FileDown,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { ErrorBoundary } from "@/components/error-boundary";
 import { useToast } from "@/hooks/use-toast";
 import { getAuthHeaders, queryClient } from "@/lib/queryClient";
 import { ArtifactActions } from "@/components/artifact-actions";
@@ -1210,7 +1211,9 @@ export function MessageBubble({
       <div className="max-w-full">
         {parts.map((part, i) => {
           const isArtifact = part.type === "table" || part.type === "chart" || part.type === "metric_cards" || part.type === "comparison";
-          const artifactEl = (() => {
+          // Wrap each artifact in an ErrorBoundary so one bad chart/table
+          // doesn't blank the whole message. Label for better console output.
+          const raw = (() => {
             if (part.type === "text" && part.content) return <MarkdownText key={i} text={part.content} />;
             if (part.type === "metric_cards" && part.artifact) return <MetricCards key={i} artifact={part.artifact} />;
             if (part.type === "chart" && part.artifact) return <InlineChart key={i} artifact={part.artifact} />;
@@ -1220,6 +1223,9 @@ export function MessageBubble({
             if (part.type === "quote" && part.artifact) return <QuoteBlock key={i} artifact={part.artifact} />;
             return null;
           })();
+          const artifactEl = raw == null
+            ? null
+            : <ErrorBoundary key={`eb-${i}`} label={part.type}>{raw}</ErrorBoundary>;
           if (isArtifact && onSaveAsModel && part.artifactIdx !== undefined) {
             return (
               <div key={i}>

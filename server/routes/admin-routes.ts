@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import { z } from "zod";
 import { storage } from "../storage";
 import { requireAuth } from "../auth";
 import { getChannelStats, resetMppChannel } from "../mpp-client";
@@ -8,6 +9,15 @@ import { analyzeFailurePatterns } from "../data-agent";
 import { trackEvent } from "../usage-tracker";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
+import { asyncHandler, badRequest, forbidden, notFound } from "../error-middleware";
+import { validateBody, validateQuery, validateParams } from "../validate";
+
+/** Shared: admin-only gate that throws through the error middleware. */
+const requireAdmin = asyncHandler(async (req, _res, next) => {
+  const ok = await storage.checkIsAdmin(req.user!.id);
+  if (!ok) throw forbidden("Admin only");
+  next();
+});
 
 export function registerAdminRoutes(app: Express) {
   app.post("/api/track", requireAuth, async (req, res) => {
@@ -411,68 +421,91 @@ export function registerAdminRoutes(app: Express) {
     }
   });
 
-  app.get("/api/admin/learnings", requireAuth, async (req, res) => {
-    const isAdmin = await storage.checkIsAdmin(req.user!.id);
-    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
-    try {
+  // ─────────────────────────────────────────────────────────────────
+  // /api/admin/learnings — reference implementation of the new pattern:
+  //   requireAuth + requireAdmin + validate(...) + asyncHandler(throw instead of try/catch)
+  //
+  // Errors go through ./error-middleware.ts. Input is Zod-validated before
+  // reaching the handler. The old try/catch + res.status(500) pattern is
+  // not needed in this shape.
+  // ─────────────────────────────────────────────────────────────────
+
+  const learningsListQuery = z.object({
+    includeInactive: z.enum(["true", "false"]).optional(),
+  });
+
+  app.get(
+    "/api/admin/learnings",
+    requireAuth,
+    requireAdmin,
+    validateQuery(learningsListQuery),
+    asyncHandler(async (req, res) => {
       const includeInactive = req.query.includeInactive === "true";
       const learnings = includeInactive
         ? await storage.getAllLearnings()
         : await storage.getAllActiveLearnings();
       res.json(learnings);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
+    }),
+  );
 
-  app.patch("/api/admin/learnings/:id", requireAuth, async (req, res) => {
-    const isAdmin = await storage.checkIsAdmin(req.user!.id);
-    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
-    try {
-      const patch: Record<string, any> = {};
-      if (typeof req.body.ruleText === "string") patch.ruleText = req.body.ruleText;
-      if (typeof req.body.scope === "string") patch.scope = req.body.scope;
-      if (typeof req.body.scopeKey === "string") patch.scopeKey = req.body.scopeKey;
-      if (typeof req.body.ruleType === "string") patch.ruleType = req.body.ruleType;
-      if (typeof req.body.confidence === "number") patch.confidence = req.body.confidence;
-      if (typeof req.body.isActive === "boolean") patch.isActive = req.body.isActive;
-      if (Object.keys(patch).length === 0) return res.status(400).json({ message: "No fields to update" });
-      const updated = await storage.updateLearning(req.params.id, patch);
-      if (!updated) return res.status(404).json({ message: "Learning not found" });
+  const learningIdParams = z.object({ id: z.string().uuid() });
+  const learningPatch = z.object({
+    ruleText: z.string().min(1).max(5000).optional(),
+    scope: z.string().min(1).max(60).optional(),
+    scopeKey: z.string().min(1).max(120).optional(),
+    ruleType: z.string().min(1).max(60).optional(),
+    confidence: z.number().int().min(0).max(100).optional(),
+    isActive: z.boolean().optional(),
+  }).refine(v => Object.keys(v).length > 0, { message: "No fields to update" });
+
+  app.patch(
+    "/api/admin/learnings/:id",
+    requireAuth,
+    requireAdmin,
+    validateParams(learningIdParams),
+    validateBody(learningPatch),
+    asyncHandler(async (req, res) => {
+      const updated = await storage.updateLearning(req.params.id, req.body);
+      if (!updated) throw notFound("Learning not found");
       res.json(updated);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
+    }),
+  );
+
+  const learningCreate = z.object({
+    scope: z.string().min(1).max(60).default("global"),
+    scopeKey: z.string().min(1).max(120).default("global"),
+    ruleType: z.string().min(1).max(60),
+    ruleText: z.string().min(1).max(5000),
   });
 
-  app.post("/api/admin/learnings", requireAuth, async (req, res) => {
-    const isAdmin = await storage.checkIsAdmin(req.user!.id);
-    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
-    try {
+  app.post(
+    "/api/admin/learnings",
+    requireAuth,
+    requireAdmin,
+    validateBody(learningCreate),
+    asyncHandler(async (req, res) => {
       const learning = await storage.saveLearning({
-        scope: req.body.scope || "global",
-        scopeKey: req.body.scopeKey || "global",
+        scope: req.body.scope,
+        scopeKey: req.body.scopeKey,
         ruleType: req.body.ruleType,
         ruleText: req.body.ruleText,
         source: "manual",
         triggeredBy: "admin",
       });
       res.json(learning);
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
+    }),
+  );
 
-  app.delete("/api/admin/learnings/:id", requireAuth, async (req, res) => {
-    const isAdmin = await storage.checkIsAdmin(req.user!.id);
-    if (!isAdmin) return res.status(403).json({ message: "Admin only" });
-    try {
+  app.delete(
+    "/api/admin/learnings/:id",
+    requireAuth,
+    requireAdmin,
+    validateParams(learningIdParams),
+    asyncHandler(async (req, res) => {
       await storage.deactivateLearning(req.params.id);
       res.json({ success: true });
-    } catch (e: any) {
-      res.status(500).json({ message: e.message });
-    }
-  });
+    }),
+  );
 
   app.post("/api/admin/learnings/analyze", requireAuth, async (req, res) => {
     const isAdmin = await storage.checkIsAdmin(req.user!.id);
