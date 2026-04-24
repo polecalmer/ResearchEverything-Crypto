@@ -18,3 +18,8 @@ sed*
 
 # PDFs generated during memo testing
 *.pdf
+
+# Internal handoff / engineering scratch docs
+HANDOFF.local.md
+HANDOFF.md
+docs/internal/
