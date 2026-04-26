@@ -11,7 +11,7 @@ export interface RefreshRecipe {
 }
 
 export interface Artifact {
-  type: "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote";
+  type: "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote" | "backtest_result";
   title?: string;
   subtitle?: string;
   source?: string;
@@ -28,6 +28,21 @@ export interface Artifact {
   attribution?: string;
   left?: { label: string; items: string[] };
   right?: { label: string; items: string[] };
+  /** For type === "backtest_result". */
+  metrics?: {
+    total_return?: number;
+    sharpe?: number;
+    sortino?: number;
+    max_drawdown?: number;
+    win_rate?: number;
+    trade_count?: number;
+    exposure?: number;
+    benchmark_return?: number;
+    alpha_vs_hodl?: number;
+  };
+  equityCurve?: Array<{ ts: string; equity: number }>;
+  plan?: any;
+  runId?: string;
 }
 
 export interface SessionMessage {
@@ -68,7 +83,7 @@ export interface ThinkingStep {
   subQuestionText?: string;
 }
 
-export type PartType = "text" | "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote";
+export type PartType = "text" | "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote" | "backtest_result";
 
 export const CHART_COLORS = [
   "#6B8DE3", "#A0B4E0", "#3D5A9E",
@@ -168,7 +183,7 @@ export function extractMode(content: string): { mode: ResearchMode | null; clean
 
 export function parseContentAndArtifacts(content: string, artifacts?: Artifact[] | null): Array<{ type: PartType; content?: string; artifact?: Artifact; artifactIdx?: number }> {
   const parts: Array<{ type: PartType; content?: string; artifact?: Artifact; artifactIdx?: number }> = [];
-  const regex = /```artifact:(chart|table|metric_cards|callout|comparison|quote)\s*\n([\s\S]*?)```/g;
+  const regex = /```artifact:(chart|table|metric_cards|callout|comparison|quote|backtest_result)\s*\n([\s\S]*?)```/g;
   let lastIndex = 0;
   let artifactIndex = 0;
   let match;
@@ -197,6 +212,16 @@ export function parseContentAndArtifacts(content: string, artifacts?: Artifact[]
           artifact = { type: "callout", variant: json.variant || "insight", title: json.title, text: json.text || "" };
         } else if (type === "comparison") {
           artifact = { type: "comparison", title: json.title, left: json.left || { label: "Left", items: [] }, right: json.right || { label: "Right", items: [] } };
+        } else if (type === "backtest_result") {
+          artifact = {
+            type: "backtest_result",
+            title: json.title || "Backtest",
+            text: json.thesis,
+            metrics: json.metrics || {},
+            equityCurve: Array.isArray(json.equityCurve) ? json.equityCurve : [],
+            plan: json.plan,
+            runId: json.runId,
+          };
         } else {
           artifact = { type: "quote", text: json.text || "", attribution: json.attribution };
         }

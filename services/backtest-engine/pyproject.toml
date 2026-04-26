@@ -1,0 +1,22 @@
+[project]
+name = "backtest-engine"
+version = "0.1.0"
+description = "Python sidecar that executes BacktestPlans against the OHLCV warehouse using vectorbt."
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    "vectorbt>=0.27",
+    "pandas>=2.2",
+    "numpy>=1.26,<2.0",
+    "psycopg[binary]>=3.2",
+    "pydantic>=2.9",
+    "python-dotenv>=1.0",
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["app"]

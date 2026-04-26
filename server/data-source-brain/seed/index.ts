@@ -5,6 +5,7 @@ import { seedDune } from "./dune.js";
 import { seedAllium } from "./allium.js";
 import { seedStonksOnChain } from "./stonksonchain.js";
 import { seedHip3Deployers } from "./hip3-deployers.js";
+import { seedExchanges } from "./exchanges.js";
 
 const SEEDERS: Record<Source, () => SeedFact[]> = {
   defillama: seedDeFiLlama,
@@ -12,6 +13,7 @@ const SEEDERS: Record<Source, () => SeedFact[]> = {
   dune: seedDune,
   allium: seedAllium,
   stonksonchain: () => [...seedStonksOnChain(), ...seedHip3Deployers()],
+  exchanges: seedExchanges,
 };
 
 export function getSeedFacts(source: Source): SeedFact[] {

@@ -1,0 +1,23 @@
+{
+  "name": "BTC SMA crossover",
+  "thesis": "Buy when 20d crosses above 50d, exit when it crosses below.",
+  "universe": [{ "exchange": "binance", "symbol": "BTCUSDT" }],
+  "interval": "1d",
+  "lookback": { "start": "2024-01-01" },
+  "signals": {
+    "entry": {
+      "op": "cross_above",
+      "left": { "indicator": "sma", "period": 20 },
+      "right": { "indicator": "sma", "period": 50 }
+    },
+    "exit": {
+      "op": "cross_below",
+      "left": { "indicator": "sma", "period": 20 },
+      "right": { "indicator": "sma", "period": 50 }
+    }
+  },
+  "sizing": { "type": "fixed_fraction", "value": 1.0 },
+  "costs": { "fee_bps": 10, "slippage_bps": 5 },
+  "benchmark": "hodl",
+  "direction": "long"
+}

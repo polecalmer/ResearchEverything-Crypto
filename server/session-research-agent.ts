@@ -10,6 +10,7 @@ const callStreamOrRaw: typeof callAnthropicRawStreaming = process.env.MPP_NO_STR
 import { executeDuneSQL, isDuneConfigured } from "./dune-client";
 import { discoverTablesForProtocol } from "./dune-mcp-client";
 import { fetchTokenSnapshot } from "./allium-client";
+import { runBacktestAgent } from "./backtest-agent";
 import * as defillama from "./defillama-client";
 import * as vm from "vm";
 import { retrieveRelevantContext, formatRetrievedContext } from "./brain-retrieval";
@@ -70,7 +71,7 @@ export interface RefreshRecipe {
 }
 
 export interface ResearchArtifact {
-  type: "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote";
+  type: "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote" | "backtest_result";
   title?: string;
   subtitle?: string;
   source?: string;
@@ -99,6 +100,22 @@ export interface ResearchArtifact {
   attribution?: string;
   left?: { label: string; items: string[] };
   right?: { label: string; items: string[] };
+  /** Populated for type === "backtest_result" — performance metrics and a
+   *  sampled equity curve, ready for the client to render. */
+  metrics?: {
+    total_return: number;
+    sharpe: number;
+    sortino?: number;
+    max_drawdown: number;
+    win_rate?: number;
+    trade_count?: number;
+    exposure?: number;
+    benchmark_return?: number;
+    alpha_vs_hodl?: number;
+  };
+  equityCurve?: Array<{ ts: string; equity: number }>;
+  plan?: any;
+  runId?: string;
 }
 
 export type ResearchMode = "quick" | "focused" | "deep";
@@ -413,6 +430,24 @@ const TOOLS: ToolDef[] = [
       },
       required: ["analyst", "question"],
     },
+  },
+  {
+    name: "backtest_thesis",
+    description: `Translate a directional trading thesis (or natural-language strategy spec) into a structured BacktestPlan and run it against the OHLCV warehouse (binance, bybit, coinbase, hyperliquid; daily + hourly).
+
+Use this when the user asks: "backtest this", "would this have been profitable", "test this strategy", "did this work historically", or after forming a directional view in deep mode. The result includes Sharpe, max drawdown, win rate, trade count, and an equity curve.
+
+CRITICAL: After this tool returns, copy its 'artifact_payload' object verbatim into a \`\`\`artifact:backtest_result block in your response so the equity curve renders for the user. Then summarize the metrics in 2-3 sentences.`,
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        prompt: { type: "string" as const, description: "Natural-language description of the strategy to backtest. Be explicit about entry/exit, asset, timeframe, and any sizing or cost assumptions." },
+        thesis_context: { type: "string" as const, description: "Optional: the broader thesis the strategy operationalizes. Helps the planner pick a sensible interval and lookback." },
+        interval: { type: "string" as const, enum: ["1h", "1d"], description: "Optional: force daily or hourly bars. If omitted, the planner extracts from the prompt (default: 1d)." },
+      },
+      required: ["prompt"],
+    },
+    brainBinding: { source: "exchanges", scopeRef: "backtest:engine", observationCategory: "reliability" },
   },
   {
     name: "update_research_brain",
@@ -1193,6 +1228,41 @@ async function executeTool(name: string, input: any): Promise<string> {
         addSubCallCost(perspResult);
         return perspResult.payload;
       }
+      case "backtest_thesis": {
+        const result = await runBacktestAgent({
+          prompt: String(input.prompt || ""),
+          thesisContext: input.thesis_context ? String(input.thesis_context) : undefined,
+          forcedInterval: (input.interval === "1h" || input.interval === "1d") ? input.interval : undefined,
+        });
+        if (result.status !== "ok") {
+          return JSON.stringify({
+            status: result.status,
+            error: result.error,
+            plan: result.plan,
+          });
+        }
+        const sampledCurve = sampleData(result.equityCurve || [], 80);
+        return JSON.stringify({
+          status: "ok",
+          summary_for_user: {
+            total_return_pct: ((result.metrics?.total_return ?? 0) * 100).toFixed(2),
+            sharpe: (result.metrics?.sharpe ?? 0).toFixed(2),
+            max_drawdown_pct: ((result.metrics?.max_drawdown ?? 0) * 100).toFixed(2),
+            win_rate_pct: ((result.metrics?.win_rate ?? 0) * 100).toFixed(2),
+            trade_count: result.metrics?.trade_count ?? 0,
+            benchmark_return_pct: ((result.metrics?.benchmark_return ?? 0) * 100).toFixed(2),
+            alpha_vs_hodl_pct: ((result.metrics?.alpha_vs_hodl ?? 0) * 100).toFixed(2),
+          },
+          plan: result.plan,
+          artifact_payload: {
+            title: result.plan?.name,
+            thesis: result.plan?.thesis,
+            metrics: result.metrics,
+            equityCurve: sampledCurve,
+            plan: result.plan,
+          },
+        });
+      }
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
@@ -1216,7 +1286,7 @@ function sampleData(data: any[], maxPoints: number): any[] {
 
 export function parseArtifacts(content: string): ResearchArtifact[] {
   const artifacts: ResearchArtifact[] = [];
-  const regex = /```artifact:(chart|table|metric_cards|callout|comparison|quote)\s*\n([\s\S]*?)```/g;
+  const regex = /```artifact:(chart|table|metric_cards|callout|comparison|quote|backtest_result)\s*\n([\s\S]*?)```/g;
   let match;
   while ((match = regex.exec(content)) !== null) {
     try {
@@ -1271,6 +1341,18 @@ export function parseArtifacts(content: string): ResearchArtifact[] {
           text: String(json.text || "").slice(0, 400),
           attribution: json.attribution ? String(json.attribution).slice(0, 100) : undefined,
         });
+      } else if (type === "backtest_result") {
+        artifacts.push({
+          type: "backtest_result",
+          title: json.title || "Backtest",
+          text: json.thesis ? String(json.thesis).slice(0, 500) : undefined,
+          metrics: json.metrics || {},
+          equityCurve: Array.isArray(json.equityCurve)
+            ? json.equityCurve.slice(0, 500).map((p: any) => ({ ts: String(p.ts), equity: Number(p.equity) }))
+            : [],
+          plan: json.plan,
+          runId: json.runId,
+        });
       }
     } catch {}
   }
@@ -1283,12 +1365,12 @@ function summarizeHistory(history: Array<{ role: string; content: string }>): Ar
   for (const msg of recent) {
     if (msg.role === "assistant") {
       const withoutModeMarker = msg.content.replace(/^<!--\s*mode:(quick|focused|deep)\s*-->\s*\n?/, "");
-      const cleaned = withoutModeMarker.replace(/```artifact:(chart|table|metric_cards|callout|comparison|quote)\s*\n[\s\S]*?```/g, (m, type) => {
+      const cleaned = withoutModeMarker.replace(/```artifact:(chart|table|metric_cards|callout|comparison|quote|backtest_result)\s*\n[\s\S]*?```/g, (m, type) => {
         try {
           const jsonStr = m.replace(/```artifact:\w+\s*\n/, "").replace(/```$/, "").trim();
           const json = JSON.parse(jsonStr);
           const icon = type === "chart" ? "📊" : type === "metric_cards" ? "📈" : type === "table" ? "📋"
-            : type === "callout" ? "💡" : type === "comparison" ? "⚖️" : "❝";
+            : type === "callout" ? "💡" : type === "comparison" ? "⚖️" : type === "backtest_result" ? "🧪" : "❝";
           const label = json.title || json.text?.slice(0, 60) || type;
           return `[${icon} ${label}]`;
         } catch {
@@ -1331,6 +1413,7 @@ const TOOL_LABELS: Record<string, string> = {
   query_analyst_frameworks: "Looking up analyst frameworks",
   analyst_perspective: "Reasoning through a different lens",
   update_research_brain: "Saving to knowledge graph",
+  backtest_thesis: "Backtesting strategy against historical OHLCV",
 };
 
 function toolLabel(name: string, input: any): string {
