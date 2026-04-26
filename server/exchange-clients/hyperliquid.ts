@@ -1,21 +1,44 @@
 import type { ExchangeClient, NormalizedKline, NormalizedMarket } from "./types";
 import type { OhlcvInterval } from "@shared/schema";
 
-const REST = "https://api.hyperliquid.xyz/info";
-const WS = "wss://api.hyperliquid.xyz/ws";
+/**
+ * Hyperliquid market data, fetched via Hydromancer.
+ *
+ * Hydromancer wraps the native Hyperliquid /info endpoint and adds:
+ *   - 1-second candles (not available natively)
+ *   - >5,000 historical bars per request
+ *   - dedicated WS stream (wss://api.hydromancer.xyz/ws) with seq/cursor framing
+ *
+ * Auth: Bearer token (REST) / token query param (WS) — same key for both.
+ * Reach out to data@hydromancer.xyz to provision.
+ */
+
+const REST = "https://api.hydromancer.xyz/info";
+const WS = "wss://api.hydromancer.xyz/ws";
+const WS_TESTNET = "wss://api-testnet.hydromancer.xyz/ws";
 
 const INTERVAL_MAP: Record<OhlcvInterval, string> = {
   "1h": "1h",
   "1d": "1d",
 };
 
+function apiKey(): string | null {
+  return process.env.HYDROMANCER_API_KEY || null;
+}
+
 async function postJson<T>(body: unknown): Promise<T> {
+  const key = apiKey();
+  if (!key) throw new Error("HYDROMANCER_API_KEY not set");
   const res = await fetch(REST, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "User-Agent": "ResearchEverything/backtest" },
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${key}`,
+      "User-Agent": "ResearchEverything/backtest",
+    },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`hyperliquid ${res.status}: ${await res.text()}`);
+  if (!res.ok) throw new Error(`hydromancer ${res.status}: ${await res.text()}`);
   return res.json() as Promise<T>;
 }
 
@@ -23,7 +46,7 @@ export const hyperliquid: ExchangeClient = {
   slug: "hyperliquid",
 
   async listMarkets() {
-    // Hyperliquid is perp-first. metaAndAssetCtxs returns universe + 24h vol.
+    // metaAndAssetCtxs is proxied by Hydromancer; same response shape as native.
     type MetaResp = [
       { universe: Array<{ name: string; szDecimals: number }> },
       Array<{ funding: string; openInterest: string; prevDayPx: string; dayNtlVlm: string; markPx: string }>,
@@ -41,8 +64,16 @@ export const hyperliquid: ExchangeClient = {
     }));
   },
 
-  async fetchKlines({ symbol, interval, since, until }) {
-    type Candle = { t: number; T: number; o: string; c: string; h: string; l: string; v: string; n: number };
+  async fetchKlines({ symbol, interval, since, until, limit }) {
+    // Hydromancer's candleSnapshot accepts up to 5000 bars per request and
+    // adds richer fields (q = quoteVolume, x = closed-flag) that the native HL
+    // info endpoint omits. Field shape matches the WS bar schema.
+    type Candle = {
+      s?: string; i?: string;
+      t: number; T?: number;
+      o: string; c: string; h: string; l: string;
+      v: string; q?: string; n?: number; x?: boolean;
+    };
     const data = await postJson<Candle[]>({
       type: "candleSnapshot",
       req: {
@@ -50,6 +81,7 @@ export const hyperliquid: ExchangeClient = {
         interval: INTERVAL_MAP[interval],
         startTime: since.getTime(),
         endTime: (until ?? new Date()).getTime(),
+        limit: Math.min(limit ?? 5000, 5000),
       },
     });
     return (data || []).map<NormalizedKline>(r => ({
@@ -59,34 +91,52 @@ export const hyperliquid: ExchangeClient = {
       low: parseFloat(r.l),
       close: parseFloat(r.c),
       volume: parseFloat(r.v),
-      quoteVolume: null,
-      trades: r.n,
+      quoteVolume: r.q ? parseFloat(r.q) : null,
+      trades: r.n ?? null,
     }));
   },
 
   wsKlineUrl() {
-    return WS;
+    const key = apiKey();
+    if (!key) throw new Error("HYDROMANCER_API_KEY not set");
+    const base = process.env.HYDROMANCER_TESTNET === "1" ? WS_TESTNET : WS;
+    return `${base}?token=${encodeURIComponent(key)}`;
   },
 
   parseWsKlineMessage(raw) {
-    // { channel: "candle", data: { s, i, t, T, o, c, h, l, v, n } }
-    if (raw?.channel !== "candle" || !raw.data) return [];
-    const d = raw.data;
-    // Hyperliquid pushes the in-progress bar with each tick. Treat T (close
-    // time) <= now() as confirmed-by-time at the next bar; the worker
-    // dedupes on (marketId, ts).
-    return [{
-      symbol: d.s,
-      bar: {
-        ts: new Date(d.t),
-        open: parseFloat(d.o),
-        high: parseFloat(d.h),
-        low: parseFloat(d.l),
-        close: parseFloat(d.c),
-        volume: parseFloat(d.v),
-        quoteVolume: null,
-        trades: d.n ?? null,
-      },
-    }];
+    // Hydromancer WS frame: { type, seq, cursor, data: { s,i,t,T,o,h,l,c,v,q,n,x } }
+    // 'allCandles' channel uses the same shape but with data: [...]
+    if (raw?.type === "candle" && raw.data) {
+      const d = raw.data;
+      return [{
+        symbol: d.s,
+        bar: {
+          ts: new Date(d.t),
+          open: parseFloat(d.o),
+          high: parseFloat(d.h),
+          low: parseFloat(d.l),
+          close: parseFloat(d.c),
+          volume: parseFloat(d.v),
+          quoteVolume: d.q ? parseFloat(d.q) : null,
+          trades: d.n ?? null,
+        },
+      }];
+    }
+    if (raw?.type === "allCandles" && Array.isArray(raw.data)) {
+      return raw.data.map((d: any) => ({
+        symbol: d.s,
+        bar: {
+          ts: new Date(d.t),
+          open: parseFloat(d.o),
+          high: parseFloat(d.h),
+          low: parseFloat(d.l),
+          close: parseFloat(d.c),
+          volume: parseFloat(d.v),
+          quoteVolume: d.q ? parseFloat(d.q) : null,
+          trades: d.n ?? null,
+        },
+      }));
+    }
+    return [];
   },
 };

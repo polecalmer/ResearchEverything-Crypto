@@ -1,34 +1,46 @@
 """
-FastAPI sidecar.  Single endpoint: POST /backtest with a BacktestPlan body.
-Returns metrics + equity curve + trades.  Exposed only to the Node app over
-a private network; no auth in v1 — add a shared-secret header before any
-public exposure.
+FastAPI sidecar.  Single endpoint: POST /backtest with { plan, data }.
+The `data` block selects which loader pulls OHLCV (postgres / inline /
+parquet_url / csv_path) — see app/loader.py for the discriminated-union
+schema. Returns metrics + equity curve + trades.
 """
 from __future__ import annotations
 import os
 import time
 import logging
+from typing import Annotated
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, ConfigDict, Field
+
 from .plan import BacktestPlan
+from .loader import (
+    DataSource, PostgresSource, InlineSource, ParquetUrlSource, CsvPathSource,
+)
 from .engine import run_backtest
 
 logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 log = logging.getLogger("backtest-engine")
 
-app = FastAPI(title="ResearchEverything Backtest Engine", version="0.1.0")
+app = FastAPI(title="ResearchEverything Backtest Engine", version="0.2.0")
+
+
+class BacktestRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    plan: BacktestPlan
+    data: DataSource = Field(discriminator="mode")
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "version": "0.2.0"}
 
 
 @app.post("/backtest")
-def backtest(plan: BacktestPlan):
+def backtest(req: BacktestRequest):
     started = time.time()
     try:
-        result = run_backtest(plan)
+        result = run_backtest(req.plan, req.data)
         result["duration_ms"] = int((time.time() - started) * 1000)
         return JSONResponse(result)
     except ValueError as ex:

@@ -1,19 +1,23 @@
 /**
  * NL → BacktestPlan translator.
  *
- * Mirrors the design of server/data-agent.ts: a heavy system prompt asks
- * Claude Opus to emit a JSON BacktestPlan, we Zod-validate it, run a
- * sanity-check pass, and POST it to the Python sidecar at BACKTEST_ENGINE_URL.
- * On validation failure we retry once with Sonnet and the error fed back into
- * the prompt — same shape as retryDuneSqlWithFeedback in data-agent.ts.
+ * Mirrors the design of server/data-agent.ts: a heavy system prompt asks the
+ * LLM to emit a JSON BacktestPlan, we Zod-validate it, sanity-check, and ship
+ * it to the Python sidecar via the EngineClient. On validation failure we
+ * retry once with the lighter model and the error fed back into the prompt
+ * (same shape as retryDuneSqlWithFeedback in data-agent.ts).
+ *
+ * The agent never imports mpp-client / pg / @shared/schema directly. All
+ * infrastructure flows in via a BacktestContext (see ./backtest/interfaces.ts),
+ * so the same code runs:
+ *   - inside Sessions (Sessions adapter wires Postgres + mpp-client)
+ *   - standalone (Standalone adapter wires @anthropic-ai/sdk + inline bars)
+ *   - on third-party datasets (caller supplies a DataProvider)
  */
 import { z } from "zod";
-import { callAnthropicServer } from "./mpp-client";
-import { MODELS } from "./constants";
-import { backtestStorage } from "./backtest-storage";
-import { EXCHANGES, type ExchangeSlug, type OhlcvInterval } from "@shared/schema";
-
-const ENGINE_URL = process.env.BACKTEST_ENGINE_URL || "http://localhost:8787";
+import { EXCHANGES, type OhlcvInterval, type Market } from "@shared/schema";
+import type { BacktestContext } from "./backtest/interfaces";
+import { createSessionsBacktestContext } from "./backtest/adapters/sessions";
 
 // ─── Zod schema (mirror of services/backtest-engine/app/plan.py) ────────────
 
@@ -194,6 +198,9 @@ interface RunArgs {
   thesisContext?: string;
   forcedInterval?: OhlcvInterval;
   userId?: string;
+  /** Optional context override. Defaults to the Sessions adapter so existing
+   *  callers in this repo don't need to change anything. */
+  ctx?: BacktestContext;
 }
 
 interface RunResult {
@@ -205,22 +212,22 @@ interface RunResult {
   error?: string;
   llmCostUsd: number;
   durationMs: number;
+  runId?: string;
 }
 
-async function loadAvailableMarketsContext(filterBases?: string[]): Promise<string> {
+async function loadMarketsContext(ctx: BacktestContext): Promise<string> {
+  const grouped = await ctx.data.listAvailableMarkets({ topN: 30 });
   const lines: string[] = [];
   for (const slug of EXCHANGES) {
-    const all = await backtestStorage.listMarketsForExchange(slug);
-    const top = all
-      .filter(m => !filterBases || filterBases.includes(m.base.toUpperCase()))
+    const top = (grouped[slug] || [])
       .sort((a, b) => (b.quoteVolume24h ?? 0) - (a.quoteVolume24h ?? 0))
       .slice(0, 30)
-      .map(m => m.symbol);
+      .map((m: Market) => m.symbol);
     if (top.length > 0) lines.push(`  ${slug}: ${top.join(", ")}`);
   }
   return lines.length > 0
     ? `AVAILABLE MARKETS (top liquidity per exchange):\n${lines.join("\n")}`
-    : `AVAILABLE MARKETS: (none seeded — backtests will fail until scripts/seed-ohlcv.ts has run)`;
+    : `AVAILABLE MARKETS: (none seeded — backtests will fail until OHLCV is loaded)`;
 }
 
 function extractJson(text: string): any | null {
@@ -235,29 +242,12 @@ function extractJson(text: string): any | null {
   return null;
 }
 
-async function callPlanner(opts: {
-  systemPrompt: string;
-  userMessage: string;
-  model: string;
-  maxTokens: number;
-}): Promise<{ json: any | null; cost: number; raw: string }> {
-  const resp = await callAnthropicServer({
-    model: opts.model,
-    max_tokens: opts.maxTokens,
-    system: opts.systemPrompt,
-    messages: [{ role: "user", content: opts.userMessage }],
-  });
-  const json = extractJson(resp.text);
-  return { json, cost: resp.mppCost, raw: resp.text };
-}
-
 export async function runBacktestAgent(args: RunArgs): Promise<RunResult> {
+  const ctx = args.ctx ?? createSessionsBacktestContext();
   const started = Date.now();
   let llmCost = 0;
 
-  // Build context: list of seeded markets so the LLM doesn't hallucinate symbols
-  const marketsContext = await loadAvailableMarketsContext();
-
+  const marketsContext = await loadMarketsContext(ctx);
   const userMessage = [
     args.thesisContext ? `THESIS CONTEXT:\n${args.thesisContext}\n` : "",
     `USER REQUEST:\n${args.prompt}\n`,
@@ -265,44 +255,46 @@ export async function runBacktestAgent(args: RunArgs): Promise<RunResult> {
     marketsContext,
   ].filter(Boolean).join("\n");
 
-  // First attempt: Opus
-  const first = await callPlanner({
-    systemPrompt: BACKTEST_AGENT_SYSTEM,
+  // First attempt: planner-tier model
+  const first = await ctx.llm.complete({
+    model: ctx.llm.modelFor("planner"),
+    system: BACKTEST_AGENT_SYSTEM,
     userMessage,
-    model: MODELS.OPUS,
     maxTokens: 3000,
   });
-  llmCost += first.cost;
+  llmCost += first.costUsd;
 
   let plan: BacktestPlan | null = null;
   let lastError: string | null = null;
+  const firstJson = extractJson(first.text);
 
-  if (first.json && Object.keys(first.json).length > 0) {
-    const parsed = BacktestPlanSchema.safeParse(first.json);
+  if (firstJson && Object.keys(firstJson).length > 0) {
+    const parsed = BacktestPlanSchema.safeParse(firstJson);
     if (parsed.success) plan = parsed.data;
     else lastError = parsed.error.message;
-  } else if (first.json && Object.keys(first.json).length === 0) {
+  } else if (firstJson && Object.keys(firstJson).length === 0) {
     return {
       status: "no_market",
-      error: "Could not resolve the requested symbol against the seeded OHLCV universe. Run scripts/seed-ohlcv.ts to backfill more markets.",
+      error: "Could not resolve the requested symbol against the available OHLCV universe.",
       llmCostUsd: llmCost,
       durationMs: Date.now() - started,
     };
   } else {
-    lastError = `LLM returned non-JSON output: ${first.raw.slice(0, 200)}`;
+    lastError = `LLM returned non-JSON output: ${first.text.slice(0, 200)}`;
   }
 
-  // Retry once with Sonnet + error feedback (mirrors retryDuneSqlWithFeedback)
+  // Retry once with retry-tier model + error feedback
   if (!plan && lastError) {
-    const retry = await callPlanner({
-      systemPrompt: BACKTEST_AGENT_SYSTEM,
+    const retry = await ctx.llm.complete({
+      model: ctx.llm.modelFor("retry"),
+      system: BACKTEST_AGENT_SYSTEM,
       userMessage: `${userMessage}\n\nThe previous attempt produced an invalid plan. Error: ${lastError}\nReturn ONLY corrected JSON.`,
-      model: MODELS.SONNET,
       maxTokens: 3000,
     });
-    llmCost += retry.cost;
-    if (retry.json) {
-      const reparsed = BacktestPlanSchema.safeParse(retry.json);
+    llmCost += retry.costUsd;
+    const retryJson = extractJson(retry.text);
+    if (retryJson) {
+      const reparsed = BacktestPlanSchema.safeParse(retryJson);
       if (reparsed.success) plan = reparsed.data;
       else lastError = reparsed.error.message;
     }
@@ -317,82 +309,76 @@ export async function runBacktestAgent(args: RunArgs): Promise<RunResult> {
     };
   }
 
-  // Sanity check: every (exchange, symbol) must exist in markets table.
+  // Sanity check: every (exchange, symbol) must resolve to a market.
   for (const u of plan.universe) {
-    const m = await backtestStorage.getMarket(u.exchange as ExchangeSlug, u.symbol);
+    const m = await ctx.data.resolveMarket(u.exchange, u.symbol);
     if (!m) {
       return {
         status: "no_market",
         plan,
-        error: `Market ${u.exchange}/${u.symbol} is not seeded. Run scripts/seed-ohlcv.ts --exchanges ${u.exchange} --symbols ${u.symbol.replace(/USDT?$|USD$/, "")}`,
+        error: `Market ${u.exchange}/${u.symbol} is not available. Run scripts/seed-ohlcv.ts --exchanges ${u.exchange} --symbols ${u.symbol.replace(/USDT?$|USD$/, "")} (or load it into your DataProvider).`,
         llmCostUsd: llmCost,
         durationMs: Date.now() - started,
       };
     }
   }
 
-  // POST to Python sidecar
-  let engineResult: any;
+  // Persist the run and call the engine.
+  const { runId } = await ctx.runs.createRun({ userId: args.userId, prompt: args.prompt, plan });
+  const market = await ctx.data.resolveMarket(plan.universe[0].exchange, plan.universe[0].symbol);
+  if (!market) {
+    return { status: "no_market", plan, runId, error: "Market disappeared after resolution", llmCostUsd: llmCost, durationMs: Date.now() - started };
+  }
+
+  let engineResult;
   try {
-    const res = await fetch(`${ENGINE_URL}/backtest`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(plan),
+    engineResult = await ctx.engine.run({
+      plan,
+      data: { mode: "postgres", market_id: market.id },
     });
-    if (!res.ok) {
-      const text = await res.text();
-      return {
-        status: "engine_error",
-        plan,
-        error: `Backtest engine returned ${res.status}: ${text.slice(0, 300)}`,
-        llmCostUsd: llmCost,
-        durationMs: Date.now() - started,
-      };
-    }
-    engineResult = await res.json();
   } catch (err: any) {
+    await ctx.runs.finishRun(runId, {
+      status: "engine_error",
+      errorMessage: err.message,
+      durationMs: Date.now() - started,
+      llmCostUsd: llmCost,
+    });
     return {
       status: "engine_error",
       plan,
-      error: `Could not reach backtest engine at ${ENGINE_URL}: ${err.message}. Is the Python sidecar running?`,
+      runId,
+      error: err.message,
       llmCostUsd: llmCost,
       durationMs: Date.now() - started,
     };
   }
 
-  // Persist run
-  const run = await backtestStorage.createBacktestRun({
-    userId: args.userId,
-    prompt: args.prompt,
-    thesis: plan.thesis,
-    plan: plan as any,
+  await ctx.runs.finishRun(runId, {
+    status: "ok",
     metrics: engineResult.metrics,
     equityCurve: engineResult.equity_curve,
     trades: engineResult.trades,
-    status: "ok",
     durationMs: Date.now() - started,
     llmCostUsd: llmCost,
   });
 
-  // Save as a proven strategy on success (positive Sharpe + 5+ trades)
+  // Promote winning strategies to the cache for future few-shot.
   try {
-    if (engineResult.metrics?.sharpe > 0.5 && (engineResult.metrics?.trade_count ?? 0) >= 5) {
-      await backtestStorage.saveProvenStrategy({
-        asset: plan.universe[0].symbol,
-        strategyType: plan.name.toLowerCase().slice(0, 60),
-        plan: plan as any,
-        lastSharpe: engineResult.metrics.sharpe,
-        lastReturn: engineResult.metrics.total_return,
-        lastMaxDrawdown: engineResult.metrics.max_drawdown,
+    if ((engineResult.metrics?.trade_count ?? 0) >= 5) {
+      await ctx.strategies.saveSuccessful(plan, {
+        sharpe: engineResult.metrics.sharpe ?? 0,
+        total_return: engineResult.metrics.total_return ?? 0,
+        max_drawdown: engineResult.metrics.max_drawdown ?? 0,
       });
     }
   } catch (err: any) {
-    console.warn("[backtest-agent] proven-strategy save failed:", err.message);
+    console.warn("[backtest-agent] strategy cache save failed:", err.message);
   }
 
   return {
     status: "ok",
     plan,
+    runId,
     metrics: engineResult.metrics,
     equityCurve: engineResult.equity_curve,
     trades: engineResult.trades,

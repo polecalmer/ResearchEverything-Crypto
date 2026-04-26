@@ -10,7 +10,13 @@ const callStreamOrRaw: typeof callAnthropicRawStreaming = process.env.MPP_NO_STR
 import { executeDuneSQL, isDuneConfigured } from "./dune-client";
 import { discoverTablesForProtocol } from "./dune-mcp-client";
 import { fetchTokenSnapshot } from "./allium-client";
-import { runBacktestAgent } from "./backtest-agent";
+import {
+  BACKTEST_TOOL_NAME,
+  BACKTEST_TOOL_DEF,
+  BACKTEST_TOOL_LABEL,
+  executeBacktestTool,
+  parseBacktestArtifact,
+} from "./backtest/sessions-plugin";
 import * as defillama from "./defillama-client";
 import * as vm from "vm";
 import { retrieveRelevantContext, formatRetrievedContext } from "./brain-retrieval";
@@ -431,24 +437,7 @@ const TOOLS: ToolDef[] = [
       required: ["analyst", "question"],
     },
   },
-  {
-    name: "backtest_thesis",
-    description: `Translate a directional trading thesis (or natural-language strategy spec) into a structured BacktestPlan and run it against the OHLCV warehouse (binance, bybit, coinbase, hyperliquid; daily + hourly).
-
-Use this when the user asks: "backtest this", "would this have been profitable", "test this strategy", "did this work historically", or after forming a directional view in deep mode. The result includes Sharpe, max drawdown, win rate, trade count, and an equity curve.
-
-CRITICAL: After this tool returns, copy its 'artifact_payload' object verbatim into a \`\`\`artifact:backtest_result block in your response so the equity curve renders for the user. Then summarize the metrics in 2-3 sentences.`,
-    input_schema: {
-      type: "object" as const,
-      properties: {
-        prompt: { type: "string" as const, description: "Natural-language description of the strategy to backtest. Be explicit about entry/exit, asset, timeframe, and any sizing or cost assumptions." },
-        thesis_context: { type: "string" as const, description: "Optional: the broader thesis the strategy operationalizes. Helps the planner pick a sensible interval and lookback." },
-        interval: { type: "string" as const, enum: ["1h", "1d"], description: "Optional: force daily or hourly bars. If omitted, the planner extracts from the prompt (default: 1d)." },
-      },
-      required: ["prompt"],
-    },
-    brainBinding: { source: "exchanges", scopeRef: "backtest:engine", observationCategory: "reliability" },
-  },
+  BACKTEST_TOOL_DEF,
   {
     name: "update_research_brain",
     description: `Record findings to the persistent Research Brain (knowledge graph). Call this ONCE at the END of every research session to save what you learned. The brain persists across all sessions and builds compounding intelligence.
@@ -1228,40 +1217,8 @@ async function executeTool(name: string, input: any): Promise<string> {
         addSubCallCost(perspResult);
         return perspResult.payload;
       }
-      case "backtest_thesis": {
-        const result = await runBacktestAgent({
-          prompt: String(input.prompt || ""),
-          thesisContext: input.thesis_context ? String(input.thesis_context) : undefined,
-          forcedInterval: (input.interval === "1h" || input.interval === "1d") ? input.interval : undefined,
-        });
-        if (result.status !== "ok") {
-          return JSON.stringify({
-            status: result.status,
-            error: result.error,
-            plan: result.plan,
-          });
-        }
-        const sampledCurve = sampleData(result.equityCurve || [], 80);
-        return JSON.stringify({
-          status: "ok",
-          summary_for_user: {
-            total_return_pct: ((result.metrics?.total_return ?? 0) * 100).toFixed(2),
-            sharpe: (result.metrics?.sharpe ?? 0).toFixed(2),
-            max_drawdown_pct: ((result.metrics?.max_drawdown ?? 0) * 100).toFixed(2),
-            win_rate_pct: ((result.metrics?.win_rate ?? 0) * 100).toFixed(2),
-            trade_count: result.metrics?.trade_count ?? 0,
-            benchmark_return_pct: ((result.metrics?.benchmark_return ?? 0) * 100).toFixed(2),
-            alpha_vs_hodl_pct: ((result.metrics?.alpha_vs_hodl ?? 0) * 100).toFixed(2),
-          },
-          plan: result.plan,
-          artifact_payload: {
-            title: result.plan?.name,
-            thesis: result.plan?.thesis,
-            metrics: result.metrics,
-            equityCurve: sampledCurve,
-            plan: result.plan,
-          },
-        });
+      case BACKTEST_TOOL_NAME: {
+        return executeBacktestTool(input);
       }
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
@@ -1342,17 +1299,7 @@ export function parseArtifacts(content: string): ResearchArtifact[] {
           attribution: json.attribution ? String(json.attribution).slice(0, 100) : undefined,
         });
       } else if (type === "backtest_result") {
-        artifacts.push({
-          type: "backtest_result",
-          title: json.title || "Backtest",
-          text: json.thesis ? String(json.thesis).slice(0, 500) : undefined,
-          metrics: json.metrics || {},
-          equityCurve: Array.isArray(json.equityCurve)
-            ? json.equityCurve.slice(0, 500).map((p: any) => ({ ts: String(p.ts), equity: Number(p.equity) }))
-            : [],
-          plan: json.plan,
-          runId: json.runId,
-        });
+        artifacts.push(parseBacktestArtifact(json));
       }
     } catch {}
   }
@@ -1413,7 +1360,7 @@ const TOOL_LABELS: Record<string, string> = {
   query_analyst_frameworks: "Looking up analyst frameworks",
   analyst_perspective: "Reasoning through a different lens",
   update_research_brain: "Saving to knowledge graph",
-  backtest_thesis: "Backtesting strategy against historical OHLCV",
+  [BACKTEST_TOOL_NAME]: BACKTEST_TOOL_LABEL,
 };
 
 function toolLabel(name: string, input: any): string {

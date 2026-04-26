@@ -1,6 +1,10 @@
 """
 Translate a BacktestPlan into vectorbt-compatible signal arrays and run the
 backtest. Returns metrics + equity curve + trades.
+
+Data ingress is pluggable — see loader.DataSource. The engine works the same
+on Sessions Postgres, on inline bars supplied in the request, on a parquet
+URL (e.g. Hydromancer S3 reservoir), or on a local CSV.
 """
 from __future__ import annotations
 import numpy as np
@@ -9,7 +13,7 @@ import vectorbt as vbt
 from typing import Any
 
 from .plan import BacktestPlan, Indicator, Constant, BinaryOp, LogicalOp
-from .loader import resolve_market_ids, load_ohlcv
+from .loader import DataSource, load_dataframe
 
 
 # ── Indicator computation ────────────────────────────────────────────────────
@@ -93,16 +97,13 @@ def evaluate(node: Any, df: pd.DataFrame) -> pd.Series:
 
 # ── Run ─────────────────────────────────────────────────────────────────────
 
-def run_backtest(plan: BacktestPlan) -> dict:
-    market_ids = resolve_market_ids(plan.universe)
+def run_backtest(plan: BacktestPlan, source: DataSource) -> dict:
     if len(plan.universe) > 1:
         raise NotImplementedError("v1 supports a single-market universe; multi-asset coming next")
 
-    u = plan.universe[0]
-    market_id = market_ids[f"{u.exchange}:{u.symbol}"]
-    df = load_ohlcv(market_id, plan.interval, plan.lookback.start, plan.lookback.end)
+    df = load_dataframe(source, plan.interval, plan.lookback.start, plan.lookback.end)
     if df.empty or len(df) < 30:
-        raise ValueError(f"not enough OHLCV data for {u.exchange}/{u.symbol} ({plan.interval}): {len(df)} bars")
+        raise ValueError(f"not enough OHLCV data: {len(df)} bars")
 
     entries = evaluate(plan.signals.entry, df).fillna(False).astype(bool)
     exits = evaluate(plan.signals.exit, df).fillna(False).astype(bool)
@@ -111,10 +112,10 @@ def run_backtest(plan: BacktestPlan) -> dict:
     slippage = plan.costs.slippage_bps / 10_000
 
     if plan.sizing.type == "fixed_fraction":
-        size = plan.sizing.value     # fraction of equity
+        size = plan.sizing.value
         size_type = "percent"
     else:
-        size = plan.sizing.value     # treat as fraction; vol-target is a v2 enhancement
+        size = plan.sizing.value
         size_type = "percent"
 
     pf = vbt.Portfolio.from_signals(
@@ -146,7 +147,7 @@ def run_backtest(plan: BacktestPlan) -> dict:
 
     metrics = {
         "total_return": float(stats.get("Total Return [%]", 0)) / 100.0,
-        "annualized_return": float(stats.get("Total Return [%]", 0)) / 100.0,   # simplified; refined in v2
+        "annualized_return": float(stats.get("Total Return [%]", 0)) / 100.0,
         "sharpe": float(stats.get("Sharpe Ratio", 0) or 0),
         "sortino": float(stats.get("Sortino Ratio", 0) or 0),
         "max_drawdown": float(stats.get("Max Drawdown [%]", 0) or 0) / 100.0,

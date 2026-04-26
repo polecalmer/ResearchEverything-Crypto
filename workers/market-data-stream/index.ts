@@ -86,12 +86,13 @@ function connect(slug: ExchangeSlug) {
         args: symbols.map(s => `kline.${INTERVAL === "1h" ? "60" : "D"}.${s}`),
       }));
     } else if (slug === "hyperliquid") {
-      for (const s of symbols) {
-        ws.send(JSON.stringify({
-          method: "subscribe",
-          subscription: { type: "candle", coin: s, interval: INTERVAL },
-        }));
-      }
+      // Hydromancer's `allCandles` channel batches all symbols-with-activity
+      // per block in a single subscription — far cheaper than N `candle` subs.
+      // Symbols not in our universe get filtered in persistBar.
+      ws.send(JSON.stringify({
+        method: "subscribe",
+        subscription: { type: "allCandles", interval: INTERVAL },
+      }));
     } else if (slug === "coinbase") {
       ws.send(JSON.stringify({
         type: "subscribe",
