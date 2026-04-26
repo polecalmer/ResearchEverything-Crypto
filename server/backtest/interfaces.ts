@@ -10,7 +10,7 @@
  * mpp-client / pg / @shared/schema directly — it takes these via the
  * BacktestContext, so the module stays portable.
  */
-import type { BacktestPlan } from "../backtest-agent";
+import type { BacktestPlan } from "./agent";
 import type { ExchangeSlug, OhlcvInterval, Market } from "@shared/schema";
 
 // ─── LLM ────────────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { db } from "./db";
+import { db } from "../db";
 import { and, asc, desc, eq, gte, lte, sql } from "drizzle-orm";
 import {
   exchanges,
@@ -19,7 +19,7 @@ import {
   type ExchangeSlug,
   type OhlcvInterval,
 } from "@shared/schema";
-import type { NormalizedKline, NormalizedMarket } from "./exchange-clients";
+import type { NormalizedKline, NormalizedMarket } from "../exchange-clients";
 
 const ohlcvTable = (interval: OhlcvInterval) => (interval === "1h" ? ohlcv1h : ohlcv1d);
 

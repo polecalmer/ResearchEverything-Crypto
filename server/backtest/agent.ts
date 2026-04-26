@@ -16,8 +16,8 @@
  */
 import { z } from "zod";
 import { EXCHANGES, type OhlcvInterval, type Market } from "@shared/schema";
-import type { BacktestContext } from "./backtest/interfaces";
-import { createSessionsBacktestContext } from "./backtest/adapters/sessions";
+import type { BacktestContext } from "./interfaces";
+import { createSessionsBacktestContext } from "./adapters/sessions";
 
 // ─── Zod schema (mirror of services/backtest-engine/app/plan.py) ────────────
 

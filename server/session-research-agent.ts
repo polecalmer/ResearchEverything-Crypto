@@ -10,13 +10,15 @@ const callStreamOrRaw: typeof callAnthropicRawStreaming = process.env.MPP_NO_STR
 import { executeDuneSQL, isDuneConfigured } from "./dune-client";
 import { discoverTablesForProtocol } from "./dune-mcp-client";
 import { fetchTokenSnapshot } from "./allium-client";
+// Side-effect import: registers every agent-plugin (currently just backtest).
 import {
-  BACKTEST_TOOL_NAME,
-  BACKTEST_TOOL_DEF,
-  BACKTEST_TOOL_LABEL,
-  executeBacktestTool,
-  parseBacktestArtifact,
-} from "./backtest/sessions-plugin";
+  getRegisteredToolDefs,
+  getRegisteredToolLabels,
+  getRegisteredArtifactTypes,
+  getRegisteredArtifactIcons,
+  tryRegisteredToolExecutor,
+  tryRegisteredArtifactParser,
+} from "./agent-plugins";
 import * as defillama from "./defillama-client";
 import * as vm from "vm";
 import { retrieveRelevantContext, formatRetrievedContext } from "./brain-retrieval";
@@ -437,7 +439,6 @@ const TOOLS: ToolDef[] = [
       required: ["analyst", "question"],
     },
   },
-  BACKTEST_TOOL_DEF,
   {
     name: "update_research_brain",
     description: `Record findings to the persistent Research Brain (knowledge graph). Call this ONCE at the END of every research session to save what you learned. The brain persists across all sessions and builds compounding intelligence.
@@ -507,9 +508,10 @@ IMPORTANT: Only record facts that came from tool calls (verified data). Mark pro
   },
 ];
 
-// Register the brain bindings carried by each tool definition above.
-// Module-level call: runs once on import.
-registerToolBindings(TOOLS);
+// Register the brain bindings carried by each tool definition above and any
+// plugin tools registered via ./agent-plugins. Module-level call: runs once
+// on import.
+registerToolBindings([...TOOLS, ...getRegisteredToolDefs()]);
 
 const BASE_PROMPT = `You are a Senior DeFi Research Analyst at Sessions, an AI research platform that captures and compounds knowledge.
 
@@ -914,6 +916,11 @@ Be specific, opinionated, and analytical. Use your signature style. Do not hedge
 
 async function executeTool(name: string, input: any): Promise<string> {
   try {
+    // Registered plugins get first dibs — the registry handles its own
+    // errors and returns a JSON string. Falls through to the static switch
+    // for built-in tools.
+    const pluginResult = await tryRegisteredToolExecutor(name, input);
+    if (pluginResult !== null) return pluginResult;
     switch (name) {
       case "query_defillama_tvl": {
         const slug = await defillama.resolveSlug(input.protocol);
@@ -1217,9 +1224,6 @@ async function executeTool(name: string, input: any): Promise<string> {
         addSubCallCost(perspResult);
         return perspResult.payload;
       }
-      case BACKTEST_TOOL_NAME: {
-        return executeBacktestTool(input);
-      }
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
     }
@@ -1243,7 +1247,9 @@ function sampleData(data: any[], maxPoints: number): any[] {
 
 export function parseArtifacts(content: string): ResearchArtifact[] {
   const artifacts: ResearchArtifact[] = [];
-  const regex = /```artifact:(chart|table|metric_cards|callout|comparison|quote|backtest_result)\s*\n([\s\S]*?)```/g;
+  // Static built-in types plus anything plugins have registered.
+  const allTypes = ["chart", "table", "metric_cards", "callout", "comparison", "quote", ...getRegisteredArtifactTypes()];
+  const regex = new RegExp(`\`\`\`artifact:(${allTypes.join("|")})\\s*\\n([\\s\\S]*?)\`\`\``, "g");
   let match;
   while ((match = regex.exec(content)) !== null) {
     try {
@@ -1298,8 +1304,10 @@ export function parseArtifacts(content: string): ResearchArtifact[] {
           text: String(json.text || "").slice(0, 400),
           attribution: json.attribution ? String(json.attribution).slice(0, 100) : undefined,
         });
-      } else if (type === "backtest_result") {
-        artifacts.push(parseBacktestArtifact(json));
+      } else {
+        // Plugin-registered artifact type.
+        const parsed = tryRegisteredArtifactParser(type, json);
+        if (parsed) artifacts.push(parsed);
       }
     } catch {}
   }
@@ -1312,12 +1320,15 @@ function summarizeHistory(history: Array<{ role: string; content: string }>): Ar
   for (const msg of recent) {
     if (msg.role === "assistant") {
       const withoutModeMarker = msg.content.replace(/^<!--\s*mode:(quick|focused|deep)\s*-->\s*\n?/, "");
-      const cleaned = withoutModeMarker.replace(/```artifact:(chart|table|metric_cards|callout|comparison|quote|backtest_result)\s*\n[\s\S]*?```/g, (m, type) => {
+      const allTypes = ["chart", "table", "metric_cards", "callout", "comparison", "quote", ...getRegisteredArtifactTypes()];
+      const pluginIcons = getRegisteredArtifactIcons();
+      const cleaned = withoutModeMarker.replace(new RegExp(`\`\`\`artifact:(${allTypes.join("|")})\\s*\\n[\\s\\S]*?\`\`\``, "g"), (m, type) => {
         try {
           const jsonStr = m.replace(/```artifact:\w+\s*\n/, "").replace(/```$/, "").trim();
           const json = JSON.parse(jsonStr);
-          const icon = type === "chart" ? "📊" : type === "metric_cards" ? "📈" : type === "table" ? "📋"
-            : type === "callout" ? "💡" : type === "comparison" ? "⚖️" : type === "backtest_result" ? "🧪" : "❝";
+          const builtinIcon = type === "chart" ? "📊" : type === "metric_cards" ? "📈" : type === "table" ? "📋"
+            : type === "callout" ? "💡" : type === "comparison" ? "⚖️" : type === "quote" ? "❝" : null;
+          const icon = builtinIcon ?? pluginIcons[type] ?? "•";
           const label = json.title || json.text?.slice(0, 60) || type;
           return `[${icon} ${label}]`;
         } catch {
@@ -1360,7 +1371,8 @@ const TOOL_LABELS: Record<string, string> = {
   query_analyst_frameworks: "Looking up analyst frameworks",
   analyst_perspective: "Reasoning through a different lens",
   update_research_brain: "Saving to knowledge graph",
-  [BACKTEST_TOOL_NAME]: BACKTEST_TOOL_LABEL,
+  // Plugin tool labels are merged in below — built-ins win on conflicts.
+  ...getRegisteredToolLabels(),
 };
 
 function toolLabel(name: string, input: any): string {
@@ -3102,7 +3114,10 @@ export async function runSessionResearchAgent(
   );
   const chartNeedsCode = isChart;
   const FOCUSED_TOOL_BLOCKLIST = new Set((planNeedsCode || chartNeedsCode) ? [] : ["execute_code"]);
-  const anthropicTools: any[] = TOOLS
+  // Static TOOLS plus anything registered through ./agent-plugins. Plugin
+  // tools self-register at module-import time, so this read is consistent.
+  const allTools: ToolDef[] = [...TOOLS, ...getRegisteredToolDefs()];
+  const anthropicTools: any[] = allTools
     .filter(t => mode !== "focused" || !FOCUSED_TOOL_BLOCKLIST.has(t.name))
     .map(t => ({
       name: t.name,

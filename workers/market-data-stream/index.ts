@@ -19,7 +19,7 @@
 import "dotenv/config";
 import WebSocket from "ws";
 import { EXCHANGE_CLIENTS } from "../../server/exchange-clients";
-import { backtestStorage } from "../../server/backtest-storage";
+import { backtestStorage } from "../../server/backtest/storage";
 import { EXCHANGES, type ExchangeSlug, type OhlcvInterval, type Market } from "@shared/schema";
 
 const INTERVAL = (process.env.MARKET_STREAM_INTERVAL || "1h") as OhlcvInterval;

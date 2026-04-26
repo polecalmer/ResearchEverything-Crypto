@@ -14,51 +14,74 @@ The Python sidecar (`services/backtest-engine/`) is the same in all three modes 
 
 ```
 server/backtest/
+├── agent.ts               ← NL→Plan logic, takes a BacktestContext, no infra imports
+├── storage.ts             ← Drizzle helpers (Sessions only)
 ├── interfaces.ts          ← LLMClient, DataProvider, RunStore, StrategyCache, EngineClient
 ├── adapters/
 │   ├── sessions.ts        ← wires interfaces to mpp-client + Postgres + HTTP engine
 │   └── standalone.ts      ← wires interfaces to @anthropic-ai/sdk + inline data + HTTP engine
-├── sessions-plugin.ts     ← collapses tool registration to a single import
+├── sessions-plugin.ts     ← exposes the tool def + executor + artifact parser
 ├── sample.ts              ← shared util
-└── README.md              ← (this file)
+├── README.md              ← (this file)
+└── COSTS_AND_KEYS.md      ← API key acquisition + seed cost estimate with citations
 
 server/
-├── backtest-agent.ts      ← NL→Plan logic, takes a BacktestContext, no infra imports
-├── backtest-storage.ts    ← Drizzle helpers (Sessions only)
-└── exchange-clients/      ← REST + WS for binance, bybit, coinbase, hyperliquid (via Hydromancer)
+├── agent-plugins/         ← Tool/artifact registry that lets feature modules
+│   ├── registry.ts        ← register/getRegistered helpers
+│   └── index.ts           ← side-effect file: registers backtest plugin
+└── exchange-clients/      ← REST + WS for binance, bybit, coinbase, hyperliquid (Hydromancer)
 
+shared/models/backtest.ts  ← All backtest tables, kept out of central schema.ts
 services/backtest-engine/  ← FastAPI + vectorbt sidecar. Independent Python project.
 workers/market-data-stream/← Persistent WS worker (Reserved VM target)
 scripts/seed-ohlcv.ts      ← Idempotent backfill script
+bin/backtest.ts            ← Standalone CLI (`run` and `ask` subcommands)
 ```
 
 ## Sessions integration
 
-Three touch-points in `server/session-research-agent.ts`, all importing from `./backtest/sessions-plugin`:
+Zero inline edits to `session-research-agent.ts`. The agent loop imports
+`./agent-plugins` (side-effect import) which self-registers every plugin via
+`registerToolPlugin` / `registerArtifactPlugin`. The agent loop then merges
+registered entries into:
 
-```ts
-import { BACKTEST_TOOL_DEF, BACKTEST_TOOL_NAME, BACKTEST_TOOL_LABEL,
-         executeBacktestTool, parseBacktestArtifact } from "./backtest/sessions-plugin";
+- The TOOLS array (`getRegisteredToolDefs()`).
+- The TOOL_LABELS map (`getRegisteredToolLabels()`).
+- The `parseArtifacts` regex + dispatch (`getRegisteredArtifactTypes()` + `tryRegisteredArtifactParser()`).
+- The history-summary regex + icon map (same).
 
-// 1. TOOLS array
-const TOOLS: ToolDef[] = [..., BACKTEST_TOOL_DEF, ...];
-
-// 2. executeTool switch
-case BACKTEST_TOOL_NAME: return executeBacktestTool(input);
-
-// 3. parseArtifacts
-} else if (type === "backtest_result") {
-  artifacts.push(parseBacktestArtifact(json));
-}
-```
-
-That's the entire integration surface. To remove the module: delete the three references; `server/backtest/`, `server/backtest-agent.ts`, `server/backtest-storage.ts`, `server/exchange-clients/`, the Python sidecar, the worker, and the schema tables can all stay or go independently.
+Adding another feature module is one new file in `server/backtest/`-style and
+one import line in `server/agent-plugins/index.ts`. To remove: delete the
+import line and the plugin's directory.
 
 ## Standalone usage
 
+### CLI
+
+```bash
+# Hand-written plan, postgres data:
+tsx bin/backtest.ts run plan.json
+
+# Hand-written plan, local CSV:
+tsx bin/backtest.ts run plan.json --csv ./btc-1d.csv
+
+# Hand-written plan, parquet URL (e.g. Hydromancer reservoir):
+AWS_REQUEST_PAYER=requester \
+  tsx bin/backtest.ts run plan.json --parquet s3://hydromancer-reservoir/.../candles.parquet --symbol BTC
+
+# NL prompt with inline bars:
+ANTHROPIC_API_KEY=sk-ant-... \
+  tsx bin/backtest.ts ask "20/50 SMA on BTC last year" --inline ./btc-bars.json
+
+# Override sidecar URL or write full output to file:
+tsx bin/backtest.ts run plan.json --engine http://my-engine:8787 --out result.json
+```
+
+### Library
+
 ```ts
 import Anthropic from "@anthropic-ai/sdk";
-import { runBacktestAgent } from "./backtest-agent";
+import { runBacktestAgent } from "./backtest/agent";
 import { createStandaloneBacktestContext } from "./backtest/adapters/standalone";
 
 const ctx = createStandaloneBacktestContext({
@@ -74,6 +97,8 @@ const result = await runBacktestAgent({
   ctx,
 });
 ```
+
+See `COSTS_AND_KEYS.md` for API key acquisition and seed-cost estimates with citations.
 
 ## Engine data-source modes
 
@@ -98,4 +123,8 @@ Other modes:
 
 ## Merge-surface notes
 
-Inline edits to the agent loop (line 73 union, line 194 TOOLS, line 1196 switch, line 1219 regex, line 1314 labels) are conflict-prone if main extends the same lists. The plugin file shrinks each edit to one or two tokens, so most merges become trivial. A future refactor that turns these into a registry pattern (`registerTool`, `registerArtifactType`) would eliminate the inline edits entirely.
+The plugin registry eliminates the inline edits to TOOLS / executeTool /
+parseArtifacts / TOOL_LABELS / history-summarizer. Two true union conflicts
+remain in `shared/schema.ts` (`DATA_SOURCES` enum) and the agent's
+`ResearchArtifact` interface — both are 5-second `git mergetool` resolves
+since each merger is just appending to a list.

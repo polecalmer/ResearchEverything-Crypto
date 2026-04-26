@@ -16,7 +16,7 @@
 import "dotenv/config";
 import pLimit from "p-limit";
 import { EXCHANGE_CLIENTS } from "../server/exchange-clients";
-import { backtestStorage } from "../server/backtest-storage";
+import { backtestStorage } from "../server/backtest/storage";
 import { EXCHANGES, OHLCV_INTERVALS, type ExchangeSlug, type OhlcvInterval } from "@shared/schema";
 import type { Market } from "@shared/schema";
 

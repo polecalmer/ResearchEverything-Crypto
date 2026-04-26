@@ -8,7 +8,7 @@
  */
 import { callAnthropicServer } from "../../mpp-client";
 import { MODELS } from "../../constants";
-import { backtestStorage } from "../../backtest-storage";
+import { backtestStorage } from "../storage";
 import { EXCHANGES, type ExchangeSlug, type Market } from "@shared/schema";
 import type {
   BacktestContext, LLMClient, DataProvider, RunStore, StrategyCache,

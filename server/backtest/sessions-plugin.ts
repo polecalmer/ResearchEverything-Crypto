@@ -9,7 +9,7 @@
  * BODIES live here, so a future tool/artifact registry refactor can absorb
  * them without touching the agent loop again.
  */
-import { runBacktestAgent, type BacktestPlan } from "../backtest-agent";
+import { runBacktestAgent, type BacktestPlan } from "./agent";
 import { sampleData } from "./sample";
 
 export const BACKTEST_TOOL_NAME = "backtest_thesis";
