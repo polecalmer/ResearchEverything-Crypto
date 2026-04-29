@@ -293,7 +293,8 @@ function BrainGraphHero() {
       ctx.fill();
 
       if (isHover && n.named) {
-        ctx.fillStyle = "rgba(255,255,255,0.95)";
+        const isDark = document.documentElement.classList.contains("dark");
+        ctx.fillStyle = isDark ? "rgba(255,255,255,0.95)" : "rgba(0,0,0,0.85)";
         ctx.font = "600 11px Inter, system-ui, sans-serif";
         ctx.textAlign = "center";
         ctx.fillText(n.label || n.id, x, y - r - 10);
@@ -604,6 +605,23 @@ function TypingDemo() {
 
 export default function LandingPage() {
   const { login } = usePrivy();
+
+  // Landing page is always dark (it's a marketing surface, not the app
+  // chrome). The authenticated app defaults to light unless the user
+  // has flipped the theme toggle. Force `dark` while landing is mounted;
+  // restore the user's actual theme on unmount.
+  useEffect(() => {
+    const html = document.documentElement;
+    const wasDark = html.classList.contains("dark");
+    html.classList.add("dark");
+    return () => {
+      const saved = localStorage.getItem("theme") as "light" | "dark" | null;
+      const restore = saved || "light";
+      html.classList.toggle("dark", restore === "dark");
+      // If nothing was saved and we weren't dark before, ensure dark is off.
+      if (!saved && !wasDark) html.classList.remove("dark");
+    };
+  }, []);
 
   return (
     <div className="relative min-h-screen bg-background overflow-x-hidden" data-testid="landing-page">

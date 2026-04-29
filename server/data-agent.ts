@@ -2659,7 +2659,7 @@ export interface SessionDataAgentResult {
     source?: string;
     data?: any[];
     chartConfig?: {
-      chartType: "line" | "bar" | "area" | "composed";
+      chartType: "line" | "bar" | "area" | "composed" | "pie" | "stacked";
       xAxis: { dataKey: string; label?: string; format?: string };
       yAxes: Array<{ dataKey: string; label?: string; format?: string; chartType?: string }>;
     };

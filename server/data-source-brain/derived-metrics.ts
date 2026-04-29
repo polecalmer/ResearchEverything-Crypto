@@ -55,6 +55,11 @@ export interface ComputeContext {
   fdvScale: number;
   hasRealFdv: boolean;
   adjMcapScale: number;
+  /** True when CoinGecko exposed a real `outstanding_supply` for this
+   *  token (the basis for the "Outstanding Token Value" metric). When
+   *  false, consumers must skip the Adj MCAP series rather than fabricate
+   *  one — there's no honest number to plot. */
+  hasRealAdjMcap: boolean;
   trailingWindowDays: number;
   /** Denominator series (date → value) from a different protocol, used by
    * share/ratio recipes. Empty Map when not applicable. */
@@ -131,7 +136,13 @@ export const DERIVED_METRIC_REGISTRY: Record<string, DerivedMetricRecipe> = {
           mcap_pe: Number(mcapPe.toFixed(2)),
         };
         if (ctx.hasRealFdv && ctx.fdvScale > 0) row.fdv_pe = Number(((price * ctx.fdvScale) / annualizedRev).toFixed(2));
-        row.adj_mcap_pe = Number(((price * ctx.adjMcapScale) / annualizedRev).toFixed(2));
+        // Adj MCAP P/E only when CoinGecko exposed a real outstanding
+        // supply. Previously this was always emitted using a fake 0.85 ×
+        // circulating scale, which silently displayed "Adj MCAP P/E" as
+        // 85% of MCAP P/E for every token. Now: real data or no series.
+        if (ctx.hasRealAdjMcap && ctx.adjMcapScale > 0) {
+          row.adj_mcap_pe = Number(((price * ctx.adjMcapScale) / annualizedRev).toFixed(2));
+        }
         results.push(row);
       }
       return results;
@@ -638,10 +649,10 @@ export async function fetchMarketData(
   protocol: string,
   defillama: DefiLlamaClient,
   resolveCoinGeckoId: (slug: string) => string | undefined,
-): Promise<{ mcapScale: number; fdvScale: number; hasRealFdv: boolean; adjMcapScale: number; coinId: string | null }> {
+): Promise<{ mcapScale: number; fdvScale: number; hasRealFdv: boolean; adjMcapScale: number; hasRealAdjMcap: boolean; coinId: string | null }> {
   const slug = await defillama.resolveSlug(protocol);
   const coinId = resolveCoinGeckoId(slug) || resolveCoinGeckoId(protocol) || null;
-  if (!coinId) return { mcapScale: 0, fdvScale: 0, hasRealFdv: false, adjMcapScale: 0, coinId: null };
+  if (!coinId) return { mcapScale: 0, fdvScale: 0, hasRealFdv: false, adjMcapScale: 0, hasRealAdjMcap: false, coinId: null };
 
   try {
     const cgData = await fetch(
@@ -651,19 +662,30 @@ export async function fetchMarketData(
     const mcap = cgData?.market_data?.market_cap?.usd || 0;
     const fdv = cgData?.market_data?.fully_diluted_valuation?.usd || 0;
     const currentPrice = cgData?.market_data?.current_price?.usd || 0;
-    const circulatingSupply = cgData?.market_data?.circulating_supply || 0;
     const totalSupply = cgData?.market_data?.total_supply || 0;
+    // CoinGecko's "outstanding supply" — supply minus permanently locked,
+    // burned, or not-planned-for-circulation tokens (treasury, validator
+    // stakes, foundation allocations that won't release). The basis for
+    // their "Outstanding Token Value" metric. Replaces the prior 0.85
+    // magic-number multiplier on circulating supply, which silently
+    // forced a 15% haircut on every token whether real or not.
+    const outstandingSupply = cgData?.market_data?.outstanding_supply || 0;
 
-    if (!mcap || !currentPrice) return { mcapScale: 0, fdvScale: 0, hasRealFdv: false, adjMcapScale: 0, coinId };
+    if (!mcap || !currentPrice) return { mcapScale: 0, fdvScale: 0, hasRealFdv: false, adjMcapScale: 0, hasRealAdjMcap: false, coinId };
 
     const hasRealFdv = fdv > 0;
     const mcapScale = mcap / currentPrice;
     const fdvScale = fdv > 0 ? fdv / currentPrice : totalSupply > 0 ? totalSupply : mcapScale;
-    const adjMcapScale = circulatingSupply > 0 ? circulatingSupply * 0.85 : mcapScale * 0.85;
+    // hasRealAdjMcap drives whether the chart plots an Adj MCAP series
+    // at all — when CoinGecko doesn't expose outstanding supply for a
+    // token (smaller / less-tracked), we omit the series rather than
+    // duplicating MCAP under a different name with a fake multiplier.
+    const hasRealAdjMcap = outstandingSupply > 0;
+    const adjMcapScale = hasRealAdjMcap ? outstandingSupply : 0;
 
-    return { mcapScale, fdvScale, hasRealFdv, adjMcapScale, coinId };
+    return { mcapScale, fdvScale, hasRealFdv, adjMcapScale, hasRealAdjMcap, coinId };
   } catch {
-    return { mcapScale: 0, fdvScale: 0, hasRealFdv: false, adjMcapScale: 0, coinId };
+    return { mcapScale: 0, fdvScale: 0, hasRealFdv: false, adjMcapScale: 0, hasRealAdjMcap: false, coinId };
   }
 }
 
@@ -889,7 +911,13 @@ export async function computeDerivedChart(
     if (!sourcesUsed.includes(resolvedDenomSource)) sourcesUsed.push(resolvedDenomSource);
   }
 
-  let marketData = { mcapScale: 0, fdvScale: 0, hasRealFdv: false, adjMcapScale: 0 };
+  let marketData: {
+    mcapScale: number;
+    fdvScale: number;
+    hasRealFdv: boolean;
+    adjMcapScale: number;
+    hasRealAdjMcap: boolean;
+  } = { mcapScale: 0, fdvScale: 0, hasRealFdv: false, adjMcapScale: 0, hasRealAdjMcap: false };
   if (uniqueSources.includes("coingecko.market_data") || uniqueSources.includes("coingecko.price")) {
     const md = await fetchMarketData(protocol, defillama, resolvers.resolveCoinGeckoId);
     marketData = md;
@@ -909,6 +937,7 @@ export async function computeDerivedChart(
     fdvScale: marketData.fdvScale,
     hasRealFdv: marketData.hasRealFdv,
     adjMcapScale: marketData.adjMcapScale,
+    hasRealAdjMcap: marketData.hasRealAdjMcap,
     trailingWindowDays: recipe.trailingWindowDays,
     denominatorMap,
   };

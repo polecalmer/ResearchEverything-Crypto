@@ -83,11 +83,38 @@ export async function findProtocol(name: string): Promise<DefiLlamaProtocol | nu
 
 const slugCache = new Map<string, { slug: string; time: number }>();
 
+export type SlugMatchType = "exact" | "naive" | "startsWith" | "contains" | "fallback";
+
+export interface ResolveSlugResult {
+  /** The slug we'll send to DeFiLlama. */
+  slug: string;
+  /** How we matched it. "exact" / "naive" are high confidence; "startsWith"
+   *  / "contains" / "fallback" are low confidence and the caller should
+   *  treat them as suspect — especially when paired with stale data. */
+  matchType: SlugMatchType;
+  /** The DeFiLlama protocol name for the matched slug, if known. Lets the
+   *  caller phrase a "did you mean ..." message. */
+  matchedName?: string;
+  /** Up to 5 alternative protocols whose name or slug also contains the
+   *  user's query, ranked by TVL. Useful when the match is low-confidence
+   *  and we want to suggest what the user might have meant instead. */
+  alternatives?: Array<{ slug: string; name: string; tvl: number }>;
+}
+
+/** Plain string return for back-compat callers. New callers should prefer
+ *  `resolveSlugDetailed` when they care about match confidence. */
 export async function resolveSlug(companyName: string): Promise<string> {
-  const key = companyName.toLowerCase();
+  return (await resolveSlugDetailed(companyName)).slug;
+}
+
+export async function resolveSlugDetailed(companyName: string): Promise<ResolveSlugResult> {
+  const key = companyName.toLowerCase().trim();
   const cached = slugCache.get(key);
+  // Cache only stores the slug string; we re-derive matchType cheaply by
+  // re-running the protocols-list lookup (no extra HTTP calls in the hot
+  // path because listProtocols itself caches).
   if (cached && Date.now() - cached.time < CACHE_TTL) {
-    return cached.slug;
+    return await classifySlug(key, cached.slug);
   }
 
   const naiveSlug = key.replace(/\s+/g, "-");
@@ -96,7 +123,7 @@ export async function resolveSlug(companyName: string): Promise<string> {
     const res = await fetch(`${DEFILLAMA_BASE}/protocol/${naiveSlug}`);
     if (res.ok) {
       slugCache.set(key, { slug: naiveSlug, time: Date.now() });
-      return naiveSlug;
+      return await classifySlug(key, naiveSlug);
     }
   } catch {}
 
@@ -107,7 +134,7 @@ export async function resolveSlug(companyName: string): Promise<string> {
     );
     if (exact) {
       slugCache.set(key, { slug: exact.slug, time: Date.now() });
-      return exact.slug;
+      return await classifySlug(key, exact.slug);
     }
 
     const startsWith = protocols
@@ -118,7 +145,7 @@ export async function resolveSlug(companyName: string): Promise<string> {
       .sort((a: any, b: any) => (b.tvl || 0) - (a.tvl || 0));
     if (startsWith.length > 0) {
       slugCache.set(key, { slug: startsWith[0].slug, time: Date.now() });
-      return startsWith[0].slug;
+      return await classifySlug(key, startsWith[0].slug);
     }
 
     const contains = protocols
@@ -129,12 +156,56 @@ export async function resolveSlug(companyName: string): Promise<string> {
       .sort((a: any, b: any) => (b.tvl || 0) - (a.tvl || 0));
     if (contains.length > 0) {
       slugCache.set(key, { slug: contains[0].slug, time: Date.now() });
-      return contains[0].slug;
+      return await classifySlug(key, contains[0].slug);
     }
   } catch {}
 
   slugCache.set(key, { slug: naiveSlug, time: Date.now() });
-  return naiveSlug;
+  return { slug: naiveSlug, matchType: "fallback" };
+}
+
+/** Re-derive how the cached slug matched the user's query and surface
+ *  alternatives. Only consults the in-memory protocols cache (no network). */
+async function classifySlug(query: string, slug: string): Promise<ResolveSlugResult> {
+  let matchType: SlugMatchType = "naive";
+  let matchedName: string | undefined;
+  let alternatives: Array<{ slug: string; name: string; tvl: number }> | undefined;
+  try {
+    const protocols = await listProtocols();
+    const matched = protocols.find((p: any) => p.slug?.toLowerCase() === slug.toLowerCase());
+    matchedName = matched?.name;
+    const matchedNameLc = matched?.name?.toLowerCase() || "";
+    const matchedSlugLc = matched?.slug?.toLowerCase() || "";
+    if (matchedNameLc === query || matchedSlugLc === query) {
+      matchType = "exact";
+    } else if (matchedNameLc.startsWith(query) || matchedSlugLc.startsWith(query)) {
+      matchType = "startsWith";
+    } else if (matchedNameLc.includes(query) || matchedSlugLc.includes(query)) {
+      matchType = "contains";
+    } else if (slug === query.replace(/\s+/g, "-")) {
+      matchType = "naive";
+    } else {
+      matchType = "fallback";
+    }
+    // Alternatives: any other protocol whose name/slug shares the query
+    // tokens, ranked by TVL. Excludes the matched slug itself.
+    const queryTokens = query.split(/\s+/).filter((t) => t.length >= 3);
+    if (queryTokens.length > 0) {
+      const candidates = protocols
+        .filter((p: any) => {
+          if (p.slug?.toLowerCase() === slug.toLowerCase()) return false;
+          const blob = `${p.name || ""} ${p.slug || ""}`.toLowerCase();
+          return queryTokens.some((t) => blob.includes(t));
+        })
+        .sort((a: any, b: any) => (b.tvl || 0) - (a.tvl || 0))
+        .slice(0, 5)
+        .map((p: any) => ({ slug: p.slug, name: p.name, tvl: p.tvl || 0 }));
+      if (candidates.length > 0) alternatives = candidates;
+    }
+  } catch {
+    /* swallow — return whatever we have */
+  }
+  return { slug, matchType, matchedName, alternatives };
 }
 
 export async function getProtocolTvl(slug: string): Promise<ProtocolTvlHistory[]> {

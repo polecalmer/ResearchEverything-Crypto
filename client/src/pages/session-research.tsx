@@ -2,9 +2,10 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useLocation } from "wouter";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { queryClient, apiRequest, getAuthHeaders } from "@/lib/queryClient";
+import { useBackgroundTasks } from "@/contexts/background-tasks";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
-import { Send, Plus, Trash2, Loader2, MessageSquare, FileText, FlaskConical, BarChart3, RefreshCw, ArrowLeft } from "lucide-react";
+import { Send, Plus, Trash2, Loader2, MessageSquare, FileText, FlaskConical, BarChart3, RefreshCw, ArrowLeft, X, Search, Square, Microscope, GitBranch } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { format } from "date-fns";
 import {
@@ -14,7 +15,6 @@ import {
 import {
   MessageBubble, DiveDeepButton, ThinkingPanel, ShareBar, InlineChart,
 } from "@/components/research-artifacts";
-import { SessionInspector } from "@/components/session-inspector";
 
 export default function SessionResearch() {
   const { user } = useAuth();
@@ -26,13 +26,87 @@ export default function SessionResearch() {
   const [pendingUserMsg, setPendingUserMsg] = useState<string | null>(null);
   const [thinkingSteps, setThinkingSteps] = useState<ThinkingStep[]>([]);
   const [isSending, setIsSending] = useState(false);
-  const [sidebarTab, setSidebarTab] = useState<"sessions" | "models" | "charts">("sessions");
-  const [sessionMode, setSessionMode] = useState<"research" | "data">("research");
+  // Scope streaming UI to the session that's actually being streamed —
+  // without this, the pendingUserMsg + thinkingSteps appear in WHATEVER
+  // session the user is viewing, leaking the running session's transient
+  // state into every other chat. The streaming itself runs to completion
+  // regardless of navigation (we don't abort on session switch).
+  const [streamingSessionId, setStreamingSessionId] = useState<number | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const userAbortedRef = useRef<boolean>(false);
+  const [sidebarTab, setSidebarTab] = useState<"sessions" | "models" | "charts" | "discover">("sessions");
+  const [discoverInput, setDiscoverInput] = useState("");
+  const DISCOVER_EXAMPLES = ["hyperliquid.xyz", "https://x.com/MorphoLabs", "ethena.fi"];
+  const submitDiscover = (value: string) => {
+    const v = value.trim();
+    if (!v) return;
+    navigate(`/add?seed=${encodeURIComponent(v)}`);
+  };
+  // sessionMode is sticky per-session: persisted to localStorage so a chart
+  // session stays a chart session across reloads, navigation, and re-mounts.
+  // Without this, switching sessions or hitting an error path re-runs the
+  // initializer and snaps every session back to "research" — which is both
+  // visually confusing and routes the next message to the wrong (more
+  // expensive) agent path.
+  const [sessionMode, setSessionMode] = useState<"research" | "data">(() => {
+    if (typeof window === "undefined") return "research";
+    const saved = window.localStorage.getItem("lastSessionMode");
+    return saved === "data" ? "data" : "research";
+  });
   const [selectedChartId, setSelectedChartId] = useState<string | null>(null);
   const [refreshingChartId, setRefreshingChartId] = useState<string | null>(null);
   const [targetMessageId, setTargetMessageId] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Focus mode: when the user is inside a session or viewing a chart, take
+  // over the full viewport (hide sidebar, hide outer app chrome, exit button
+  // top-right, Esc to leave). Signals "you've entered the working surface."
+  // The `isExiting` flag delays the actual unmount so the exit animation can
+  // play — without it, Esc snaps back to the list view instantly.
+  const isFocusMode = activeSessionId !== null || selectedChartId !== null;
+  const [isExiting, setIsExiting] = useState(false);
+  const FOCUS_EXIT_DURATION_MS = 220;
+  const exitFocusMode = useCallback(() => {
+    setIsExiting(true);
+    setTimeout(() => {
+      setActiveSessionId(null);
+      setSelectedChartId(null);
+      setTargetMessageId(null);
+      setIsExiting(false);
+    }, FOCUS_EXIT_DURATION_MS);
+  }, []);
+  useEffect(() => {
+    if (!isFocusMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        // Don't hijack Esc when user is composing in a textarea/input.
+        const target = e.target as HTMLElement | null;
+        const composing = target && (target.tagName === "TEXTAREA" || target.tagName === "INPUT");
+        if (composing) return;
+        e.preventDefault();
+        exitFocusMode();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isFocusMode, exitFocusMode]);
+
+  // Restore the saved mode for whichever session the user opens.
+  useEffect(() => {
+    if (typeof window === "undefined" || activeSessionId === null) return;
+    const saved = window.localStorage.getItem(`sessionMode:${activeSessionId}`);
+    if (saved === "data" || saved === "research") setSessionMode(saved);
+  }, [activeSessionId]);
+
+  // Persist mode against the active session id and as the global default.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("lastSessionMode", sessionMode);
+    if (activeSessionId !== null) {
+      window.localStorage.setItem(`sessionMode:${activeSessionId}`, sessionMode);
+    }
+  }, [sessionMode, activeSessionId]);
 
   const sessionsQuery = useQuery<Session[]>({
     queryKey: ["/api/research/sessions"],
@@ -146,9 +220,12 @@ export default function SessionResearch() {
   const sendStreamingMessage = useCallback(async (sessionId: number, message: string, opts?: { forceMode?: ResearchMode; refreshBrain?: boolean }) => {
     setIsSending(true);
     setThinkingSteps([]);
+    setStreamingSessionId(sessionId);
 
     const STREAM_IDLE_MS = 60_000;
     const controller = new AbortController();
+    abortControllerRef.current = controller;
+    userAbortedRef.current = false;
     let idleTimer: ReturnType<typeof setTimeout> | null = null;
     const armIdle = () => {
       if (idleTimer) clearTimeout(idleTimer);
@@ -220,17 +297,25 @@ export default function SessionResearch() {
       queryClient.invalidateQueries({ queryKey: ["/api/research/sessions"] });
     } catch (err: any) {
       const isAbort = err?.name === "AbortError" || /aborted|idle/i.test(err?.message || "");
-      const friendly = explicitServerError
-        ? explicitServerError
-        : isAbort
-          ? "Stream connection lost. The research may still be running on the server — refreshing shortly."
-          : (err?.message || "Research failed");
-      toast({ title: explicitServerError ? "Error" : "Connection interrupted", description: friendly, variant: "destructive" });
+      const userAborted = userAbortedRef.current;
+      const friendly = userAborted
+        ? "Stopped. The server may still be completing this in the background — invalidate to refresh later."
+        : explicitServerError
+          ? explicitServerError
+          : isAbort
+            ? "Stream connection lost. The research may still be running on the server — refreshing shortly."
+            : (err?.message || "Research failed");
+      toast({
+        title: userAborted ? "Stopped" : explicitServerError ? "Error" : "Connection interrupted",
+        description: friendly,
+        variant: userAborted ? "default" : "destructive",
+      });
 
-      // If the connection dropped (not an explicit server error), the server may
-      // still be completing the research. Poll the messages endpoint a few times
-      // to pick up the final result instead of leaving the user stuck.
-      if (!explicitServerError && !gotDone) {
+      // If the connection dropped (not an explicit server error or user-initiated
+      // stop), the server may still be completing the research. Poll the messages
+      // endpoint a few times to pick up the final result instead of leaving the
+      // user stuck. Skip the poll on user-stop — the user explicitly asked to bail.
+      if (!explicitServerError && !gotDone && !userAborted) {
         for (let i = 0; i < 6; i++) {
           await new Promise(r => setTimeout(r, 5000));
           await queryClient.invalidateQueries({ queryKey: [`/api/research/sessions/${sessionId}/messages`] });
@@ -243,10 +328,19 @@ export default function SessionResearch() {
       queryClient.invalidateQueries({ queryKey: ["/api/research/sessions"] });
     } finally {
       if (idleTimer) clearTimeout(idleTimer);
+      abortControllerRef.current = null;
       setPendingUserMsg(null);
       setIsSending(false);
+      setStreamingSessionId(null);
     }
   }, [toast, sessionMode]);
+
+  const cancelStreaming = useCallback(() => {
+    const ctrl = abortControllerRef.current;
+    if (!ctrl) return;
+    userAbortedRef.current = true;
+    ctrl.abort(new DOMException("User stopped the request", "AbortError"));
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -271,12 +365,33 @@ export default function SessionResearch() {
     }
   }, [input, activeSessionId, isSending, sendStreamingMessage]);
 
+  // "Double Click" and "Build Chart" both spawn PARALLEL sub-sessions
+  // in the background. User stays in the current (master) session and
+  // can keep reading; the bottom-right tracker shows progress, and
+  // each spawn is fingerprinted to the master via parentSessionId so
+  // the future "research journey" view can render parent + children
+  // as a cohesive thread. Double Click sends the highlight as a
+  // markdown blockquote; the agent's BASE_PROMPT recognizes the
+  // pattern and runs in tighter, component-level mode.
+  const { startBuildChart, startDoubleClick } = useBackgroundTasks();
+
   const handleDiveDeep = useCallback((selectedText: string) => {
-    if (!activeSessionId || isSending) return;
-    const diveMsg = `Dive deeper into this specific section. Provide more detailed analysis, supporting data, and nuance:\n\n"${selectedText}"`;
-    setPendingUserMsg(diveMsg);
-    sendStreamingMessage(activeSessionId, diveMsg);
-  }, [activeSessionId, isSending, sendStreamingMessage]);
+    if (!activeSessionId) return;
+    void startDoubleClick(selectedText, { parentSessionId: activeSessionId });
+    toast({
+      title: "Double-clicking in background",
+      description: "Watch the bottom-right tracker. Keep reading; the deeper read will be ready in ~1-2 min.",
+    });
+  }, [activeSessionId, startDoubleClick, toast]);
+
+  const handleBuildChart = useCallback((selectedText: string) => {
+    if (!activeSessionId) return;
+    void startBuildChart(selectedText, { parentSessionId: activeSessionId });
+    toast({
+      title: "Building chart in background",
+      description: "Watch the bottom-right tracker. Open the chart when it's ready.",
+    });
+  }, [activeSessionId, startBuildChart, toast]);
 
   const handleContinueAnalysis = useCallback(() => {
     if (!activeSessionId || isSending) return;
@@ -338,8 +453,38 @@ export default function SessionResearch() {
   const messages = messagesQuery.data || [];
 
   return (
-    <div className="flex h-[calc(100vh-48px)]" data-testid="session-research-page">
-      <div className="w-56 border-r border-border/30 flex flex-col bg-card/20 shrink-0">
+    <div
+      className={`${
+        isFocusMode
+          ? "fixed inset-0 z-50 flex bg-background"
+          : "flex h-[calc(100vh-48px)]"
+      } ${
+        // Shell-level motion: the layer zooms forward into place. The eye has
+        // something to track between "list view" and "workspace open" so the
+        // entry no longer reads as an instant snap.
+        isFocusMode && !isExiting
+          ? "animate-in zoom-in-95 duration-500 ease-out"
+          : ""
+      } ${
+        isExiting
+          ? "animate-out zoom-out-95 duration-200 ease-in fill-mode-forwards"
+          : ""
+      }`}
+      data-testid="session-research-page"
+      data-focus-mode={isFocusMode}
+    >
+      {/* Sidebar removed — sessions/models/charts now live in the Workbench
+          home view (see below). Was previously kept mounted and hidden in
+          focus mode; deleting entirely simplifies the layout. */}
+      <div className="hidden">
+        {/* unmounted */}
+      </div>
+      {false && (
+      <div
+        className={`w-56 border-r border-border/30 flex flex-col bg-card/20 shrink-0 ${
+          isFocusMode ? "hidden" : ""
+        }`}
+      >
         <div className="p-3 border-b border-border/30">
           <Button
             variant="outline"
@@ -378,6 +523,13 @@ export default function SessionResearch() {
                     activeSessionId === s.id ? "bg-primary/5" : "hover:bg-muted/30"
                   }`}
                   onClick={() => { setActiveSessionId(s.id); setSelectedChartId(null); }}
+                  onMouseEnter={() => {
+                    // Prefetch messages on hover so the click → render path
+                    // hits cache. Eliminates the 400-1000ms fetch wait.
+                    queryClient.prefetchQuery({
+                      queryKey: [`/api/research/sessions/${s.id}/messages`],
+                    });
+                  }}
                   data-testid={`session-item-${s.id}`}
                 >
                   <MessageSquare className="h-3 w-3 text-muted-foreground/50 shrink-0" />
@@ -473,32 +625,71 @@ export default function SessionResearch() {
           )}
         </div>
       </div>
+      )}
 
-      <div className="flex-1 flex flex-col min-w-0">
-        <div className="border-b border-border/30 px-4 py-2 flex items-center justify-between bg-card/10">
-          <div className="flex items-center gap-1 bg-muted/30 rounded-md p-0.5" data-testid="session-mode-toggle">
-            {([
-              { key: "research" as const, label: "Research", icon: FlaskConical },
-              { key: "data" as const, label: "Chart", icon: BarChart3 },
-            ]).map(({ key, label, icon: Icon }) => (
-              <button
-                key={key}
-                onClick={() => setSessionMode(key)}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-[11px] font-medium transition-all ${
-                  sessionMode === key
-                    ? "bg-background text-foreground shadow-sm"
-                    : "text-muted-foreground/60 hover:text-foreground/80"
-                }`}
-                data-testid={`session-mode-${key}`}
-              >
-                <Icon className="h-3 w-3" />
-                {label}
-              </button>
-            ))}
+      <div
+        className={`flex-1 flex flex-col min-w-0 ${
+          // Content lands AFTER the shell zoom — 200ms delay so the user sees
+          // the shell move into place first, then the content arrives.
+          isFocusMode && !isExiting
+            ? "animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out delay-200 fill-mode-both"
+            : ""
+        } ${
+          isExiting ? "animate-out fade-out slide-out-to-bottom-2 duration-150 ease-in fill-mode-forwards" : ""
+        }`}
+      >
+        <div className="border-b border-border/30 px-4 py-2 flex items-center justify-between gap-3 bg-card/10">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="flex items-center gap-1 bg-muted/30 rounded-md p-0.5 shrink-0" data-testid="session-mode-toggle">
+              {([
+                { key: "research" as const, label: "Research", icon: FlaskConical },
+                { key: "data" as const, label: "Chart", icon: BarChart3 },
+              ]).map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => setSessionMode(key)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-[11px] font-medium transition-all ${
+                    sessionMode === key
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground/60 hover:text-foreground/80"
+                  }`}
+                  data-testid={`session-mode-${key}`}
+                >
+                  <Icon className="h-3 w-3" />
+                  {label}
+                </button>
+              ))}
+            </div>
+            {isFocusMode && (
+              <div className="min-w-0 flex items-baseline gap-2">
+                <span className="text-[10px] uppercase tracking-wider text-muted-foreground/50">
+                  {selectedChartId ? "Chart" : "Session"}
+                </span>
+                <span className="text-[12px] text-foreground/80 truncate" data-testid="focus-mode-title">
+                  {selectedChartId
+                    ? (savedCharts.find(c => c.id === selectedChartId)?.title || "Untitled chart")
+                    : (sessions.find(s => s.id === activeSessionId)?.title || "New session")}
+                </span>
+              </div>
+            )}
           </div>
-          {activeSessionId && messages.length > 0 && (
-            <ShareBar sessionId={activeSessionId} session={sessions.find(s => s.id === activeSessionId)} />
-          )}
+          <div className="flex items-center gap-3 shrink-0">
+            {activeSessionId && messages.length > 0 && (
+              <ShareBar sessionId={activeSessionId} session={sessions.find(s => s.id === activeSessionId)} />
+            )}
+            {isFocusMode && (
+              <button
+                onClick={exitFocusMode}
+                className="flex items-center gap-1.5 px-2 py-1 rounded text-[10px] uppercase tracking-wider text-muted-foreground/60 hover:text-foreground hover:bg-muted/40 transition-colors"
+                title="Exit focus mode (Esc)"
+                data-testid="button-exit-focus"
+              >
+                <X className="h-3 w-3" />
+                Exit
+                <kbd className="hidden md:inline-block ml-1 px-1 py-0 rounded border border-border/40 text-[9px] text-muted-foreground/50 font-mono">Esc</kbd>
+              </button>
+            )}
+          </div>
         </div>
         <div className="flex-1 overflow-y-auto px-8 py-6">
           {selectedChartId ? (() => {
@@ -573,43 +764,278 @@ export default function SessionResearch() {
               </div>
             );
           })() : !activeSessionId && messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full max-w-lg mx-auto">
-              <h2 className="text-lg font-bold text-foreground/90 mb-2">
-                {sessionMode === "data" ? "Chart Mode" : "Sessions"}
-              </h2>
-              <p className="text-sm text-muted-foreground/60 mb-8 text-center leading-relaxed">
-                {sessionMode === "data"
-                  ? "Build charts, visualize on-chain data, and create dashboards. Every chart becomes a saveable artifact."
-                  : "Ask anything about DeFi protocols, on-chain data, or market trends. Charts and tables render inline."}
-              </p>
-              <div className="grid grid-cols-2 gap-3 w-full">
-                {(sessionMode === "data" ? SUGGESTED_DATA_QUERIES : SUGGESTED_QUERIES).map((q, i) => (
-                  <button
-                    key={i}
-                    className="text-left text-[13px] text-foreground/60 hover:text-foreground/90 bg-card/40 hover:bg-card/60 rounded-lg border border-border/30 hover:border-border/50 px-4 py-3 transition-colors leading-relaxed"
-                    onClick={() => {
-                      setInput(q);
-                      inputRef.current?.focus();
-                    }}
-                    data-testid={`suggested-query-${i}`}
-                  >
-                    {q}
-                  </button>
-                ))}
+            // ─── Workbench ────────────────────────────────────────────────
+            // Top half: "Start a session" hero (the input here is the actual
+            //           composer — we hide the bottom composer in this state).
+            // Bottom half: Library — sessions / models / charts as cards.
+            // Both halves animate in with a stagger so the workbench feels
+            // composed, not dumped.
+            <div className="h-full flex flex-col gap-8 max-w-5xl mx-auto py-8 px-4" data-testid="workbench">
+              {/* Hero */}
+              <div className="flex-1 flex flex-col items-center justify-center gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out">
+                <div className="text-center space-y-2">
+                  <h1 className="text-[22px] font-semibold text-foreground/95 tracking-tight">
+                    {sessionMode === "data" ? "Build a chart" : "Start a session"}
+                  </h1>
+                  <p className="text-[12px] text-muted-foreground/60 max-w-md mx-auto leading-relaxed">
+                    {sessionMode === "data"
+                      ? "Ask for any data visualization. Charts render inline."
+                      : "Ask anything about DeFi, on-chain data, market structure, or analyst frameworks."}
+                  </p>
+                </div>
+
+                {/* Hero composer */}
+                <div className="w-full max-w-2xl">
+                  <div className="relative rounded-xl border border-border/40 bg-card/30 transition-all focus-within:border-primary/40 focus-within:ring-2 focus-within:ring-primary/15 focus-within:bg-card/50">
+                    <textarea
+                      ref={inputRef}
+                      value={input}
+                      onChange={e => {
+                        setInput(e.target.value);
+                        e.target.style.height = "auto";
+                        e.target.style.height = Math.min(e.target.scrollHeight, 200) + "px";
+                      }}
+                      onKeyDown={handleKeyDown}
+                      placeholder={sessionMode === "data" ? "What chart do you want to see?" : "What do you want to research?"}
+                      className="w-full resize-none bg-transparent px-5 pt-4 pb-14 text-[14px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none min-h-[110px] max-h-[200px]"
+                      rows={3}
+                      disabled={isSending}
+                      data-testid="workbench-composer"
+                    />
+                    <div className="absolute bottom-3 right-3 flex items-center gap-2">
+                      <span className="hidden md:inline-block text-[10px] text-muted-foreground/40 mr-1">
+                        Enter to send · Shift+Enter for newline
+                      </span>
+                      <Button
+                        size="sm"
+                        variant={isSending ? "destructive" : "default"}
+                        className="h-8 px-3 gap-1.5 rounded-md"
+                        onClick={isSending ? cancelStreaming : handleSend}
+                        disabled={!isSending && !input.trim()}
+                        data-testid={isSending ? "workbench-stop" : "workbench-send"}
+                      >
+                        {isSending ? <Square className="h-3 w-3 fill-current" /> : <Send className="h-3 w-3" />}
+                        {isSending ? "Stop" : "Send"}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Suggested-query pills */}
+                <div className="w-full max-w-2xl flex flex-wrap gap-2 justify-center">
+                  {(sessionMode === "data" ? SUGGESTED_DATA_QUERIES : SUGGESTED_QUERIES).slice(0, 6).map((q, i) => (
+                    <button
+                      key={i}
+                      className="text-[11px] px-3 py-1.5 rounded-full border border-border/40 bg-card/20 text-muted-foreground/70 hover:text-foreground hover:bg-card/40 hover:border-border/60 transition-colors"
+                      onClick={() => { setInput(q); inputRef.current?.focus(); }}
+                      data-testid={`suggested-query-${i}`}
+                    >
+                      {q.length > 70 ? q.slice(0, 70) + "…" : q}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Library */}
+              <div className="flex-1 flex flex-col min-h-0 animate-in fade-in slide-in-from-bottom-4 duration-500 ease-out delay-150 fill-mode-both">
+                <div className="flex items-center justify-between border-b border-border/30 pb-2 mb-3">
+                  <div className="flex items-center gap-4">
+                    <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/60 font-semibold">Library</span>
+                    <div className="flex gap-1">
+                      {(["sessions", "models", "charts", "discover"] as const).map(tab => (
+                        <button
+                          key={tab}
+                          onClick={() => setSidebarTab(tab)}
+                          className={`text-[11px] px-2.5 py-1 rounded-md transition-colors ${
+                            sidebarTab === tab
+                              ? "bg-card text-foreground"
+                              : "text-muted-foreground/60 hover:text-foreground/80"
+                          }`}
+                          data-testid={`library-tab-${tab}`}
+                        >
+                          {tab === "sessions" ? `Sessions · ${sessions.length}` :
+                           tab === "models" ? `Models · ${savedModels.length}` :
+                           tab === "charts" ? `Charts · ${savedCharts.length}` :
+                           "Discover"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex-1 overflow-y-auto pr-1">
+                  {sidebarTab === "sessions" && (
+                    <div className="flex flex-col">
+                      {sessions.map(s => (
+                        <button
+                          key={s.id}
+                          onClick={() => { setActiveSessionId(s.id); setSelectedChartId(null); }}
+                          onMouseEnter={() => {
+                            queryClient.prefetchQuery({ queryKey: [`/api/research/sessions/${s.id}/messages`] });
+                          }}
+                          className="group text-left px-3 py-3 border-b border-border/10 hover:bg-foreground/[0.025] transition-colors"
+                          data-testid={`library-session-${s.id}`}
+                        >
+                          <div className="flex items-start gap-2">
+                            <MessageSquare className="h-3 w-3 text-muted-foreground/50 shrink-0 mt-0.5" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[12px] text-foreground/90 line-clamp-2 leading-snug">{s.title}</p>
+                              <p className="text-[10px] text-muted-foreground/40 mt-1.5">
+                                {format(new Date((s as any).updatedAt || s.createdAt), "MMM d, yyyy")}
+                              </p>
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                      {sessions.length === 0 && !sessionsQuery.isLoading && (
+                        <p className="text-center text-[11px] text-muted-foreground/40 py-12">
+                          No sessions yet — start one above.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {sidebarTab === "models" && (
+                    <div className="flex flex-col">
+                      {savedModels.map(m => (
+                        <button
+                          key={m.id}
+                          onClick={() => { setActiveSessionId(m.conversationId); setTargetMessageId(m.id); }}
+                          className="group text-left px-3 py-3 border-b border-border/10 hover:bg-foreground/[0.025] transition-colors"
+                          data-testid={`library-model-${m.id}`}
+                        >
+                          <div className="flex items-start gap-2">
+                            <FileText className="h-3 w-3 text-purple-400/60 shrink-0 mt-0.5" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[12px] text-foreground/90 line-clamp-2 leading-snug">{m.preview || m.conversationTitle}</p>
+                              <p className="text-[10px] text-muted-foreground/40 mt-1.5">{format(new Date(m.createdAt), "MMM d, yyyy")}</p>
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                      {savedModels.length === 0 && !savedModelsQuery.isLoading && (
+                        <p className="text-center text-[11px] text-muted-foreground/40 py-12">
+                          No saved models yet — run a deep dive and save it.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {sidebarTab === "charts" && (
+                    <div className="flex flex-col">
+                      {savedCharts.map(c => (
+                        <button
+                          key={c.id}
+                          onClick={() => { setSelectedChartId(c.id); setActiveSessionId(null); }}
+                          className="group text-left px-3 py-3 border-b border-border/10 hover:bg-foreground/[0.025] transition-colors"
+                          data-testid={`library-chart-${c.id}`}
+                        >
+                          <div className="flex items-start gap-2">
+                            <BarChart3 className="h-3 w-3 text-cyan-400/60 shrink-0 mt-0.5" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[12px] text-foreground/90 line-clamp-2 leading-snug">{c.title}</p>
+                              <p className="text-[10px] text-muted-foreground/40 mt-1.5">
+                                {format(new Date(c.updatedAt || c.createdAt), "MMM d, yyyy")} · {c.chartType}
+                              </p>
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                      {savedCharts.length === 0 && !savedChartsQuery.isLoading && (
+                        <p className="text-center text-[11px] text-muted-foreground/40 py-12">
+                          No saved charts yet — build one and save.
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {sidebarTab === "discover" && (
+                    <div className="flex flex-col items-center pt-10 px-4">
+                      <h2 className="text-[20px] font-semibold text-foreground/90">Add Deal</h2>
+                      <p className="text-[12px] text-muted-foreground/60 mt-1.5 text-center max-w-md">
+                        Drop a URL, company name, tweet, or founder profile. AI agents will build the complete deal card.
+                      </p>
+                      <div className="w-full max-w-xl mt-6">
+                        <div className="relative rounded-xl border border-border/25 bg-card/30 focus-within:border-border/50 focus-within:bg-card/40 transition-colors">
+                          <div className="flex items-center gap-3 px-4 py-3.5">
+                            <Search className="w-4 h-4 text-muted-foreground/40 flex-shrink-0" />
+                            <input
+                              value={discoverInput}
+                              onChange={(e) => setDiscoverInput(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  submitDiscover(discoverInput);
+                                }
+                              }}
+                              placeholder="https://github.com/paradigmxyz/reth"
+                              className="w-full bg-transparent text-sm text-foreground placeholder:text-muted-foreground/30 outline-none"
+                              data-testid="input-discover"
+                            />
+                            {discoverInput.trim() && (
+                              <button
+                                onClick={() => submitDiscover(discoverInput)}
+                                className="text-[11px] font-medium text-sky-400/70 hover:text-sky-400 px-2 py-0.5 rounded hover:bg-sky-400/5 transition-colors"
+                                data-testid="button-discover-submit"
+                              >
+                                Research
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="flex items-center justify-center gap-2 mt-4 flex-wrap">
+                          {DISCOVER_EXAMPLES.map((ex) => (
+                            <button
+                              key={ex}
+                              onClick={() => submitDiscover(ex)}
+                              className="text-[10px] px-2.5 py-1 rounded-md border border-border/15 text-muted-foreground/50 hover:text-foreground/80 hover:border-border/30 hover:bg-card/40 transition-all"
+                              data-testid={`discover-example-${ex.replace(/[^a-z0-9]/gi, '-').toLowerCase()}`}
+                            >
+                              {ex}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          ) : activeSessionId && messages.length === 0 && (messagesQuery.isLoading || messagesQuery.isFetching) ? (
+            <div className="flex items-center justify-center h-full" data-testid="messages-loading">
+              <div className="flex items-center gap-2 text-[11px] text-muted-foreground/50 uppercase tracking-wider">
+                <Loader2 className="h-3 w-3 animate-spin" />
+                Loading conversation
               </div>
             </div>
           ) : (
             <div className="max-w-3xl mx-auto">
-              <DiveDeepButton onDiveDeep={handleDiveDeep} />
+              <DiveDeepButton onDiveDeep={handleDiveDeep} onBuildChart={handleBuildChart} />
+              {/* Research Journey strip: shows the parent session this
+                  one was spawned from (if any), and any sub-sessions
+                  spawned from this one (Build Chart, Double Click).
+                  Lets the user navigate the full research thread
+                  instead of treating each spawn as orphaned. */}
+              <ResearchJourneyStrip
+                activeSessionId={activeSessionId}
+                sessions={sessions}
+              />
+              {/* `isSendingHere` = streaming is active AND it's THIS
+                  session being streamed. Without this gate, navigating
+                  to a different chat while a session is running shows
+                  every other session in a "busy" state and leaks the
+                  pending bubble + thinking panel into them. */}
+              {(() => null)()}
               {messages.map((msg, idx) => {
                 const isLast = idx === messages.length - 1 && msg.role === "assistant";
                 const lastUserMsg = [...messages].reverse().find(m => m.role === "user")?.content;
+                const isSendingHere = isSending && streamingSessionId === activeSessionId;
                 return (
                   <MessageBubble
                     key={msg.id}
                     msg={msg}
                     isLast={isLast}
-                    busy={isSending}
+                    busy={isSendingHere}
                     lastUserMessage={lastUserMsg}
                     onDiveDeep={handleDiveDeep}
                     onAddToReport={handleAddToReport}
@@ -622,19 +1048,28 @@ export default function SessionResearch() {
                   />
                 );
               })}
-              {pendingUserMsg && isSending && (
+              {/* Streaming UI is scoped to the session that's actually
+                  being streamed. Without the streamingSessionId match,
+                  navigating to a different session would show the
+                  pending message + thinking panel from a still-running
+                  OTHER session — leaking state across chats. */}
+              {pendingUserMsg && isSending && streamingSessionId === activeSessionId && (
                 <div className="flex justify-end mb-5" data-testid="msg-user-pending">
                   <div className="max-w-[80%] bg-primary/10 rounded-xl px-4 py-3">
                     <p className="text-[13px] text-foreground/90">{pendingUserMsg}</p>
                   </div>
                 </div>
               )}
-              {isSending && <ThinkingPanel steps={thinkingSteps} />}
+              {isSending && streamingSessionId === activeSessionId && <ThinkingPanel steps={thinkingSteps} />}
               <div ref={messagesEndRef} />
             </div>
           )}
         </div>
 
+        {/* Hide the bottom composer when we're on the Workbench — the hero
+            input is the active composer in that state. Show only when there's
+            an active session, a selected chart, or messages already in flight. */}
+        {(activeSessionId || selectedChartId || messages.length > 0) && (
         <div className="border-t border-border/30 px-8 py-4 bg-background/80 backdrop-blur" data-section="composer">
           <div className="max-w-3xl mx-auto flex items-end gap-3">
             <textarea
@@ -649,32 +1084,113 @@ export default function SessionResearch() {
               placeholder={sessionMode === "data" ? "Build a chart, query data, or create a visualization..." : "Ask about protocols, metrics, or on-chain data..."}
               className="flex-1 resize-none rounded-lg border border-border/40 bg-card/30 px-4 py-3 text-[13px] text-foreground placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 min-h-[44px] max-h-[140px]"
               rows={1}
-              disabled={isSending}
+              disabled={isSending && streamingSessionId === activeSessionId}
               data-testid="input-research-message"
             />
             <Button
               size="sm"
+              variant={isSending && streamingSessionId === activeSessionId ? "destructive" : "default"}
               className="h-10 w-10 p-0 shrink-0 rounded-lg"
-              onClick={handleSend}
-              disabled={!input.trim() || isSending}
-              data-testid="button-send-message"
+              onClick={isSending && streamingSessionId === activeSessionId ? cancelStreaming : handleSend}
+              disabled={(isSending && streamingSessionId !== activeSessionId) || (!isSending && !input.trim())}
+              data-testid={isSending && streamingSessionId === activeSessionId ? "button-stop-message" : "button-send-message"}
+              title={isSending && streamingSessionId === activeSessionId ? "Stop" : (isSending ? "Another session is streaming" : "Send")}
             >
-              {isSending ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+              {isSending && streamingSessionId === activeSessionId ? (
+                <Square className="h-4 w-4 fill-current" />
               ) : (
                 <Send className="h-4 w-4" />
               )}
             </Button>
           </div>
         </div>
+        )}
       </div>
 
-      <SessionInspector
-        sessionId={activeSessionId}
-        messages={messages}
-        thinkingSteps={thinkingSteps}
-        isStreaming={isSending}
-      />
+    </div>
+  );
+}
+
+/* ─── Research Journey Strip ───────────────────────────────────────
+ * Renders parent + children of the active session as a small
+ * navigable strip above the messages. Surfaces the spawn graph the
+ * user built up during their research thread (Build Chart, Double
+ * Click). Click any chip → navigate to that session.
+ *
+ * Hidden when the session has no parent and no children (top-level
+ * solo session — no thread to show).
+ */
+function ResearchJourneyStrip({
+  activeSessionId,
+  sessions,
+}: {
+  activeSessionId: number | null;
+  sessions: Session[];
+}) {
+  const [, setLocation] = useLocation();
+  if (!activeSessionId) return null;
+  const active = sessions.find((s) => s.id === activeSessionId);
+  if (!active) return null;
+  const parent = active.parentSessionId
+    ? sessions.find((s) => s.id === active.parentSessionId)
+    : null;
+  const children = sessions
+    .filter((s) => s.parentSessionId === activeSessionId)
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  if (!parent && children.length === 0) return null;
+
+  const navigate = (id: number) => {
+    setLocation(`/research?sessionId=${id}`);
+  };
+
+  const sourceIcon = (src?: string | null) => {
+    if (src === "build-chart") return <BarChart3 className="w-3 h-3" />;
+    if (src === "double-click") return <Microscope className="w-3 h-3" />;
+    return <MessageSquare className="w-3 h-3" />;
+  };
+
+  return (
+    <div
+      className="mb-5 -mt-1 px-3 py-2.5 rounded-md border border-border/40 bg-card/40 text-[11px]"
+      data-testid="research-journey-strip"
+    >
+      <div className="flex items-center gap-1.5 text-muted-foreground/70 mb-1.5">
+        <GitBranch className="w-3 h-3" />
+        <span className="uppercase tracking-wider">Research Journey</span>
+      </div>
+      {parent && (
+        <div className="flex items-center gap-2 mb-1">
+          <span className="text-muted-foreground/60">Spawned from:</span>
+          <button
+            onClick={() => navigate(parent.id)}
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-foreground/85 bg-background/60 hover:bg-accent transition border border-border/30 max-w-[60ch] truncate"
+            data-testid={`journey-parent-${parent.id}`}
+            title={parent.title}
+          >
+            <ArrowLeft className="w-3 h-3 shrink-0" />
+            <span className="truncate">{parent.title || `Session ${parent.id}`}</span>
+          </button>
+        </div>
+      )}
+      {children.length > 0 && (
+        <div className="flex items-start gap-2 flex-wrap">
+          <span className="text-muted-foreground/60 pt-0.5">Spawned:</span>
+          <div className="flex flex-wrap gap-1.5">
+            {children.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => navigate(c.id)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-foreground/85 bg-background/60 hover:bg-accent transition border border-border/30 max-w-[40ch] truncate"
+                data-testid={`journey-child-${c.id}`}
+                title={`${c.spawnSource || "session"}: ${c.title}`}
+              >
+                {sourceIcon(c.spawnSource)}
+                <span className="truncate">{c.title || `Session ${c.id}`}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

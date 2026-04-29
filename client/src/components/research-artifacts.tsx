@@ -26,7 +26,60 @@ import {
   parseMarkdownTableCells, isTableSeparator, isTableRow,
 } from "@/lib/research-utils";
 
-type ChartViewMode = "line" | "bar" | "area" | "cumulative" | "pie";
+type ChartViewMode = "line" | "bar" | "area" | "cumulative" | "pie" | "stacked";
+
+/* ─── CSV download utility ─────────────────────────────────────────
+ * Converts a chart/table data array into RFC 4180 CSV and triggers
+ * a browser download. Column order is taken from the explicit
+ * `columns` arg when provided (tables) or from Object.keys of the
+ * first row (charts). Values containing commas, quotes, or newlines
+ * are quoted; embedded quotes are doubled. Filename derives from
+ * the artifact title with non-filename chars stripped. */
+function escapeCsvCell(value: any): string {
+  if (value == null) return "";
+  const str = String(value);
+  if (/[",\r\n]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+function rowsToCsv(rows: any[], explicitColumns?: string[]): string {
+  if (!Array.isArray(rows) || rows.length === 0) return "";
+  const cols = explicitColumns && explicitColumns.length > 0
+    ? explicitColumns
+    : Array.from(
+        rows.reduce<Set<string>>((acc, r) => {
+          if (r && typeof r === "object") for (const k of Object.keys(r)) acc.add(k);
+          return acc;
+        }, new Set<string>()),
+      );
+  const header = cols.map(escapeCsvCell).join(",");
+  const body = rows
+    .map((r) => cols.map((c) => escapeCsvCell(r?.[c])).join(","))
+    .join("\r\n");
+  return `${header}\r\n${body}`;
+}
+
+function downloadCsv(filenameBase: string, csv: string): void {
+  if (typeof window === "undefined") return;
+  const safeName = (filenameBase || "data")
+    .replace(/[\\/:*?"<>|]/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80) || "data";
+  // Add a UTF-8 BOM so Excel opens non-ASCII (em dashes, currency
+  // symbols) correctly without prompting for encoding.
+  const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${safeName}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifact; hideSave?: boolean; compact?: boolean }) {
   const { chartConfig, data, title, subtitle, source, refreshRecipe } = artifact;
@@ -70,7 +123,10 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
   // the default and only let the user toggle the cumulative view (which
   // runs a running-sum transform and renders as area). Per-user line/bar/
   // area/pie overrides were noisy and rarely useful.
-  const baseChartType = (["line", "bar", "area"].includes(defaultChartType) ? defaultChartType : "line") as ChartViewMode;
+  // Honor the artifact's chartType when shaper picked pie or stacked. Older
+  // artifacts that say "composed" still flow through the composed branch via
+  // isComposedOrDualAxis; line/bar/area route directly.
+  const baseChartType = (["line", "bar", "area", "pie", "stacked"].includes(defaultChartType) ? defaultChartType : "line") as ChartViewMode;
   const [cumulative, setCumulative] = useState(false);
   const viewMode: ChartViewMode = cumulative ? "cumulative" : baseChartType;
 
@@ -126,8 +182,97 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
     (safeYAxes.length > 1 && inferFormat(safeYAxes[0]?.dataKey, safeYAxes[0]?.label, safeYAxes[0]?.format) !== inferFormat(safeYAxes[1]?.dataKey, safeYAxes[1]?.label, safeYAxes[1]?.format))
   );
 
-  const allFormats = safeYAxes.map(y => inferFormat(y.dataKey, y.label, y.format));
+  const rawAllFormats = safeYAxes.map(y => inferFormat(y.dataKey, y.label, y.format));
+
+  // Magnitude detection: even when two yAxes share a format (e.g. both
+  // currency), if one is in the tens (HYPE price ~$41) and another is in
+  // the billions (HYPE 30D MA ARR ~$716M), they can't share a y-axis —
+  // the smaller series compresses to ~zero against the larger scale.
+  // Compute a robust "typical value" per series (median absolute) and
+  // route to right axis when its magnitude differs from the first
+  // series by >100×.
+  const seriesTypicalAbs = safeYAxes.map(y => {
+    const vals: number[] = [];
+    for (const r of safeData) {
+      const v = Number(r?.[y.dataKey]);
+      if (Number.isFinite(v) && v !== 0) vals.push(Math.abs(v));
+    }
+    if (vals.length === 0) return 0;
+    vals.sort((a, b) => a - b);
+    return vals[Math.floor(vals.length / 2)]; // median
+  });
+
+  // Format-vs-magnitude sanity. Agents sometimes label a USD-billions
+  // series as "percent" (the cascading-mislabel class — "Staked USDe"
+  // is a supply, but the agent tagged it format=percent and the
+  // renderer dutifully rendered ticks like "8000000000%"). Detect and
+  // override per-series:
+  //   - format=percent OR ratio with median > 10000  → override
+  //     (legit percents/ratios essentially never exceed 10,000)
+  //   - format=currency with median < 5             → likely a ratio
+  //     mistakenly labeled currency (P/E, multiples)
+  // Override target uses label hints to pick the right replacement.
+  const allFormats = rawAllFormats.map((f, i) => {
+    const mag = seriesTypicalAbs[i];
+    const y = safeYAxes[i];
+    const labelHint = `${y?.dataKey || ""} ${y?.label || ""}`.toLowerCase();
+    const looksMoney = /\$|\busd\b|dollars|supply|amount|tvl|mcap|fees|revenue|volume|paid|staked|locked|deposit|notional/.test(labelHint);
+    if ((f === "percent" || f === "ratio") && mag > 10_000) {
+      return looksMoney ? "currency" : "number";
+    }
+    if (f === "currency" && mag > 0 && mag < 5) {
+      return "ratio";
+    }
+    return f;
+  });
   const hasRateOrPercent = allFormats.some(f => f === "percent" || f === "ratio");
+
+  const leftMagnitude = seriesTypicalAbs[0] || 0;
+
+  // Assign each yAxis to "left" or "right". Two split criteria — either
+  // triggers right-axis routing:
+  //   1. Format differs from the first series (currency vs percent, etc.)
+  //   2. Same format BUT typical magnitude is >100× off from the first
+  //      (price-vs-revenue case, price-vs-MCAP, etc.)
+  // Three+ series with multiple distinct format/magnitude classes co-
+  // locate to whichever axis is closer to their magnitude.
+  const leftFormat = allFormats[0];
+  const isMagnitudeMismatch = (mag: number): boolean => {
+    if (leftMagnitude === 0 || mag === 0) return false;
+    const ratio = Math.max(mag, leftMagnitude) / Math.min(mag, leftMagnitude);
+    return ratio > 100;
+  };
+  // Three-pass axis assignment so we honor both explicit yAxisIds AND
+  // implicit format/magnitude routing. The format/magnitude pass fills
+  // gaps where the agent didn't explicitly declare a side.
+  const axisIds: Array<"left" | "right"> = safeYAxes.map((y, i) => {
+    // Highest priority: agent-declared yAxisId/orientation. The agent
+    // sometimes explicitly says "this series goes on the right" — honor
+    // that even when format and magnitude would otherwise group it left.
+    if (y?.yAxisId === "right" || y?.orientation === "right") return "right";
+    if (y?.yAxisId === "left" || y?.orientation === "left") return "left";
+    // Fallback: format match + magnitude bucket.
+    const f = allFormats[i];
+    const sameFormat = f === leftFormat;
+    const sameMagnitudeBucket = !isMagnitudeMismatch(seriesTypicalAbs[i]);
+    return sameFormat && sameMagnitudeBucket ? "left" : "right";
+  });
+  // rightFormat is the format of the FIRST series routed to the right
+  // axis. Used for the right Y-axis tick formatter. Falls back to
+  // leftFormat if (somehow) no series routes right but hasRightAxis is
+  // true — defensive only.
+  const firstRightIdx = axisIds.findIndex((a) => a === "right");
+  const rightFormat: string | null = firstRightIdx >= 0 ? allFormats[firstRightIdx] : null;
+  const hasRightAxis = firstRightIdx >= 0;
+
+  // Cumulating point-in-time metrics (ARR, TVL, market cap, price, supply,
+  // moving averages) produces meaningless growing totals — e.g. a chart that
+  // cumulates 30D MA ARR shows "$2B" when the actual ARR is $700M. Block the
+  // toggle for any series whose name implies it's already a snapshot/aggregate.
+  const POINT_IN_TIME_RE = /\b(arr|run[- ]?rate|annualized|tvl|aum|mcap|market[- ]?cap|fdv|supply|circulating|price|multiple|ratio|moving[- ]?avg|\d+d\s*ma|ma\s*\d+d|ema|sma)\b/i;
+  const hasPointInTimeMetric = safeYAxes.some(y =>
+    POINT_IN_TIME_RE.test(`${y.dataKey || ""} ${y.label || ""}`),
+  );
 
   const activeData = viewMode === "cumulative" ? cumulativeData : data;
 
@@ -145,6 +290,18 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
   const isDate = xAxis?.format === "date"
     || (xSample != null && /^\d{4}-\d{2}/.test(String(xSample)))
     || ((isUnixSeconds || isUnixMillis) && xKeyLooksLikeDate);
+
+  // Categorical X-axis detection. The agent often emits xAxis.format="number"
+  // even for waterfall/category bar charts whose xAxis values are strings
+  // ("Gross Fees", "Net Revenue", etc.). Without this guard, the numeric
+  // formatter is applied to non-numeric labels and Recharts can fail to
+  // position bars correctly. When all sampled X-values are non-numeric
+  // and non-date strings, treat as categorical: skip xAxis.format entirely
+  // and let Recharts use category scale + raw labels.
+  const xSamples = data.slice(0, 5).map(r => r?.[xAxis?.dataKey ?? ""]);
+  const isCategoricalX = !isDate && xSamples.length > 0 && xSamples.every(v =>
+    typeof v === "string" && !/^\d/.test(v) && !/^[+-]?\d/.test(v.trim())
+  );
 
   const lastRow = activeData[activeData.length - 1];
   const primaryKey = yAxes[0]?.dataKey;
@@ -185,8 +342,11 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
     if (dates.length < 2) return { dateTicks: undefined, dateFormat: "MMM ''yy" };
     const spanDays = (dates[dates.length - 1].getTime() - dates[0].getTime()) / 86400000;
 
-    // Target ~6-7 axis labels regardless of range, so labels never collide.
-    const TARGET_TICKS = 7;
+    // Target ~5 axis labels regardless of range. Recharts ignores minTickGap
+    // when explicit `ticks` are passed, so density is fully on us; 5 leaves
+    // breathing room for "MMM 'yy" (~50px) at the narrowest chart widths
+    // (memo cards, side-by-side library tiles ~360-400px).
+    const TARGET_TICKS = 5;
 
     if (spanDays <= 60) {
       // Daily range: evenly-spaced, include first + last, but never let the
@@ -241,6 +401,9 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
     if (isDate) {
       try { return format(toDate(val), dateFormat); } catch { return val; }
     }
+    // Categorical X: pass labels through unchanged. Applying numeric
+    // formatValue to non-numeric strings produces "NaN" or worse.
+    if (isCategoricalX) return String(val ?? "");
     return formatValue(val, xAxis.format);
   };
 
@@ -266,7 +429,7 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
       if (pieData.length === 0) {
         return (
           <BarChart data={[]} margin={{ top: 12, right: 20, left: 4, bottom: 8 }}>
-            <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" fill="rgba(255,255,255,0.35)" fontSize={13}>
+            <text x="50%" y="50%" textAnchor="middle" dominantBaseline="middle" fill="var(--color-chart-placeholder)" fontSize={13}>
               No breakdown available for this data
             </text>
           </BarChart>
@@ -285,7 +448,7 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
             dataKey="value"
             nameKey="name"
             label={({ name, percent }: any) => `${name} ${(percent * 100).toFixed(1)}%`}
-            labelLine={{ stroke: "rgba(255,255,255,0.3)", strokeWidth: 1 }}
+            labelLine={{ stroke: "var(--color-chart-pie-line)", strokeWidth: 1 }}
           >
             {pieData.map((entry: any, i: number) => (
               <Cell key={i} fill={entry.color} stroke="transparent" />
@@ -305,8 +468,8 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
             <Legend
               verticalAlign="bottom"
               iconType="circle"
-              iconSize={8}
-              wrapperStyle={{ fontSize: "11px", color: "rgba(255,255,255,0.55)" }}
+              iconSize={7}
+              wrapperStyle={{ fontSize: "9.5px", color: "var(--color-chart-legend)", lineHeight: "12px" }}
             />
           )}
         </PieChart>
@@ -315,19 +478,28 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
 
     const effectiveChartType = viewMode === "cumulative" ? "area" : viewMode;
     const commonProps = { data: activeData, margin: { top: 12, right: needsDualAxis ? 56 : 20, left: 4, bottom: 8 } };
-    const grid = <CartesianGrid strokeDasharray="3 6" stroke="rgba(255,255,255,0.06)" vertical={false} />;
+    const grid = <CartesianGrid strokeDasharray="3 6" stroke="var(--color-chart-grid)" vertical={false} />;
     const xAx = (
       <XAxis
         dataKey={xAxis.dataKey}
+        type="category"
         tickFormatter={xTickFormatter}
-        tick={{ fontSize: 11, fill: "rgba(255,255,255,0.45)" }}
-        axisLine={false}
+        tick={{ fontSize: 11, fill: "var(--color-chart-tick)" }}
+        // Visible baseline — the X-axis line should always read as a
+        // concrete bottom edge for the plot, not an empty void below
+        // the data. Subtle but present.
+        axisLine={{ stroke: "var(--color-chart-axis-line)", strokeWidth: 1 }}
         tickLine={false}
         tickMargin={8}
+        // Categorical bar charts need EVERY tick visible (waterfalls,
+        // valuation comparisons). Dated charts subsample via dateTicks.
         ticks={dateTicks}
-        interval={dateTicks ? 0 : "preserveStartEnd"}
-        padding={{ left: 18, right: 8 }}
-        minTickGap={32}
+        interval={isCategoricalX ? 0 : (dateTicks ? 0 : "preserveStartEnd")}
+        // Padding must be 0 for categorical charts so bars sit inside
+        // the visible plot area; otherwise the first/last bars get
+        // pushed off the chart edge with a small N (the waterfall bug).
+        padding={isCategoricalX ? { left: 0, right: 0 } : { left: 18, right: 8 }}
+        minTickGap={isCategoricalX ? 0 : 32}
       />
     );
     const tip = (
@@ -351,8 +523,8 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
       />
     );
     const leg = yAxes.length > 1 ? (
-      <Legend verticalAlign="top" align="left" height={28} iconType="plainline" iconSize={12}
-        wrapperStyle={{ fontSize: "11px", color: "rgba(255,255,255,0.55)", paddingBottom: "4px" }}
+      <Legend verticalAlign="bottom" align="center" height={20} iconType="plainline" iconSize={9}
+        wrapperStyle={{ fontSize: "9.5px", color: "var(--color-chart-legend)", paddingTop: "6px", lineHeight: "12px" }}
         formatter={(v: string) => { const ax = yAxes.find(y => y.dataKey === v); return ax?.label || v.replace(/_/g, " "); }}
       />
     ) : null;
@@ -368,7 +540,7 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
         const list = annotationsByKey[y.dataKey] || [];
         if (list.length === 0) continue;
         const color = CHART_COLORS[i % CHART_COLORS.length];
-        const axisId = i === 0 ? "left" : "right";
+        const axisId = axisIds[i];
         for (let j = 0; j < list.length; j++) {
           const a = list[j];
           const dotProps: any = {
@@ -376,7 +548,7 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
             y: a.value,
             r: 4,
             fill: color,
-            stroke: "#fff",
+            stroke: "var(--color-chart-dot-stroke)",
             strokeWidth: 1.5,
             ifOverflow: "extendDomain",
           };
@@ -388,7 +560,7 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
                 position="top"
                 offset={8}
                 style={{
-                  fill: "rgba(255,255,255,0.85)",
+                  fill: "var(--color-chart-annotation)",
                   fontSize: 10.5,
                   fontWeight: 500,
                   pointerEvents: "none",
@@ -409,35 +581,43 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
           <YAxis
             yAxisId="left"
             tickFormatter={(v: number) => formatAxisTick(v, inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format))}
-            tick={{ fontSize: 11, fill: "rgba(255,255,255,0.45)" }}
+            tick={{ fontSize: 11, fill: "var(--color-chart-tick)" }}
             axisLine={false}
             tickLine={false}
-            width={60}
+            width={72}
             tickMargin={4}
+            tickCount={5}
+            interval="preserveStartEnd"
+            minTickGap={20}
+            allowDecimals={false}
           />
-          {yAxes.length > 1 && (
+          {hasRightAxis && (
             <YAxis
               yAxisId="right"
               orientation="right"
-              tickFormatter={(v: number) => formatAxisTick(v, inferFormat(yAxes[1]?.dataKey, yAxes[1]?.label, yAxes[1]?.format))}
-              tick={{ fontSize: 11, fill: "rgba(255,255,255,0.35)" }}
+              tickFormatter={(v: number) => formatAxisTick(v, rightFormat!)}
+              tick={{ fontSize: 11, fill: "var(--color-chart-tick-soft)" }}
               axisLine={false}
               tickLine={false}
-              width={56}
+              width={72}
               tickMargin={4}
+              tickCount={5}
+              interval="preserveStartEnd"
+              minTickGap={20}
+              allowDecimals={false}
             />
           )}
           {tip}{leg}
           {yAxes.map((y, i) => {
-            const axisId = i === 0 ? "left" : "right";
+            const axisId = axisIds[i];
             const yChartType = y.chartType || (i === 0 ? "bar" : "line");
             if (yChartType === "bar") {
-              return <Bar key={y.dataKey} yAxisId={axisId} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[2, 2, 0, 0]} maxBarSize={48} />;
+              return <Bar key={y.dataKey} yAxisId={axisId} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[0, 0, 0, 0]} maxBarSize={48} />;
             }
             if (yChartType === "area") {
               return <Area key={y.dataKey} yAxisId={axisId} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1} fill={CHART_COLORS[i % CHART_COLORS.length]} fillOpacity={0.03} dot={false} />;
             }
-            return <Line key={y.dataKey} yAxisId={axisId} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.2} dot={false} activeDot={{ r: 3, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "#fff", strokeWidth: 1 }} />;
+            return <Line key={y.dataKey} yAxisId={axisId} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1} dot={false} activeDot={{ r: 3, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "var(--color-chart-dot-stroke)", strokeWidth: 1 }} />;
           })}
           {renderAnnotations(true)}
         </ComposedChart>
@@ -447,11 +627,15 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
     const yAx = (
       <YAxis
         tickFormatter={(v: number) => formatAxisTick(v, inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format))}
-        tick={{ fontSize: 11, fill: "rgba(255,255,255,0.45)" }}
+        tick={{ fontSize: 11, fill: "var(--color-chart-tick)" }}
         axisLine={false}
         tickLine={false}
-        width={60}
+        width={72}
         tickMargin={4}
+        tickCount={5}
+        interval="preserveStartEnd"
+        minTickGap={20}
+        allowDecimals={false}
       />
     );
 
@@ -460,8 +644,32 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
         <BarChart {...commonProps}>
           {grid}{xAx}{yAx}{tip}{leg}
           {yAxes.map((y, i) => (
-            <Bar key={y.dataKey} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[2, 2, 0, 0]} maxBarSize={48} />
+            <Bar key={y.dataKey} dataKey={y.dataKey} fill={CHART_COLORS[i % CHART_COLORS.length]} radius={[0, 0, 0, 0]} maxBarSize={48} />
           ))}
+          {renderAnnotations(false)}
+        </BarChart>
+      );
+    }
+    if (effectiveChartType === "stacked") {
+      // Stacked bar: composition over time. Every Bar shares the same stackId
+      // so they stack instead of grouping side by side. Top series gets a
+      // rounded top corner; intermediate series stay square.
+      return (
+        <BarChart {...commonProps}>
+          {grid}{xAx}{yAx}{tip}{leg}
+          {yAxes.map((y, i) => {
+            const isTop = i === yAxes.length - 1;
+            return (
+              <Bar
+                key={y.dataKey}
+                dataKey={y.dataKey}
+                stackId="composition"
+                fill={CHART_COLORS[i % CHART_COLORS.length]}
+                radius={isTop ? [2, 2, 0, 0] : [0, 0, 0, 0]}
+                maxBarSize={48}
+              />
+            );
+          })}
           {renderAnnotations(false)}
         </BarChart>
       );
@@ -481,7 +689,7 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
       <LineChart {...commonProps}>
         {grid}{xAx}{yAx}{tip}{leg}
         {yAxes.map((y, i) => (
-          <Line key={y.dataKey} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1.2} dot={false} activeDot={{ r: 3, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "#fff", strokeWidth: 1 }} />
+          <Line key={y.dataKey} type="linear" dataKey={y.dataKey} stroke={CHART_COLORS[i % CHART_COLORS.length]} strokeWidth={1} dot={false} activeDot={{ r: 3, fill: CHART_COLORS[i % CHART_COLORS.length], stroke: "var(--color-chart-dot-stroke)", strokeWidth: 1 }} />
         ))}
         {renderAnnotations(false)}
       </LineChart>
@@ -491,6 +699,9 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
   const isDisabled = (mode: ChartViewMode): { disabled: boolean; reason?: string } => {
     if (mode === "cumulative" && hasRateOrPercent) {
       return { disabled: true, reason: "Cumulative doesn't apply to rates/percentages" };
+    }
+    if (mode === "cumulative" && hasPointInTimeMetric) {
+      return { disabled: true, reason: "Cumulative doesn't apply to point-in-time metrics (ARR, TVL, price, market cap, etc.)" };
     }
     if (isComposedOrDualAxis && !["cumulative", "pie"].includes(mode) && mode !== (["line", "bar", "area"].includes(defaultChartType) ? defaultChartType : "line")) {
       return { disabled: true, reason: "Not available for multi-axis charts" };
@@ -551,6 +762,22 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
               <p className="text-[10px] text-muted-foreground/50 mt-0.5">Latest</p>
             </div>
           )}
+          {/* CSV download — scoped to library context (`hideSave` is true
+              when InlineChart is rendered inside the library / data-station
+              embed; session memos pass hideSave={false} to keep prose
+              clean). */}
+          {hideSave && (
+            <button
+              onClick={() => downloadCsv(title || "chart", rowsToCsv(data || []))}
+              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-all border text-muted-foreground/60 hover:text-foreground/80 hover:bg-muted/30 border-border/30"
+              data-testid="button-download-chart-csv"
+              title="Download chart data as CSV"
+              disabled={!data || data.length === 0}
+            >
+              <FileDown className="h-3 w-3" />
+              CSV
+            </button>
+          )}
           {!hideSave && !savedChartId && (
             <button
               onClick={handleSaveChart}
@@ -604,8 +831,12 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
   );
 }
 
-export function InlineTable({ artifact, compact }: { artifact: Artifact; compact?: boolean }) {
-  const { data, columns, title } = artifact;
+export function InlineTable({ artifact, compact, hideSave }: { artifact: Artifact; compact?: boolean; hideSave?: boolean }) {
+  const { data, columns, title, subtitle, source, refreshRecipe } = artifact;
+  const { toast } = useToast();
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
   if (!data?.length) return null;
 
   const normalize = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -626,23 +857,138 @@ export function InlineTable({ artifact, compact }: { artifact: Artifact; compact
 
   const cols = columns || (Array.isArray(data[0]) ? data[0].map((_: any, i: number) => `Col ${i + 1}`) : Object.keys(data[0]));
 
+  // Save to library: reuses /api/research/charts/save with chartType:"table".
+  // The dashboard_charts table already supports table-type entries; the
+  // library's data-station tab renders chartType === "table" via InlineTable.
+  // Only the save action was missing — adding it here makes tables a
+  // first-class library citizen alongside charts.
+  const handleSaveTable = async () => {
+    setSaving(true);
+    try {
+      const authHeaders = await getAuthHeaders();
+      const res = await fetch("/api/research/charts/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...authHeaders },
+        credentials: "include",
+        body: JSON.stringify({
+          title: title || "Untitled Table",
+          chartType: "table",
+          chartConfig: { columns: cols },
+          data,
+          description: subtitle || source || "",
+          // Pass refreshRecipe through so saved tables become refreshable
+          // live artifacts in the library — same parity with charts.
+          ...(refreshRecipe ? { refreshRecipe } : {}),
+        }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Failed to save");
+      setSaved(true);
+      queryClient.invalidateQueries({ queryKey: ["/api/research/charts/saved"] });
+      toast({ title: "Saved to Library", description: `"${title || "Table"}" — find it in the Charts tab.` });
+    } catch (e: any) {
+      toast({ title: "Error", description: e.message, variant: "destructive" });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Memo-style table aesthetic, dark-theme adapted: top + bottom thick
+  // rules, uppercase indigo headers, no card chrome, no zebra, no hover
+  // shading, tabular-nums in body cells, first-column emphasis. Strips
+  // the rounded-card frame the prior look relied on.
   return (
-    <div className={`rounded-lg border border-border/30 bg-card/40 overflow-hidden shadow-sm ${compact ? "my-0" : "my-5"}`}>
-      {title && <h4 className={`font-semibold text-foreground/90 tracking-tight ${compact ? "text-xs px-2 pt-2 pb-1" : "text-sm px-5 pt-4 pb-2"}`}>{title}</h4>}
+    <div className={compact ? "my-0" : "my-5"}>
+      {(title || !hideSave || hideSave) && (
+        <div className="flex items-start justify-between gap-3 mb-1">
+          {title && (
+            <h4
+              className={`font-semibold text-foreground/90 tracking-tight flex-1 min-w-0 ${compact ? "text-xs pb-1" : "text-sm pb-2"}`}
+            >
+              {title}
+            </h4>
+          )}
+          {/* CSV download — shown in library context (hideSave=true) so
+              users can extract the underlying table data. */}
+          {hideSave && (
+            <button
+              onClick={() => downloadCsv(title || "table", rowsToCsv(data || [], cols))}
+              className="shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-all border text-muted-foreground/60 hover:text-foreground/80 hover:bg-muted/30 border-border/30"
+              data-testid="button-download-table-csv"
+              title="Download table as CSV"
+              disabled={!data || data.length === 0}
+            >
+              <FileDown className="h-3 w-3" />
+              CSV
+            </button>
+          )}
+          {!hideSave && (
+            <button
+              onClick={handleSaveTable}
+              disabled={saving || saved}
+              className={`shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-all border ${
+                saved
+                  ? "bg-amber-500/10 text-amber-500/90 border-amber-500/30"
+                  : "text-muted-foreground/60 hover:text-foreground/80 hover:bg-muted/30 border-border/30"
+              }`}
+              data-testid="button-save-table"
+              title="Save table to library"
+            >
+              {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : saved ? <Check className="h-3 w-3" /> : <Bookmark className="h-3 w-3" />}
+              {saved ? "Saved" : "Save"}
+            </button>
+          )}
+        </div>
+      )}
       <div className={`overflow-x-auto ${compact ? "max-h-[300px] overflow-y-auto" : ""}`}>
-        <table className={`w-full ${compact ? "text-[10px]" : "text-[13px]"}`}>
+        <table
+          className={`w-full ${compact ? "text-[11px]" : "text-[13px]"}`}
+          style={{
+            borderCollapse: "collapse",
+            fontVariantNumeric: "tabular-nums",
+            borderTop: "1.5px solid var(--color-block-rule)",
+            borderBottom: "1.5px solid var(--color-block-rule)",
+          }}
+        >
           <thead>
-            <tr className="border-b border-border/40 bg-muted/20">
-              {cols.map(c => (
-                <th key={c} className={`text-left font-semibold text-muted-foreground/80 uppercase tracking-wider ${compact ? "px-2 py-1.5 text-[9px]" : "px-5 py-2.5 text-xs"}`}>{c.replace(/_/g, " ")}</th>
+            <tr>
+              {cols.map((c) => (
+                <th
+                  key={c}
+                  className={`text-left font-bold uppercase tracking-wider ${compact ? "px-2.5 py-1.5 text-[9.5px]" : "px-3 py-2 text-[11px]"}`}
+                  style={{
+                    color: "#A4B6E8",
+                    borderBottom: "1px solid rgba(164,182,232,0.45)",
+                    letterSpacing: "0.04em",
+                    background: "transparent",
+                  }}
+                >
+                  {c.replace(/_/g, " ")}
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
             {data.slice(0, compact ? 20 : 50).map((row: any, i: number) => (
-              <tr key={i} className="border-b border-border/15 last:border-0 hover:bg-muted/10 transition-colors even:bg-muted/5">
-                {cols.map(c => (
-                  <td key={c} className={`text-foreground/85 font-mono ${compact ? "px-2 py-1 text-[10px]" : "px-5 py-2.5 text-[13px]"}`}>{formatValue(resolveCell(row, c))}</td>
+              <tr key={i}>
+                {cols.map((c, ci) => (
+                  <td
+                    key={c}
+                    className={compact ? "px-2.5 py-1.5" : "px-3 py-1.5"}
+                    style={{
+                      borderBottom:
+                        i === Math.min(data.length, compact ? 20 : 50) - 1
+                          ? "none"
+                          : "1px solid var(--color-block-separator)",
+                      color:
+                        ci === 0
+                          ? "var(--color-block-text-strong)"
+                          : "var(--color-block-text)",
+                      fontWeight: ci === 0 ? 600 : 400,
+                      verticalAlign: "top",
+                    }}
+                  >
+                    {formatValue(resolveCell(row, c))}
+                  </td>
                 ))}
               </tr>
             ))}
@@ -654,41 +1000,134 @@ export function InlineTable({ artifact, compact }: { artifact: Artifact; compact
 }
 
 export function MetricCards({ artifact }: { artifact: Artifact }) {
+  // Memo-style metric snapshot: a 3-column table with uppercase indigo
+  // labels, bold values, italic subtitles. Replaces the prior look (a
+  // grid of rounded card boxes side-by-side) which read like a SaaS
+  // dashboard widget. Same visual language as the new InlineTable —
+  // thick top/bottom rules, indigo header underline, no card chrome,
+  // no zebra. data-testid retained so the memo's print-CSS overrides
+  // continue to apply unchanged.
   const { data, title } = artifact;
   if (!data?.length) return null;
 
+  const ACCENT = "#A4B6E8";
+  const RULE = "var(--color-block-rule)";
+  const SEP = "var(--color-block-separator)";
+
   return (
     <div className="my-5" data-testid="metric-cards">
-      {title && <h4 className="text-sm font-semibold text-foreground/90 mb-3 tracking-tight">{title}</h4>}
-      <div className="grid gap-3" style={{ gridTemplateColumns: `repeat(${Math.min(data.length, 4)}, 1fr)` }}>
-        {data.map((card: any, i: number) => (
-          <div key={i} className="rounded-lg border border-border/30 bg-card/40 px-4 py-3 shadow-sm">
-            <p className="text-xs font-medium text-muted-foreground/70 uppercase tracking-wider mb-1">{card.label}</p>
-            <p className="text-lg font-bold text-foreground/95 font-mono tracking-tight">{card.value}</p>
-            {card.subtitle && <p className="text-xs text-muted-foreground/50 mt-0.5">{card.subtitle}</p>}
-          </div>
-        ))}
+      {title && (
+        <h4
+          className="text-[11px] font-bold uppercase mb-1.5 m-0"
+          style={{
+            color: ACCENT,
+            letterSpacing: "0.04em",
+            paddingBottom: "3px",
+            borderBottom: `1px solid ${ACCENT}`,
+          }}
+        >
+          {title}
+        </h4>
+      )}
+      <div
+        style={{
+          display: "table",
+          width: "100%",
+          borderCollapse: "collapse",
+          borderTop: `1.5px solid ${RULE}`,
+          borderBottom: `1.5px solid ${RULE}`,
+          fontVariantNumeric: "tabular-nums",
+        }}
+      >
+        {data.map((card: any, i: number) => {
+          const isLast = i === data.length - 1;
+          const cellBorder = isLast ? "none" : `1px solid ${SEP}`;
+          return (
+            <div key={i} style={{ display: "table-row" }}>
+              <p
+                className="text-[10px] font-bold uppercase m-0"
+                style={{
+                  display: "table-cell",
+                  width: "38%",
+                  padding: "6px 10px",
+                  verticalAlign: "middle",
+                  color: ACCENT,
+                  letterSpacing: "0.04em",
+                  borderBottom: cellBorder,
+                }}
+              >
+                {card.label}
+              </p>
+              <p
+                className="text-[14px] font-bold m-0"
+                style={{
+                  display: "table-cell",
+                  width: "28%",
+                  padding: "6px 10px",
+                  verticalAlign: "middle",
+                  color: "var(--color-block-text-strong)",
+                  borderBottom: cellBorder,
+                }}
+              >
+                {card.value}
+              </p>
+              <p
+                className="text-[12px] italic m-0"
+                style={{
+                  display: "table-cell",
+                  width: "34%",
+                  padding: "6px 10px",
+                  verticalAlign: "middle",
+                  color: "var(--color-block-text-muted)",
+                  borderBottom: cellBorder,
+                }}
+              >
+                {card.subtitle || ""}
+              </p>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
 }
 
 export function CalloutBlock({ artifact }: { artifact: Artifact }) {
+  // Memo-style callout: thin 2px left rule in the variant accent, tiny
+  // uppercase kicker label in the same accent, body text in the standard
+  // foreground tone. No filled background, no rounded corners, no icon —
+  // the prior look (rounded card with neon-tinted fill and a Lightbulb
+  // icon) read like a Notion admonition / generic web-app warning. The
+  // analyst-memo pattern is restrained: just enough chrome to set it
+  // apart from prose, nothing more.
   const variant = artifact.variant || "insight";
-  const config = {
-    insight: { icon: Lightbulb, label: "Insight", colors: "border-blue-400/30 bg-blue-400/5 text-blue-400" },
-    risk: { icon: AlertTriangle, label: "Risk", colors: "border-amber-400/30 bg-amber-400/5 text-amber-400" },
-    contrarian: { icon: Zap, label: "Contrarian", colors: "border-purple-400/30 bg-purple-400/5 text-purple-400" },
-    catch: { icon: Eye, label: "The Catch", colors: "border-rose-400/30 bg-rose-400/5 text-rose-400" },
+  const accent = {
+    insight: "#A4B6E8",      // indigo — same family as the table header
+    risk: "#E8B86A",         // muted amber
+    contrarian: "#C8A2E8",   // muted violet
+    catch: "#E8A0A8",        // muted coral
   }[variant];
-  const Icon = config.icon;
+  const label = {
+    insight: "Insight",
+    risk: "Risk",
+    contrarian: "Contrarian",
+    catch: "The Catch",
+  }[variant];
   return (
-    <div className={`my-5 rounded-lg border ${config.colors} px-5 py-4`} data-testid={`callout-${variant}`}>
-      <div className="flex items-center gap-2 mb-2">
-        <Icon className="w-4 h-4" />
-        <span className="text-xs uppercase tracking-wider font-bold">{artifact.title || config.label}</span>
+    <div
+      className="my-5 pl-4 py-1"
+      data-testid={`callout-${variant}`}
+      style={{ borderLeft: `2px solid ${accent}` }}
+    >
+      <div
+        className="text-[10px] font-bold uppercase mb-1.5"
+        style={{ color: accent, letterSpacing: "0.14em" }}
+      >
+        {artifact.title || label}
       </div>
-      <p className="text-[13px] text-foreground/85 leading-relaxed">{artifact.text}</p>
+      <p className="text-[13px] text-foreground/85 leading-relaxed m-0">
+        {artifact.text}
+      </p>
     </div>
   );
 }
@@ -728,14 +1167,117 @@ export function ComparisonBlock({ artifact }: { artifact: Artifact }) {
 }
 
 export function QuoteBlock({ artifact }: { artifact: Artifact }) {
+  // Memo-style pull-quote: thin 2px left rule, italic body, attribution
+  // as discreet small-caps line below. Drops the giant QuoteIcon and the
+  // primary-colored border that made the prior treatment feel like a
+  // generic web-app callout. Restrained — same pattern the print memo
+  // uses, adapted for dark theme.
   return (
-    <div className="my-5 border-l-3 border-primary/40 pl-5 py-3" data-testid="quote-block">
-      <div className="flex items-start gap-3">
-        <QuoteIcon className="w-4 h-4 mt-0.5 text-primary/50 flex-shrink-0" />
-        <div>
-          <p className="text-[14px] text-foreground/90 italic leading-relaxed">{artifact.text}</p>
-          {artifact.attribution && <p className="text-xs text-muted-foreground/60 mt-2">— {artifact.attribution}</p>}
-        </div>
+    <div
+      className="my-5 pl-4 py-1"
+      data-testid="quote-block"
+      style={{ borderLeft: "2px solid var(--color-block-rule)" }}
+    >
+      <p className="text-[14px] text-foreground/90 italic leading-relaxed m-0">
+        {artifact.text}
+      </p>
+      {artifact.attribution && (
+        <p
+          className="text-[10px] mt-2 m-0"
+          style={{
+            color: "var(--color-block-text-soft)",
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+          }}
+        >
+          {artifact.attribution}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// Canonical display names. Renderer normalizes the agent's slug or
+// over-verbose body into this short list so the user sees a clean
+// comma-separated provenance list — never endpoint details, query
+// IDs, methodology notes, or dates. Audit-trail metadata stays in logs.
+const SOURCE_NAME_CANON: Record<string, string> = {
+  defillama: "DeFiLlama",
+  "defi-llama": "DeFiLlama",
+  "defi llama": "DeFiLlama",
+  dune: "Dune Analytics",
+  "dune analytics": "Dune Analytics",
+  "dune sql": "Dune Analytics",
+  coingecko: "CoinGecko",
+  "coin gecko": "CoinGecko",
+  stonksonchain: "StonksOnChain",
+  "stonks on chain": "StonksOnChain",
+  allium: "Allium",
+  web: "Web search",
+  "web search": "Web search",
+  brain: "Brain",
+  "analyst-corpus": "Analyst corpus",
+  "analyst corpus": "Analyst corpus",
+  execute_code: "Execute code",
+};
+
+function canonicalSourceName(raw: string): string {
+  const trimmed = String(raw || "").trim();
+  if (!trimmed) return "";
+  // Strip everything after the first hyphen / colon / parenthesis / dash
+  // — anything past that is endpoint detail / methodology leak.
+  const head = trimmed.split(/[-—:(]/)[0].trim();
+  const key = head.toLowerCase();
+  if (SOURCE_NAME_CANON[key]) return SOURCE_NAME_CANON[key];
+  // Fallback: title-case the head.
+  return head.charAt(0).toUpperCase() + head.slice(1);
+}
+
+function extractSourcesFromBody(body: string): string[] {
+  if (!body) return [];
+  const out = new Set<string>();
+  // Pass 1: bullet headers ("- **dune** - ...").
+  const lines = body.split(/\n/);
+  for (const line of lines) {
+    const m = line.match(/^\s*[-*•]\s*(?:\*\*)?([^*\n—:(\-]+)/);
+    if (m) {
+      const name = canonicalSourceName(m[1]);
+      if (name) out.add(name);
+    }
+  }
+  // Pass 2: scan the FULL body for any known canonical source name —
+  // legacy outputs often mention DeFiLlama / CoinGecko inside a verbose
+  // detail tail rather than as separate bullets, and the user wants all
+  // three to surface.
+  const lower = body.toLowerCase();
+  for (const slug of Object.keys(SOURCE_NAME_CANON)) {
+    if (lower.includes(slug)) out.add(SOURCE_NAME_CANON[slug]);
+  }
+  return Array.from(out);
+}
+
+export function SourcesBlock({ artifact }: { artifact: Artifact }) {
+  const structured = artifact.sources ?? [];
+  const names: string[] = (() => {
+    if (structured.length > 0) {
+      const set = new Set<string>();
+      for (const s of structured) {
+        const n = canonicalSourceName(s.name);
+        if (n) set.add(n);
+      }
+      return Array.from(set);
+    }
+    if (artifact.body) return extractSourcesFromBody(artifact.body);
+    return [];
+  })();
+  if (names.length === 0) return null;
+  return (
+    <div className="mt-4 mb-2 pt-3 border-t border-border/30" data-testid="sources-block">
+      <div className="text-[11px] uppercase tracking-wider text-muted-foreground/70 mb-1.5">
+        {artifact.title || "Sources"}
+      </div>
+      <div className="text-[12px] text-muted-foreground/85">
+        {names.join(", ")}
       </div>
     </div>
   );
@@ -872,11 +1414,14 @@ export function MarkdownText({ text }: { text: string }) {
 }
 
 export function ModeBadge({ mode }: { mode: ResearchMode }) {
-  const config = {
+  const configs: Record<string, { label: string; className: string }> = {
     quick: { label: "Quick", className: "bg-emerald-400/10 text-emerald-400 border-emerald-400/30" },
     focused: { label: "Focused", className: "bg-blue-400/10 text-blue-400 border-blue-400/30" },
     deep: { label: "Deep Dive", className: "bg-purple-400/10 text-purple-400 border-purple-400/30" },
-  }[mode];
+    chart: { label: "Chart", className: "bg-cyan-400/10 text-cyan-400 border-cyan-400/30" },
+  };
+  const config = configs[mode];
+  if (!config) return null;
   return (
     <span className={`inline-block px-2.5 py-1 rounded-md border text-[10px] uppercase tracking-wider font-semibold ${config.className}`} data-testid={`mode-badge-${mode}`}>
       {config.label}
@@ -884,10 +1429,25 @@ export function ModeBadge({ mode }: { mode: ResearchMode }) {
   );
 }
 
-export function DiveDeepButton({ onDiveDeep }: { onDiveDeep: (text: string) => void }) {
+/**
+ * Highlight popover. Surfaces over a text selection inside an assistant
+ * message and offers two actions:
+ *   - Dive Deeper: send a follow-up to the SAME session (existing).
+ *   - Build Chart: spawn a NEW chart-mode session in the background.
+ *     User keeps reading the source memo; tracker UI shows progress
+ *     bottom-right. Optional onBuildChart prop — when omitted (e.g.
+ *     reading a saved memo from Library where there's no live session
+ *     to dive into), only the Build Chart button appears.
+ */
+export function DiveDeepButton({
+  onDiveDeep,
+  onBuildChart,
+}: {
+  onDiveDeep?: (text: string) => void;
+  onBuildChart?: (text: string) => void;
+}) {
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const [selectedText, setSelectedText] = useState("");
-  const btnRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const handleSelectionChange = () => {
@@ -919,24 +1479,50 @@ export function DiveDeepButton({ onDiveDeep }: { onDiveDeep: (text: string) => v
   }, []);
 
   if (!pos || !selectedText) return null;
+  if (!onDiveDeep && !onBuildChart) return null;
+
+  const dismiss = () => {
+    window.getSelection()?.removeAllRanges();
+    setPos(null);
+    setSelectedText("");
+  };
 
   return (
-    <button
-      ref={btnRef}
-      className="fixed z-[100] flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium shadow-lg hover:bg-primary/90 transition-all animate-in fade-in zoom-in-95 duration-150"
+    <div
+      className="fixed z-[100] flex items-center gap-1 p-1 rounded-lg bg-popover/95 border border-border/60 backdrop-blur-md shadow-lg animate-in fade-in zoom-in-95 duration-150"
       style={{ left: pos.x, top: pos.y, transform: "translate(-50%, -100%)" }}
-      onMouseDown={(e) => {
-        e.preventDefault();
-        onDiveDeep(selectedText);
-        window.getSelection()?.removeAllRanges();
-        setPos(null);
-        setSelectedText("");
-      }}
-      data-testid="button-dive-deeper"
+      data-testid="highlight-popover"
     >
-      <Microscope className="w-3.5 h-3.5" />
-      Dive Deeper
-    </button>
+      {onDiveDeep && (
+        <button
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-foreground/85 hover:bg-accent transition"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            onDiveDeep(selectedText);
+            dismiss();
+          }}
+          data-testid="button-double-click"
+          title="Run focused-mode follow-up on this section"
+        >
+          <Microscope className="w-3.5 h-3.5" />
+          Double Click
+        </button>
+      )}
+      {onBuildChart && (
+        <button
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs font-medium text-foreground/85 hover:bg-accent transition"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            onBuildChart(selectedText);
+            dismiss();
+          }}
+          data-testid="button-build-chart"
+        >
+          <BarChart3 className="w-3.5 h-3.5" />
+          Build Chart
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -946,13 +1532,144 @@ function formatElapsed(seconds: number): string {
   return m > 0 ? `${m}:${String(s).padStart(2, "0")}` : `${s}s`;
 }
 
+// ─── Phase-based agent pipeline ─────────────────────────────────────
+//
+// Replaces the previous verbose step-list which leaked internals (Dune query
+// IDs, source-fallback strategy, error messages). The new panel renders 4-5
+// abstract phases — Understanding / Planning / Researching / Analyzing /
+// Composing — and lights them up as the agent moves through them. No source
+// names, no error chatter, no internal tool names.
+//
+// Visual pattern mirrors AgentCard from the VC pipeline (add-deal.tsx) so it
+// feels like the same product family.
+
+type PhaseId = "understanding" | "planning" | "researching" | "analyzing" | "composing";
+
+interface PhaseDef {
+  id: PhaseId;
+  label: string;
+  // The user-visible message shown when this phase is the active one.
+  activeMessage: string;
+}
+
+const PHASES: PhaseDef[] = [
+  { id: "understanding", label: "Understanding",  activeMessage: "Reading your question" },
+  { id: "planning",      label: "Planning",       activeMessage: "Choosing what to investigate" },
+  { id: "researching",   label: "Researching",    activeMessage: "Gathering data" },
+  { id: "analyzing",     label: "Analyzing",      activeMessage: "Synthesizing findings" },
+  { id: "composing",     label: "Composing",      activeMessage: "Writing the response" },
+];
+
+// Map a single ThinkingStep to one of the abstract phases. Conservative — when
+// in doubt, return null and the caller falls back to the previous phase.
+function phaseFromStep(step: ThinkingStep): PhaseId | null {
+  const label = (step.label || "").toLowerCase();
+  // Hard-coded phase signals from the agent.
+  if (step.type === "complete") return "composing";
+  if (step.type === "synthesis_started") return "analyzing";
+  if (step.type === "sub_question_started" || step.type === "sub_question_progress" || step.type === "sub_question_done") return "researching";
+  if (step.type === "analyzing") return "analyzing";
+
+  // Keyword sniffing for tool/thinking steps. Prefer the most specific bucket.
+  if (/multi-perspective|perspective|synthes(is|izing|ize)|debate|reflection|reflect/.test(label)) return "analyzing";
+  if (/execute_code|aggregate|compute|model|deriv(e|ed)|merge/.test(label)) return "analyzing";
+  if (/plan|sub-?quest|breakdown|decompose|approach/.test(label)) return "planning";
+  if (/fetch|search|query|pull|retriev|get_|tvl|revenue|fees|price|protocol|onchain|on-chain|dune|defillama|coingecko|allium|brain/.test(label)) return "researching";
+  if (/render|chart|memo|composing|final|writing|build(ing)?\s+chart/.test(label)) return "composing";
+  if (/understand|reading|parsing|intent|classif/.test(label)) return "understanding";
+
+  // Tool_start is almost always research.
+  if (step.type === "tool_start" || step.type === "tool_result") return "researching";
+
+  return null;
+}
+
+// Reduce all observed steps into a phase state map: which phases have been
+// touched + which one is currently active (most recent). We always include
+// "Understanding" as touched (it implicitly happens first).
+function buildPhaseState(steps: ThinkingStep[], isComplete: boolean): {
+  active: PhaseId | null;
+  touched: Set<PhaseId>;
+  visible: PhaseId[];
+} {
+  const touched = new Set<PhaseId>(["understanding"]);
+  let active: PhaseId | null = "understanding";
+  let lastResolved: PhaseId | null = null;
+
+  for (const s of steps) {
+    const p = phaseFromStep(s);
+    if (p) {
+      lastResolved = p;
+      touched.add(p);
+      // Mark all earlier phases as touched too (you can't reach research without understanding).
+      const idx = PHASES.findIndex(ph => ph.id === p);
+      for (let i = 0; i < idx; i++) touched.add(PHASES[i].id);
+    }
+  }
+
+  if (lastResolved) active = lastResolved;
+  if (isComplete) active = null;
+
+  // Always show all 5 phases — keeps the layout stable, dims unreached ones.
+  const visible: PhaseId[] = PHASES.map(p => p.id);
+
+  return { active, touched, visible };
+}
+
+function PhaseCard({ phase, state, isComplete }: { phase: PhaseDef; state: "pending" | "active" | "done"; isComplete: boolean }) {
+  return (
+    <div
+      className={`relative rounded-lg border px-3 py-2.5 transition-all duration-500 ${
+        state === "active"
+          ? "border-border/30 bg-card/60 shadow-sm"
+          : state === "done"
+          ? "border-border/10 bg-card/20"
+          : "border-border/[0.06] bg-transparent"
+      }`}
+      data-testid={`phase-${phase.id}`}
+      data-state={state}
+    >
+      {state === "active" && (
+        <div className="absolute inset-0 rounded-lg bg-gradient-to-r from-sky-500/[0.06] to-transparent pointer-events-none" />
+      )}
+      <div className="relative flex items-center gap-2.5">
+        <div className={`w-5 h-5 rounded-full border flex items-center justify-center transition-all duration-300 flex-shrink-0 ${
+          state === "active"
+            ? "border-sky-400/40 bg-sky-500/10"
+            : state === "done"
+            ? "border-emerald-500/30 bg-emerald-500/10"
+            : "border-white/[0.06] bg-transparent"
+        }`}>
+          {state === "active" ? (
+            <Loader2 className="w-2.5 h-2.5 animate-spin text-sky-400/70" />
+          ) : state === "done" ? (
+            <svg className="w-2.5 h-2.5 text-emerald-500/70" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M2.5 6.5L5 9L9.5 3.5" />
+            </svg>
+          ) : (
+            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: "var(--color-block-separator)" }} />
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <span className={`text-[11px] font-medium transition-all duration-300 ${
+            state === "active" ? "text-foreground/80" : state === "done" ? "text-foreground/40" : "text-foreground/15"
+          }`}>
+            {phase.label}
+          </span>
+          {state === "active" && !isComplete && (
+            <p className="text-[10px] text-muted-foreground/40 truncate mt-0.5">{phase.activeMessage}…</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function ThinkingPanel({ steps }: { steps: ThinkingStep[] }) {
-  const [expanded, setExpanded] = useState(true);
   const startRef = useRef<number | null>(null);
   const frozenRef = useRef<number | null>(null);
   const [tick, setTick] = useState(0);
 
-  // Reset refs when steps empties out (new run starting).
   if (steps.length === 0) {
     startRef.current = null;
     frozenRef.current = null;
@@ -960,10 +1677,8 @@ export function ThinkingPanel({ steps }: { steps: ThinkingStep[] }) {
     startRef.current = Date.now();
   }
 
-  const latestLabel = steps[steps.length - 1]?.label || "Thinking...";
   const isComplete = steps[steps.length - 1]?.type === "complete";
 
-  // Freeze elapsed at completion so the final time stays visible.
   if (isComplete && frozenRef.current === null && startRef.current !== null) {
     frozenRef.current = Math.floor((Date.now() - startRef.current) / 1000);
   }
@@ -983,39 +1698,37 @@ export function ThinkingPanel({ steps }: { steps: ThinkingStep[] }) {
         ? Math.floor((Date.now() - startRef.current) / 1000)
         : 0;
 
+  const { active, touched, visible } = buildPhaseState(steps, isComplete);
+
+  const phaseState = (id: PhaseId): "pending" | "active" | "done" => {
+    if (active === id) return "active";
+    if (touched.has(id)) return "done";
+    return "pending";
+  };
+
   return (
-    <div className="mb-4 rounded-lg border border-border/30 bg-card/20 overflow-hidden" data-testid="thinking-panel">
-      <button
-        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-muted/20 transition-colors"
-        onClick={() => setExpanded(!expanded)}
-        data-testid="button-toggle-thinking"
-      >
-        {!isComplete && <Loader2 className="h-3.5 w-3.5 animate-spin text-primary/60" />}
-        {isComplete && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500/70" />}
-        <span className="text-xs text-foreground/60 flex-1 truncate">{latestLabel}</span>
+    <div
+      className="mb-4 rounded-lg border border-border/30 bg-card/10 px-3 py-3"
+      data-testid="thinking-panel"
+    >
+      <div className="flex items-center justify-between mb-2.5 px-1">
+        <span className="text-[10px] uppercase tracking-[0.12em] text-muted-foreground/50 font-semibold">
+          {isComplete ? "Done" : "Working"}
+        </span>
         <span
-          className="text-[10px] tabular-nums text-muted-foreground/60 shrink-0"
+          className="text-[10px] tabular-nums text-muted-foreground/50"
           data-testid="thinking-elapsed"
           title={isComplete ? "Total time" : "Elapsed"}
         >
           {formatElapsed(elapsed)}
         </span>
-        <ChevronDown className={`h-3.5 w-3.5 text-muted-foreground/40 transition-transform ${expanded ? "" : "-rotate-90"}`} />
-      </button>
-      {expanded && (
-        <div className="px-4 pb-3 space-y-1">
-          {steps.map((step, i) => (
-            <div key={i} className="flex items-start gap-2.5 py-0.5">
-              {step.type === "thinking" && <Brain className="h-3.5 w-3.5 text-blue-400/60 mt-0.5 shrink-0" />}
-              {step.type === "tool_start" && <Search className="h-3.5 w-3.5 text-amber-400/60 mt-0.5 shrink-0" />}
-              {step.type === "tool_result" && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400/60 mt-0.5 shrink-0" />}
-              {step.type === "analyzing" && <BarChart3 className="h-3.5 w-3.5 text-purple-400/60 mt-0.5 shrink-0" />}
-              {step.type === "complete" && <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500/60 mt-0.5 shrink-0" />}
-              <span className="text-[11px] text-foreground/50 leading-relaxed">{step.label}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      </div>
+      <div className="grid gap-2">
+        {visible.map(id => {
+          const phase = PHASES.find(p => p.id === id)!;
+          return <PhaseCard key={id} phase={phase} state={phaseState(id)} isComplete={isComplete} />;
+        })}
+      </div>
     </div>
   );
 }
@@ -1221,6 +1934,7 @@ export function MessageBubble({
             if (part.type === "callout" && part.artifact) return <CalloutBlock key={i} artifact={part.artifact} />;
             if (part.type === "comparison" && part.artifact) return <ComparisonBlock key={i} artifact={part.artifact} />;
             if (part.type === "quote" && part.artifact) return <QuoteBlock key={i} artifact={part.artifact} />;
+            if (part.type === "sources" && part.artifact) return <SourcesBlock key={i} artifact={part.artifact} />;
             return null;
           })();
           const artifactEl = raw == null

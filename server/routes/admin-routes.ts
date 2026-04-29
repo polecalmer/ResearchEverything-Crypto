@@ -176,78 +176,96 @@ export function registerAdminRoutes(app: Express) {
     const isAdmin = await storage.checkIsAdmin(req.user!.id);
     if (!isAdmin) return res.status(403).json({ message: "Admin only" });
     try {
-      const report = await getOnChainCostReport();
-      const txSummary = await db.execute(sql`
-        SELECT 
-          type,
-          COUNT(*) as count,
-          COALESCE(SUM(CAST(api_cost AS NUMERIC)), 0) as logged_cost,
-          COALESCE(SUM(input_tokens), 0) as total_input_tokens,
-          COALESCE(SUM(output_tokens), 0) as total_output_tokens,
-          MIN(created_at) as first_tx,
-          MAX(created_at) as last_tx
-        FROM transactions 
-        WHERE status = 'success'
-        GROUP BY type
-        ORDER BY logged_cost DESC
-      `);
-      const totalTokens = await db.execute(sql`
-        SELECT 
-          COALESCE(SUM(input_tokens), 0) as total_input,
-          COALESCE(SUM(output_tokens), 0) as total_output,
-          COUNT(*) as total_txns
-        FROM transactions WHERE status = 'success'
-      `);
-      const sessionBreakdown = await db.execute(sql`
-        SELECT 
-          t.id,
-          t.type,
-          t.description,
-          t.company_name,
-          CAST(t.api_cost AS NUMERIC) as api_cost,
-          CAST(t.amount AS NUMERIC) as amount,
-          COALESCE(t.input_tokens, 0) as input_tokens,
-          COALESCE(t.output_tokens, 0) as output_tokens,
-          t.created_at,
-          u.username
-        FROM transactions t
-        LEFT JOIN users u ON t.user_id = u.id
-        WHERE t.status = 'success'
-        ORDER BY t.created_at DESC
-        LIMIT 100
-      `);
-      const dailyCosts = await db.execute(sql`
-        SELECT 
-          DATE(created_at) as day,
-          COUNT(*) as tx_count,
-          COALESCE(SUM(CAST(api_cost AS NUMERIC)), 0) as daily_cost,
-          COALESCE(SUM(CAST(amount AS NUMERIC)), 0) as daily_charged,
-          COALESCE(SUM(input_tokens), 0) as daily_input_tokens,
-          COALESCE(SUM(output_tokens), 0) as daily_output_tokens
-        FROM transactions
-        WHERE status = 'success' AND created_at >= NOW() - INTERVAL '30 days'
-        GROUP BY DATE(created_at)
-        ORDER BY day ASC
-      `);
-      const weeklyCosts = await db.execute(sql`
-        SELECT 
-          DATE_TRUNC('week', created_at)::date as week_start,
-          COUNT(*) as tx_count,
-          COALESCE(SUM(CAST(api_cost AS NUMERIC)), 0) as weekly_cost,
-          COALESCE(SUM(CAST(amount AS NUMERIC)), 0) as weekly_charged,
-          COALESCE(SUM(input_tokens), 0) as weekly_input_tokens,
-          COALESCE(SUM(output_tokens), 0) as weekly_output_tokens
-        FROM transactions
-        WHERE status = 'success' AND created_at >= NOW() - INTERVAL '12 weeks'
-        GROUP BY DATE_TRUNC('week', created_at)
-        ORDER BY week_start ASC
-      `);
-      const alertStatus = await checkCostAlert();
+      // Parallelize all six independent reads. Was sequential and the slow
+      // step (getOnChainCostReport scans block ranges via RPC) blocked the
+      // five DB queries that don't depend on it. Promise.all takes the wall
+      // clock down to max(slowest_step) instead of sum(all_steps).
+      const [
+        report,
+        txSummary,
+        sessionBreakdown,
+        dailyCosts,
+        weeklyCosts,
+        alertStatus,
+      ] = await Promise.all([
+        getOnChainCostReport(),
+        db.execute(sql`
+          SELECT
+            type,
+            COUNT(*) as count,
+            COALESCE(SUM(CAST(api_cost AS NUMERIC)), 0) as logged_cost,
+            COALESCE(SUM(input_tokens), 0) as total_input_tokens,
+            COALESCE(SUM(output_tokens), 0) as total_output_tokens,
+            MIN(created_at) as first_tx,
+            MAX(created_at) as last_tx
+          FROM transactions
+          WHERE status = 'success'
+          GROUP BY type
+          ORDER BY logged_cost DESC
+        `),
+        db.execute(sql`
+          SELECT
+            t.id,
+            t.type,
+            t.description,
+            t.company_name,
+            CAST(t.api_cost AS NUMERIC) as api_cost,
+            CAST(t.amount AS NUMERIC) as amount,
+            COALESCE(t.input_tokens, 0) as input_tokens,
+            COALESCE(t.output_tokens, 0) as output_tokens,
+            t.created_at,
+            u.username
+          FROM transactions t
+          LEFT JOIN users u ON t.user_id = u.id
+          WHERE t.status = 'success'
+          ORDER BY t.created_at DESC
+          LIMIT 100
+        `),
+        db.execute(sql`
+          SELECT
+            DATE(created_at) as day,
+            COUNT(*) as tx_count,
+            COALESCE(SUM(CAST(api_cost AS NUMERIC)), 0) as daily_cost,
+            COALESCE(SUM(CAST(amount AS NUMERIC)), 0) as daily_charged,
+            COALESCE(SUM(input_tokens), 0) as daily_input_tokens,
+            COALESCE(SUM(output_tokens), 0) as daily_output_tokens
+          FROM transactions
+          WHERE status = 'success' AND created_at >= NOW() - INTERVAL '30 days'
+          GROUP BY DATE(created_at)
+          ORDER BY day ASC
+        `),
+        db.execute(sql`
+          SELECT
+            DATE_TRUNC('week', created_at)::date as week_start,
+            COUNT(*) as tx_count,
+            COALESCE(SUM(CAST(api_cost AS NUMERIC)), 0) as weekly_cost,
+            COALESCE(SUM(CAST(amount AS NUMERIC)), 0) as weekly_charged,
+            COALESCE(SUM(input_tokens), 0) as weekly_input_tokens,
+            COALESCE(SUM(output_tokens), 0) as weekly_output_tokens
+          FROM transactions
+          WHERE status = 'success' AND created_at >= NOW() - INTERVAL '12 weeks'
+          GROUP BY DATE_TRUNC('week', created_at)
+          ORDER BY week_start ASC
+        `),
+        checkCostAlert(),
+      ]);
+
+      // Derive total tokens from txSummary instead of running a redundant
+      // query — the txSummary aggregation already has per-type input/output
+      // token sums and counts. One less round-trip.
+      const tokenUsage = (txSummary.rows as any[]).reduce(
+        (acc, r) => ({
+          total_input: acc.total_input + Number(r.total_input_tokens || 0),
+          total_output: acc.total_output + Number(r.total_output_tokens || 0),
+          total_txns: acc.total_txns + Number(r.count || 0),
+        }),
+        { total_input: 0, total_output: 0, total_txns: 0 },
+      );
 
       res.json({
         onChain: report,
         transactionBreakdown: txSummary.rows,
-        tokenUsage: totalTokens.rows[0],
+        tokenUsage,
         sessionBreakdown: sessionBreakdown.rows,
         dailyCosts: dailyCosts.rows,
         weeklyCosts: weeklyCosts.rows,
@@ -295,42 +313,45 @@ export function registerAdminRoutes(app: Express) {
     const isAdmin = await storage.checkIsAdmin(req.user!.id);
     if (!isAdmin) return res.status(403).json({ message: "Admin only" });
     try {
-      const onChain = await getOnChainCostReport();
-
-      const summaryResult = await db.execute(sql`
-        SELECT 
-          COUNT(*) as total_transactions,
-          COALESCE(SUM(CAST(api_cost AS NUMERIC)), 0) as total_logged_cost,
-          COALESCE(SUM(CAST(amount AS NUMERIC)), 0) as total_charged,
-          COUNT(CASE WHEN cost_basis = 'receipt' THEN 1 END) as receipt_count,
-          COUNT(CASE WHEN cost_basis = 'voucher_estimate' THEN 1 END) as voucher_count,
-          COUNT(CASE WHEN cost_basis IS NULL THEN 1 END) as unknown_count,
-          COALESCE(SUM(CASE WHEN cost_basis = 'receipt' THEN CAST(api_cost AS NUMERIC) ELSE 0 END), 0) as receipt_cost,
-          COALESCE(SUM(CASE WHEN cost_basis = 'voucher_estimate' THEN CAST(api_cost AS NUMERIC) ELSE 0 END), 0) as voucher_cost,
-          COALESCE(SUM(CASE WHEN cost_basis IS NULL THEN CAST(api_cost AS NUMERIC) ELSE 0 END), 0) as unknown_cost
-        FROM transactions WHERE status = 'success'
-      `);
-
-      const byTypeResult = await db.execute(sql`
-        SELECT 
-          type,
-          COUNT(*) as count,
-          COALESCE(SUM(CAST(api_cost AS NUMERIC)), 0) as logged_cost,
-          COALESCE(SUM(CAST(amount AS NUMERIC)), 0) as charged,
-          COUNT(CASE WHEN cost_basis = 'receipt' THEN 1 END) as receipt_count,
-          COUNT(CASE WHEN cost_basis = 'voucher_estimate' THEN 1 END) as voucher_count,
-          COUNT(CASE WHEN cost_basis IS NULL THEN 1 END) as unknown_count
-        FROM transactions WHERE status = 'success'
-        GROUP BY type ORDER BY logged_cost DESC
-      `);
-
-      const recentTxResult = await db.execute(sql`
-        SELECT id, type, description, amount, api_cost, cost_basis, company_name, created_at
-        FROM transactions 
-        WHERE status = 'success'
-        ORDER BY created_at DESC
-        LIMIT 100
-      `);
+      // Same Promise.all treatment as /api/admin/cost-report — was 4
+      // sequential awaits, now wall-clock = max(slowest_step). The on-chain
+      // report is shared with cost-report so the 60s memory cache amortizes
+      // its cost across both endpoints.
+      const [onChain, summaryResult, byTypeResult, recentTxResult] = await Promise.all([
+        getOnChainCostReport(),
+        db.execute(sql`
+          SELECT
+            COUNT(*) as total_transactions,
+            COALESCE(SUM(CAST(api_cost AS NUMERIC)), 0) as total_logged_cost,
+            COALESCE(SUM(CAST(amount AS NUMERIC)), 0) as total_charged,
+            COUNT(CASE WHEN cost_basis = 'receipt' THEN 1 END) as receipt_count,
+            COUNT(CASE WHEN cost_basis = 'voucher_estimate' THEN 1 END) as voucher_count,
+            COUNT(CASE WHEN cost_basis IS NULL THEN 1 END) as unknown_count,
+            COALESCE(SUM(CASE WHEN cost_basis = 'receipt' THEN CAST(api_cost AS NUMERIC) ELSE 0 END), 0) as receipt_cost,
+            COALESCE(SUM(CASE WHEN cost_basis = 'voucher_estimate' THEN CAST(api_cost AS NUMERIC) ELSE 0 END), 0) as voucher_cost,
+            COALESCE(SUM(CASE WHEN cost_basis IS NULL THEN CAST(api_cost AS NUMERIC) ELSE 0 END), 0) as unknown_cost
+          FROM transactions WHERE status = 'success'
+        `),
+        db.execute(sql`
+          SELECT
+            type,
+            COUNT(*) as count,
+            COALESCE(SUM(CAST(api_cost AS NUMERIC)), 0) as logged_cost,
+            COALESCE(SUM(CAST(amount AS NUMERIC)), 0) as charged,
+            COUNT(CASE WHEN cost_basis = 'receipt' THEN 1 END) as receipt_count,
+            COUNT(CASE WHEN cost_basis = 'voucher_estimate' THEN 1 END) as voucher_count,
+            COUNT(CASE WHEN cost_basis IS NULL THEN 1 END) as unknown_count
+          FROM transactions WHERE status = 'success'
+          GROUP BY type ORDER BY logged_cost DESC
+        `),
+        db.execute(sql`
+          SELECT id, type, description, amount, api_cost, cost_basis, company_name, created_at
+          FROM transactions
+          WHERE status = 'success'
+          ORDER BY created_at DESC
+          LIMIT 100
+        `),
+      ]);
 
       const summary = summaryResult.rows[0];
       const totalLoggedCost = Number(summary?.total_logged_cost || 0);

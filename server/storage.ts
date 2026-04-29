@@ -158,7 +158,7 @@ export interface IStorage {
   getActiveProtocolRevenueModels(): Promise<ProtocolRevenueModel[]>;
 
   // Session research conversations
-  createConversation(data: { userId: string; title: string; type: string }): Promise<Conversation>;
+  createConversation(data: { userId: string; title: string; type: string; parentSessionId?: number; spawnSource?: string }): Promise<Conversation>;
   getConversations(userId: string, type: string): Promise<Conversation[]>;
   getConversation(id: number): Promise<Conversation | undefined>;
   updateConversationTitle(id: number, title: string): Promise<void>;
@@ -635,6 +635,7 @@ export class DatabaseStorage implements IStorage {
       metricType: data.metricType.toLowerCase().trim(),
     };
     const existing = await this.findProvenQuery(normalizedData.protocol, normalizedData.metricType);
+    let saved: ProvenQuery;
     if (existing) {
       const [updated] = await db.update(provenQueries)
         .set({
@@ -653,10 +654,25 @@ export class DatabaseStorage implements IStorage {
         })
         .where(eq(provenQueries.id, existing.id))
         .returning();
-      return updated;
+      saved = updated;
+    } else {
+      const [query] = await db.insert(provenQueries).values(normalizedData).returning();
+      saved = query;
     }
-    const [query] = await db.insert(provenQueries).values(normalizedData).returning();
-    return query;
+    // Auto-embed for semantic lookup. Best-effort + fire-and-forget — a
+    // Voyage hiccup must not block the SQL save itself, and the next
+    // request can re-embed via the backfill script if needed.
+    void (async () => {
+      try {
+        const { writeProvenQueryEmbedding } = await import("./proven-queries-search");
+        await writeProvenQueryEmbedding(saved.id, {
+          protocol: saved.protocol,
+          metricType: saved.metricType,
+          sqlQuery: saved.sqlQuery,
+        });
+      } catch { /* swallow */ }
+    })();
+    return saved;
   }
 
   async recordProvenQuerySuccess(id: string): Promise<void> {
@@ -980,7 +996,7 @@ export class DatabaseStorage implements IStorage {
     return db.select().from(protocolRevenueModels).where(eq(protocolRevenueModels.isActive, true));
   }
 
-  async createConversation(data: { userId: string; title: string; type: string }): Promise<Conversation> {
+  async createConversation(data: { userId: string; title: string; type: string; parentSessionId?: number; spawnSource?: string }): Promise<Conversation> {
     const [conv] = await db.insert(conversations).values(data).returning();
     return conv;
   }
@@ -1026,6 +1042,14 @@ export class DatabaseStorage implements IStorage {
 
   async createMessage(data: { conversationId: number; role: string; content: string; artifacts?: any; kind?: string; plan?: any }): Promise<Message> {
     const [msg] = await db.insert(messages).values(data).returning();
+    if (msg.role === "user") {
+      // Fire-and-forget: detect corrective language vs the previous
+      // assistant turn and queue for extraction. Gated by env flag,
+      // safe when disabled. Failures must not affect the conversation.
+      import("./correction-ingestion/detector")
+        .then((m) => m.maybeQueueCorrection(msg.conversationId, msg.id, msg.content))
+        .catch((err) => console.warn(`[CorrectionIngestion] detector hook failed: ${err?.message}`));
+    }
     return msg;
   }
 

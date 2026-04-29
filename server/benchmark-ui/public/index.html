@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Benchmark Analytics</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="dot"></span>
+        <span class="brand-name">BENCHMARK</span>
+        <span class="brand-sep">·</span>
+        <span class="brand-kicker">ANALYTICS</span>
+      </div>
+      <div class="mode-toggle">
+        <button id="mode-tolerance" class="active" data-mode="tolerance">Tolerance</button>
+        <button id="mode-quality" data-mode="quality">Quality</button>
+        <button id="mode-costs" data-mode="costs">Costs</button>
+        <button id="mode-latency" data-mode="latency">Latency</button>
+        <button id="mode-outputs" data-mode="outputs">Outputs</button>
+      </div>
+      <div class="run-picker" id="run-picker-wrap">
+        <label for="run-select">Run</label>
+        <select id="run-select"></select>
+      </div>
+    </header>
+
+    <main id="view-tolerance">
+      <section class="summary" id="summary">
+        <div class="kpi"><span class="k">Config</span><span class="v" id="k-version">—</span></div>
+        <div class="kpi"><span class="k">Accuracy</span><span class="v" id="k-accuracy">—</span></div>
+        <div class="kpi"><span class="k">Passed</span><span class="v" id="k-passed">—</span></div>
+        <div class="kpi"><span class="k">Cost</span><span class="v" id="k-cost">—</span></div>
+        <div class="kpi"><span class="k">Latency p50 / p90</span><span class="v" id="k-latency">—</span></div>
+        <div class="kpi"><span class="k">Status</span><span class="v" id="k-status">—</span></div>
+      </section>
+
+      <section class="grid">
+        <div class="card span-2">
+          <h3>Accuracy over time</h3>
+          <div class="chart-wrap chart-wrap-tall"><canvas id="chart-history"></canvas></div>
+        </div>
+
+        <div class="card">
+          <h3>By protocol category</h3>
+          <div class="chart-wrap"><canvas id="chart-category"></canvas></div>
+        </div>
+
+        <div class="card">
+          <h3>By difficulty</h3>
+          <div class="chart-wrap"><canvas id="chart-difficulty"></canvas></div>
+        </div>
+
+        <div class="card">
+          <h3>By data source</h3>
+          <div class="chart-wrap"><canvas id="chart-source"></canvas></div>
+        </div>
+
+        <div class="card">
+          <h3>Failure buckets</h3>
+          <table id="failure-buckets">
+            <thead><tr><th>Bucket</th><th class="num">Count</th><th class="num">Avg score</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div class="card span-2">
+          <h3>Top failures <span class="subtle" id="failures-count"></span></h3>
+          <div class="table-wrap">
+            <table id="failures">
+              <thead>
+                <tr>
+                  <th>Protocol</th>
+                  <th>Metric</th>
+                  <th>Query</th>
+                  <th class="num">Score</th>
+                  <th class="num">MAPE</th>
+                  <th>Source</th>
+                  <th>Error</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <main id="view-quality" hidden>
+      <section class="summary">
+        <div class="kpi"><span class="k">Run</span><span class="v" id="q-when">—</span></div>
+        <div class="kpi"><span class="k">Avg score</span><span class="v" id="q-avg">—</span></div>
+        <div class="kpi"><span class="k">Scored</span><span class="v" id="q-scored">—</span></div>
+        <div class="kpi"><span class="k">Cost</span><span class="v" id="q-cost">—</span></div>
+        <div class="kpi"><span class="k">Duration</span><span class="v" id="q-duration">—</span></div>
+        <div class="kpi"><span class="k">Status</span><span class="v" id="q-status">—</span></div>
+      </section>
+
+      <section class="grid">
+        <div class="card">
+          <h3>By dimension</h3>
+          <div class="chart-wrap"><canvas id="q-chart-dim"></canvas></div>
+        </div>
+        <div class="card">
+          <h3>By verdict</h3>
+          <div class="chart-wrap"><canvas id="q-chart-verdict"></canvas></div>
+        </div>
+        <div class="card">
+          <h3>Run notes</h3>
+          <div id="q-notes" style="font-size:12px;color:var(--text-mute);line-height:1.5;padding:8px 4px;">—</div>
+        </div>
+
+        <div class="card span-3">
+          <h3>Criterion misses <span class="subtle">which structured rubric criteria the judge marked &lt; 1.0 across this run</span></h3>
+          <div class="table-wrap" id="q-criterion-misses-wrap">
+            <table id="q-criterion-misses">
+              <thead>
+                <tr>
+                  <th>Criterion</th>
+                  <th>Description</th>
+                  <th>Dimensions</th>
+                  <th class="num">Failed</th>
+                  <th class="num">Avg case score</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card span-3">
+          <h3>Per-case judgments <span class="subtle" id="q-refresh-status"></span></h3>
+          <div class="table-wrap">
+            <table id="q-results">
+              <thead>
+                <tr>
+                  <th></th>
+                  <th>Dim</th>
+                  <th>Prompt</th>
+                  <th class="num">Score</th>
+                  <th>Verdict</th>
+                  <th class="num">Cost</th>
+                  <th class="num">Latency</th>
+                  <th>Critique</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <main id="view-costs" hidden>
+      <section class="summary">
+        <div class="kpi"><span class="k">Total spend</span><span class="v" id="c-total">—</span></div>
+        <div class="kpi"><span class="k">Cases scored</span><span class="v" id="c-cases">—</span></div>
+        <div class="kpi"><span class="k">Avg / case</span><span class="v" id="c-avg">—</span></div>
+        <div class="kpi"><span class="k">Unique prompts</span><span class="v" id="c-prompts">—</span></div>
+        <div class="kpi"><span class="k">Runs tracked</span><span class="v" id="c-runs">—</span></div>
+        <div class="kpi"><span class="k">Tool attribution</span><span class="v subtle-warn" id="c-tools">not instrumented</span></div>
+      </section>
+
+      <section class="grid">
+        <div class="card span-2">
+          <h3>Run cost trend <span class="subtle">total $ per run, oldest → newest</span></h3>
+          <div class="chart-wrap chart-wrap-tall"><canvas id="c-chart-runs"></canvas></div>
+        </div>
+        <div class="card">
+          <h3>By dimension <span class="subtle">avg $ / case</span></h3>
+          <div class="chart-wrap"><canvas id="c-chart-dim"></canvas></div>
+        </div>
+
+        <div class="card span-3">
+          <h3>Cost per prompt across runs <span class="subtle" id="c-prompt-count"></span></h3>
+          <div class="cost-controls">
+            <label>Sort:
+              <select id="c-sort">
+                <option value="movement">Biggest cost movement (Δ)</option>
+                <option value="avg-desc">Avg cost (high → low)</option>
+                <option value="avg-asc">Avg cost (low → high)</option>
+                <option value="runs">Most runs first</option>
+              </select>
+            </label>
+            <label>Dimension:
+              <select id="c-dim-filter"><option value="">All</option></select>
+            </label>
+          </div>
+          <div class="table-wrap">
+            <table id="c-prompt-table">
+              <thead>
+                <tr>
+                  <th>Dim</th>
+                  <th>Prompt</th>
+                  <th class="num">Runs</th>
+                  <th class="num">First $</th>
+                  <th class="num">Last $</th>
+                  <th class="num">Δ</th>
+                  <th class="num">Avg $</th>
+                  <th class="num">Min $</th>
+                  <th class="num">Max $</th>
+                  <th>Per-run trail</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <main id="view-latency" hidden>
+      <section class="summary">
+        <div class="kpi"><span class="k">Total time</span><span class="v" id="l-total">—</span></div>
+        <div class="kpi"><span class="k">Cases scored</span><span class="v" id="l-cases">—</span></div>
+        <div class="kpi"><span class="k">Avg / case</span><span class="v" id="l-avg">—</span></div>
+        <div class="kpi"><span class="k">p50 / p90</span><span class="v" id="l-p50p90">—</span></div>
+        <div class="kpi"><span class="k">p99</span><span class="v" id="l-p99">—</span></div>
+        <div class="kpi"><span class="k">Tool attribution</span><span class="v subtle-warn" id="l-tools">not instrumented</span></div>
+      </section>
+
+      <section class="grid">
+        <div class="card span-2">
+          <h3>Run latency trend <span class="subtle">avg / p50 / p90 per run, oldest → newest</span></h3>
+          <div class="chart-wrap chart-wrap-tall"><canvas id="l-chart-runs"></canvas></div>
+        </div>
+        <div class="card">
+          <h3>By dimension <span class="subtle">avg / case</span></h3>
+          <div class="chart-wrap"><canvas id="l-chart-dim"></canvas></div>
+        </div>
+
+        <div class="card span-3">
+          <h3>Latency per prompt across runs <span class="subtle" id="l-prompt-count"></span></h3>
+          <div class="cost-controls">
+            <label>Sort:
+              <select id="l-sort">
+                <option value="movement">Biggest movement (Δ)</option>
+                <option value="avg-desc">Avg latency (slow → fast)</option>
+                <option value="avg-asc">Avg latency (fast → slow)</option>
+                <option value="runs">Most runs first</option>
+              </select>
+            </label>
+            <label>Dimension:
+              <select id="l-dim-filter"><option value="">All</option></select>
+            </label>
+          </div>
+          <div class="table-wrap">
+            <table id="l-prompt-table">
+              <thead>
+                <tr>
+                  <th>Dim</th>
+                  <th>Prompt</th>
+                  <th class="num">Runs</th>
+                  <th class="num">First</th>
+                  <th class="num">Last</th>
+                  <th class="num">Δ</th>
+                  <th class="num">Avg</th>
+                  <th class="num">Min</th>
+                  <th class="num">Max</th>
+                  <th>Per-run trail</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <main id="view-outputs" hidden>
+      <section class="o-toolbar">
+        <input id="o-search" type="search" placeholder="Search prompt or response text…" />
+        <label>Run:
+          <select id="o-run-filter"><option value="">All runs</option></select>
+        </label>
+        <label>Dimension:
+          <select id="o-dim-filter"><option value="">All</option></select>
+        </label>
+        <label>Verdict:
+          <select id="o-verdict-filter">
+            <option value="">All</option>
+            <option value="pass">pass</option>
+            <option value="partial">partial</option>
+            <option value="fail">fail</option>
+          </select>
+        </label>
+        <label>Sort:
+          <select id="o-sort">
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="score-desc">Score (high → low)</option>
+            <option value="score-asc">Score (low → high)</option>
+            <option value="length-desc">Length (long → short)</option>
+          </select>
+        </label>
+        <span id="o-count" class="o-count">—</span>
+      </section>
+
+      <section class="o-list">
+        <table id="o-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th>When</th>
+              <th>Run</th>
+              <th>Dim</th>
+              <th>Prompt</th>
+              <th class="num">Score</th>
+              <th>Verdict</th>
+              <th class="num">Length</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>

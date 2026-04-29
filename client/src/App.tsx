@@ -1,4 +1,4 @@
-import { Switch, Route, Redirect } from "wouter";
+import { Switch, Route, Redirect, useLocation } from "wouter";
 import { queryClient } from "./lib/queryClient";
 import { setAccessTokenGetter } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
@@ -12,6 +12,7 @@ import { PrivyProvider, usePrivy } from "@privy-io/react-auth";
 import { useEffect } from "react";
 import NotFound from "@/pages/not-found";
 import Pipeline from "@/pages/pipeline";
+import Tools from "@/pages/tools";
 import Companies from "@/pages/companies";
 import CompanyDetail from "@/pages/company-detail";
 import AddDeal from "@/pages/add-deal";
@@ -32,6 +33,8 @@ import AuthPage from "@/pages/auth-page";
 import SharedResearch from "@/pages/shared-research";
 import DataStation from "@/pages/data-station";
 import Library from "@/pages/library";
+import { BackgroundTasksProvider } from "@/contexts/background-tasks";
+import { BackgroundTasksTracker } from "@/components/background-tasks-tracker";
 import { CommandPalette } from "@/components/command-palette";
 import { Loader2 } from "lucide-react";
 import { useTrackPageView } from "@/hooks/use-track";
@@ -95,10 +98,22 @@ function AppRouter() {
 
 function AuthenticatedApp() {
   useTrackPageView("login");
+  const [location] = useLocation();
   const sidebarStyle = {
     "--sidebar-width": "16rem",
     "--sidebar-width-icon": "3rem",
   };
+
+  // Memo is a standalone print-optimised document with its own full-page
+  // layout. Rendering it inside the dark app chrome produces a jarring
+  // light/dark split — bypass the sidebar entirely.
+  if (location.startsWith("/memo/")) {
+    return (
+      <Switch>
+        <Route path="/memo/:sessionId/:msgId" component={MemoView} />
+      </Switch>
+    );
+  }
 
   return (
     <SidebarProvider style={sidebarStyle as React.CSSProperties}>
@@ -112,6 +127,7 @@ function AuthenticatedApp() {
           <main className="flex-1 overflow-hidden flex flex-col">
             <Switch>
               <Route path="/" component={Pipeline} />
+              <Route path="/tools" component={Tools} />
               <Route path="/companies" component={Companies} />
               <Route path="/companies/:id" component={CompanyDetail} />
               <Route path="/reports/:id" component={ReportViewer} />
@@ -121,7 +137,6 @@ function AuthenticatedApp() {
               <Route path="/wallet" component={WalletPage} />
               <Route path="/data" component={DataPage} />
               <Route path="/research" component={SessionResearch} />
-              <Route path="/memo/:sessionId/:msgId" component={MemoView} />
               <Route path="/library" component={Library} />
               <Route path="/station">
                 <Redirect to="/library?tab=charts" />
@@ -163,9 +178,12 @@ export default function App() {
     >
       <QueryClientProvider client={queryClient}>
         <TooltipProvider>
-          <AccessTokenSync />
-          <AppRouter />
-          <Toaster />
+          <BackgroundTasksProvider>
+            <AccessTokenSync />
+            <AppRouter />
+            <Toaster />
+            <BackgroundTasksTracker />
+          </BackgroundTasksProvider>
         </TooltipProvider>
       </QueryClientProvider>
     </PrivyProvider>

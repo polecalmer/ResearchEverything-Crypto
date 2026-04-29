@@ -219,3 +219,98 @@ export async function getHip3TotalVolumeHistory(days: number = 90): Promise<Map<
   }
   return out;
 }
+
+// ─── HYPE Token Unlocks ────────────────────────────────────────────────
+//
+// Cross-referenced from on-chain HyperLabs wallet ledger
+// (0x43e9abea1910387c4292bca4b94de81462f8a251) and Tokenomist projections.
+// Cached server-side at 30 min. The user's brain pref ("Always reference
+// stonksonchain.net for HYPE unlock data") points the agent here over
+// tokenomist scrapes / web search.
+
+export interface HypeUnlockSummary { [key: string]: any }
+export interface HypeUnlockHistoryRow { [key: string]: any }
+export interface HypeUnlockPredictions { [key: string]: any }
+
+export async function getHypeUnlocks(): Promise<any> {
+  return stonksFetch(`/api/v1/unlocks`);
+}
+export async function getHypeUnlocksSummary(): Promise<HypeUnlockSummary> {
+  return stonksFetch(`/api/v1/unlocks/summary`);
+}
+export async function getHypeUnlocksHistory(): Promise<HypeUnlockHistoryRow[]> {
+  const json = await stonksFetch(`/api/v1/unlocks/history`);
+  return Array.isArray(json) ? json
+    : Array.isArray(json?.history) ? json.history
+    : Array.isArray(json?.cycles) ? json.cycles
+    : Array.isArray(json?.data) ? json.data
+    : [];
+}
+export async function getHypeUnlocksPredictions(): Promise<HypeUnlockPredictions> {
+  return stonksFetch(`/api/v1/unlocks/predictions`);
+}
+
+// ─── Global / Ecosystem Metrics ────────────────────────────────────────
+
+export async function getGlobalMetrics(): Promise<any> {
+  return stonksFetch(`/api/global-metrics`);
+}
+export async function getVolumeAverages(): Promise<any> {
+  return stonksFetch(`/api/volume-averages`);
+}
+export async function getEcosystemFeeHistory(days: number = 90): Promise<any[]> {
+  const capped = capDays(days);
+  const json = await stonksFetch(`/api/ecosystem-fee-history?days=${capped}`);
+  return Array.isArray(json) ? json : Array.isArray(json?.data) ? json.data : [];
+}
+
+// ─── Fees & Revenue (snapshot variants of the per-day endpoints) ───────
+
+export async function getFeesSummary(): Promise<any> {
+  return stonksFetch(`/api/v1/fees/summary`);
+}
+export async function getDeployerRevenue(): Promise<any> {
+  return stonksFetch(`/api/v1/fees/deployer-revenue`);
+}
+export async function getDeployerHlContribution(): Promise<any> {
+  return stonksFetch(`/api/v1/fees/deployer-hl-contribution`);
+}
+export async function getAssetRevenue(): Promise<any> {
+  return stonksFetch(`/api/v1/fees/asset-revenue`);
+}
+export async function getAssetHlContribution(): Promise<any> {
+  return stonksFetch(`/api/v1/fees/asset-hl-contribution`);
+}
+
+// ─── Market Quality ────────────────────────────────────────────────────
+
+export async function getMarketQuality(coin: string): Promise<any> {
+  return stonksFetch(`/api/market-quality/${encodeURIComponent(coin)}`);
+}
+export async function getDailyHistory(coin: string, days: number = 90): Promise<any[]> {
+  const capped = capDays(days);
+  const json = await stonksFetch(`/api/daily-history/${encodeURIComponent(coin)}?days=${capped}`);
+  return Array.isArray(json) ? json : Array.isArray(json?.data) ? json.data : [];
+}
+export async function getHourlyHistory(coin: string, hours: number = 168): Promise<any[]> {
+  const capped = Math.max(1, Math.min(hours, 720));
+  const json = await stonksFetch(`/api/historical/${encodeURIComponent(coin)}?hours=${capped}`);
+  return Array.isArray(json) ? json : Array.isArray(json?.data) ? json.data : [];
+}
+
+// ─── Stablecoin Supply on Hyperliquid ──────────────────────────────────
+
+export async function getStablecoinSupply(days: number = 30): Promise<any[]> {
+  const capped = capDays(days);
+  const json = await stonksFetch(`/api/stablecoins?days=${capped}`);
+  return Array.isArray(json) ? json : Array.isArray(json?.data) ? json.data : [];
+}
+
+// ─── External Exchange Comps ───────────────────────────────────────────
+
+export async function getLighterKpis(): Promise<any> {
+  return stonksFetch(`/api/lighter/kpis`);
+}
+export async function getOstiumKpis(): Promise<any> {
+  return stonksFetch(`/api/ostium/kpis`);
+}

@@ -419,9 +419,14 @@ export function ForceGraph({
       ctx.arc(n.sx, n.sy, r, 0, Math.PI * 2);
       ctx.fill();
 
-      // Tiny specular highlight on near-side nodes for life.
+      // Tiny specular highlight on near-side nodes for life. Uses light
+      // (white) in dark mode to brighten the node, dark (near-black) in
+      // light mode to deepen the node — both produce the "rim of life"
+      // visual against their respective backgrounds.
       if (front > 0.6) {
-        ctx.fillStyle = `rgba(255, 255, 255, ${(0.35 * (front - 0.6) / 0.4).toFixed(3)})`;
+        const isDark = document.documentElement.classList.contains("dark");
+        const rgb = isDark ? "255, 255, 255" : "0, 0, 0";
+        ctx.fillStyle = `rgba(${rgb}, ${(0.35 * (front - 0.6) / 0.4).toFixed(3)})`;
         ctx.beginPath();
         ctx.arc(n.sx - r * 0.3, n.sy - r * 0.35, r * 0.35, 0, Math.PI * 2);
         ctx.fill();

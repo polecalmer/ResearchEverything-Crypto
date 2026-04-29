@@ -1,5 +1,5 @@
 import { useLocation, Link } from "wouter";
-import { LayoutDashboard, Building2, Chrome, BarChart3, LogOut, User, Wallet, Activity, FlaskConical, Network, Library as LibraryIcon, Command, Shield } from "lucide-react";
+import { LayoutDashboard, Building2, BarChart3, LogOut, User, Activity, FlaskConical, Network, Library as LibraryIcon, Command, Shield, Wrench } from "lucide-react";
 import { SessionsMark } from "@/components/sessions-mark";
 import {
   Sidebar,
@@ -20,17 +20,25 @@ import { ThemeToggle } from "@/components/theme-toggle";
 const navItems = [
   { title: "Sessions", url: "/research", icon: FlaskConical },
   { title: "Library", url: "/library", icon: LibraryIcon },
-  { title: "Pipeline", url: "/", icon: LayoutDashboard },
-  { title: "Map", url: "/map", icon: Network },
-  { title: "Companies", url: "/companies", icon: Building2 },
-  { title: "Wallet", url: "/wallet", icon: Wallet },
-  { title: "Extension", url: "/extension", icon: Chrome },
-  { title: "Data", url: "/data", icon: BarChart3 },
+  // Tools collapses Pipeline + Map + Companies + Data into a tabbed surface.
+  // The individual page routes still exist so internal links don't break.
+  { title: "Tools", url: "/tools", icon: Wrench },
 ];
 
 function isNavActive(location: string, url: string): boolean {
-  if (url === "/") return location === "/";
   if (url === "/library") return location === "/library" || location === "/station" || location === "/brain";
+  // Tools collapses /pipeline, /map, /companies, /data into one tabbed surface.
+  // Highlight Tools whenever the user is on any of those legacy routes too,
+  // so the sidebar's active marker stays coherent.
+  if (url === "/tools") {
+    return (
+      location === "/tools" ||
+      location === "/" ||
+      location === "/map" ||
+      location === "/companies" || location.startsWith("/companies/") ||
+      location === "/data"
+    );
+  }
   return location === url || location.startsWith(url + "/");
 }
 
@@ -102,11 +110,13 @@ export function AppSidebar() {
                             }`}
                           />
                         )}
-                        <item.icon
-                          className={`w-3.5 h-3.5 shrink-0 transition-colors ${
-                            active ? "text-cyan-400/90" : "text-muted-foreground/60 group-hover:text-foreground/80"
-                          }`}
-                        />
+                        {collapsed && (
+                          <item.icon
+                            className={`w-3.5 h-3.5 shrink-0 transition-colors ${
+                              active ? "text-cyan-400/90" : "text-muted-foreground/60 group-hover:text-foreground/80"
+                            }`}
+                          />
+                        )}
                         {!collapsed && (
                           <>
                             <span className="text-[13px] tracking-tight">{item.title}</span>
@@ -147,11 +157,13 @@ export function AppSidebar() {
                             }`}
                           />
                         )}
-                        <Activity
-                          className={`w-3.5 h-3.5 shrink-0 ${
-                            location === "/admin" ? "text-amber-400/90" : "text-muted-foreground/60 group-hover:text-foreground/80"
-                          }`}
-                        />
+                        {collapsed && (
+                          <Activity
+                            className={`w-3.5 h-3.5 shrink-0 ${
+                              location === "/admin" ? "text-amber-400/90" : "text-muted-foreground/60 group-hover:text-foreground/80"
+                            }`}
+                          />
+                        )}
                         {!collapsed && <span className="text-[13px] tracking-tight">Status</span>}
                       </Link>
                     </SidebarMenuButton>
@@ -173,11 +185,13 @@ export function AppSidebar() {
                             }`}
                           />
                         )}
-                        <Shield
-                          className={`w-3.5 h-3.5 shrink-0 ${
-                            location === "/admin/security" ? "text-amber-400/90" : "text-muted-foreground/60 group-hover:text-foreground/80"
-                          }`}
-                        />
+                        {collapsed && (
+                          <Shield
+                            className={`w-3.5 h-3.5 shrink-0 ${
+                              location === "/admin/security" ? "text-amber-400/90" : "text-muted-foreground/60 group-hover:text-foreground/80"
+                            }`}
+                          />
+                        )}
                         {!collapsed && <span className="text-[13px] tracking-tight">Security</span>}
                       </Link>
                     </SidebarMenuButton>

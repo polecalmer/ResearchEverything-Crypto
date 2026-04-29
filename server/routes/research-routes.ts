@@ -3,12 +3,192 @@ import crypto from "crypto";
 import { storage } from "../storage";
 import { requireAuth } from "../auth";
 import { db } from "../db";
+import { dlog } from "../debug-log";
 import { sql } from "drizzle-orm";
 
-const MAX_GLOBAL_RESEARCH = Number(process.env.MAX_GLOBAL_RESEARCH || 3);
-const MAX_PER_USER_RESEARCH = Number(process.env.MAX_PER_USER_RESEARCH || 1);
+// Per-user concurrency: bumped from 1 → 6 to support parallel
+// background spawns (Build Chart, Double Click). One main session +
+// 3-5 in-flight sub-sessions is the realistic ceiling. Global cap
+// stays modest to bound aggregate Anthropic spend; production can
+// tune both via env.
+const MAX_GLOBAL_RESEARCH = Number(process.env.MAX_GLOBAL_RESEARCH || 12);
+const MAX_PER_USER_RESEARCH = Number(process.env.MAX_PER_USER_RESEARCH || 6);
 const inflightPerUser = new Map<string, number>();
 let inflightGlobal = 0;
+
+/**
+ * Bend refreshed rows back into the shape the original chart was rendered
+ * with. Refreshes hit two reproducible mismatches:
+ *
+ *   1. Scale: DefiLlama returns `tvl: 14_197_275_351` (raw dollars), but
+ *      the agent emitted `tvl: 10.9` with the unit carried in the yAxis
+ *      label ("TVL ($B)"). Renderer applies the label to whatever number
+ *      it sees → "14B BILLIONS". We detect the embedded scale and divide.
+ *
+ *   2. Column names: Dune-SQL returns `weekly_revenue`, `week_start`,
+ *      `avg_price`; the chart's yAxes configured `dataKey: "Weekly Revenue"`
+ *      and xAxis `dataKey: "week"`. Zero overlap → blank chart. We slug-
+ *      match each chart dataKey against actual SQL column names and
+ *      rename so the renderer finds the data.
+ *
+ * Both are handled here. If either inference fails, we leave the row
+ * alone — better a slightly-off chart than a corrupt rename. Apply a
+ * scaled-down narrative so the audit trail in the validator log still
+ * makes sense after the fact.
+ */
+function normalizeRefreshOutput(
+  result: { data: any[]; chartConfig: any },
+  chart: { chartConfig: string },
+): { data: any[]; chartConfig: any } {
+  const rows = Array.isArray(result.data) ? result.data : [];
+  if (rows.length === 0) return result;
+  const existingConfig =
+    typeof chart.chartConfig === "string" ? JSON.parse(chart.chartConfig || "{}") : chart.chartConfig;
+  const yAxes: Array<{ dataKey?: string; label?: string }> = existingConfig?.yAxes || [];
+  const xAxisKey: string = existingConfig?.xAxis?.dataKey || "date";
+  // Tables carry their column list in `columns` instead of `yAxes`. When
+  // the chart is actually a table (chartType === "table" or columns
+  // present without yAxes), build the expected-keys list from `columns`.
+  // The rest of the rename + scale logic works identically — same
+  // problem (re-fetched data has native column names; chart was
+  // rendered with display names), same fix.
+  const tableColumns: string[] = Array.isArray(existingConfig?.columns) ? existingConfig.columns : [];
+  if (yAxes.length === 0 && tableColumns.length === 0) return result;
+
+  // ── Pass 1: dataKey remap (slug match SQL columns to chart dataKeys) ──
+  const sample = rows[0];
+  const sampleKeys = sample && typeof sample === "object" ? Object.keys(sample) : [];
+  const slugify = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
+  const sampleKeysSlug = new Map<string, string>();
+  for (const k of sampleKeys) sampleKeysSlug.set(slugify(k), k);
+
+  const renameMap = new Map<string, string>();
+  const claimed = new Set<string>(); // SQL columns already paired
+  // Build expectedKeys from yAxes (chart) OR columns (table). For tables
+  // the xAxis isn't a separate concept; columns are the full set.
+  const expectedKeys: string[] =
+    yAxes.length > 0
+      ? [xAxisKey, ...yAxes.map((y) => y?.dataKey).filter(Boolean) as string[]]
+      : tableColumns;
+  // Pass A: strict slug match (e.g. "Weekly Revenue" ↔ "weekly_revenue")
+  for (const expected of expectedKeys) {
+    if (sampleKeys.includes(expected)) { claimed.add(expected); continue; }
+    const slug = slugify(expected);
+    if (sampleKeysSlug.has(slug)) {
+      const k = sampleKeysSlug.get(slug)!;
+      renameMap.set(k, expected);
+      claimed.add(k);
+      continue;
+    }
+  }
+  // Pass B: prefix match (chart's "week" picks SQL "week_start", or vice
+  // versa). Bias toward the more specific (longer) name on either side.
+  for (const expected of expectedKeys) {
+    if (sampleKeys.includes(expected)) continue;
+    if ([...renameMap.values()].includes(expected)) continue;
+    const slug = slugify(expected);
+    const candidates = sampleKeys.filter((k) => {
+      if (claimed.has(k)) return false;
+      const ks = slugify(k);
+      return ks.startsWith(slug + "_") || slug.startsWith(ks + "_");
+    });
+    if (candidates.length === 1) {
+      renameMap.set(candidates[0], expected);
+      claimed.add(candidates[0]);
+    }
+  }
+  // Pass C: token-overlap fallback. The agent often renames columns in
+  // its emitted artifact ("avg_price" → "HYPE Price") for display while
+  // the SQL keeps native column names. Strict slug/prefix match misses
+  // these, but the tokens almost always share at least one (here:
+  // "price"). For each still-unmatched expected key, pick the unmatched
+  // SQL column with the most token overlap (≥1). Tie-broken by column
+  // ordinal so deterministic. Numeric-only filter for non-xAxis keys to
+  // avoid pairing labels like "HYPE Price" with a string column.
+  const tokenize = (s: string): Set<string> =>
+    new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 3));
+  for (const expected of expectedKeys) {
+    if (sampleKeys.includes(expected)) continue;
+    if ([...renameMap.values()].includes(expected)) continue;
+    const wantTokens = tokenize(expected);
+    if (wantTokens.size === 0) continue;
+    const isXAxis = expected === xAxisKey;
+    let best: { key: string; overlap: number; idx: number } | null = null;
+    sampleKeys.forEach((k, idx) => {
+      if (claimed.has(k)) return;
+      // For yAxis (numeric) candidates, require numeric value in sample.
+      if (!isXAxis) {
+        const v = sample[k];
+        if (typeof v !== "number" || !Number.isFinite(v)) return;
+      }
+      const have = tokenize(k);
+      let overlap = 0;
+      for (const t of Array.from(wantTokens)) if (have.has(t)) overlap++;
+      if (overlap === 0) return;
+      if (!best || overlap > best.overlap || (overlap === best.overlap && idx < best.idx)) {
+        best = { key: k, overlap, idx };
+      }
+    });
+    if (best !== null) {
+      const winner = best as { key: string; overlap: number; idx: number };
+      renameMap.set(winner.key, expected);
+      claimed.add(winner.key);
+    }
+  }
+
+  let mapped = rows;
+  if (renameMap.size > 0) {
+    console.log(`[RefreshChart] Renaming columns: ${[...renameMap.entries()].map(([f, t]) => `${f}→${t}`).join(", ")}`);
+    mapped = rows.map((row) => {
+      const out: Record<string, any> = { ...row };
+      for (const [from, to] of renameMap.entries()) {
+        if (from in out) {
+          out[to] = out[from];
+          if (from !== to) delete out[from];
+        }
+      }
+      return out;
+    });
+  }
+
+  // ── Pass 2: scale-down for unit-embedded yAxis labels ──
+  const scaleByKey = new Map<string, number>();
+  for (const y of yAxes) {
+    if (!y?.dataKey) continue;
+    const scale = inferYAxisScaleFromLabel(y.label || y.dataKey);
+    if (scale > 1) scaleByKey.set(y.dataKey, scale);
+  }
+  if (scaleByKey.size > 0) {
+    console.log(`[RefreshChart] Scaling down by yAxis units: ${[...scaleByKey.entries()].map(([k, s]) => `${k}÷${s}`).join(", ")}`);
+    mapped = mapped.map((row) => {
+      const out: Record<string, any> = { ...row };
+      for (const [k, scale] of scaleByKey.entries()) {
+        const v = out[k];
+        if (typeof v === "number" && Number.isFinite(v)) {
+          // Only scale down if the value looks raw — i.e., its magnitude is
+          // dramatically larger than what the original chart had. Heuristic:
+          // if the value is > 1e5, apply scaling. (A chart already in $B
+          // wouldn't have a value > 1e5; one in raw dollars routinely will.)
+          if (Math.abs(v) >= 1e5) out[k] = v / scale;
+        }
+      }
+      return out;
+    });
+  }
+
+  return { data: mapped, chartConfig: existingConfig };
+}
+
+/** Mirror of chart-validator.ts:inferYAxisUnitScale — kept local here to
+ *  avoid pulling the validator module into the routes file. Update both
+ *  if you teach one new patterns. */
+function inferYAxisScaleFromLabel(label: string): number {
+  if (!label) return 1;
+  if (/\(\s*\$?\s*b\s*\)|\$b\b|\bbn\b|\bbillion(s)?\b/i.test(label)) return 1e9;
+  if (/\(\s*\$?\s*m\s*\)|\$m\b|\bmm\b|\bmillion(s)?\b/i.test(label)) return 1e6;
+  if (/\(\s*\$?\s*k\s*\)|\$k\b|\bthousand(s)?\b/i.test(label)) return 1e3;
+  return 1;
+}
 
 function tryAcquireResearchSlot(userId: string): boolean {
   const userCount = inflightPerUser.get(userId) || 0;
@@ -202,10 +382,29 @@ export function registerResearchRoutes(app: Express) {
 
   app.post("/api/research/sessions", requireAuth, async (req, res) => {
     try {
+      // parentSessionId fingerprints a sub-session (Build Chart, Double
+      // Click) back to the master session that spawned it. spawnSource
+      // labels the trigger so the UI can badge it. Both nullable —
+      // top-level sessions started directly by the user have neither.
+      // We validate parentSessionId belongs to the same user when set
+      // (don't let one user's session reference another's).
+      let parentSessionId: number | undefined;
+      let spawnSource: string | undefined;
+      if (typeof req.body.parentSessionId === "number") {
+        const parent = await storage.getConversation(req.body.parentSessionId);
+        if (parent && parent.userId === req.user!.id) {
+          parentSessionId = parent.id;
+        }
+      }
+      if (typeof req.body.spawnSource === "string" && req.body.spawnSource.length < 40) {
+        spawnSource = req.body.spawnSource;
+      }
       const session = await storage.createConversation({
         userId: req.user!.id,
         title: req.body.title || "New Session",
         type: "research",
+        parentSessionId,
+        spawnSource,
       });
       res.json(session);
     } catch (e: any) {
@@ -245,8 +444,8 @@ export function registerResearchRoutes(app: Express) {
       if (!message || typeof message !== "string") {
         return res.status(400).json({ message: "Message is required" });
       }
-      const validModes = ["quick", "focused", "deep"];
-      const mode: "quick" | "focused" | "deep" | undefined = validModes.includes(forceMode) ? forceMode : undefined;
+      const validModes = ["quick", "focused", "deep", "chart"];
+      const mode: "quick" | "focused" | "deep" | "chart" | undefined = validModes.includes(forceMode) ? forceMode : undefined;
 
       if (!tryAcquireResearchSlot(userId)) {
         res.setHeader("Retry-After", "10");
@@ -308,48 +507,61 @@ export function registerResearchRoutes(app: Express) {
 
       let result: any;
 
-      if (isDataMode) {
-        console.log(`[SessionResearch] Data mode → routing to data agent (chart builder)`);
-        const { runDataAgentForSession } = await import("../data-agent");
-        result = await runDataAgentForSession(
-          message,
-          req.user!.id,
-          (step) => sendEvent("step", step),
-        );
-        sendEvent("mode", { mode: result.mode, reason: result.modeReason });
-      } else {
-        let brainForAgent = brain;
-        if (refreshBrain && brain) {
-          const LIVE = /\b(price|tvl|mcap|market cap|fdv|fee|fees|revenue|volume|apy|apr|yield|supply|circulating|inflation|holders|active users|dau|wau)\b/i;
-          const filtered = (brain.knowledge || []).filter((f: any) => {
-            const text = `${f.topic || ""} ${f.fact || ""}`;
-            return !LIVE.test(text);
-          });
-          brainForAgent = { ...brain, knowledge: filtered };
-          console.log(`[SessionResearch] refreshBrain=true → dropped ${(brain.knowledge || []).length - filtered.length} live-metric facts from context`);
-        }
-
-        result = await runSessionResearchAgent(
-          message,
-          historyForAgent.slice(0, -1),
-          brainForAgent,
-          (step) => sendEvent("step", step),
-          mode,
-          async (plan) => {
-            try {
-              await storage.updateMessagePlan(userMsg.id, plan);
-              sendEvent("plan", plan);
-            } catch (err: any) {
-              console.error("[SessionResearch] Failed to persist plan:", err.message);
-            }
-          },
-          req.user!.id,
-          false,
-        );
-        sendEvent("mode", { mode: result.mode, reason: result.modeReason });
+      // Chart toggle (sessionMode === "data") routes to the unified research
+      // agent with forceMode="chart" — the data-agent.ts path is deprecated
+      // (focused mode of the research agent already produces better charts;
+      // chart mode is a tightened variant of focused).
+      let brainForAgent = brain;
+      if (refreshBrain && brain) {
+        const LIVE = /\b(price|tvl|mcap|market cap|fdv|fee|fees|revenue|volume|apy|apr|yield|supply|circulating|inflation|holders|active users|dau|wau)\b/i;
+        const filtered = (brain.knowledge || []).filter((f: any) => {
+          const text = `${f.topic || ""} ${f.fact || ""}`;
+          return !LIVE.test(text);
+        });
+        brainForAgent = { ...brain, knowledge: filtered };
+        console.log(`[SessionResearch] refreshBrain=true → dropped ${(brain.knowledge || []).length - filtered.length} live-metric facts from context`);
       }
 
-      const artifacts = parseArtifacts(result.content);
+      // Auto-route financial-statement prompts to chart mode (chart's
+      // artifact-emission contract is a tighter forcing function for
+      // numeric grounding than free-form research mode). Explicit user
+      // forceMode and isDataMode toggle still win.
+      const { resolveEffectiveMode } = await import("../numeric-provenance/fs-router");
+      const routed = resolveEffectiveMode(message, mode, isDataMode);
+      const effectiveMode: "quick" | "focused" | "deep" | "chart" | undefined = routed.mode;
+      if (isDataMode) {
+        console.log(`[SessionResearch] Chart toggle → forceMode=chart on unified agent`);
+      } else if (routed.routedToChart) {
+        console.log(`[SessionResearch] Auto-routed to chart mode: ${routed.reason}`);
+      }
+
+      result = await runSessionResearchAgent(
+        message,
+        historyForAgent.slice(0, -1),
+        brainForAgent,
+        (step) => sendEvent("step", step),
+        effectiveMode,
+        async (plan) => {
+          try {
+            await storage.updateMessagePlan(userMsg.id, plan);
+            sendEvent("plan", plan);
+          } catch (err: any) {
+            console.error("[SessionResearch] Failed to persist plan:", err.message);
+          }
+        },
+        req.user!.id,
+        isDataMode,
+      );
+      sendEvent("mode", { mode: result.mode, reason: result.modeReason });
+
+      // Prefer artifacts from the agent (already enriched with inferred
+      // refreshRecipe and any other server-side annotations). Fall back to
+      // re-parsing the content if the agent didn't return any — older paths
+      // or error cases. Re-parsing throws away refreshRecipe inferences
+      // since those live on the artifact object, not in the JSON text.
+      const artifacts = (result.artifacts && result.artifacts.length > 0)
+        ? result.artifacts
+        : parseArtifacts(result.content);
       const continuationTag = result.needsContinuation ? "<!-- needs_continuation -->\n" : "";
       const contentWithMode = `<!-- mode:${result.mode} -->\n${continuationTag}${result.content}`;
       const assistantMsg = await storage.createMessage({
@@ -359,6 +571,25 @@ export function registerResearchRoutes(app: Express) {
         artifacts: artifacts.length > 0 ? artifacts : undefined,
         kind: result.mode === "deep" ? "deep_model" : undefined,
       });
+
+      // Drain any queued correction extractions for this conversation. Fires
+      // only when there's a pending row (set by the storage detector when the
+      // user's prior message contained corrective language). Best-effort.
+      if (artifacts.length > 0) {
+        import("../correction-ingestion/detector")
+          .then((m) =>
+            m.drainQueuedCorrections(
+              session.id,
+              assistantMsg.id,
+              contentWithMode,
+              artifacts,
+              req.user!.id,
+            ),
+          )
+          .catch((err) =>
+            console.warn(`[CorrectionIngestion] drain hook failed: ${err?.message}`),
+          );
+      }
 
       if (history.length <= 2) {
         const titleSnippet = message.slice(0, 60) + (message.length > 60 ? "..." : "");
@@ -461,7 +692,7 @@ export function registerResearchRoutes(app: Express) {
             contradictions: newContradictions.slice(-50),
             meta: mergedMeta,
           });
-          console.log(`[SessionResearch] Brain merged: ${Object.keys(mergedEntities).length} entities, ${mergedKnowledge.length} facts, ${mergedRelationships.length} rels, ${newContradictions.length} contradictions`);
+          dlog(`[SessionResearch] Brain merged: ${Object.keys(mergedEntities).length} entities, ${mergedKnowledge.length} facts, ${mergedRelationships.length} rels, ${newContradictions.length} contradictions`);
 
           // Fire-and-forget: promote any data-source mentions in preferences
           // into per-user data-source-brain coverage facts so the resolver
@@ -628,9 +859,8 @@ export function registerResearchRoutes(app: Express) {
       }
 
       const content = msg.content.replace(/^<!--\s*mode:\w+\s*-->\s*\n?/, "");
-      const firstLine = content.split("\n").find(l => l.trim())?.replace(/^#+\s*/, "").slice(0, 100) || "Session Research";
-      const title = `${conversation.title || "Session"} — ${firstLine}`;
-      const description = content.replace(/^#+\s*/mg, "").trim().slice(0, 240);
+      const { extractMemoMetadata } = await import("@shared/memo-metadata");
+      const { title, description } = extractMemoMetadata(content, conversation.title);
 
       const { researchReports } = await import("@shared/schema");
       const { db: dbImport } = await import("../db");
@@ -963,6 +1193,20 @@ export function registerResearchRoutes(app: Express) {
         // resolve to defillama.dex_volume (empty) and refresh returns 0 pts.
         result = await executeRefreshRecipe(recipe, { userId: req.user!.id });
       }
+
+      // Normalize refreshed rows so they match the chart's stored shape.
+      // Two distinct mismatches we observed:
+      //   1) Scale: DefiLlama returns absolute dollars (14_197_275_351) but
+      //      the chart's data was emitted scaled to billions (10.9) with the
+      //      unit carried in the yAxis label ("TVL ($B)"). Without scaling,
+      //      the renderer treats raw dollars as billions → "$14B BILLIONS".
+      //   2) Column names: Dune-SQL returns native column names ("weekly_revenue",
+      //      "week_start", "avg_price") but the chart's yAxes were configured
+      //      with display names ("Weekly Revenue", "HYPE Price") with xAxis
+      //      "week". With no overlap the chart finds nothing to plot → blank.
+      // We don't get to change the original artifact — the chart is already
+      // saved — so refresh has to bend its output to match.
+      result = normalizeRefreshOutput(result, chart);
       const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
       console.log(`[RefreshChart] Done in ${elapsed}s — ${result.data.length} data points`);
 
@@ -1003,14 +1247,47 @@ export function registerResearchRoutes(app: Express) {
 
   app.get("/api/research/reports", requireAuth, async (req, res) => {
     try {
-      const { researchReports } = await import("@shared/schema");
+      const { researchReports, messages, conversations } = await import("@shared/schema");
       const { db: dbImport } = await import("../db");
-      const { eq, desc } = await import("drizzle-orm");
+      const { eq, desc, inArray } = await import("drizzle-orm");
+      const { extractMemoMetadata } = await import("@shared/memo-metadata");
+
       const reports = await dbImport.select().from(researchReports)
         .where(eq(researchReports.userId, req.user!.id))
         .orderBy(desc(researchReports.updatedAt));
-      res.json(reports);
+
+      // Recompute title + description from the source message when we can.
+      // Older memos were saved with a naive "sessionTitle — firstLine" title
+      // and a raw truncated content for description; regenerating on read
+      // cleans them up without a destructive migration.
+      const msgIds = reports
+        .map(r => r.sourceMessageId)
+        .filter((id): id is number => typeof id === "number");
+      const convIds = reports
+        .map(r => r.sourceConversationId)
+        .filter((id): id is number => typeof id === "number");
+
+      const msgs = msgIds.length
+        ? await dbImport.select().from(messages).where(inArray(messages.id, msgIds))
+        : [];
+      const convs = convIds.length
+        ? await dbImport.select().from(conversations).where(inArray(conversations.id, convIds))
+        : [];
+      const msgById = new Map(msgs.map(m => [m.id, m]));
+      const convById = new Map(convs.map(c => [c.id, c]));
+
+      const enriched = reports.map(r => {
+        const msg = r.sourceMessageId != null ? msgById.get(r.sourceMessageId) : null;
+        const conv = r.sourceConversationId != null ? convById.get(r.sourceConversationId) : null;
+        const rawContent = msg?.content || r.content;
+        if (!rawContent) return r;
+        const { title, description } = extractMemoMetadata(rawContent, conv?.title);
+        return { ...r, title, description };
+      });
+
+      res.json(enriched);
     } catch (e: any) {
+      console.error("[GET /api/research/reports]", e);
       res.status(500).json({ message: e.message });
     }
   });

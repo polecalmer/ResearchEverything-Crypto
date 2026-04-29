@@ -21,5 +21,9 @@ sed*
 
 # Internal handoff / engineering scratch docs
 HANDOFF.local.md
+HANDOFF-*.local.md
 HANDOFF.md
 docs/internal/
+
+# Runtime logs
+logs/

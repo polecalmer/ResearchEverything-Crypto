@@ -58,8 +58,11 @@ const PROTOCOL_ALIASES: Record<string, string> = {
   dai: "MakerDAO",
   sky: "MakerDAO",
   jito: "Jito",
+  jto: "Jito",
   jupiter: "Jupiter",
   jup: "Jupiter",
+  tradexyz: "TradeXYZ",
+  xyz: "TradeXYZ",
   raydium: "Raydium",
   ray: "Raydium",
   gmx: "GMX",
@@ -76,29 +79,64 @@ const PROTOCOL_ALIASES: Record<string, string> = {
   comp: "Compound",
   synthetix: "Synthetix",
   snx: "Synthetix",
+  vvv: "Venice AI",
+  venice: "Venice AI",
+  "venice ai": "Venice AI",
 };
+
+// Canonical protocol → display token. Used to format groupings as
+// "Protocol (TOKEN)" so token-keyed charts don't drift away from
+// their protocol bucket (e.g. VVV ending up in "Other" instead of
+// under Venice AI).
+const PROTOCOL_TOKENS: Record<string, string> = {
+  "Hyperliquid": "HYPE",
+  "Ethena": "ENA",
+  "Pump.fun": "PUMP",
+  "Aave": "AAVE",
+  "Uniswap": "UNI",
+  "Lido": "LDO",
+  "MakerDAO": "MKR",
+  "Jito": "JTO",
+  "Jupiter": "JUP",
+  "Raydium": "RAY",
+  "GMX": "GMX",
+  "dYdX": "DYDX",
+  "Pendle": "PENDLE",
+  "EigenLayer": "EIGEN",
+  "Morpho": "MORPHO",
+  "Curve": "CRV",
+  "Convex": "CVX",
+  "Compound": "COMP",
+  "Synthetix": "SNX",
+  "Venice AI": "VVV",
+};
+
+function formatProtocolDisplay(name: string): string {
+  const token = PROTOCOL_TOKENS[name];
+  return token ? `${name} (${token})` : name;
+}
 
 function resolveProtocol(title: string, dsConfig: any): string {
   const recipe = dsConfig?.refreshRecipe;
   if (recipe?.protocol) {
     const p = recipe.protocol.toLowerCase().trim();
-    if (PROTOCOL_ALIASES[p]) return PROTOCOL_ALIASES[p];
+    if (PROTOCOL_ALIASES[p]) return formatProtocolDisplay(PROTOCOL_ALIASES[p]);
     return recipe.protocol;
   }
 
   if (dsConfig?.slug) {
     const s = dsConfig.slug.toLowerCase().trim();
-    if (PROTOCOL_ALIASES[s]) return PROTOCOL_ALIASES[s];
+    if (PROTOCOL_ALIASES[s]) return formatProtocolDisplay(PROTOCOL_ALIASES[s]);
   }
 
   const lower = title.toLowerCase();
 
   for (const [alias, canonical] of Object.entries(PROTOCOL_ALIASES)) {
     const pattern = new RegExp(`\\b${alias.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, "i");
-    if (pattern.test(lower)) return canonical;
+    if (pattern.test(lower)) return formatProtocolDisplay(canonical);
   }
 
-  const tokens = title.split(/[\s\-:,()]+/).filter(t => t.length > 0);
+  const tokens = title.split(/[\s\-:,()?!]+/).filter(t => t.length > 0);
   const stopWords = new Set([
     "daily", "weekly", "monthly", "total", "value", "locked", "ratio",
     "volume", "revenue", "fees", "tvl", "p/e", "apy", "apr", "price",
@@ -106,13 +144,20 @@ function resolveProtocol(title: string, dsConfig: any): string {
     "financial", "statement", "fee", "summary", "growth", "adjusted",
     "ratios", "adj", "ma", "30d", "7d", "90d", "breakdown", "p&l",
     "across", "and", "key", "metrics", "for", "the", "of", "in", "on",
+    // Generic English fragments that previously leaked through as tab
+    // names ("Top 1", "Other 1", "Effective 1", "Can 1") when the first
+    // capitalised word in a title happened to be one of these.
+    "top", "other", "effective", "perps", "perp",
+    "can", "you", "run", "a", "it", "we", "they",
+    "deep", "dive", "new", "latest", "current", "all", "some",
+    "high", "low", "most", "least", "best", "worst",
+    "overview", "analysis", "report", "memo", "chart", "data",
   ]);
 
   for (const t of tokens) {
-    if (t.length > 1 && !stopWords.has(t.toLowerCase()) && /^[A-Z]/.test(t)) {
+    if (t.length > 1 && !stopWords.has(t.toLowerCase()) && /^[A-Za-z]/.test(t)) {
       const tl = t.toLowerCase();
-      if (PROTOCOL_ALIASES[tl]) return PROTOCOL_ALIASES[tl];
-      return t;
+      if (PROTOCOL_ALIASES[tl]) return formatProtocolDisplay(PROTOCOL_ALIASES[tl]);
     }
   }
 
@@ -240,7 +285,7 @@ function StationCard({ pc, onRefresh, onDelete, onAddToReport, reports, refreshi
       </div>
 
       {pc.isTable ? (
-        <InlineTable artifact={pc.artifact} compact />
+        <InlineTable artifact={pc.artifact} compact hideSave />
       ) : (
         <InlineChart artifact={pc.artifact} hideSave compact />
       )}
@@ -251,18 +296,20 @@ function StationCard({ pc, onRefresh, onDelete, onAddToReport, reports, refreshi
           lastRefresh={pc.updatedAt || pc.createdAt}
         />
         <div className="flex items-center gap-1">
-          {pc.hasRecipe && (
-            <button
-              onClick={() => onRefresh(pc.id)}
-              disabled={isRefreshing}
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] text-muted-foreground/50 hover:text-cyan-400 hover:bg-cyan-500/10 transition-all"
-              title="Refresh live data"
-              data-testid={`button-refresh-chart-${pc.id}`}
-            >
-              <RefreshCw className={`h-3 w-3 ${isRefreshing ? "animate-spin text-cyan-400" : ""}`} />
-              <span className="hidden sm:inline">{isRefreshing ? "Refreshing…" : "Refresh"}</span>
-            </button>
-          )}
+          <button
+            onClick={() => pc.hasRecipe && onRefresh(pc.id)}
+            disabled={isRefreshing || !pc.hasRecipe}
+            className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] transition-all ${
+              pc.hasRecipe
+                ? "text-muted-foreground/50 hover:text-cyan-400 hover:bg-cyan-500/10"
+                : "text-muted-foreground/20 cursor-not-allowed"
+            }`}
+            title={pc.hasRecipe ? "Refresh live data" : "No live data source — chart can't be refreshed"}
+            data-testid={`button-refresh-chart-${pc.id}`}
+          >
+            <RefreshCw className={`h-3 w-3 ${isRefreshing ? "animate-spin text-cyan-400" : ""}`} />
+            <span className="hidden sm:inline">{isRefreshing ? "Refreshing…" : "Refresh"}</span>
+          </button>
           <ArtifactActions chartId={pc.id} chartTitle={pc.title} size="xs" />
         </div>
       </div>
@@ -363,18 +410,30 @@ export default function DataStation({ embedded = false }: { embedded?: boolean }
   const reportParsed = useMemo(() => (reportChartsQuery.data || []).map(parseChart), [reportChartsQuery.data]);
 
   const protocolGroups = useMemo(() => {
-    const groups = new Map<string, ParsedChart[]>();
+    // Group case-insensitively so "tradexyz" and "TradeXYZ" collapse into
+    // one tab. Prefer a mixed-case display name over an all-lowercase one
+    // when both variants exist for the same protocol.
+    const groups = new Map<string, { display: string; charts: ParsedChart[] }>();
     for (const pc of parsed) {
-      const key = pc.protocol;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(pc);
+      const key = pc.protocol.toLowerCase();
+      const existing = groups.get(key);
+      if (existing) {
+        existing.charts.push(pc);
+        const existingIsAllLower = existing.display === existing.display.toLowerCase();
+        const incomingIsAllLower = pc.protocol === pc.protocol.toLowerCase();
+        if (existingIsAllLower && !incomingIsAllLower) existing.display = pc.protocol;
+      } else {
+        groups.set(key, { display: pc.protocol, charts: [pc] });
+      }
     }
-    const sorted = [...groups.entries()].sort((a, b) => {
-      if (a[1].length !== b[1].length) return b[1].length - a[1].length;
-      const aDate = Math.max(...a[1].map(c => new Date(c.updatedAt || c.createdAt).getTime()));
-      const bDate = Math.max(...b[1].map(c => new Date(c.updatedAt || c.createdAt).getTime()));
-      return bDate - aDate;
-    });
+    const sorted = [...groups.values()]
+      .map(g => [g.display, g.charts] as [string, ParsedChart[]])
+      .sort((a, b) => {
+        if (a[1].length !== b[1].length) return b[1].length - a[1].length;
+        const aDate = Math.max(...a[1].map(c => new Date(c.updatedAt || c.createdAt).getTime()));
+        const bDate = Math.max(...b[1].map(c => new Date(c.updatedAt || c.createdAt).getTime()));
+        return bDate - aDate;
+      });
     return sorted;
   }, [parsed]);
 
@@ -503,18 +562,6 @@ export default function DataStation({ embedded = false }: { embedded?: boolean }
               data-testid={`button-protocol-nav-${protocol}`}
             >
               {protocol} <span className="text-[8px] text-muted-foreground/30">{pCharts.length}</span>
-            </button>
-          ))}
-          {reports.map(r => (
-            <button
-              key={r.id}
-              onClick={() => { setActiveReport(r.id); setActiveView("report"); }}
-              className={`px-2 py-1 rounded text-[10px] whitespace-nowrap flex items-center gap-1 transition-colors ${
-                activeReport === r.id ? "bg-muted/25 text-foreground/90" : "text-muted-foreground/50 hover:text-foreground/70 hover:bg-muted/10"
-              }`}
-              data-testid={`button-report-${r.id}`}
-            >
-              <FileText className="h-2.5 w-2.5" /> {r.title}
             </button>
           ))}
         </div>

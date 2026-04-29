@@ -1,8 +1,11 @@
-import { tempo } from "mppx/client";
-import { privateKeyToAccount } from "viem/accounts";
+// Token snapshot via CoinGecko. The module is named `allium-client.ts` for
+// historical reasons — the original implementation tried Allium MPP first
+// and fell back to CoinGecko. The MPP relay 404'd reliably and the
+// fallback was always carrying the load, so the Allium-MPP path was
+// removed in favor of going straight to CoinGecko. Kept the export
+// signatures intact so callers (session-research-agent, token-agent,
+// data-agent) didn't need to change.
 import type { CostSource } from "./mpp-client";
-
-const ALLIUM_MPP_URL = "https://allium.mpp.tempo.xyz/v1/token/snapshot";
 
 export interface TokenSnapshot {
   contractAddress: string;
@@ -17,6 +20,15 @@ export interface TokenSnapshot {
   circulatingSupply: number | null;
   totalSupply: number | null;
   maxSupply: number | null;
+  // CoinGecko's "outstanding supply" — supply excluding permanently locked,
+  // burned, or not-planned-for-circulation tokens (treasury reserves,
+  // validator stakes, foundation allocations that won't be released).
+  // Used as the basis for "Outstanding Token Value" / "Adjusted MCAP" in
+  // valuation charts. Null when the token doesn't expose this field
+  // (smaller / less-tracked tokens). When null, callers should fall back
+  // to circulating supply or skip the Adj MCAP series entirely.
+  outstandingSupply: number | null;
+  outstandingTokenValue: number | null;
   fetchedAt: string;
   source: string;
 }
@@ -38,97 +50,11 @@ const CHAIN_MAP: Record<string, string> = {
   hyperliquid: "hyperliquid",
 };
 
-interface AlliumMppState {
-  session: ReturnType<typeof tempo.session>;
-  totalSpent: number;
-  totalVoucherAuthorized: number;
-  requestCount: number;
-}
-
-let alliumClient: AlliumMppState | null = null;
-
-function getOrCreateAlliumClient(): AlliumMppState {
-  if (alliumClient) return alliumClient;
-
-  const privateKey = process.env.MPP_SERVER_WALLET_KEY;
-  if (!privateKey) {
-    throw new Error("MPP_SERVER_WALLET_KEY not set — server cannot pay Allium");
-  }
-
-  const account = privateKeyToAccount(privateKey as `0x${string}`);
-  const session = tempo.session({ account, maxDeposit: "0.5" });
-
-  alliumClient = {
-    session,
-    totalSpent: 0,
-    totalVoucherAuthorized: 0,
-    requestCount: 0,
-  };
-
-  console.log(`[Allium-MPP] Session initialized: ${account.address}`);
-  return alliumClient;
-}
-
-function extractAlliumCost(response: any, state: AlliumMppState): { cost: number; source: CostSource } {
-  const prevSpent = state.totalSpent;
-  const prevVoucher = state.totalVoucherAuthorized;
-  let source: CostSource = "voucher_estimate";
-
-  const rawVoucher = response.cumulative ? Number(response.cumulative) / 1e6 : null;
-  if (rawVoucher !== null && rawVoucher >= prevVoucher) {
-    state.totalVoucherAuthorized = rawVoucher;
-  }
-
-  const receipt = response.receipt;
-  if (receipt?.spent) {
-    const serverSpent = Number(BigInt(receipt.spent)) / 1e6;
-    if (serverSpent >= prevSpent) {
-      state.totalSpent = serverSpent;
-    }
-    source = "receipt";
-  } else if (receipt?.acceptedCumulative) {
-    const accepted = Number(BigInt(receipt.acceptedCumulative)) / 1e6;
-    if (accepted >= prevSpent) {
-      state.totalSpent = accepted;
-    }
-    source = "receipt";
-  } else if (rawVoucher !== null) {
-    state.totalSpent = state.totalVoucherAuthorized;
-    source = "voucher_estimate";
-  }
-
-  return { cost: Math.max(0, state.totalSpent - prevSpent), source };
-}
-
-async function fetchViaAlliumMpp(
-  contractAddress: string,
-  chain: string,
-): Promise<{ data: any; mppCost: number; costSource: CostSource }> {
-  const state = getOrCreateAlliumClient();
-
-  const url = `${ALLIUM_MPP_URL}?address=${encodeURIComponent(contractAddress)}&chain=${encodeURIComponent(chain)}`;
-
-  const response = await state.session.fetch(url, {
-    method: "GET",
-    headers: {
-      "Content-Type": "application/json",
-      "x-api-key": "mpp",
-    },
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "Unknown error");
-    throw new Error(`Allium MPP error (${response.status}): ${errorText}`);
-  }
-
-  const { cost: mppCost, source: costSource } = extractAlliumCost(response, state);
-  state.requestCount++;
-
-  console.log(`[Allium-MPP] Request #${state.requestCount}: cost $${mppCost.toFixed(6)} [${costSource}] (spent: $${state.totalSpent.toFixed(6)}, voucher: $${state.totalVoucherAuthorized.toFixed(6)})`);
-
-  const data = await response.json();
-  return { data, mppCost, costSource };
-}
+// Allium-MPP integration removed — the relay endpoint reliably 404'd and
+// every call was falling through to CoinGecko anyway. We keep CoinGecko
+// as the sole token-snapshot source. Module name retained for caller
+// stability; the [TokenSnapshot] log prefix replaces the old [Allium]
+// prefix below.
 
 const COINGECKO_TICKER_TO_ID: Record<string, string> = {
   hype: "hyperliquid",
@@ -214,6 +140,8 @@ async function fetchViaCoinGeckoId(
       circulatingSupply: market.circulating_supply ?? null,
       totalSupply: market.total_supply ?? null,
       maxSupply: market.max_supply ?? null,
+      outstandingSupply: market.outstanding_supply ?? null,
+      outstandingTokenValue: market.outstanding_token_value_usd ?? null,
     },
     mppCost: 0,
   };
@@ -278,31 +206,19 @@ export async function fetchTokenSnapshot(
   const normalizedChain = CHAIN_MAP[chain.toLowerCase()] || chain.toLowerCase();
 
   let data: any = null;
-  let mppCost = 0;
-  let costSource: CostSource = "voucher_estimate";
-  let source = "allium-mpp";
+  let source = "coingecko";
 
   try {
-    const result = await fetchViaAlliumMpp(contractAddress, normalizedChain);
+    const result = await fetchViaPublicApi(contractAddress, normalizedChain, ticker);
     data = result.data;
-    mppCost = result.mppCost;
-    costSource = result.costSource;
-    source = "allium-mpp";
-    console.log(`[Allium] Fetched via MPP for ${ticker} on ${normalizedChain}`);
-  } catch (err: any) {
-    console.warn(`[Allium] MPP fetch failed, falling back to public API: ${err.message}`);
-
-    try {
-      const result = await fetchViaPublicApi(contractAddress, normalizedChain, ticker);
-      data = result.data;
-      mppCost = result.mppCost;
-      costSource = "voucher_estimate";
-      source = "coingecko-fallback";
-      console.log(`[Allium] Fetched via CoinGecko fallback for ${ticker}`);
-    } catch (fallbackErr: any) {
-      console.error(`[Allium] All sources failed for ${ticker}:`, fallbackErr.message);
+    if (data) {
+      console.log(`[TokenSnapshot] Fetched via CoinGecko for ${ticker} on ${normalizedChain}`);
+    } else {
       source = "unavailable";
     }
+  } catch (err: any) {
+    console.error(`[TokenSnapshot] CoinGecko fetch failed for ${ticker}:`, err.message);
+    source = "unavailable";
   }
 
   const snapshot: TokenSnapshot = {
@@ -318,9 +234,14 @@ export async function fetchTokenSnapshot(
     circulatingSupply: data?.circulatingSupply ?? null,
     totalSupply: data?.totalSupply ?? null,
     maxSupply: data?.maxSupply ?? null,
+    outstandingSupply: data?.outstandingSupply ?? null,
+    outstandingTokenValue: data?.outstandingTokenValue ?? null,
     fetchedAt: new Date().toISOString(),
     source,
   };
 
-  return { snapshot, mppCost, costSource };
+  // CoinGecko is free; the call carries no MPP cost. Returning zero +
+  // voucher_estimate keeps the existing CostSource type stable for
+  // callers without re-typing them.
+  return { snapshot, mppCost: 0, costSource: "voucher_estimate" };
 }

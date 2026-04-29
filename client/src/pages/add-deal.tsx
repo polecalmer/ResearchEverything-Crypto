@@ -107,7 +107,7 @@ function AgentCard({ agentKey, stage }: { agentKey: string; stage: EnrichmentSta
               <path d="M2.5 6.5L5 9L9.5 3.5" />
             </svg>
           ) : (
-            <span className="w-1.5 h-1.5 rounded-full bg-white/[0.06]" />
+            <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: "var(--color-block-separator)" }} />
           )}
         </div>
         <div className="flex-1 min-w-0">
@@ -148,6 +148,13 @@ export default function AddDeal() {
   const [inputFocused, setInputFocused] = useState(false);
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      const seed = new URLSearchParams(window.location.search).get("seed");
+      if (seed) {
+        setEnrichInput(seed);
+        window.history.replaceState({}, "", "/add");
+      }
+    }
     inputRef.current?.focus();
   }, []);
 
@@ -431,7 +438,7 @@ export default function AddDeal() {
                           ? "bg-emerald-500/30"
                           : isActive
                           ? "bg-sky-400/30"
-                          : "bg-white/[0.03]"
+                          : "bg-foreground/[0.05]"
                       }`}
                     >
                       {isActive && (

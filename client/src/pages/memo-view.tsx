@@ -22,6 +22,68 @@ import {
  * Auto-triggers window.print() on load (unless ?preview=1 in URL).
  */
 
+/**
+ * Split a markdown text part into segments by H2 boundary, tagging the
+ * Executive Summary and Sources blocks so they can be styled distinctly
+ * from body prose. The exec-summary block is visually elevated (the
+ * skim-friendly thesis card the human reviewer asked for) and the
+ * sources block is rendered as a discreet provenance footer.
+ */
+type MemoSegmentKind = "exec_summary" | "sources" | "body";
+function splitMemoSegments(text: string): Array<{ kind: MemoSegmentKind; content: string }> {
+  const headingRe = /^##\s+(.+?)\s*$/gm;
+  const segments: Array<{ kind: MemoSegmentKind; content: string }> = [];
+  const matches: Array<{ idx: number; len: number; heading: string }> = [];
+  let m: RegExpExecArray | null;
+  while ((m = headingRe.exec(text)) !== null) {
+    matches.push({ idx: m.index, len: m[0].length, heading: m[1].trim() });
+  }
+  if (matches.length === 0) {
+    return [{ kind: "body", content: text }];
+  }
+  // Lead-in (before the first H2) is body prose.
+  if (matches[0].idx > 0) {
+    const lead = text.slice(0, matches[0].idx).trim();
+    if (lead) segments.push({ kind: "body", content: lead });
+  }
+  for (let i = 0; i < matches.length; i++) {
+    const start = matches[i].idx;
+    const end = i + 1 < matches.length ? matches[i + 1].idx : text.length;
+    const heading = matches[i].heading.toLowerCase();
+    const kind: MemoSegmentKind =
+      /^executive\s+summary\b/.test(heading) ? "exec_summary"
+      : /^sources?\b/.test(heading) ? "sources"
+      : "body";
+    segments.push({ kind, content: text.slice(start, end).trim() });
+  }
+  return segments;
+}
+
+function MemoTextSegments({ text }: { text: string }) {
+  const segments = useMemo(() => splitMemoSegments(text), [text]);
+  return (
+    <>
+      {segments.map((seg, i) => {
+        if (seg.kind === "exec_summary") {
+          return (
+            <aside key={i} className="memo-exec-summary" data-testid="memo-exec-summary">
+              <MarkdownText text={seg.content} />
+            </aside>
+          );
+        }
+        if (seg.kind === "sources") {
+          return (
+            <footer key={i} className="memo-sources" data-testid="memo-sources">
+              <MarkdownText text={seg.content} />
+            </footer>
+          );
+        }
+        return <MarkdownText key={i} text={seg.content} />;
+      })}
+    </>
+  );
+}
+
 // Snapshot a live recharts SVG to a PNG data URL. Inlines a minimal <style>
 // block so fonts/fills render correctly when the SVG is read back via Image.
 async function svgToPng(svg: SVGSVGElement): Promise<string> {
@@ -242,8 +304,8 @@ export default function MemoView() {
       <div className="memo-wrap">
         {/* Screen-only toolbar; hidden in print */}
         <div className="memo-toolbar" aria-hidden>
-          <a href={`/research?sessionId=${sessionId}`} className="memo-link-back">
-            <ArrowLeft size={14} /> Back to session
+          <a href="/library" className="memo-link-back">
+            <ArrowLeft size={14} /> Back to library
           </a>
           <button
             className="memo-print-btn"
@@ -290,7 +352,7 @@ export default function MemoView() {
           <div className="memo-body" data-testid="memo-body">
             {parts.map((part, i) => {
               const renderPart = () => {
-              if (part.type === "text" && part.content) return <MarkdownText key={i} text={part.content} />;
+              if (part.type === "text" && part.content) return <MemoTextSegments key={i} text={part.content} />;
               if (part.type === "metric_cards" && part.artifact) return <MetricCards key={i} artifact={part.artifact} />;
               if (part.type === "chart" && part.artifact) {
                 // Frozen: render a memo-native card with the snapshot image.
@@ -546,6 +608,75 @@ function MemoStyles() {
       }
       .memo-byline strong { color: #111; font-weight: 600; }
       .memo-byline-sep { color: #bbb; }
+
+      /* ───── Executive summary block ─────
+         The skim-friendly thesis card. Distinct from body prose so a
+         busy reader gets the headline + key numbers + watchlist + bottom
+         line in one glance. */
+      .memo-exec-summary {
+        background: #f6f5f2;
+        border-left: 3px solid #3D5A9E;
+        padding: 14px 18px 10px;
+        margin: 18px 0 22px;
+        page-break-inside: avoid;
+      }
+      .memo-exec-summary h2 {
+        font-family: 'Calibri', 'Carlito', 'Helvetica Neue', Arial, sans-serif;
+        font-size: 9pt !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #3D5A9E !important;
+        margin: 0 0 8px !important;
+        padding-bottom: 0 !important;
+        border-bottom: none !important;
+      }
+      .memo-exec-summary ul {
+        margin: 0 !important;
+        padding-left: 0 !important;
+        list-style: none !important;
+      }
+      .memo-exec-summary li {
+        margin: 4px 0 !important;
+        padding-left: 0 !important;
+        font-size: 10.5pt;
+        line-height: 1.45;
+        color: #111 !important;
+      }
+      .memo-exec-summary li::marker { content: ""; }
+      .memo-exec-summary li strong { color: #3D5A9E; font-weight: 700; }
+
+      /* ───── Sources / audit trail ───── */
+      .memo-sources {
+        margin-top: 28px;
+        padding-top: 14px;
+        border-top: 1px solid #d4d4d4;
+        font-size: 9pt;
+        line-height: 1.5;
+        color: #555;
+        font-family: 'Calibri', 'Carlito', 'Helvetica Neue', Arial, sans-serif;
+      }
+      .memo-sources h2 {
+        font-size: 8.5pt !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #777 !important;
+        margin: 0 0 8px !important;
+        padding-bottom: 0 !important;
+        border-bottom: none !important;
+      }
+      .memo-sources ul {
+        margin: 0 !important;
+        padding-left: 16px !important;
+      }
+      .memo-sources li {
+        margin: 2px 0 !important;
+        font-size: 9pt !important;
+        color: #555 !important;
+        line-height: 1.5 !important;
+      }
+      .memo-sources li strong { color: #333; }
 
       /* ───── Body copy ───── */
       .memo-body {

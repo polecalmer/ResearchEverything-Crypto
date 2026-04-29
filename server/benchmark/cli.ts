@@ -27,12 +27,19 @@ process.on("unhandledRejection", (err: any) => {
 });
 
 import { storage } from "../storage";
+import { setBenchmarkMode } from "../mpp-client";
 import { seedBenchmark } from "./seed";
 import { runBenchmark } from "./runner";
 import { seedCompoundBenchmark } from "./seed-compound";
 import { seedTemplates } from "./seed-templates";
 import { seedIntentBenchmark } from "./seed-intent";
 import { seedEthenaModel } from "./research";
+import { seedQualityBenchmark } from "./seed-quality";
+import { runQualityBenchmark } from "./quality-runner";
+
+// Benchmark runs need full-balance channels — a single full-cycle can cost
+// $50+, well over the $35 cap normal app sessions get.
+setBenchmarkMode(true);
 
 const args = process.argv.slice(2);
 const command = args[0];
@@ -58,7 +65,9 @@ Commands:
   seed-compound   Seed compound benchmark cases (P/E, financial overviews)
   seed-intent     Seed intent interpretation cases (50 cases across 5 categories)
   seed-research   Seed Ethena revenue model and research pipeline
+  seed-quality    Seed LLM-judged quality cases (chart-form, compound, memo prose)
   run             Execute benchmark and apply improvements
+  quality-run     Execute LLM-judged quality benchmark
   status          Show latest run results and history
   failures        Show failure details for a specific run
   observability   Show production query attempt patterns
@@ -72,8 +81,10 @@ Flags:
   --force-dune     Force agent to use Dune SQL for ALL cases (no DeFiLlama/CoinGecko)
   --compound       Only run compound/derived cases (pe_ratio, financial_statement, price)
   --intent         Only run intent interpretation cases (vague, implicit, timerange, comparison, multichain)
-  --limit N        Protocol limit for seeding (default 100)
+  --limit N        Protocol limit for seeding (default 100) / quality-run case cap
   --days N         Lookback period for observability (default 30)
+  --dimension X    quality-run filter: compound | chart_form | memo_quality | all
+  --notes "..."    quality-run free-form note to attach to the run row
 `);
     process.exit(0);
   }
@@ -116,6 +127,30 @@ Flags:
       console.log(`\nSeeding compound benchmark cases (${dryRun ? "DRY RUN" : "LIVE"})...\n`);
       const result = await seedCompoundBenchmark(dryRun);
       console.log(`\nSeed compound complete:`, JSON.stringify(result, null, 2));
+      break;
+    }
+
+    case "seed-quality": {
+      const dryRun = getFlag("dry-run");
+      console.log(`\nSeeding quality cases (${dryRun ? "DRY RUN" : "LIVE"})...\n`);
+      const result = await seedQualityBenchmark({ dryRun });
+      console.log(`\nSeed quality complete:`, JSON.stringify(result, null, 2));
+      break;
+    }
+
+    case "quality-run": {
+      const dimension = getFlagValue("dimension");
+      const limit = getFlagValue("limit") ? parseInt(getFlagValue("limit")!) : undefined;
+      const dryRun = getFlag("dry-run");
+      const verbose = getFlag("verbose");
+      const notes = getFlagValue("notes");
+      console.log(
+        `\nRunning quality benchmark (dimension=${dimension || "all"}, limit=${limit ?? "all"}, ${dryRun ? "DRY RUN" : "LIVE"})...\n`,
+      );
+      const result = await runQualityBenchmark({ dimension, limit, dryRun, verbose, notes });
+      console.log(
+        `\nQuality run complete: runId=${result.runId} scored=${result.scoredCases}/${result.totalCases} avg=${result.averageScore?.toFixed(2) ?? "—"}/5`,
+      );
       break;
     }
 

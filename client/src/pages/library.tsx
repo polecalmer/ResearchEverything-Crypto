@@ -5,11 +5,10 @@ import { useAuth } from "@/hooks/use-auth";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { FileText, BarChart3, Brain, Loader2, Search } from "lucide-react";
+import { FileText, BarChart3, Loader2, Search, ArrowRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { format, formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow } from "date-fns";
 import DataStation from "@/pages/data-station";
-import BrainGraph from "@/pages/brain-graph";
 
 interface Report {
   id: string;
@@ -23,13 +22,47 @@ interface Report {
   sourceMessageId: number | null;
 }
 
-const TABS = ["reports", "charts", "brain"] as const;
+const TABS = ["charts", "reports"] as const;
 type Tab = typeof TABS[number];
+
+// Known protocol + ticker names the memo extractor is likely to surface.
+// Match on a word boundary against the title first, then description, so
+// "Jupiter: Revenue Streams" gets a "Jupiter" chip even if the description
+// mentions other protocols later in the body.
+const PROTOCOL_TAG_PATTERNS: Array<[RegExp, string]> = [
+  [/\bhyperliquid\b|\bhype\b|\bhip-?3\b/i, "Hyperliquid"],
+  [/\bethena\b|\busde\b|\bsusde\b|\bena\b/i, "Ethena"],
+  [/\bpump\.?fun\b|\bpumpfun\b/i, "Pump.fun"],
+  [/\btradexyz\b/i, "TradeXYZ"],
+  [/\bjupiter\b|\bjup\b/i, "Jupiter"],
+  [/\bjito\b/i, "Jito"],
+  [/\bmorpho\b/i, "Morpho"],
+  [/\buniswap\b|\buni\b/i, "Uniswap"],
+  [/\baave\b/i, "Aave"],
+  [/\blido\b|\bsteth\b/i, "Lido"],
+  [/\bmakerdao\b|\bmaker\b|\bdai\b|\bsky\b/i, "MakerDAO"],
+  [/\bcurve\b|\bcrv\b/i, "Curve"],
+  [/\beigenlayer\b|\beigen\b/i, "EigenLayer"],
+  [/\bpendle\b/i, "Pendle"],
+  [/\bgmx\b/i, "GMX"],
+  [/\bdydx\b/i, "dYdX"],
+  [/\bsynthetix\b|\bsnx\b/i, "Synthetix"],
+];
+
+function detectProtocolTag(...fields: Array<string | null | undefined>): string | null {
+  for (const field of fields) {
+    if (!field) continue;
+    for (const [re, label] of PROTOCOL_TAG_PATTERNS) {
+      if (re.test(field)) return label;
+    }
+  }
+  return null;
+}
 
 function getTabFromQuery(search: string): Tab {
   const params = new URLSearchParams(search);
   const t = (params.get("tab") || "").toLowerCase();
-  return (TABS as readonly string[]).includes(t) ? (t as Tab) : "reports";
+  return (TABS as readonly string[]).includes(t) ? (t as Tab) : "charts";
 }
 
 export default function Library() {
@@ -44,7 +77,7 @@ export default function Library() {
   }, [location]);
 
   const updateTab = (next: string) => {
-    const t = (TABS as readonly string[]).includes(next) ? (next as Tab) : "reports";
+    const t = (TABS as readonly string[]).includes(next) ? (next as Tab) : "charts";
     setTab((prev) => (prev === t ? prev : t));
     const url = new URL(window.location.href);
     if (url.searchParams.get("tab") !== t) {
@@ -62,20 +95,12 @@ export default function Library() {
               Library
             </h1>
             <p className="text-xs text-muted-foreground/70 mt-0.5">
-              Everything your sessions have produced — Memos, live Charts, and your Brain.
+              Everything your sessions have produced — live Charts and Memos.
             </p>
           </div>
         </div>
         <Tabs value={tab} onValueChange={updateTab}>
           <TabsList className="h-8 bg-transparent p-0 gap-1">
-            <TabsTrigger
-              value="reports"
-              className="h-7 px-3 text-[12px] data-[state=active]:bg-accent data-[state=active]:shadow-none"
-              data-testid="tab-reports"
-            >
-              <FileText className="w-3.5 h-3.5 mr-1.5" />
-              Memos
-            </TabsTrigger>
             <TabsTrigger
               value="charts"
               className="h-7 px-3 text-[12px] data-[state=active]:bg-accent data-[state=active]:shadow-none"
@@ -85,29 +110,24 @@ export default function Library() {
               Charts
             </TabsTrigger>
             <TabsTrigger
-              value="brain"
+              value="reports"
               className="h-7 px-3 text-[12px] data-[state=active]:bg-accent data-[state=active]:shadow-none"
-              data-testid="tab-brain"
+              data-testid="tab-reports"
             >
-              <Brain className="w-3.5 h-3.5 mr-1.5" />
-              Brain
+              <FileText className="w-3.5 h-3.5 mr-1.5" />
+              Memos
             </TabsTrigger>
           </TabsList>
         </Tabs>
       </div>
 
       <div className="flex-1 min-h-0 overflow-hidden">
-        {tab === "reports" && <ReportsTab />}
         {tab === "charts" && (
           <div className="h-full overflow-hidden">
             <DataStation embedded />
           </div>
         )}
-        {tab === "brain" && (
-          <div className="h-full overflow-hidden">
-            <BrainGraph embedded />
-          </div>
-        )}
+        {tab === "reports" && <ReportsTab />}
       </div>
     </div>
   );
@@ -169,25 +189,35 @@ function ReportsTab() {
                 r.sourceConversationId != null && r.sourceMessageId != null
                   ? `/memo/${r.sourceConversationId}/${r.sourceMessageId}?preview=1`
                   : `/reports/${r.id}`;
+              const protocolTag = detectProtocolTag(r.title, r.description);
               return (
                 <Link key={r.id} href={href}>
                   <Card
-                    className="p-4 cursor-pointer hover-elevate active-elevate-2 transition-all"
+                    className="group p-4 cursor-pointer hover-elevate active-elevate-2 transition-all h-full flex flex-col"
                     data-testid={`card-report-${r.id}`}
                   >
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <h3 className="text-sm font-medium leading-snug" data-testid={`text-report-title-${r.id}`}>
-                        {r.title}
-                      </h3>
-                      <Badge variant="outline" className="text-[10px] shrink-0">Memo</Badge>
+                    <div className="flex items-center gap-2 mb-2 text-[10px] text-muted-foreground/60 uppercase tracking-wider">
+                      {protocolTag && (
+                        <Badge variant="secondary" className="text-[10px] h-4 px-1.5 font-medium">
+                          {protocolTag}
+                        </Badge>
+                      )}
+                      <span className="tabular-nums">
+                        {formatDistanceToNow(new Date(r.updatedAt), { addSuffix: true })}
+                      </span>
+                      <ArrowRight className="w-3 h-3 ml-auto opacity-0 group-hover:opacity-60 transition-opacity" />
                     </div>
+                    <h3
+                      className="text-[13.5px] font-semibold leading-snug line-clamp-2 mb-1.5"
+                      data-testid={`text-report-title-${r.id}`}
+                    >
+                      {r.title}
+                    </h3>
                     {r.description && (
-                      <p className="text-xs text-muted-foreground/80 line-clamp-2 mb-2">{r.description}</p>
+                      <p className="text-xs text-muted-foreground/75 line-clamp-3 leading-relaxed">
+                        {r.description}
+                      </p>
                     )}
-                    <div className="text-[10px] text-muted-foreground/60 tabular-nums">
-                      Updated {formatDistanceToNow(new Date(r.updatedAt), { addSuffix: true })} ·{" "}
-                      {format(new Date(r.createdAt), "MMM d, yyyy")}
-                    </div>
                   </Card>
                 </Link>
               );

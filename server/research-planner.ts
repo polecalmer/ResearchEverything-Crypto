@@ -1,6 +1,14 @@
 import fs from "fs";
 import path from "path";
-import { callAnthropicRaw } from "./mpp-client";
+import { callAnthropicRaw, callAnthropicRawStreaming } from "./mpp-client";
+
+// Stream by default to dodge Cloudflare's 100s edge timeout — planner
+// calls run with 1500-2000 max_tokens and were 524'ing intermittently in
+// deep mode, exactly the same pattern the agent loop hit before we
+// switched it to streaming. Same MPP_NO_STREAMING escape hatch as the
+// main agent loop.
+const callStreamOrRaw: typeof callAnthropicRawStreaming =
+  process.env.MPP_NO_STREAMING === "1" ? (callAnthropicRaw as any) : callAnthropicRawStreaming;
 import { ANALYST_NAMES, ANALYST_DISPLAY } from "@shared/schema";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -356,7 +364,7 @@ FRAMEWORK: "${fw.name}" by ${fw.analyst}
 DESCRIPTION: ${fw.description}`;
   }).join("\n\n");
 
-  const response = await callAnthropicRaw({
+  const response = await callStreamOrRaw({
     model: PLANNER_MODEL,
     max_tokens: 1500,
     system: `You convert analyst framework descriptions into procedural reasoning steps for a crypto research agent.
@@ -419,7 +427,7 @@ export async function planResearch(
     : "";
   const userMsg = `User prompt: """${userMessage}"""${contextSnippet}\n\nEmit the ResearchPlan JSON now.`;
 
-  const response = await callAnthropicRaw({
+  const response = await callStreamOrRaw({
     model: PLANNER_MODEL,
     max_tokens: 2000,
     system: buildPlannerSystemPrompt(),
@@ -504,7 +512,7 @@ ${executionSummary}
 
 Decide: is the plan still good? Revise if needed and emit the updated ResearchPlan JSON.`;
 
-  const response = await callAnthropicRaw({
+  const response = await callStreamOrRaw({
     model: PLANNER_MODEL,
     max_tokens: 2000,
     system: buildReflectionSystemPrompt(),

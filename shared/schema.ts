@@ -326,7 +326,21 @@ export const provenQueries = pgTable("proven_queries", {
   lastUsed: timestamp("last_used").defaultNow().notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+  // Voyage 1024-d embedding of "<protocol> <metric_type>\n<sql snippet>".
+  // Nullable so the column can be added without a backfill blocking the
+  // migration. Rows with null embeddings fall back to ILIKE search; the
+  // backfill script populates them and saveProvenQuery embeds new rows on
+  // write. See server/dune-sql-author.ts:findProvenQueryByIntent.
+  embedding: vector("embedding", { dimensions: 1024 }),
+  contentTsv: tsvector("content_tsv").generatedAlwaysAs(
+    sql`to_tsvector('english', protocol || ' ' || metric_type || ' ' || COALESCE(left(sql_query, 2000), ''))`,
+    { mode: "stored" as any },
+  ),
+}, (table) => ({
+  embeddingIdx: index("proven_queries_embedding_idx").using("hnsw", table.embedding.op("vector_cosine_ops")),
+  tsvIdx: index("proven_queries_tsv_idx").using("gin", table.contentTsv),
+  protocolIdx: index("proven_queries_protocol_idx").on(table.protocol),
+}));
 
 export const insertProvenQuerySchema = createInsertSchema(provenQueries).omit({
   id: true,
@@ -365,6 +379,128 @@ export const insertSystemLearningSchema = createInsertSchema(systemLearnings).om
 });
 export type SystemLearning = typeof systemLearnings.$inferSelect;
 export type InsertSystemLearning = z.infer<typeof insertSystemLearningSchema>;
+
+// ═══════════════════════════════════════════════════════════════
+// CORRECTION INGESTION — capture user corrections so the next
+// run benefits without the user repeating themselves. Two stores:
+// (1) tool_arg_overrides for deterministic substitution at tool-
+// call time (slug aliases). (2) brain_facts for vector-recallable
+// rebrand/method/fact corrections (existing table, source='user-
+// correction'). See docs/internal/correction-ingestion-spec.md.
+// ═══════════════════════════════════════════════════════════════
+
+// Deterministic arg-substitution table consulted by every brain-
+// aware tool wrapper BEFORE the network call. tool_name='*' means
+// "any tool that takes this arg" (used for cross-source slugs like
+// the defillama-vs-coingecko maple/maple-finance case).
+export const toolArgOverrides = pgTable("tool_arg_overrides", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: text("user_id").notNull(),
+  toolName: text("tool_name").notNull(),
+  argName: text("arg_name").notNull(),
+  fromValue: text("from_value").notNull(),
+  toValue: text("to_value").notNull(),
+  sourceMsgId: integer("source_msg_id"),
+  confidence: integer("confidence").notNull().default(80),
+  hitCount: integer("hit_count").notNull().default(0),
+  lastHitAt: timestamp("last_hit_at"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  lookupIdx: uniqueIndex("tao_lookup_uniq").on(table.userId, table.toolName, table.argName, table.fromValue),
+}));
+
+// Pending-extraction queue. A row is inserted when the detector
+// notices corrective language in a user message; the row is drained
+// after the NEXT assistant turn lands a successful artifact, at
+// which point the extractor compares the failed-vs-corrected pair.
+export const correctionQueue = pgTable("correction_queue", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  conversationId: integer("conversation_id").notNull(),
+  prevAssistantMsgId: integer("prev_assistant_msg_id").notNull(),
+  userMsgId: integer("user_msg_id").notNull(),
+  status: text("status").notNull().default("awaiting_corrected_turn"),
+  correctedAssistantMsgId: integer("corrected_assistant_msg_id"),
+  processedAt: timestamp("processed_at"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, (table) => ({
+  statusIdx: index("correction_queue_status_idx").on(table.status, table.conversationId),
+}));
+
+export type ToolArgOverride = typeof toolArgOverrides.$inferSelect;
+export type CorrectionQueue = typeof correctionQueue.$inferSelect;
+
+// ═══════════════════════════════════════════════════════════════
+// CANONICAL AGGREGATION RULES — explicit "for entity X, metric Y
+// requires combining sources A+B+C" knowledge. Domain knowledge the
+// system can't derive on its own; sourced from a small curated seed
+// + grown via user corrections (correction-ingestion can write here
+// when it detects coverage-gap class corrections).
+//
+// Surfaced to the agent in three places:
+//   1. System prompt at preflight (so it picks the right sources
+//      from the start)
+//   2. Tool-result hint when the agent calls a partial source for
+//      a metric with a canonical rule (catch at fetch moment)
+//   3. Strict-pass validator: if a compute() result name matches a
+//      rule, all required source_label patterns must appear in the
+//      provenance trail — otherwise the response gets rejected/retried.
+// ═══════════════════════════════════════════════════════════════
+export const canonicalAggregations = pgTable("canonical_aggregations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  entity: text("entity").notNull(),               // 'hyperliquid', 'maple', '*' for cross-entity
+  metricName: text("metric_name").notNull(),      // 'ltm_gross_fees', 'protocol_revenue', 'ttm_volume'
+  description: text("description").notNull(),
+  // Array of { source_label_pattern, role, required, notes } — see
+  // server/numeric-provenance/canonical-aggregations.ts for shape.
+  requiredSources: jsonb("required_sources").notNull(),
+  aggregationMethod: text("aggregation_method").notNull().default("sum"),
+  notes: text("notes"),
+  // Provenance: msg ID if learned from a user correction, else null
+  // (curated seeds carry source='seed' below).
+  sourceMsgId: integer("source_msg_id"),
+  source: text("source").notNull().default("seed"),
+  confidence: integer("confidence").notNull().default(80),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  lookupIdx: uniqueIndex("canonical_agg_lookup_uniq").on(table.entity, table.metricName),
+}));
+export type CanonicalAggregation = typeof canonicalAggregations.$inferSelect;
+
+// ═══════════════════════════════════════════════════════════════
+// OUTPUT REQUIREMENTS — "for prompt-shape X, the agent must
+// include these specific charts/tables/sections in the output."
+// Domain knowledge that the system can't derive on its own; lets
+// us extend FS prompts to require valuation-multiple time-series,
+// add scenario tables, etc., without changing code. Surfaced to
+// the agent in the system prompt when the matching prompt-shape
+// is detected (e.g. financial-statement → daily P/E + P/S charts).
+// ═══════════════════════════════════════════════════════════════
+export const outputRequirements = pgTable("output_requirements", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  // Prompt shape this rule applies to. 'financial_statement',
+  // 'valuation_dashboard', 'tokenomics_breakdown', etc. The
+  // FS-router and similar detectors map prompts to these shapes.
+  promptShape: text("prompt_shape").notNull(),
+  // Entity scope: '*' for any entity, or a specific entity name.
+  entity: text("entity").notNull().default("*"),
+  // Short label used in the surfaced prompt block.
+  title: text("title").notNull(),
+  // The full requirement text. Written as direct instruction to the
+  // agent — what to include, how to compute, what to label.
+  requirement: text("requirement").notNull(),
+  // Render order (lower = earlier in the prompt).
+  ordering: integer("ordering").notNull().default(100),
+  source: text("source").notNull().default("seed"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (table) => ({
+  shapeIdx: index("output_req_shape_idx").on(table.promptShape, table.entity, table.isActive),
+}));
+export type OutputRequirement = typeof outputRequirements.$inferSelect;
 
 export const insertUserSchema = createInsertSchema(users).pick({
   username: true,
@@ -464,6 +600,83 @@ export const benchmarkCaseResults = pgTable("benchmark_case_results", {
 });
 
 export type BenchmarkCaseResult = typeof benchmarkCaseResults.$inferSelect;
+
+/**
+ * Quality benchmark cases — LLM-judged evaluations that exercise the
+ * qualitative dimensions a numeric-tolerance run cannot: chart-form
+ * selection, compound reasoning, memo prose quality, conversational
+ * refinement. Separate from `benchmark_cases` so neither suite
+ * contaminates the other's accuracy signal.
+ */
+export const benchmarkQualityCases = pgTable("benchmark_quality_cases", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  dimension: text("dimension").notNull(),              // "compound" | "chart_form" | "memo_quality" | "refinement" | "verification" | "quick"
+  prompt: text("prompt").notNull(),                    // natural-language user query (the FINAL turn the test grades)
+  rubric: text("rubric").notNull(),                    // what the judge should look for, free-form
+  expectedBehavior: text("expected_behavior"),         // one-liner describing the ideal response
+  tags: jsonb("tags"),                                 // string[] — protocols/metrics/etc for grouping
+  // Optional conversation history that runs BEFORE `prompt`. Used by
+  // refinement-dimension cases to set up the prior turn the user is
+  // pushing back on. Empty / null for single-turn cases. Shape:
+  // [{ role: "user" | "assistant", content: string }, ...]
+  priorTurns: jsonb("prior_turns"),
+  // Structured rubric criteria. When present, the judge emits per-criterion
+  // 0/0.5/1 scores against these IDs (in addition to the freeform `rubric`),
+  // enabling cross-run failure-mode aggregation. Shape:
+  // [{ id: "memo.exec_deck", description: "...", points: 2 }, ...]
+  criteria: jsonb("criteria"),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type BenchmarkQualityCase = typeof benchmarkQualityCases.$inferSelect;
+export type QualityCriterion = { id: string; description: string; points: number };
+
+/** One full pass over the active quality cases. */
+export const benchmarkQualityRuns = pgTable("benchmark_quality_runs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  totalCases: integer("total_cases").notNull(),
+  scoredCases: integer("scored_cases").notNull().default(0),
+  averageScore: doublePrecision("average_score"),     // mean 0-5 across scored cases
+  totalCostUsd: doublePrecision("total_cost_usd"),
+  totalLatencyMs: integer("total_latency_ms"),
+  status: text("status").notNull().default("running"), // 'running' | 'completed' | 'failed'
+  judgeModel: text("judge_model"),                     // e.g. "claude-opus-4-7"
+  notes: text("notes"),                                // free-form run description
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type BenchmarkQualityRun = typeof benchmarkQualityRuns.$inferSelect;
+
+/** Per-case quality result with LLM-judge critique. */
+export const benchmarkQualityResults = pgTable("benchmark_quality_results", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  runId: varchar("run_id").notNull(),
+  caseId: varchar("case_id").notNull(),
+  dimension: text("dimension").notNull(),             // denormalised for easy grouping
+  score: doublePrecision("score").notNull(),          // 0-5 from the judge
+  verdict: text("verdict"),                           // "pass" | "partial" | "fail"
+  critique: text("critique"),                         // judge's reasoning
+  responseText: text("response_text"),                // agent's response verbatim
+  responseArtifacts: jsonb("response_artifacts"),     // captured chart configs etc.
+  judgeRaw: jsonb("judge_raw"),                       // full judge JSON for later re-analysis
+  // Per-criterion scoring: { [criterionId]: 0 | 0.5 | 1 }. Populated when the
+  // case has a structured `criteria` array; null for legacy cases.
+  criteriaScores: jsonb("criteria_scores"),
+  // Denormalised list of criterion IDs the judge marked as missed. Enables
+  // GROUP BY across runs to surface recurring failure modes.
+  failedCriteriaIds: text("failed_criteria_ids").array(),
+  // Optional follow-up turn — second prompt run with conversation history.
+  // Lets us probe whether follow-ups produce more intelligent outputs.
+  followUpPrompt: text("follow_up_prompt"),
+  followUpResponse: text("follow_up_response"),
+  followUpCost: doublePrecision("follow_up_cost"),
+  followUpLatencyMs: integer("follow_up_latency_ms"),
+  costUsd: doublePrecision("cost_usd"),
+  latencyMs: integer("latency_ms"),
+  executionSuccess: boolean("execution_success").notNull().default(true),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type BenchmarkQualityResult = typeof benchmarkQualityResults.$inferSelect;
 
 /** Compound financial query templates (SQL with placeholders) */
 export const queryTemplates = pgTable("query_templates", {

@@ -19,15 +19,12 @@ const EVENT_LABELS: Record<string, string> = {
   report_viewed: "Report Viewed",
 };
 
-function StatCard({ label, value, icon: Icon, sub }: { label: string; value: string | number; icon: any; sub?: string }) {
+function StatCard({ label, value, sub }: { label: string; value: string | number; icon: any; sub?: string }) {
   return (
-    <div className="rounded border border-border/40 bg-card/30 p-4" data-testid={`stat-${label.toLowerCase().replace(/\s+/g, '-')}`}>
-      <div className="flex items-center gap-2 mb-1">
-        <Icon className="w-3.5 h-3.5 text-muted-foreground/60" />
-        <span className="text-[10px] uppercase tracking-wider text-muted-foreground/60">{label}</span>
-      </div>
-      <p className="text-xl font-semibold text-foreground/90 font-mono">{value}</p>
-      {sub && <p className="text-[10px] text-muted-foreground/50 mt-0.5">{sub}</p>}
+    <div className="px-5 py-4" data-testid={`stat-${label.toLowerCase().replace(/\s+/g, '-')}`}>
+      <span className="text-[9px] uppercase tracking-[0.18em] text-muted-foreground/50">{label}</span>
+      <p className="text-2xl font-semibold text-foreground/95 font-mono tabular-nums mt-2">{value}</p>
+      {sub && <p className="text-[10px] text-muted-foreground/40 mt-1">{sub}</p>}
     </div>
   );
 }
@@ -1433,7 +1430,7 @@ export default function AdminPage() {
           <p className="text-xs text-muted-foreground/60 mt-0.5">Usage tracking and platform metrics</p>
         </div>
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 border-y border-border/15 divide-x divide-border/15">
           <StatCard label="Total Users" value={users?.total_users || 0} icon={Users} sub={users?.first_signup ? `Since ${format(new Date(users.first_signup), "MMM d, yyyy")}` : undefined} />
           <StatCard label="Companies" value={companies?.total_companies || 0} icon={Building2} sub={`${companies?.users_with_companies || 0} users with deals`} />
           <StatCard label="Revenue" value={`$${Number(transactions?.total_revenue || 0).toFixed(2)}`} icon={DollarSign} sub={`${transactions?.paying_users || 0} paying users`} />

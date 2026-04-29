@@ -1,7 +1,8 @@
 import { tempo } from "mppx/client";
 import { privateKeyToAccount } from "viem/accounts";
-import { createPublicClient, http, parseAbi } from "viem";
-import { EXTERNAL_URLS, TOKENS } from "./constants";
+import { createPublicClient, createWalletClient, http, parseAbi, encodeFunctionData, type Hex } from "viem";
+import { EXTERNAL_URLS, TOKENS, WALLETS } from "./constants";
+import { dlog } from "./debug-log";
 
 const ANTHROPIC_MPP_URL = EXTERNAL_URLS.ANTHROPIC_MPP;
 
@@ -59,13 +60,29 @@ export interface AnthropicRawResponse {
   costSource: CostSource;
 }
 
-const CHANNEL_DEPOSIT_TARGET = 35.0;   // ideal channel deposit (USD) — auto-clamped to wallet balance
-const CHANNEL_DEPOSIT_MIN = 2.0;       // never open a channel smaller than this
-const CHANNEL_BALANCE_RESERVE = 0.5;   // leave a small reserve (gas / dust)
+// Channel sizing: normal app sessions are capped so we can't lose more than
+// CHANNEL_DEPOSIT_DEFAULT_CAP per channel if anything goes sideways. Benchmark
+// runs need much more headroom (a single full-cycle can cost $50+) and
+// opt in via setBenchmarkMode(true) — they get the full wallet balance.
+const CHANNEL_DEPOSIT_MIN = 2.0;            // never open a channel smaller than this
+const CHANNEL_DEPOSIT_DEFAULT_CAP = 35;     // app-session cap
+const CHANNEL_BALANCE_RESERVE = 0.5;        // leave a small reserve (gas / dust)
 const SHUTDOWN_TIMEOUT_MS = 15000;
+
+let useFullDeposit = false;
+
+/**
+ * Opt the current process into full-balance channels. Call from benchmark
+ * entry points (cli.ts, runner.ts) BEFORE any MPP request fires. Normal app
+ * server doesn't call this — gets capped deposits by default.
+ */
+export function setBenchmarkMode(on: boolean): void {
+  useFullDeposit = on;
+}
 
 interface MppClientState {
   session: ReturnType<typeof tempo.session>;
+  deposit: number;
   totalSpent: number;
   totalVoucherAuthorized: number;
   requestCount: number;
@@ -88,23 +105,21 @@ async function getOrCreateClient(): Promise<MppClientState> {
 
   const account = getAccount();
 
-  // Adapt the channel deposit to the wallet's actual USDC balance.
-  // We can't deposit more than we have, and we want to leave a small reserve.
+  // Deposit the full usable balance (minus reserve). On RPC failure we'd rather
+  // fail loudly than guess a small deposit that re-introduces the drain risk.
   const balance = await getUsdcBalance(account.address as `0x${string}`);
-  let depositUsd: number;
   if (balance < 0) {
-    // Couldn't read balance; fall back to target and let the SDK error if it must.
-    depositUsd = CHANNEL_DEPOSIT_TARGET;
-    console.warn(`[MPP-Channel] Wallet balance unknown; attempting target deposit $${depositUsd}`);
-  } else {
-    const usable = Math.max(0, balance - CHANNEL_BALANCE_RESERVE);
-    depositUsd = Math.min(CHANNEL_DEPOSIT_TARGET, usable);
-    if (depositUsd < CHANNEL_DEPOSIT_MIN) {
-      throw new Error(
-        `MPP server wallet (${account.address}) has only $${balance.toFixed(4)} USDC — needs at least $${CHANNEL_DEPOSIT_MIN + CHANNEL_BALANCE_RESERVE} USDC to open a payment channel. Please top up the wallet.`
-      );
-    }
+    throw new Error(
+      `MPP server wallet (${account.address}) USDC balance unreadable — cannot size channel deposit. Check Tempo RPC connectivity.`
+    );
   }
+  const usable = Math.max(0, balance - CHANNEL_BALANCE_RESERVE);
+  if (usable < CHANNEL_DEPOSIT_MIN) {
+    throw new Error(
+      `MPP server wallet (${account.address}) has only $${balance.toFixed(4)} USDC — needs at least $${CHANNEL_DEPOSIT_MIN + CHANNEL_BALANCE_RESERVE} USDC to open a payment channel. Please top up the wallet.`
+    );
+  }
+  const depositUsd = useFullDeposit ? usable : Math.min(usable, CHANNEL_DEPOSIT_DEFAULT_CAP);
   const depositStr = depositUsd.toFixed(2);
 
   const session = tempo.session({
@@ -114,6 +129,7 @@ async function getOrCreateClient(): Promise<MppClientState> {
 
   const state: MppClientState = {
     session,
+    deposit: depositUsd,
     totalSpent: 0,
     totalVoucherAuthorized: 0,
     requestCount: 0,
@@ -125,17 +141,172 @@ async function getOrCreateClient(): Promise<MppClientState> {
   return state;
 }
 
+// Tempo channel close starts an on-chain grace period (CLOSE_GRACE_PERIOD =
+// 900s / 15 min). After that elapses, the payer must call escrow.withdraw(channelId)
+// to actually move the unspent deposit back to the wallet — the chain does NOT
+// auto-release. We add 1 min of margin so on-chain state has clearly transitioned.
+const CHANNEL_RECLAIM_DELAY_MS = 16 * 60 * 1000;
+
+const channelsAbi = [{
+  type: "function" as const,
+  name: "channels" as const,
+  inputs: [{ name: "", type: "bytes32" as const }],
+  outputs: [
+    { name: "finalized", type: "bool" as const },
+    { name: "closeRequestedAt", type: "uint64" as const },
+    { name: "payer", type: "address" as const },
+    { name: "payee", type: "address" as const },
+    { name: "token", type: "address" as const },
+    { name: "authorizedSigner", type: "address" as const },
+    { name: "deposit", type: "uint128" as const },
+    { name: "settled", type: "uint128" as const },
+  ],
+  stateMutability: "view" as const,
+}];
+
+const withdrawAbi = [{
+  type: "function" as const,
+  name: "withdraw" as const,
+  inputs: [{ name: "channelId", type: "bytes32" as const }],
+  outputs: [],
+  stateMutability: "nonpayable" as const,
+}];
+
+const transferEventAbi = parseAbi([
+  "event Transfer(address indexed from, address indexed to, uint256 value)",
+]);
+
+let cachedWriteClient: ReturnType<typeof createWalletClient> | null = null;
+function getWriteClient() {
+  if (!cachedWriteClient) {
+    cachedWriteClient = createWalletClient({
+      account: getAccount(),
+      chain: tempoChain as any,
+      transport: http(),
+    });
+  }
+  return cachedWriteClient;
+}
+
+// Walks recent USDC Transfer logs from server wallet → escrow to enumerate
+// channels this wallet has ever opened, then returns the channelIds that are
+// currently in close-pending state with grace period elapsed.
+async function findEligibleChannelsForWithdraw(): Promise<Hex[]> {
+  const account = getAccount();
+  const escrow = WALLETS.ESCROW as `0x${string}`;
+  const usdc = TOKENS.USDC as `0x${string}`;
+  const publicClient = getReadClient();
+
+  const currentBlock = await publicClient.getBlockNumber();
+  const CHUNK = 99000n;
+
+  const depositBlocks: bigint[] = [];
+  for (let from = 0n; from <= currentBlock; from += CHUNK) {
+    const to = from + CHUNK - 1n > currentBlock ? currentBlock : from + CHUNK - 1n;
+    const transfers = await publicClient.getLogs({
+      address: usdc,
+      event: transferEventAbi[0] as any,
+      args: { from: account.address, to: escrow },
+      fromBlock: from,
+      toBlock: to,
+    });
+    for (const t of transfers) depositBlocks.push(t.blockNumber);
+  }
+
+  const channelIds = new Set<Hex>();
+  for (const blockNum of depositBlocks) {
+    const logs = await publicClient.getLogs({ address: escrow, fromBlock: blockNum, toBlock: blockNum });
+    for (const log of logs) {
+      if (log.topics[1]) channelIds.add(log.topics[1] as Hex);
+    }
+  }
+
+  const now = Math.floor(Date.now() / 1000);
+  const CLOSE_GRACE_PERIOD = 900; // contract constant
+  const eligible: Hex[] = [];
+  for (const cid of channelIds) {
+    const r = await publicClient.readContract({
+      address: escrow,
+      abi: channelsAbi,
+      functionName: "channels",
+      args: [cid as any],
+    }) as any;
+    const [finalized, closeRequestedAt, , , , , deposit] = r;
+    if (finalized || deposit === 0n) continue;
+    const closeTime = Number(closeRequestedAt);
+    if (closeTime === 0) continue; // not in close-pending state
+    const readyAt = closeTime + CLOSE_GRACE_PERIOD;
+    if (now >= readyAt) eligible.push(cid);
+  }
+  return eligible;
+}
+
+async function reclaimEligibleChannels() {
+  let channels: Hex[];
+  try {
+    channels = await findEligibleChannelsForWithdraw();
+  } catch (err: any) {
+    console.warn(`[MPP-Channel] Reclaim scan failed: ${err?.message || err}`);
+    return;
+  }
+  if (channels.length === 0) {
+    console.log(`[MPP-Channel] T+16min reclaim check: no channels eligible for withdraw right now.`);
+    return;
+  }
+
+  const account = getAccount();
+  const escrow = WALLETS.ESCROW as `0x${string}`;
+  const writeClient = getWriteClient();
+  const balanceBefore = await getUsdcBalance(account.address as `0x${string}`);
+
+  for (const cid of channels) {
+    try {
+      const data = encodeFunctionData({ abi: withdrawAbi, functionName: "withdraw", args: [cid] });
+      const hash = await writeClient.sendTransaction({
+        account: account as any,
+        to: escrow,
+        data,
+        chain: tempoChain as any,
+      });
+      console.log(`[MPP-Channel] withdraw(${cid.slice(0, 10)}…) → ${hash}`);
+    } catch (err: any) {
+      console.warn(`[MPP-Channel] withdraw(${cid.slice(0, 10)}…) failed: ${err?.shortMessage?.slice(0, 200) || err?.message?.slice(0, 200)}`);
+    }
+  }
+
+  // Give the chain a moment, then report the wallet delta.
+  await new Promise(r => setTimeout(r, 4000));
+  try {
+    const balanceAfter = await getUsdcBalance(account.address as `0x${string}`);
+    const delta = balanceAfter - balanceBefore;
+    if (delta > 0) {
+      console.log(`[MPP-Channel] Reclaim complete: wallet +$${delta.toFixed(4)} ($${balanceBefore.toFixed(4)} → $${balanceAfter.toFixed(4)}) across ${channels.length} channel(s).`);
+    } else {
+      console.warn(`[MPP-Channel] Reclaim attempted on ${channels.length} channel(s) but wallet balance unchanged ($${balanceBefore.toFixed(4)}). Withdraw txs may have reverted — check above for tx errors.`);
+    }
+  } catch {}
+}
+
 function forceNewChannel() {
   const old = sharedClient;
   console.log(`[MPP-Channel] Forcing new channel (previous: ${old?.requestCount || 0} requests, $${old?.totalSpent.toFixed(4) || 0} spent, voucher: $${old?.totalVoucherAuthorized.toFixed(4) || 0})`);
   sharedClient = null;
-  // Close the orphaned channel in the background so its on-chain deposit is
-  // reclaimed to the wallet instead of staying locked forever.
-  if (old?.session) {
-    old.session.close()
-      .then(() => console.log(`[MPP-Channel] Orphaned channel closed — deposit reclaimed.`))
-      .catch((err: any) => console.warn(`[MPP-Channel] Could not close orphaned channel (funds may be locked until manual close): ${err?.message || err}`));
-  }
+  if (!old?.session) return;
+
+  const sessionRef = old.session;
+  // Phase 1: submit close (this calls escrow.close, starts the grace period).
+  sessionRef
+    .close()
+    .then(() => console.log(`[MPP-Channel] Channel close submitted — grace period started (~15min until withdraw eligible).`))
+    .catch((err: any) => console.warn(`[MPP-Channel] Channel close error: ${err?.message || err}`));
+
+  // Phase 2: at T+16min, scan for any close-pending channels owned by this
+  // wallet and call escrow.withdraw on each one whose grace period has elapsed.
+  // We don't track individual channelIds because mppx doesn't expose them on
+  // the session object — easier to enumerate from on-chain state.
+  const handle = setTimeout(() => void reclaimEligibleChannels(), CHANNEL_RECLAIM_DELAY_MS);
+  if (typeof handle.unref === "function") handle.unref();
+  console.log(`[MPP-Channel] Reclaim scheduled for T+16min (will scan + withdraw any eligible channels).`);
 }
 
 export function resetMppChannel(): { previousState: ReturnType<typeof getChannelStats> } {
@@ -182,7 +353,7 @@ export function isServerMppReady(): boolean {
 export function getChannelStats() {
   if (!sharedClient) return null;
   return {
-    deposit: CHANNEL_DEPOSIT_TARGET,
+    deposit: sharedClient.deposit,
     totalSpent: sharedClient.totalSpent,
     totalVoucherAuthorized: sharedClient.totalVoucherAuthorized,
     requestCount: sharedClient.requestCount,
@@ -340,7 +511,7 @@ async function callAnthropic(request: AnthropicRequest): Promise<AnthropicRespon
       const { cost: mppCost, source: costSource } = extractCostFromResponse(response, state);
       state.requestCount++;
 
-      console.log(`[MPP-Channel] Request #${state.requestCount}: cost $${mppCost.toFixed(4)} [${costSource}] (spent: $${state.totalSpent.toFixed(4)}, voucher: $${state.totalVoucherAuthorized.toFixed(4)})`);
+      dlog(`[MPP-Channel] Request #${state.requestCount}: cost $${mppCost.toFixed(4)} [${costSource}] (spent: $${state.totalSpent.toFixed(4)}, voucher: $${state.totalVoucherAuthorized.toFixed(4)})`);
 
       const data = await response.json();
       const text = data.content
@@ -447,7 +618,7 @@ export async function callAnthropicRaw(request: any): Promise<AnthropicRawRespon
       const { cost: mppCost, source: costSource } = extractCostFromResponse(response, state);
       state.requestCount++;
 
-      console.log(`[MPP-Channel] Request #${state.requestCount}: cost $${mppCost.toFixed(4)} [${costSource}] (spent: $${state.totalSpent.toFixed(4)}, voucher: $${state.totalVoucherAuthorized.toFixed(4)})`);
+      dlog(`[MPP-Channel] Request #${state.requestCount}: cost $${mppCost.toFixed(4)} [${costSource}] (spent: $${state.totalSpent.toFixed(4)}, voucher: $${state.totalVoucherAuthorized.toFixed(4)})`);
 
       const data = await response.json();
 

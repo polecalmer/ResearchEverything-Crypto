@@ -10,6 +10,124 @@ import { consult, observe, getUserPreferenceFacts } from "./db";
 import { db } from "../db";
 import { systemLearnings } from "@shared/schema";
 import { sql, eq, and } from "drizzle-orm";
+import { resolveSlugDetailed, type ResolveSlugResult, type SlugMatchType } from "../defillama-client";
+import { CHART_FRESHNESS_THRESHOLD_DAYS } from "./chart-shaper";
+
+/** Thrown by `resolveSlugSafe` when the resolver picks a slug whose match
+ *  to the user's query is fuzzy AND the resulting series is stale. The two
+ *  conditions together mean we almost certainly resolved to a dead older
+ *  project that happens to share a name prefix (e.g. "venice" → the
+ *  Oct-2023 project, when the user meant Venice AI / VVV). */
+export class SlugResolutionError extends Error {
+  readonly code = "SLUG_RESOLUTION";
+  readonly query: string;
+  readonly resolvedSlug: string;
+  readonly matchType: SlugMatchType;
+  readonly matchedName?: string;
+  readonly latestDate: string | null;
+  readonly ageDays: number | null;
+  readonly alternatives: Array<{ slug: string; name: string; tvl: number }>;
+  constructor(
+    message: string,
+    info: {
+      query: string;
+      resolvedSlug: string;
+      matchType: SlugMatchType;
+      matchedName?: string;
+      latestDate: string | null;
+      ageDays: number | null;
+      alternatives: Array<{ slug: string; name: string; tvl: number }>;
+    },
+  ) {
+    super(message);
+    this.name = "SlugResolutionError";
+    this.query = info.query;
+    this.resolvedSlug = info.resolvedSlug;
+    this.matchType = info.matchType;
+    this.matchedName = info.matchedName;
+    this.latestDate = info.latestDate;
+    this.ageDays = info.ageDays;
+    this.alternatives = info.alternatives;
+  }
+}
+
+export interface SafeSlugResult extends ResolveSlugResult {
+  /** Latest date found on the resolved protocol's series, or null if we
+   *  couldn't sample. */
+  latestDate: string | null;
+  /** Days between latestDate and now. Null when latestDate is null. */
+  ageDays: number | null;
+  /** True when the slug's match was high confidence (exact / naive). */
+  highConfidence: boolean;
+}
+
+/** Resolve a protocol name to a DeFiLlama slug, then validate the match by
+ *  sampling the protocol's series tail. If the match is fuzzy AND the
+ *  series is stale beyond `freshnessThresholdDays`, throw a
+ *  `SlugResolutionError` with a "did you mean ...?" alternatives list.
+ *
+ *  Use this in chart pipelines (volume, fees, tvl, etc.) instead of the
+ *  raw `defillama.resolveSlug` whenever a stale-but-fuzzy match could
+ *  silently render the wrong protocol's chart. The Venice incident
+ *  resolved "venice" to a defunct Oct-2023 project; this guard catches
+ *  exactly that pattern.
+ *
+ *  Pass `freshnessSampler` so this module stays decoupled from the
+ *  specific DeFiLlama endpoint the caller wants to sample (TVL vs fees
+ *  vs volume each live on different paths). */
+export async function resolveSlugSafe(
+  query: string,
+  opts: {
+    freshnessSampler: (slug: string) => Promise<{ latestDate: string | null }>;
+    freshnessThresholdDays?: number;
+    /** Override "now" for tests. */
+    now?: Date;
+  },
+): Promise<SafeSlugResult> {
+  const detailed = await resolveSlugDetailed(query);
+  const highConfidence = detailed.matchType === "exact" || detailed.matchType === "naive";
+  const threshold = opts.freshnessThresholdDays ?? CHART_FRESHNESS_THRESHOLD_DAYS;
+
+  let latestDate: string | null = null;
+  let ageDays: number | null = null;
+  try {
+    const sampled = await opts.freshnessSampler(detailed.slug);
+    latestDate = sampled.latestDate;
+    if (latestDate && /^\d{4}-\d{2}-\d{2}/.test(latestDate)) {
+      const lastMs = Date.parse(latestDate.slice(0, 10) + "T00:00:00Z");
+      if (Number.isFinite(lastMs)) {
+        const nowMs = (opts.now ?? new Date()).getTime();
+        ageDays = Math.floor((nowMs - lastMs) / (24 * 3600 * 1000));
+      }
+    }
+  } catch (err: any) {
+    console.warn(`[SlugResolver] freshness sample failed for ${detailed.slug}: ${err.message}`);
+  }
+
+  const isStale = ageDays != null && ageDays > threshold;
+  if (!highConfidence && isStale) {
+    const altList = (detailed.alternatives || [])
+      .map((a) => `"${a.slug}" (${a.name}, TVL $${(a.tvl / 1e6).toFixed(1)}M)`)
+      .join(", ");
+    const didYouMean = altList ? ` Did you mean ${altList}?` : "";
+    throw new SlugResolutionError(
+      `Slug "${detailed.slug}"${detailed.matchedName ? ` (${detailed.matchedName})` : ""} matched "${query}" by ${detailed.matchType}, ` +
+      `but its data tail is stale (${latestDate}, ${ageDays} days old; threshold ${threshold}d). ` +
+      `Refusing to render — almost certainly the wrong protocol.${didYouMean}`,
+      {
+        query,
+        resolvedSlug: detailed.slug,
+        matchType: detailed.matchType,
+        matchedName: detailed.matchedName,
+        latestDate,
+        ageDays,
+        alternatives: detailed.alternatives || [],
+      },
+    );
+  }
+
+  return { ...detailed, latestDate, ageDays, highConfidence };
+}
 
 export interface ToolBrainBinding {
   source: Source;

@@ -2,6 +2,11 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Carlito is the open-source metric clone of Calibri. Loading both names so
+   Windows/Office machines that have Calibri installed render with it; every
+   other browser falls through to Carlito which is metric-identical. */
+@import url('https://fonts.googleapis.com/css2?family=Carlito:ital,wght@0,400;0,700;1,400;1,700&display=swap');
+
 /* LIGHT MODE */
 :root {
   --button-outline: rgba(0,0,0, .10);
@@ -43,7 +48,7 @@
   --chart-3: 173 58% 32%;
   --chart-4: 43 74% 42%;
   --chart-5: 27 87% 45%;
-  --font-sans: 'Inter', sans-serif;
+  --font-sans: 'Calibri', 'Carlito', 'Helvetica Neue', Arial, sans-serif;
   --font-serif: 'Libre Baskerville', serif;
   --font-mono: 'JetBrains Mono', monospace;
   --radius: .5rem;
@@ -86,10 +91,43 @@
   --destructive-border: hsl(var(--destructive));
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
 
-  --color-chart-tick: rgba(0, 0, 0, 0.45);
+  /* Chart + memo-block surface tokens — both modes invert via `.dark` below.
+     Dark-mode values preserve the existing visual exactly (these were
+     hardcoded as rgba(255,255,255,X) in the renderer before consolidation).
+     Light-mode values are calibrated so charts and tables read with the
+     same hierarchy on a white background. */
+  --color-chart-tick: rgba(0, 0, 0, 0.55);
+  --color-chart-tick-soft: rgba(0, 0, 0, 0.40);
+  --color-chart-axis-line: rgba(0, 0, 0, 0.30);
   --color-chart-line: rgba(0, 0, 0, 0.08);
-  --color-chart-grid: rgba(0, 0, 0, 0.06);
-  --color-chart-cursor: rgba(0, 0, 0, 0.03);
+  --color-chart-grid: rgba(0, 0, 0, 0.08);
+  --color-chart-cursor: rgba(0, 0, 0, 0.04);
+  --color-chart-annotation: rgba(0, 0, 0, 0.85);
+  --color-chart-legend: rgba(0, 0, 0, 0.55);
+  --color-chart-placeholder: rgba(0, 0, 0, 0.40);
+  --color-chart-pie-line: rgba(0, 0, 0, 0.20);
+  --color-chart-dot-stroke: hsl(var(--background));
+
+  --color-block-text-strong: rgba(0, 0, 0, 0.92);
+  --color-block-text: rgba(0, 0, 0, 0.78);
+  --color-block-text-muted: rgba(0, 0, 0, 0.55);
+  --color-block-text-soft: rgba(0, 0, 0, 0.50);
+  --color-block-rule: rgba(0, 0, 0, 0.20);
+  --color-block-separator: rgba(0, 0, 0, 0.07);
+
+  /* Chart series palette — light-mode variant. The dark-mode greys at
+     indices 1/3/5/7 (#E5E7EB, #9CA3AF, #F4F4F5, #D1D5DB) become deep
+     navies / dark greys here so secondary series stay legible against
+     the white background. Primary blues (1/3/5/7) stay the same. */
+  --color-chart-series-1: #4269D0;
+  --color-chart-series-2: #1F3A6B;
+  --color-chart-series-3: #6F8DDC;
+  --color-chart-series-4: #4B5563;
+  --color-chart-series-5: #2F4DA3;
+  --color-chart-series-6: #1F2937;
+  --color-chart-series-7: #1F3A6B;
+  --color-chart-series-8: #6B7280;
+
   --color-tooltip-bg: rgba(255, 255, 255, 0.97);
   --color-tooltip-border: rgba(0, 0, 0, 0.1);
   --color-tooltip-text: rgba(0, 0, 0, 0.75);
@@ -101,25 +139,25 @@
   --opaque-button-border-intensity: 6;
   --elevate-1: rgba(255,255,255, .03);
   --elevate-2: rgba(255,255,255, .06);
-  --background: 230 15% 6%;
-  --foreground: 0 0% 91%;
+  --background: 230 12% 3%;
+  --foreground: 0 0% 98%;
   --border: 230 12% 14%;
-  --card: 230 14% 8%;
-  --card-foreground: 0 0% 91%;
+  --card: 230 12% 5%;
+  --card-foreground: 0 0% 98%;
   --card-border: 230 12% 12%;
-  --sidebar: 230 14% 7%;
-  --sidebar-foreground: 0 0% 85%;
+  --sidebar: 230 12% 4%;
+  --sidebar-foreground: 0 0% 92%;
   --sidebar-border: 230 12% 12%;
-  --sidebar-primary: 0 0% 91%;
-  --sidebar-primary-foreground: 230 15% 6%;
+  --sidebar-primary: 0 0% 98%;
+  --sidebar-primary-foreground: 230 12% 3%;
   --sidebar-accent: 230 12% 12%;
   --sidebar-accent-foreground: 0 0% 91%;
   --sidebar-ring: 0 0% 91%;
-  --popover: 230 14% 10%;
+  --popover: 230 12% 7%;
   --popover-foreground: 0 0% 91%;
   --popover-border: 230 12% 16%;
   --primary: 0 0% 93%;
-  --primary-foreground: 230 15% 6%;
+  --primary-foreground: 230 12% 3%;
   --secondary: 230 12% 14%;
   --secondary-foreground: 0 0% 91%;
   --muted: 230 12% 12%;
@@ -172,10 +210,41 @@
   --destructive-border: hsl(var(--destructive));
   --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
 
-  --color-chart-tick: rgba(255, 255, 255, 0.55);
+  /* Dark-mode chart + memo-block surface tokens. These preserve the
+     visual that was previously hardcoded as inline rgba(255,255,255,X)
+     in research-artifacts.tsx — byte-for-byte the same look in dark
+     mode after consolidation. */
+  --color-chart-tick: rgba(255, 255, 255, 0.45);
+  --color-chart-tick-soft: rgba(255, 255, 255, 0.35);
+  --color-chart-axis-line: rgba(255, 255, 255, 0.35);
   --color-chart-line: rgba(255, 255, 255, 0.06);
-  --color-chart-grid: rgba(255, 255, 255, 0.04);
-  --color-chart-cursor: rgba(255, 255, 255, 0.02);
+  --color-chart-grid: rgba(255, 255, 255, 0.06);
+  --color-chart-cursor: rgba(255, 255, 255, 0.03);
+  --color-chart-annotation: rgba(255, 255, 255, 0.85);
+  --color-chart-legend: rgba(255, 255, 255, 0.55);
+  --color-chart-placeholder: rgba(255, 255, 255, 0.35);
+  --color-chart-pie-line: rgba(255, 255, 255, 0.30);
+  --color-chart-dot-stroke: hsl(var(--background));
+
+  --color-block-text-strong: rgba(255, 255, 255, 0.95);
+  --color-block-text: rgba(255, 255, 255, 0.78);
+  --color-block-text-muted: rgba(255, 255, 255, 0.55);
+  --color-block-text-soft: rgba(255, 255, 255, 0.50);
+  --color-block-rule: rgba(255, 255, 255, 0.55);
+  --color-block-separator: rgba(255, 255, 255, 0.07);
+
+  /* Chart series palette — dark-mode variant. Preserves the prior
+     visual byte-for-byte (light greys at indices 1/3/5/7 for high
+     contrast against the dark background). */
+  --color-chart-series-1: #4269D0;
+  --color-chart-series-2: #E5E7EB;
+  --color-chart-series-3: #6F8DDC;
+  --color-chart-series-4: #9CA3AF;
+  --color-chart-series-5: #2F4DA3;
+  --color-chart-series-6: #F4F4F5;
+  --color-chart-series-7: #1F3A6B;
+  --color-chart-series-8: #D1D5DB;
+
   --color-tooltip-bg: rgba(10, 10, 14, 0.95);
   --color-tooltip-border: rgba(255, 255, 255, 0.08);
   --color-tooltip-text: rgba(255, 255, 255, 0.8);

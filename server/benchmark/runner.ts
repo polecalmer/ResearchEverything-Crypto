@@ -26,7 +26,7 @@ function probeFail(ctx: string, err: unknown): void {
 import { storage } from "../storage";
 import { db } from "../db";
 import { sql } from "drizzle-orm";
-import { callAnthropicServer, callAnthropicServerHeavy } from "../mpp-client";
+import { callAnthropicServer, callAnthropicServerHeavy, setBenchmarkMode } from "../mpp-client";
 import { executeDuneSQL, isDuneConfigured } from "../dune-client";
 import * as defillama from "../defillama-client";
 import { DATA_AGENT_SYSTEM } from "../data-agent";
@@ -1836,6 +1836,9 @@ dataSource MUST always be "dune-sql" with a "sql" field in dataSourceConfig.
 // ═══════════════════════════════════════════════════════════════
 
 if (process.argv[1]?.includes("runner")) {
+  // Direct-invocation entry — opt into full-balance channels for benchmark
+  // headroom. (When cli.ts imports us, it already calls setBenchmarkMode.)
+  setBenchmarkMode(true);
   const args = process.argv.slice(2);
   const subset = args.includes("--subset") ? parseInt(args[args.indexOf("--subset") + 1]) : undefined;
   const analyzeOnly = args.includes("--analyze-only");

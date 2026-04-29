@@ -1,4 +1,5 @@
 import { callAnthropicRaw, callAnthropicRawStreaming, type AnthropicRawResponse } from "./mpp-client";
+import { dlog } from "./debug-log";
 
 // When MPP_NO_STREAMING=1, swap the streaming Anthropic caller for the non-streaming
 // one. Useful when the network between localhost and the MPP relay can't hold long
@@ -27,6 +28,28 @@ import {
   registerToolBindings,
   type ToolBrainBinding,
 } from "./data-source-brain/agent-hooks";
+import { assertChartFreshness, ChartFreshnessError, CHART_FRESHNESS_THRESHOLD_DAYS } from "./data-source-brain/chart-shaper";
+import { resolveSlugSafe, SlugResolutionError } from "./data-source-brain/agent-hooks";
+import { runChartValidationPass, validateRecipeChartResponse } from "./chart-validator";
+import {
+  COMPUTE_TOOL_DEF,
+  COMPUTE_TOOL_NAME,
+  executeCompute,
+} from "./numeric-provenance/compute-tool";
+import {
+  newTurnId,
+  startTurn,
+  endTurn,
+  recordToolResult,
+} from "./numeric-provenance/turn-cache";
+import { runStrictProvenancePass } from "./numeric-provenance/strict-pass";
+import { buildDisambiguationContext } from "./numeric-provenance/brain-disambiguation";
+import {
+  buildCanonicalContext,
+  buildFetchHintForTool,
+} from "./numeric-provenance/canonical-aggregations";
+import { detectPromptShape } from "./numeric-provenance/fs-router";
+import { buildOutputRequirementsBlock } from "./numeric-provenance/output-requirements";
 import { searchAnalystCorpus, searchAnalystFrameworks } from "./analyst-corpus";
 import { ANALYST_NAMES } from "@shared/schema";
 import {
@@ -76,7 +99,7 @@ export interface ResearchArtifact {
   source?: string;
   data?: any[];
   chartConfig?: {
-    chartType: "line" | "bar" | "area" | "composed";
+    chartType: "line" | "bar" | "area" | "composed" | "pie" | "stacked";
     xAxis: { dataKey: string; label?: string; format?: string };
     yAxes: Array<{ dataKey: string; label?: string; format?: string; chartType?: string }>;
     /** Optional callout markers placed at specific (date, value) points and
@@ -101,7 +124,7 @@ export interface ResearchArtifact {
   right?: { label: string; items: string[] };
 }
 
-export type ResearchMode = "quick" | "focused" | "deep";
+export type ResearchMode = "quick" | "focused" | "deep" | "chart";
 
 export interface BrainEntity {
   type: "protocol" | "token" | "chain" | "person" | "fund" | "concept";
@@ -282,14 +305,15 @@ const TOOLS: ToolDef[] = [
   },
   {
     name: "search_proven_queries",
-    description: "Search the library of 130+ proven, production-tested Dune SQL queries. MUST be your FIRST tool call for ANY quantitative data request (charts, metrics, fees, revenue, volume, P/E, valuation). These queries produce richer data than DeFiLlama/CoinGecko APIs. Search by protocol name, metric type, or keyword. If a match is found, use it with execute_dune_sql instead of DeFiLlama tools.",
+    description: "Semantic search over the library of proven, production-tested Dune SQL queries. Pass a plain-English `intent` describing what you want (e.g. 'sUSDe APY weekly time series', 'Hyperliquid HIP-3 deployer fees daily'). The library is vector-indexed, so paraphrases and metric variants find matching queries reliably. Optionally narrow with `protocol` (e.g. 'ethena'). Returns ranked candidates with similarity scores; the top match (sim >= 0.78) is a cache hit you can run directly.",
     input_schema: {
       type: "object" as const,
       properties: {
-        protocol: { type: "string" as const, description: "Protocol or project name (e.g. 'aave', 'hyperliquid', 'pump')" },
-        keyword: { type: "string" as const, description: "Keyword to search query names/types (e.g. 'volume', 'tvl', 'stablecoin', 'trades')" },
+        intent: { type: "string" as const, description: "Plain-English description of the data you want. Required for semantic search." },
+        protocol: { type: "string" as const, description: "Optional: protocol/project name to narrow the search (e.g. 'aave', 'hyperliquid', 'ethena')." },
+        keyword: { type: "string" as const, description: "Deprecated: kept for backwards compatibility. Prefer `intent`." },
       },
-      required: ["protocol"],
+      required: ["intent"],
     },
   },
   {
@@ -304,6 +328,20 @@ const TOOLS: ToolDef[] = [
       required: ["protocol"],
     },
     brainBinding: { source: "dune", scopeRef: "dune:mcp/v1", observationCategory: "schema" },
+  },
+  {
+    name: "write_dune_query",
+    description: "AUTHOR + EXECUTE a Dune SQL query for an on-chain question. Use this for Dune-shaped intents (netflows, inflows/outflows, holder distributions, address/wallet-level patterns, contract-specific behavior — things DeFiLlama/CoinGecko don't pre-aggregate). Behavior: looks up cached SQL by (protocol, metric); on miss, discovers tables via Dune MCP, asks Opus 4.7 to write SQL, executes it, retries up to 5x on error feeding the error back to Opus, and saves successful queries to the proven-queries library so future calls hit the cache. Prefer this over manual execute_dune_sql + discover_dune_tables — it's one tool call instead of three and the cache compounds.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        intent: { type: "string" as const, description: "Plain-English description of the data needed. E.g. 'AAVE net inflows across all markets over the last 30 days', 'syrupUSDC netflow on Ethereum daily for 90 days'." },
+        blockchain: { type: "string" as const, description: "Optional chain filter to narrow MCP table discovery (e.g. 'ethereum', 'arbitrum', 'base')." },
+        protocolHint: { type: "string" as const, description: "Optional protocol name to focus table discovery (e.g. 'aave', 'morpho', 'syrup'). Defaults to extracting from the intent." },
+      },
+      required: ["intent"],
+    },
+    brainBinding: { source: "dune", scopeRef: "dune:author+execute", observationCategory: "reliability" },
   },
   {
     name: "compare_protocols",
@@ -487,7 +525,80 @@ IMPORTANT: Only record facts that came from tool calls (verified data). Mark pro
 // Module-level call: runs once on import.
 registerToolBindings(TOOLS);
 
+// ─── Brain-gated optional tools ────────────────────────────────────────
+//
+// These tools are NOT in the default TOOLS array. They get appended to
+// the agent's toolbox per-request, only when the user's brain
+// preferences explicitly name the underlying data source. This lets
+// "Always reference stonksonchain.net for HYPE unlock data" in the
+// brain become directly actionable: when that pref is present,
+// query_stonksonchain shows up; when it isn't, the surface stays
+// minimal so the agent isn't tempted to call something the user
+// hasn't sanctioned.
+//
+// The matching logic lives in selectBrainGatedTools() below.
+const BRAIN_GATED_TOOLS: Array<ToolDef & { sourceTag: string }> = [
+  {
+    sourceTag: "stonksonchain",
+    name: "query_stonksonchain",
+    description:
+      "Query StonksOnChain — the source-of-truth for HIP-3 deployer analytics on Hyperliquid. Available when the user's brain preferences name stonksonchain. Covers: HYPE token unlocks (cycles, summary, predictions), HIP-3 deployer fees/revenue/volume per asset and per deployer, ecosystem-wide global metrics, market quality (spread/depth/funding) per coin, native stablecoin supply on Hyperliquid, and external exchange comps (Lighter, Ostium). Prefer this over web_search / generic Dune SQL for any HYPE/HIP-3 question — the data is fresher and pre-aggregated. Pass `kind` to pick the endpoint family. `coin` is required for market-quality and per-deployer history kinds; `days`/`hours` set the lookback for time-series kinds.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        kind: {
+          type: "string" as const,
+          enum: [
+            "hype_unlocks", "hype_unlocks_summary", "hype_unlocks_history", "hype_unlocks_predictions",
+            "global_metrics", "volume_averages", "ecosystem_fee_history",
+            "fees_summary", "deployer_revenue", "deployer_hl_contribution",
+            "asset_revenue", "asset_hl_contribution",
+            "deployer_fees_history", "deployer_volume_history",
+            "hip3_total_fees_history", "hip3_total_volume_history",
+            "market_quality", "daily_history", "hourly_history",
+            "stablecoin_supply",
+            "lighter_kpis", "ostium_kpis",
+          ],
+          description:
+            "Endpoint family: hype_unlocks* for HYPE token unlock data; *_history kinds for daily time series; market_quality / daily_history / hourly_history for per-coin OI/spread/funding; stablecoin_supply for native USDC/USDT0/USDH on HL; lighter_kpis / ostium_kpis for external exchange comparisons.",
+        },
+        coin: {
+          type: "string" as const,
+          description: "HIP-3 deployer ticker (e.g. 'xyz', 'felix'). Required for market_quality, daily_history, hourly_history, deployer_fees_history, deployer_volume_history.",
+        },
+        days: {
+          type: "number" as const,
+          description: "Lookback days for time-series kinds (default 90; max 365).",
+        },
+        hours: {
+          type: "number" as const,
+          description: "Lookback hours for hourly_history (default 168 = 7d; max 720 = 30d).",
+        },
+      },
+      required: ["kind"],
+    },
+    brainBinding: { source: "stonksonchain", scopeRef: "stonksonchain:/api/v1", observationCategory: "coverage" },
+  },
+];
+
+registerToolBindings(BRAIN_GATED_TOOLS);
+
+/** Inspect user prefs (and brain context, loosely) for named data sources
+ *  with implementations gated behind BRAIN_GATED_TOOLS. Returns the tool
+ *  defs the agent should see this turn. Called once during loop setup —
+ *  the resulting list is appended to anthropicTools just like the static
+ *  ones, so a tool that's been opted-in by the user is indistinguishable
+ *  from a built-in tool from the model's perspective. */
+function selectBrainGatedTools(brain: BrainContext): typeof BRAIN_GATED_TOOLS {
+  if (!brain) return [];
+  const prefBlob = JSON.stringify(brain.preferences || {}).toLowerCase();
+  return BRAIN_GATED_TOOLS.filter((t) => prefBlob.includes(t.sourceTag));
+}
+
 const BASE_PROMPT = `You are a Senior DeFi Research Analyst at Sessions, an AI research platform that captures and compounds knowledge.
+
+DOUBLE-CLICK FOLLOW-UPS:
+When the user message is JUST a markdown blockquote (starts with "> ") containing a quoted phrase from your prior response and nothing else, the user has clicked the "Double Click" button on a highlighted section of your last memo. Treat this as: "give me a tighter, more detailed read of that specific point — supporting data, the mechanism behind it, any nuance I'm missing, and one obvious follow-up question worth asking." Keep the response component-level, not memo-level: short, focused, dense. No executive summaries, no scenario tables, no full bull/bear unless the highlight specifically asks. The agent's job is to ZOOM IN on the quoted point, not to re-investigate the whole topic.
 
 WRITING STYLE — hard rules that override any default habit:
 - NEVER use em dashes (—, U+2014) anywhere in your output. This applies to prose, tables, chart titles, subtitles, callouts, artifact JSON strings, metric card labels, and section headers. Use a comma, colon, semicolon, parenthesis, or a plain hyphen (-) with surrounding spaces instead. If you find yourself reaching for an em dash, rephrase.
@@ -508,6 +619,19 @@ DATA INTEGRITY — ABSOLUTELY CRITICAL:
 - If a tool call fails, SAY SO explicitly — never fill in a "reasonable estimate" for what should be live data.
 - Every number in metric_cards, charts, and tables must trace back to a specific tool call OR a verified brain fact.
 
+SOURCES (focused + deep modes):
+Data integrity is guaranteed internally — every number you cite is already traced back to a verified tool result by the provenance layer. The user does NOT need to see that audit trail in the prose. Keep prose clean:
+- DO NOT append inline source tags to numbers. No "[defillama]", "[dune]", "[brain]", "[web]" after numeric claims, dates, or counts. The prose is data + thinking, not a citation log.
+- Numbers inside chart / table / metric_card artifacts carry their own "source" field — that's how the artifact's provenance is shown.
+- End every focused or deep response with a "## Sources" H2 section listing each source ONCE as a SINGLE comma-separated line of canonical source NAMES — no endpoint details, no methodology notes, no values, no dates, no query IDs, no "pulled this turn" notes.
+  Examples (use this exact terseness):
+    DeFiLlama, Dune Analytics, CoinGecko
+    DeFiLlama, StonksOnChain
+    Dune Analytics
+  Canonical names: DeFiLlama, Dune Analytics, CoinGecko, StonksOnChain, Allium, Web search, Brain, Analyst corpus.
+  Do NOT add a description, a hyphen, parenthetical notes, dataset names, or any other expansion. The line is the source list, period.
+- Quick mode is exempt — single-sentence answers don't need a Sources block.
+
 ARTIFACT FORMATS:
 For metric cards (compact KPI row):
 \`\`\`artifact:metric_cards
@@ -516,9 +640,20 @@ For metric cards (compact KPI row):
 
 For charts:
 \`\`\`artifact:chart
-{"title": "...", "subtitle": "ONE-LINE INSIGHT IN ALL CAPS", "source": "Dune Analytics|DeFiLlama|CoinGecko|Allium", "chartType": "line|bar|area|composed", "xAxis": {"dataKey": "...", "format": "date|currency|number|percent"}, "yAxes": [{"dataKey": "...", "format": "...", "label": "...", "chartType": "..."}], "data": [...]}
+{"title": "...", "subtitle": "ONE-LINE INSIGHT IN ALL CAPS", "source": "Dune Analytics|DeFiLlama|CoinGecko|Allium", "chartType": "line|bar|area|composed|pie|stacked", "xAxis": {"dataKey": "...", "format": "date|currency|number|percent"}, "yAxes": [{"dataKey": "...", "format": "...", "label": "...", "chartType": "..."}], "data": [...]}
 \`\`\`
 - "subtitle" = a short ALL-CAPS factual insight about the trend (e.g. "CYCLICAL PATTERN — PEAKED AT 37X IN MAY 2025, NOW BACK TO 30X ON RISING EARNINGS"). Always include this. NEVER editorialize or use subjective language — keep it data-driven. Bad: "COMPETITORS ARE ROUNDING ERRORS". Good: "HYPERLIQUID DOMINATES WITH 94% — JUPITER PERP DISTANT #2 AT 3.6%".
+
+DATA SCALE — RAW DOLLARS, SIMPLE LABELS (do not embed units in yAxis labels):
+The renderer auto-formats numeric magnitudes ($14_197_275_351 → "$14.2B", $4_400_000 → "$4.4M", $4_400 → "$4.4K"). Your job is to put RAW numeric values in \`data\` and use SIMPLE yAxis labels — no \`($K)\`, \`($M)\`, \`($B)\` suffixes. Embedding the scale in the label is brittle: if the data magnitude doesn't match the label's stated unit, the renderer faithfully shows what was claimed and the chart reads wrong (e.g. "Weekly Yield ($k)" with data of 4.4 silently displays "$4.4K" when the underlying number is actually $4.4M).
+- ✅ \`{"label": "Weekly Yield", "format": "currency"}\` with data \`{"yield": 4400000}\` → renders "$4.4M"
+- ✅ \`{"label": "TVL", "format": "currency"}\` with data \`{"tvl": 14200000000}\` → renders "$14.2B"
+- ✅ \`{"label": "Price", "format": "currency"}\` with data \`{"price": 41.62}\` → renders "$41.62"
+- ✅ \`{"label": "P/E", "format": "ratio"}\` with data \`{"pe": 25.5}\` → renders "25.5x"
+- ✅ \`{"label": "APY", "format": "percent"}\` with data \`{"apy": 5.4}\` → renders "5.4%"
+- ❌ \`{"label": "Weekly Yield ($k)"}\` with data \`{"yield": 4.4}\` — DON'T embed scale in the label; emit raw 4400000
+- ❌ \`{"label": "TVL ($B)"}\` with data \`{"tvl": 14.2}\` — DON'T pre-scale; emit raw 14200000000
+The only acceptable label suffix is the format type marker — \`(%)\` for percent, \`(x)\` is also fine for ratios but unnecessary since format:"ratio" handles it. Currency labels should be plain ("Volume", "Revenue", "TVL", "Yield") with the magnitude derived from the data.
 
 CHART HONESTY — DO NOT LIE WITH LABELS:
 The title, subtitle, yAxis labels, and source MUST exactly describe what is in the data array. Do NOT label a chart with the user's REQUEST if the data doesn't match. This is a critical, repeated failure mode — fix it.
@@ -581,6 +716,9 @@ You have indexed access to the writings of eight crypto analysts via query_analy
 Treat these as PERSPECTIVES, not data. They are most useful for qualitative context, contrarian framings, and applying established frameworks to new assets. Do NOT use them as the source for live numbers — that's what the data tools are for.
 IMPORTANT: Do NOT name individual analysts in your output. Never write "TopherGMI says…", "CryptoHayes argues…", or similar. Instead, absorb their reasoning into your own analysis seamlessly. You may reference the analytical lens generically (e.g. "from a macro-structural perspective…", "a derivatives-focused view suggests…") but never reveal the names of the underlying analysts. The user should experience this as the platform's own integrated analysis.
 
+USER-PREFERRED DATA SOURCES (DYNAMIC TOOLS):
+The user's brain may explicitly name preferred data sources for specific topics (e.g. "Always reference stonksonchain.net for HYPE unlock data"). When a preference like that exists, a corresponding source-specific tool will appear in your toolbox (e.g. \`query_stonksonchain\`). Treat the presence of such a tool as a hard signal: the user has already chosen that source for their domain. Prefer it over web_search, generic Dune SQL, or DeFiLlama for queries within its coverage area. The tool's description lists exactly what kinds of data it returns — use that as your routing guide.
+
 RESEARCH BRAIN — KNOWLEDGE GRAPH:
 You have access to a persistent Research Brain that accumulates intelligence across all sessions. At the END of every analysis (regardless of mode), call update_research_brain to record verified findings.
 
@@ -621,8 +759,13 @@ The user asked a targeted question that needs real analysis but not a full deep-
 - End with a brief "what this means" — but no probability-weighted price targets unless asked.
 
 WHEN THE REQUEST IS A CHART/VISUALIZATION ("show me a chart of X", "pull up Y over Z", "graph the take rate"):
-- STEP 0 (MANDATORY): Call search_proven_queries FIRST with the protocol name + metric (e.g. "hyperliquid revenue", "hype P/E", "aave fees"). The proven query library has 130+ Dune SQL queries that often produce richer, more accurate data than DeFiLlama APIs. If a match exists, use execute_dune_sql with it — skip DeFiLlama entirely.
-- STEP 1: If no proven query matched, fetch data from DeFiLlama/CoinGecko (1-2 tool calls), do the trivial transform inline in the chart artifact's "data" array, and ship the chart with a 2-3 sentence summary above it.
+- DATA SOURCE ROUTING — think before tool call. Pick the source by question shape, not by reflex:
+  • DeFiLlama FIRST for standard protocol KPIs: TVL, fees, revenue, volumes (DEX / perps / derivatives), borrows, loans, burns, swaps, stablecoin supply, bridge flows. Broad coverage + clean daily aggregates — fastest correct path.
+  • CoinGecko FIRST (via get_token_snapshot) for price, market cap, FDV, circulating supply, total supply, adjusted/outstanding supply, adjusted MCAP (a.k.a. "outstanding token value").
+  • Dune FIRST for on-chain questions the protocol-aggregator catalogs don't pre-compute: netflows, inflows/outflows, holder distributions, contract-specific behavior, address/wallet-level patterns, **and any APY/yield/rate-distribution questions** (sUSDe, stETH, syrup yields, etc.). Examples: "AAVE net inflows last 30 days", "sUSDe APY weekly", "top HYPE holders by stake duration", "what % of trades come from MEV bots". For these, call **write_dune_query** with a plain-English intent — it does a vector-indexed cache lookup over 180+ proven queries, then on miss discovers tables and authors fresh SQL (Opus 4.7) with a 5-attempt retry loop, all in one tool call.
+  • Dune AS FALLBACK when DeFiLlama/CoinGecko return empty or don't carry the metric — same pattern: call **write_dune_query** with the intent.
+- The proven_queries library is vector-indexed (semantic search). **For a Dune-shaped intent, write_dune_query is the right call** — its cache lookup catches paraphrases and metric variants automatically. You may also call **search_proven_queries** with a plain-English intent string to inspect what the library has before deciding (useful when you want candidate SQL for few-shot context). Do NOT use the proven library for TVL/fees/volume questions DeFiLlama answers directly.
+- STEP 1: After picking the right source, fetch data (1-2 tool calls), do the trivial transform inline in the chart artifact's "data" array, and ship the chart with a 2-3 sentence summary above it.
 - For a SINGLE ratio (one P/E number, one take rate), compute it inline — no execute_code needed.
 - For a TIME-SERIES of a derived metric (daily P/E over 6 months, take rate trend), you MUST use execute_code to merge the component series row-by-row and output the chart data array. This is the #1 failure mode: the agent tries to build a 180-row data array by hand and gives up. Use code.
 - Only use execute_code in focused mode if the math is genuinely non-trivial OR you need to merge two time-series datasets.
@@ -654,8 +797,80 @@ When the user asks for a chart of a metric that doesn't exist in a single API en
   
   CRITICAL: Do NOT try to manually construct 100+ row data arrays in your text output. Always use execute_code for multi-row derived computations. This is the #1 reason chart requests fail.`;
 
+const CHART_RULES = `RESPONSE MODE: CHART
+The user explicitly asked for a chart/graph/plot/visualization. Your job is to ship a correct chart artifact with a tight framing — NOT a memo, NOT a thesis, NOT a multi-section analysis.
+
+OUTPUT SHAPE — STRICT:
+- Exactly ONE \`\`\`artifact:chart\`\`\` block (or however many distinct charts the user requested — never more).
+- ONE paragraph of framing above the chart (≤4 sentences). State what the chart shows + the single most important takeaway. Headline number first sentence.
+- ONE \`\`\`artifact:sources\`\`\` block at the end listing the data sources used. Do NOT append inline source tags ([defillama], [dune], etc.) to numbers in the framing paragraph — provenance is guaranteed internally and shown in the artifact:sources block. Prose stays clean.
+- NO Executive Summary block. NO H1 title. NO bear/base/bull. NO scenario tables. NO multi-perspective debate. NO "what this means" coda. NO "Sources" prose section beyond the artifact:sources block.
+
+DATA FETCH PATTERN (same as FOCUSED but stricter on cost):
+- DATA SOURCE ROUTING — pick the right source by question shape:
+  • DeFiLlama FIRST for standard protocol KPIs: TVL, fees, revenue, volumes (DEX / perps / derivatives), borrows, loans, burns, swaps, stablecoin supply, bridge flows. Broad coverage + clean daily aggregates.
+  • CoinGecko FIRST (via get_token_snapshot) for price, market cap, FDV, circulating supply, total supply, adjusted/outstanding supply, adjusted MCAP ("outstanding token value").
+  • Dune FIRST for on-chain queries the aggregator catalogs don't pre-compute: netflows, inflows/outflows, holder distributions, contract-specific behavior, address/wallet-level patterns, **APY/yield/rate-distribution series** (sUSDe, stETH, syrup, etc.). For these, call **write_dune_query** with a plain-English intent — one tool call covers a vector-indexed cache lookup over the 180+ proven_queries library, table discovery, SQL authoring (Opus 4.7), and 5-attempt retry.
+  • Dune AS FALLBACK when DeFiLlama/CoinGecko return empty or don't carry the metric — same: **write_dune_query** with the intent.
+- proven_queries is vector-indexed: write_dune_query catches paraphrases automatically. Don't use it for TVL/fees/volume questions DeFiLlama answers in one round trip.
+- STEP 1: After picking the right source, fetch and ship the chart.
+- For derived time-series (P/E over time, take rate trend, derived ratios over many days), you MUST use execute_code to merge component series and emit the chart data array. Manual array construction in text output is the #1 chart failure mode.
+- For a SINGLE point-in-time ratio, compute inline.
+
+DATA INTEGRITY — NON-NEGOTIABLE:
+- Tool outputs may include a "sampling" field with sampledStep > 1 and a "warning" field. When you see this, the data is DECIMATED (every Nth day, not consecutive). DO NOT sum decimated values into weekly/monthly buckets — the result will be off by ~step× and the chart will silently show wrong numbers (this has happened: HYPE Aug 2025 charted as $63M when actual = $128M).
+- For weekly/monthly aggregations, ALWAYS sanity-check your aggregated total against the tool's summary fields (revenue30d, volume7d, etc.). If your computed monthly total deviates by **>6%** from summary.revenue30d (or summary.fees30d, summary.volume7d normalized) in the most recent complete period, STOP — your aggregation is wrong. Either re-fetch a shorter range to get unsampled data, or render the chart from the summary fields directly. Do not try to "split the difference" or annotate the chart with a disclaimer — wrong numbers do not ship.
+- When a chart's most recent data point disagrees with the summary's recent total by >6%, refuse to render and report the discrepancy. Data integrity is non-negotiable.
+
+CHART CORRECTNESS — these are the exact criteria the benchmark grades:
+- chartType matches what the data IS, not just whether it has dates:
+  • **bar** for DISCRETE BUCKETED KPIs summed within each bucket — monthly/weekly/daily revenue, volume, fees, burns, buybacks. Bars correctly read as "amount accrued in period." This is the DEFAULT for any aggregated revenue/volume/fees metric.
+  • **line** for CONTINUOUS state metrics — TVL trajectory, P/E ratio, take rate, price, APY, MCAP, supply. Each point is a snapshot, not a sum.
+  • **area** for CUMULATIVE running totals only.
+  • **composed** for two series that NEED different shapes (revenue bars + price line) when units differ.
+  • **pie** for SNAPSHOT MARKET SHARE — current breakdown of a whole into 3-10 categories at a single point in time. "Current market share of perp DEXes", "TVL split across L2s today". NOT for time-series.
+  • **stacked** for MARKET SHARE / COMPOSITION OVER TIME — rendered as stacked bars where each x-bucket sums to a meaningful whole. "DEX volume share over 90 days", "stablecoin supply composition over 12 months".
+  Do NOT default everything to line. Monthly revenue chart = bar, not line. Market-share question = pie or stacked, not bar.
+- Lookback window matches the prompt ("last 12 months" → ~365 days, NOT 12 days; "last 90 days" → ~90 days).
+- Single chart with multiple lines for "compare X, Y, Z" — NOT three separate charts.
+- Currency Y-axis formatted as $ when revenue/fees/TVL/volume; ratio axis when P/E etc.
+- Smoothing (7dma / 30dma) when the data is noisy and the lookback is long enough to support it.
+- Don't add unrequested second series.
+
+ABSOLUTE DELIVERY RULE:
+Your response MUST contain at least one \`\`\`artifact:chart\`\`\` block. update_research_brain is supplementary record-keeping — NEVER a substitute for the chart. If the primary endpoint returned empty:
+  1. Try alternative sources FIRST (query_defillama_volume with type:"derivatives" for perp DEXes, get_token_snapshot for live mcap/FDV, query_dune for on-chain).
+  2. If you can compute the requested metric from any combination of available data, ship the chart.
+  3. Only if every relevant source is exhausted, state plainly which endpoints were empty and ship the closest available alternative chart.
+
+DO NOT:
+- Write a memo body, executive summary, or multi-paragraph analysis.
+- Generate three or more analyst-perspective sections (multi-perspective debate is deep-mode only — never in chart mode).
+- Add "thesis", "verdict", "implications", "what to watch" sections.
+- Include scenario tables or sensitivity analysis.
+- Hand-construct 100+ row data arrays in text output (use execute_code).`;
+
 const DEEP_RULES = `RESPONSE MODE: DEEP
 The user asked a substantive, multi-part question that needs real research and synthesis.
+
+TITLE + EXECUTIVE SUMMARY — MANDATORY HEAD OF RESPONSE:
+Every deep response opens with a single H1 title followed by an Executive Summary block, in this exact order:
+
+# <Concise analyst-style title — e.g. "TradeXYZ Funding Imbalances and the HIP-3 Margin">
+
+## Executive Summary
+- **Headline:** <one sentence — the single thesis statement that answers the user's question>
+- **Key numbers:** <3-5 specific figures with units, e.g. "$1.79B HIP-3 OI · 90% market share · $15.86M Q1 fees · 5.48% APR funding floor">
+- **Watchlist:** <2-4 specific things to monitor, e.g. "OI long/short skew on Felix vs Ventuals; weekend funding convergence; HYPE buyback cadence post-deposit">
+- **Bottom line:** <one sentence — the so-what for an investor, NOT a recommendation>
+
+The H1 should NEVER be the user's question restated. It should be a substantive newspaper-headline-style title that names the subject and the angle. Both blocks must appear before any prose, body H2 sections, or artifacts. If a sub-question has no quantitative answer, say so in the headline and skip "Key numbers" rather than fabricating filler.
+
+WRITE-OUT DISCIPLINE — ONE SYNTHESIS TURN, NOT TWO:
+Do all your tool calls first. When you start writing the response body, do NOT also emit a tool_use in the same turn. Specifically: if you need to call update_research_brain, do it in a turn with no body text, then in the next turn write the full memo (title + Executive Summary + body + Sources) as a single uninterrupted output with no further tool calls. Splitting body across two tool-using turns risks losing the body content downstream.
+
+SELF-CONTAINED OUTPUT — NO STITCHED CONVERSATION:
+If this turn is a follow-up that revises or extends an earlier response in this session, your output must read as a single complete document, not an addendum. Restate the prior conclusion in one sentence at the top of the relevant section, fold the new information in place, and produce one cohesive memo. Never write "as I said earlier", "now I have the reconciliation", "let me revise the previous answer", or anything that requires the reader to have seen the earlier turn. The reader should be able to share this single response with a colleague who has zero context.
 
 ANSWER THE QUESTION THAT WAS ASKED — NOT A TEMPLATE:
 The single most common failure mode is producing a generic "deep dive report" (snapshot → history → scenarios → price target) regardless of what the user actually asked. STOP DOING THIS. Before you do anything else:
@@ -691,8 +906,12 @@ If the user asked for a "thesis" or "investment view", that is the SYNTHESIS of 
 RESEARCH METHODOLOGY:
 - 5–15 tool calls — let the question drive the count, not a quota
 - Use web_search aggressively for qualitative context (roadmap, shipped products, governance, team) — this is the #1 underused tool
-- PROVEN QUERY FIRST (MANDATORY): For ANY quantitative data request (charts, metrics, fees, revenue, volume, P/E, P/S, valuation, on-chain data), your VERY FIRST tool call MUST be search_proven_queries with a relevant search term (protocol name, metric type, or both). The proven query library contains 130+ battle-tested Dune SQL queries that produce better results than DeFiLlama/CoinGecko APIs. If a proven query exists for the metric, use execute_dune_sql with it. Only fall back to DeFiLlama/token snapshot tools if NO proven query matches.
-- DUNE QUERY WORKFLOW: If search_proven_queries returns no match AND you need to write custom Dune SQL, call discover_dune_tables first to find the right tables. Only write custom SQL as a last resort.
+- DATA SOURCE ROUTING — pick the right source by question shape, not by reflex:
+  • DeFiLlama FIRST for standard protocol KPIs: TVL, fees, revenue, volumes (DEX / perps / derivatives), borrows, loans, burns, swaps, stablecoin supply, bridge flows. Broad coverage + clean daily aggregates.
+  • CoinGecko FIRST (via get_token_snapshot) for price, market cap, FDV, circulating supply, total supply, adjusted/outstanding supply, adjusted MCAP ("outstanding token value").
+  • Dune FIRST for on-chain queries the aggregator catalogs don't pre-compute: netflows, inflows/outflows, holder distributions, contract-specific behavior, address/wallet-level patterns, **APY/yield/rate-distribution series**. Examples: "AAVE net inflows last 30 days", "sUSDe APY weekly", "top HYPE holders by stake duration". For these, call **write_dune_query** with the intent — it does a vector-indexed cache lookup over the 180+ proven_queries library, then table discovery + SQL authoring (Opus 4.7) + 5-attempt retry on miss, all in one call.
+  • Dune AS FALLBACK when DeFiLlama/CoinGecko return empty or don't carry the metric — same: **write_dune_query** with the intent.
+- write_dune_query is the standard Dune path. Its cache lookup is semantic (vector + BM25 over proven_queries), so paraphrases and metric variants find the right cached SQL automatically.
 - execute_code for non-trivial math (regressions, multi-variable models) OR when building a time-series of a derived metric (merging daily price + daily revenue to compute daily P/E). A single P/E ratio does NOT need code, but charting P/E over 180 days DOES.
 
 QUALITY:
@@ -703,9 +922,57 @@ QUALITY:
 
 DATA INTEGRITY rules from the base prompt still apply. Brain rules still apply. update_research_brain still required at end.`;
 
+/**
+ * Filter a recipe's yAxes to the variants the user explicitly asked for.
+ * Used so a P/E recipe that knows MCAP / FDV / Adj MCAP renders only the
+ * subset the user named (e.g. "Adj MCAP and FDV"). Match is by label
+ * prefix so "MCAP" doesn't accidentally pick up "Adj MCAP P/E". Falls
+ * back to the full set if the filter would empty the chart.
+ */
+function filterYAxesByVariants<T extends { label: string }>(
+  yAxes: T[],
+  variants: string[] | undefined,
+): T[] {
+  if (!variants || variants.length === 0) return yAxes;
+  const norms = variants.map(v => v.toLowerCase().trim()).filter(Boolean);
+  if (norms.length === 0) return yAxes;
+  const filtered = yAxes.filter(y => {
+    const label = (y.label || "").toLowerCase().trim();
+    return norms.some(v => label === v || label.startsWith(v + " ") || label.startsWith(v + "_"));
+  });
+  return filtered.length > 0 ? filtered : yAxes;
+}
+
+/**
+ * Heuristic for "the agent's closing round emitted nothing useful." Used
+ * to decide whether to recover body content from an earlier tool-using
+ * round. Conservative — must clearly look like an audit-trail stub, not
+ * a legitimately short answer.
+ */
+function finalLooksLikeStub(text: string): boolean {
+  const trimmed = (text || "").trim();
+  if (trimmed.length < 200) return true;
+  // Stripped of any closing Sources block, is there real body content?
+  const withoutSources = trimmed.replace(/^##\s+Sources?\b[\s\S]*$/im, "").trim();
+  if (withoutSources.length < 200) return true;
+  return false;
+}
+
 function buildSystemPrompt(mode: ResearchMode, brainContext: string): string {
-  const modeRules = mode === "quick" ? QUICK_RULES : mode === "focused" ? FOCUSED_RULES : DEEP_RULES;
-  return `${BASE_PROMPT}\n\n${modeRules}${brainContext}`;
+  const modeRules =
+    mode === "quick" ? QUICK_RULES :
+    mode === "focused" ? FOCUSED_RULES :
+    mode === "chart" ? CHART_RULES :
+    DEEP_RULES;
+  // Pin "now" at the top of every system prompt. Without this, the
+  // model's training-cutoff sense of "now" leaks through — e.g. asking
+  // for "last 12 months" produces 2024-2025 data when the actual today
+  // is in 2026. The model treats this anchor as authoritative when
+  // computing relative date ranges, time windows, and freshness.
+  const now = new Date();
+  const today = now.toISOString().slice(0, 10);
+  const dateAnchor = `CURRENT DATE: ${today}\nUse this date — not your training-cutoff sense of "now" — for any relative time window the user mentions ("last 12 months", "YTD", "since launch", "the past quarter"). When you fetch data, the most recent point should be at or near this date; if it isn't, surface the staleness explicitly rather than treating the older endpoint as current.\n\n`;
+  return `${dateAnchor}${BASE_PROMPT}\n\n${modeRules}${brainContext}`;
 }
 
 const INTENT_CLASSIFIER_PROMPT = `You classify the user's last message into one of three modes for a crypto research assistant.
@@ -860,7 +1127,10 @@ Structure your response as a reasoning trace:
 
 Be specific, opinionated, and analytical. Use your signature style. Do not hedge excessively — take a clear analytical position and explain your reasoning.${frameworkContext}${corpusContext}${dataContext}`;
 
-  const response = await callAnthropicRaw({
+  // Streaming to dodge Cloudflare's 100s edge timeout. Deep mode fires
+  // up to 8 of these in parallel; even on Haiku, occasional slow responses
+  // were 524'ing. callStreamOrRaw assembles the same shape.
+  const response = await callStreamOrRaw({
     model: MODELS.HAIKU,
     max_tokens: 1200,
     system: systemPrompt,
@@ -930,12 +1200,30 @@ async function executeTool(name: string, input: any): Promise<string> {
           if (merged[d]) merged[d].revenue = Math.round(val);
           else merged[d] = { date: d, revenue: Math.round(val) };
         }
-        const result = sampleData(Object.values(merged).sort((a: any, b: any) => a.date.localeCompare(b.date)), 365);
+        // Cap at 1000 daily points (~2.7 years) and EXPOSE the sampling step.
+        // Fees/revenue series are routinely aggregated downstream into weekly/
+        // monthly buckets — silent decimation here was producing systematically
+        // halved (or worse) totals (e.g. HYPE Aug 2025 charted as $63M when
+        // the actual figure was $128M). With sampledStep surfaced, the agent
+        // and chart-shaper can compensate or refuse to aggregate.
+        const sortedMerged = Object.values(merged).sort((a: any, b: any) => a.date.localeCompare(b.date));
+        const sampled = sampleDataWithMeta(sortedMerged, 1000);
+        const result = sampled.data;
         return JSON.stringify({
           protocol: slug,
           points: result.length,
           feesPoints: feeData.length,
           revenuePoints: revData.length,
+          // sampledStep > 1 means the data is decimated (every Nth day, NOT
+          // consecutive days). When non-1, do NOT sum these values into
+          // weekly/monthly buckets — the totals will be off by ~step times.
+          // Either multiply each sampled value by sampledStep when
+          // approximating sums, or use the `summary.revenue30d` field for
+          // recent totals.
+          sampling: { sampledStep: sampled.sampledStep, originalLength: sampled.originalLength },
+          ...(sampled.sampledStep > 1 ? {
+            warning: `DATA SAMPLED (every ${sampled.sampledStep} days). Do NOT sum these values into monthly/weekly totals — the result will be ~${sampled.sampledStep}× under the truth. For recent totals use summary.revenue30d / summary.fees30d. To get unsampled monthly totals, request a shorter date range.`,
+          } : {}),
           summary: {
             fees24h: fees?.total24h ?? null,
             fees7d: fees?.total7d ?? null,
@@ -957,11 +1245,18 @@ async function executeTool(name: string, input: any): Promise<string> {
           date: new Date(d.date * 1000).toISOString().slice(0, 10),
           volume: Math.round(d.volume),
         }));
+        // Same fix as fees/revenue: cap at 1000, expose sampledStep, warn the
+        // agent against silent aggregation.
+        const sampledVol = sampleDataWithMeta(data, 1000);
         return JSON.stringify({
           protocol: slug,
-          points: data.length,
+          points: sampledVol.data.length,
+          sampling: { sampledStep: sampledVol.sampledStep, originalLength: sampledVol.originalLength },
+          ...(sampledVol.sampledStep > 1 ? {
+            warning: `DATA SAMPLED (every ${sampledVol.sampledStep} days). Do NOT sum into weekly/monthly totals. For recent totals use summary.volume7d. To get unsampled, request a shorter date range.`,
+          } : {}),
           summary: { volume24h: vol?.total24h ?? null, volume7d: vol?.total7d ?? null, volumeAllTime: vol?.totalAllTime ?? null },
-          data: sampleData(data, 365),
+          data: sampledVol.data,
         });
       }
       case "query_defillama_protocol_summary": {
@@ -1032,45 +1327,170 @@ async function executeTool(name: string, input: any): Promise<string> {
         return JSON.stringify({ rowCount: rows.length, columns: result.columns?.map((c: any) => c.name) || Object.keys(rows[0] || {}), data: rows });
       }
       case "search_proven_queries": {
-        const searchProtocol = (input.protocol || "").toLowerCase().trim();
-        const keyword = (input.keyword || "").toLowerCase().trim();
-        const allResults: any[] = [];
-
-        const exact = await storage.findProvenQuery(searchProtocol, keyword || searchProtocol);
-        if (exact) allResults.push(exact);
-
-        const fewShot = await storage.getFewShotExamples(searchProtocol, keyword || searchProtocol, 8);
-        for (const q of fewShot) {
-          if (!allResults.find(r => r.id === q.id)) allResults.push(q);
+        // Semantic-first lookup. The library is vector-indexed; intent text
+        // is embedded and matched via hybrid (vector cosine + BM25) RRF
+        // fusion, the same pattern brain-retrieval and data-source-brain
+        // already use. Falls back to literal substring filters when the
+        // model didn't pass an intent (legacy callers).
+        const intent: string = String(input.intent || input.keyword || input.protocol || "").trim();
+        const protocolFilter = String(input.protocol || "").trim() || undefined;
+        if (!intent) {
+          return JSON.stringify({ found: 0, message: "Pass an `intent` describing the data you want." });
         }
-
-        if (allResults.length === 0) {
-          const { db: dbImport } = await import("./db");
-          const { sql: sqlOp } = await import("drizzle-orm");
-          const { provenQueries: pqTable } = await import("@shared/schema");
-          const fuzzy = await dbImport.select().from(pqTable)
-            .where(sqlOp`(${pqTable.protocol} ILIKE ${'%' + searchProtocol + '%'} OR ${pqTable.metricType} ILIKE ${'%' + searchProtocol + '%'} OR ${pqTable.metricType} ILIKE ${'%' + (keyword || searchProtocol) + '%'}) AND ${pqTable.isActive} = true`)
-            .orderBy(sqlOp`${pqTable.successCount} DESC`)
-            .limit(10);
-          allResults.push(...fuzzy);
+        const { findProvenQueryByIntent } = await import("./proven-queries-search");
+        const matches = await findProvenQueryByIntent(intent, {
+          minSimilarity: 0.55,
+          topK: 8,
+          protocolFilter,
+        });
+        if (matches.length === 0) {
+          return JSON.stringify({
+            found: 0,
+            message: `No semantic match found in proven_queries for "${intent.slice(0, 80)}". Use discover_dune_tables + write_dune_query to author one.`,
+          });
         }
-
-        if (allResults.length === 0) {
-          return JSON.stringify({ found: 0, message: "No proven queries found. Use discover_dune_tables to find tables, then write SQL." });
-        }
-
-        const formatted = allResults.slice(0, 10).map(q => ({
-          protocol: q.protocol,
-          metricType: q.metricType,
-          sql: q.sqlQuery,
-          successCount: q.successCount,
-          chartType: q.chartType,
+        const cacheHitThreshold = 0.65;
+        const formatted = matches.map((m) => ({
+          protocol: m.query.protocol,
+          metricType: m.query.metricType,
+          sql: m.query.sqlQuery,
+          successCount: m.query.successCount,
+          chartType: m.query.chartType,
+          similarity: m.similarity,
+          rrfScore: Number(m.rrfScore.toFixed(4)),
+          isCacheHit: m.similarity != null && m.similarity >= cacheHitThreshold,
         }));
-        return JSON.stringify({ found: formatted.length, queries: formatted });
+        const top = formatted[0];
+        const note = top.isCacheHit
+          ? `Top match has similarity ${top.similarity?.toFixed(3)} >= ${cacheHitThreshold} — execute its SQL directly via execute_dune_sql or call write_dune_query (which will also cache-hit).`
+          : `Top match similarity ${top.similarity?.toFixed(3) ?? "n/a"} is below the cache-hit threshold (${cacheHitThreshold}). Use the candidates as few-shot context if you author fresh SQL.`;
+        return JSON.stringify({ found: formatted.length, intent, queries: formatted, note });
       }
       case "discover_dune_tables": {
         const tables = await discoverTablesForProtocol(input.protocol, input.chain);
         return JSON.stringify(tables);
+      }
+      case "write_dune_query": {
+        try {
+          const { writeAndExecuteDuneQuery } = await import("./dune-sql-author");
+          const result = await writeAndExecuteDuneQuery(input.intent, {
+            blockchain: input.blockchain,
+            protocolHint: input.protocolHint,
+          });
+          // Cap returned rows at 1000 to keep tool results compact for the agent.
+          // The full result set already lives in Dune; the agent only needs a
+          // representative slice to render a chart or summarize.
+          const rows = result.rows.length > 1000 ? result.rows.slice(0, 1000) : result.rows;
+          return JSON.stringify({
+            source: result.source,
+            attempts: result.attempts,
+            rowCount: result.rowCount,
+            columns: result.columns,
+            rows,
+            sql: result.sql,
+            cost: result.cost,
+            inputTokens: result.inputTokens,
+            outputTokens: result.outputTokens,
+            cachedQueryId: result.cachedQueryId,
+            note: result.source === "cache"
+              ? "Cache hit: served from proven_queries (free LLM cost)."
+              : `Authored fresh in ${result.attempts} attempt(s); saved to proven_queries for next time.`,
+          });
+        } catch (err: any) {
+          return JSON.stringify({
+            error: err?.message || String(err),
+            note: "write_dune_query failed after retries. If the question fits a DeFiLlama metric (TVL/fees/revenue/volume), try DeFiLlama tools instead. Otherwise rephrase the intent more specifically (include protocol name, chain, and what you want measured).",
+          });
+        }
+      }
+      case "query_stonksonchain": {
+        // Brain-gated: only registered when user prefs name stonksonchain.
+        // Routes by `kind` to the appropriate stonks-client function.
+        // Errors are returned as JSON so the model can retry with a
+        // different kind / coin instead of bailing out.
+        try {
+          const stonks = await import("./stonks-client");
+          const kind: string = String(input.kind || "");
+          const coin: string = String(input.coin || "");
+          const days: number = typeof input.days === "number" ? input.days : 90;
+          const hours: number = typeof input.hours === "number" ? input.hours : 168;
+          let payload: any = null;
+
+          switch (kind) {
+            case "hype_unlocks":              payload = await stonks.getHypeUnlocks(); break;
+            case "hype_unlocks_summary":      payload = await stonks.getHypeUnlocksSummary(); break;
+            case "hype_unlocks_history":      payload = await stonks.getHypeUnlocksHistory(); break;
+            case "hype_unlocks_predictions":  payload = await stonks.getHypeUnlocksPredictions(); break;
+            case "global_metrics":            payload = await stonks.getGlobalMetrics(); break;
+            case "volume_averages":           payload = await stonks.getVolumeAverages(); break;
+            case "ecosystem_fee_history":     payload = await stonks.getEcosystemFeeHistory(days); break;
+            case "fees_summary":              payload = await stonks.getFeesSummary(); break;
+            case "deployer_revenue":          payload = await stonks.getDeployerRevenue(); break;
+            case "deployer_hl_contribution":  payload = await stonks.getDeployerHlContribution(); break;
+            case "asset_revenue":             payload = await stonks.getAssetRevenue(); break;
+            case "asset_hl_contribution":     payload = await stonks.getAssetHlContribution(); break;
+            case "deployer_fees_history": {
+              if (!coin) return JSON.stringify({ error: "coin required for deployer_fees_history" });
+              const m = await stonks.getDeployerFeesHistory(coin, days);
+              payload = Array.from(m.entries()).map(([date, fees]) => ({ date, fees }));
+              break;
+            }
+            case "deployer_volume_history": {
+              if (!coin) return JSON.stringify({ error: "coin required for deployer_volume_history" });
+              const m = await stonks.getDeployerVolumeHistory(coin, days);
+              payload = Array.from(m.entries()).map(([date, volume]) => ({ date, volume }));
+              break;
+            }
+            case "hip3_total_fees_history": {
+              const m = await stonks.getHip3TotalFeesHistory(days);
+              payload = Array.from(m.entries()).map(([date, fees]) => ({ date, fees }));
+              break;
+            }
+            case "hip3_total_volume_history": {
+              const m = await stonks.getHip3TotalVolumeHistory(days);
+              payload = Array.from(m.entries()).map(([date, volume]) => ({ date, volume }));
+              break;
+            }
+            case "market_quality": {
+              if (!coin) return JSON.stringify({ error: "coin required for market_quality" });
+              payload = await stonks.getMarketQuality(coin);
+              break;
+            }
+            case "daily_history": {
+              if (!coin) return JSON.stringify({ error: "coin required for daily_history" });
+              payload = await stonks.getDailyHistory(coin, days);
+              break;
+            }
+            case "hourly_history": {
+              if (!coin) return JSON.stringify({ error: "coin required for hourly_history" });
+              payload = await stonks.getHourlyHistory(coin, hours);
+              break;
+            }
+            case "stablecoin_supply":         payload = await stonks.getStablecoinSupply(days); break;
+            case "lighter_kpis":              payload = await stonks.getLighterKpis(); break;
+            case "ostium_kpis":               payload = await stonks.getOstiumKpis(); break;
+            default:
+              return JSON.stringify({ error: `Unknown kind "${kind}". See enum in tool description.` });
+          }
+
+          // Trim huge payloads (history endpoints can return ~1000 rows
+          // worth of nested deployer data) so the agent's context window
+          // doesn't get stuffed.
+          const str = JSON.stringify(payload);
+          if (str.length > 80_000) {
+            return JSON.stringify({
+              kind,
+              note: `Response truncated (${str.length} chars > 80K cap). Use a smaller days or hours value if you need more granular data.`,
+              data: Array.isArray(payload) ? payload.slice(0, 200) : payload,
+            });
+          }
+          return JSON.stringify({ kind, data: payload });
+        } catch (err: any) {
+          return JSON.stringify({
+            error: err?.message || String(err),
+            note: "stonksonchain request failed. STONKS_API_KEY may be missing/invalid, or the kind/coin combination isn't supported. Fall back to DeFiLlama or write_dune_query if this is blocking.",
+          });
+        }
       }
       case "compare_protocols": {
         const results: any[] = [];
@@ -1092,7 +1512,7 @@ async function executeTool(name: string, input: any): Promise<string> {
         return JSON.stringify({ ...snapshot, mppCost });
       }
       case "execute_code": {
-        console.log(`[SessionResearch] Executing code: ${input.description}`);
+        dlog(`[SessionResearch] Executing code: ${input.description}`);
         if (!input.code || typeof input.code !== "string" || !input.code.trim()) {
           return JSON.stringify({
             error: "MISSING_CODE: You called execute_code without a 'code' field. The 'code' parameter must contain the actual JavaScript source as a string. For single-value ratios, compute inline. For time-series derived metrics (daily P/E, take rate trend), you DO need execute_code — pass the raw data arrays as constants in the code and merge/compute row-by-row. Do NOT retry this tool with the same empty input.",
@@ -1201,6 +1621,15 @@ async function executeTool(name: string, input: any): Promise<string> {
   }
 }
 
+/**
+ * Strided decimation. Picks every Nth point.
+ *
+ * **DATA-INTEGRITY HAZARD**: callers that intend to aggregate the result
+ * downstream (e.g. summing daily values into monthly buckets) MUST NOT use
+ * this — decimated points are a SUBSET of days, so any sum will be off by
+ * the sampling step. Use `sampleDataWithMeta` instead and propagate the
+ * `sampledStep` field so the agent can compensate (or refetch unsampled).
+ */
 function sampleData(data: any[], maxPoints: number): any[] {
   if (data.length <= maxPoints) return data;
   const step = Math.ceil(data.length / maxPoints);
@@ -1212,6 +1641,117 @@ function sampleData(data: any[], maxPoints: number): any[] {
     sampled.push(data[data.length - 1]);
   }
   return sampled;
+}
+
+/**
+ * Same as sampleData but returns metadata about whether decimation happened.
+ * The downstream agent and chart-shaper can use sampledStep > 1 as a signal
+ * to NOT directly sum the values (they're a stride of days, not consecutive).
+ */
+function sampleDataWithMeta(data: any[], maxPoints: number): { data: any[]; sampledStep: number; originalLength: number } {
+  if (data.length <= maxPoints) return { data, sampledStep: 1, originalLength: data.length };
+  const step = Math.ceil(data.length / maxPoints);
+  const sampled = [];
+  for (let i = 0; i < data.length; i += step) sampled.push(data[i]);
+  if (sampled[sampled.length - 1] !== data[data.length - 1]) sampled.push(data[data.length - 1]);
+  return { data: sampled, sampledStep: step, originalLength: data.length };
+}
+
+/**
+ * Synthesize a `refreshRecipe` for an agent-emitted chart artifact whose JSON
+ * didn't include one. The recipe enables "Refresh" on a saved-to-library
+ * chart (see server/routes/research-routes.ts:876). Without inference here,
+ * agent-path charts permanently lose their live-data linkage the moment
+ * they're persisted — exactly the user's "live artifact claim dies"
+ * complaint.
+ *
+ * Strategy: walk the tool-call history (most recent first) and pick the
+ * first call whose input plausibly produced the chart's data. DeFiLlama is
+ * the easy/common case. Dune via write_dune_query/execute_dune_sql gives
+ * us a SQL recipe. Returns null when nothing fits — better to ship without
+ * a recipe than to attach a wrong one.
+ */
+export function inferRefreshRecipeFromToolHistory(
+  artifact: {
+    title?: string;
+    source?: string;
+    chartConfig?: { yAxes?: any[] };
+    columns?: string[];
+    type?: string;
+  },
+  toolCallHistory: Array<{ name: string; input: any }>,
+): any | null {
+  if (!toolCallHistory.length) return null;
+
+  // Tokens drawn from the artifact's title + signal-bearing fields for
+  // protocol matching. Charts carry the signal in yAxes.label/dataKey;
+  // tables carry it in columns. We collect both so a single function
+  // works for either artifact type — same downstream tool-call match
+  // logic applies regardless of shape.
+  const tokens = new Set<string>();
+  const collect = (s?: string) => {
+    if (!s) return;
+    s.toLowerCase().split(/[^a-z0-9]+/).filter((t) => t.length >= 3).forEach((t) => tokens.add(t));
+  };
+  collect(artifact.title);
+  for (const y of artifact.chartConfig?.yAxes || []) {
+    collect((y as any)?.label);
+    collect((y as any)?.dataKey);
+  }
+  for (const c of artifact.columns || []) collect(String(c));
+  // Aliasing the artifact-shape parameter for clarity in the rest of
+  // the function — historic name is "chart", but any artifact with
+  // tokens identifiable to a tool call works the same way.
+  const chart = artifact;
+  const matchesChart = (s?: string): boolean => {
+    if (!s) return false;
+    const sl = s.toLowerCase();
+    for (const t of Array.from(tokens)) if (sl.includes(t)) return true;
+    return false;
+  };
+
+  // Walk history newest-first so the most recent matching tool call wins.
+  for (let i = toolCallHistory.length - 1; i >= 0; i--) {
+    const { name, input } = toolCallHistory[i];
+    if (!input) continue;
+
+    const proto: string | undefined = input.protocol || input.slug;
+    const coinId: string | undefined = input.coinId || input.ticker;
+
+    // DeFiLlama family — clean recipe maps.
+    if (name === "query_defillama_tvl" && proto && matchesChart(proto)) {
+      return { dataSource: "defillama", endpoint: "tvl", slug: proto, protocol: proto, timeWindowDays: input.daysBack || 365 };
+    }
+    if (name === "query_defillama_fees_revenue" && proto && matchesChart(proto)) {
+      // Pick the endpoint based on what the chart's yAxes claim to plot.
+      const yAxisStr = (chart.chartConfig?.yAxes || []).map((y: any) => `${y?.label || ""} ${y?.dataKey || ""}`.toLowerCase()).join(" ");
+      const endpoint = /\brevenue\b|\barr\b/.test(yAxisStr) ? "revenue" : "fees";
+      return { dataSource: "defillama", endpoint, slug: proto, protocol: proto, timeWindowDays: input.daysBack || 365 };
+    }
+    if (name === "query_defillama_volume" && proto && matchesChart(proto)) {
+      return { dataSource: "defillama", endpoint: "volume", slug: proto, protocol: proto, timeWindowDays: input.daysBack || 365 };
+    }
+    if (name === "query_defillama_price_history" && coinId && (matchesChart(coinId) || matchesChart(input.protocol))) {
+      return { dataSource: "coingecko", coinId, daysBack: input.daysBack || 365 };
+    }
+
+    // Dune via write_dune_query — the cached queryId path is the cheapest
+    // refresh (Dune re-runs the saved query). We don't have the result here
+    // so we capture the SQL via the SQL author's saved-fact write instead.
+    // For now, treat write_dune_query the same as execute_dune_sql when the
+    // chart was sourced via that path.
+    if (name === "write_dune_query" && input.intent && matchesChart(input.intent)) {
+      return { dataSource: "dune-sql", intent: input.intent };
+    }
+    if (name === "execute_dune_sql" && input.sql) {
+      // Heuristic: if the SQL mentions any chart token, claim it.
+      const sqlLower = input.sql.toLowerCase();
+      let hit = false;
+      for (const t of Array.from(tokens)) if (sqlLower.includes(t)) { hit = true; break; }
+      if (hit) return { dataSource: "dune-sql", sql: input.sql };
+    }
+  }
+  return null;
 }
 
 export function parseArtifacts(content: string): ResearchArtifact[] {
@@ -1244,12 +1784,20 @@ export function parseArtifacts(content: string): ResearchArtifact[] {
           data: json.data || [],
         });
       } else if (type === "table") {
-        artifacts.push({
+        // Preserve refreshRecipe on table artifacts so they participate
+        // in the same refresh-from-library flow charts use. The agent
+        // can emit one explicitly; otherwise inferRefreshRecipeFromToolHistory
+        // will attach one server-side at emission time.
+        const tableArtifact: any = {
           type: "table",
           title: json.title || "Table",
           data: json.data || [],
           columns: json.columns || Object.keys(json.data?.[0] || {}),
-        });
+        };
+        if (json.subtitle) tableArtifact.subtitle = String(json.subtitle).slice(0, 300);
+        if (json.source) tableArtifact.source = String(json.source).slice(0, 100);
+        if (json.refreshRecipe) tableArtifact.refreshRecipe = json.refreshRecipe;
+        artifacts.push(tableArtifact);
       } else if (type === "callout") {
         const variant = ["insight", "risk", "contrarian", "catch"].includes(json.variant) ? json.variant : "insight";
         artifacts.push({
@@ -1282,17 +1830,24 @@ function summarizeHistory(history: Array<{ role: string; content: string }>): Ar
   const recent = history.slice(-20);
   for (const msg of recent) {
     if (msg.role === "assistant") {
-      const withoutModeMarker = msg.content.replace(/^<!--\s*mode:(quick|focused|deep)\s*-->\s*\n?/, "");
+      const withoutModeMarker = msg.content.replace(/<!--\s*mode:[a-z]+\s*-->\s*\n?/gi, "");
+      // Replace prior artifact code-fences with HTML comments so the model sees
+      // a non-imitable trace of "there was an artifact here" rather than a
+      // pseudo-artifact placeholder it then mistakes for the real format.
+      // Models are trained to skip HTML comments; the literal "[📊 ...]" form
+      // we used previously poisoned context (msg 303 shipped that placeholder
+      // as the chart itself). See HANDOFF-chart-quality.local.md cause 1.
       const cleaned = withoutModeMarker.replace(/```artifact:(chart|table|metric_cards|callout|comparison|quote)\s*\n[\s\S]*?```/g, (m, type) => {
         try {
           const jsonStr = m.replace(/```artifact:\w+\s*\n/, "").replace(/```$/, "").trim();
           const json = JSON.parse(jsonStr);
-          const icon = type === "chart" ? "📊" : type === "metric_cards" ? "📈" : type === "table" ? "📋"
-            : type === "callout" ? "💡" : type === "comparison" ? "⚖️" : "❝";
-          const label = json.title || json.text?.slice(0, 60) || type;
-          return `[${icon} ${label}]`;
+          const label = (json.title || json.text || "").toString().slice(0, 80).replace(/-->/g, "--&gt;");
+          const detail = type === "chart" && Array.isArray(json.data)
+            ? ` (${json.data.length} points)`
+            : "";
+          return `<!-- prior-${type}: "${label}"${detail} omitted -->`;
         } catch {
-          return `[${type}]`;
+          return `<!-- prior-${type} omitted -->`;
         }
       });
       msgs.push({ role: "assistant", content: cleaned });
@@ -1321,6 +1876,7 @@ const TOOL_LABELS: Record<string, string> = {
   search_proven_queries: "Checking query library",
   execute_dune_sql: "Running on-chain SQL query",
   discover_dune_tables: "Discovering available data tables",
+  write_dune_query: "Authoring on-chain Dune query",
   compare_protocols: "Comparing protocols side-by-side",
   get_token_snapshot: "Fetching live token metrics",
   execute_code: "Running financial model",
@@ -1342,6 +1898,7 @@ function toolLabel(name: string, input: any): string {
   if (name === "list_defi_protocols") return `${base} matching "${input.search || ""}"`;
   if (name === "execute_dune_sql") return `${base}: ${input.description || "custom query"}`;
   if (name === "discover_dune_tables") return `${base} for ${input.protocol || "protocol"}`;
+  if (name === "write_dune_query") return `${base}: ${(input.intent || "").slice(0, 80)}`;
   if (name === "compare_protocols") return `${base}: ${(input.protocols || []).join(", ")}`;
   if (name === "get_token_snapshot") return `${base} for ${input.ticker || "token"}`;
   if (name === "execute_code") return `${base}: ${input.description || "computation"}`;
@@ -1466,8 +2023,96 @@ function checkChartDataSanity(data: any[], yAxes: Array<{ dataKey: string; label
   return null;
 }
 
+/** Build the user-visible response when slug resolution itself failed —
+ *  the resolver matched a stale, low-confidence slug and refused to render.
+ *  Lists alternatives so the user can pick the right protocol. */
+function buildSlugResolutionUserResponse(
+  e: SlugResolutionError,
+  extracted: { protocol: string; ticker?: string; metric?: string },
+  cost: number,
+  inputTokens: number,
+  outputTokens: number,
+): ResearchResponse {
+  const altLines = e.alternatives.length > 0
+    ? e.alternatives
+        .map((a) => `- **${a.name}** (slug \`${a.slug}\`, TVL $${(a.tvl / 1e6).toFixed(1)}M)`)
+        .join("\n")
+    : null;
+  const ageBlurb = e.latestDate && e.ageDays != null
+    ? `latest data point is **${e.latestDate}** (${e.ageDays} days old)`
+    : `data appears stale`;
+  const explanation =
+    `I couldn't confidently match **"${e.query}"** to a DeFiLlama protocol.\n\n` +
+    `The closest match was \`${e.resolvedSlug}\`${e.matchedName ? ` (${e.matchedName})` : ""}, but ${ageBlurb}, and the name only matched **${e.matchType}** — that combination usually means the original protocol shut down and the slug is squatted by an old project.\n\n` +
+    (altLines ? `**Did you mean one of these?**\n${altLines}\n\n` : "") +
+    `Try the request again with a more specific protocol name (e.g. "venice-ai" or the token ticker like "VVV").`;
+  return {
+    content: explanation,
+    artifacts: [],
+    mppCost: cost,
+    inputTokens,
+    outputTokens,
+    costBasis: "receipt",
+    toolCalls: ["slug_resolution_gate"],
+    mode: "focused",
+    modeReason: `slug resolution gate: ${e.matchType} match + stale tail`,
+  };
+}
+
+/** Build the user-visible response when a chart fails the freshness gate.
+ *  The same shape as other "couldn't render" responses so the front-end
+ *  treats it identically. */
+function buildFreshnessUserResponse(
+  e: ChartFreshnessError,
+  extracted: { protocol: string; ticker?: string; metric?: string },
+  cost: number,
+  inputTokens: number,
+  outputTokens: number,
+): ResearchResponse {
+  const requested = `${extracted.ticker || extracted.protocol} ${e.metricLabel}`;
+  const ageBlurb = e.ageDays != null && e.latestDate
+    ? `latest data point is **${e.latestDate}** (${e.ageDays} days old; threshold ${e.thresholdDays}d)`
+    : `no usable recent data found`;
+  const explanation =
+    `I couldn't render **${requested}**.\n\n` +
+    `**No recent data** for this metric on this source — ${ageBlurb}.\n\n` +
+    `This usually means the data source resolved to the wrong slug for "${extracted.protocol}", ` +
+    `or the protocol stopped reporting. Try a different source, narrow the time range, ` +
+    `or confirm the slug (e.g. "venice-ai" vs "venice").`;
+  return {
+    content: explanation,
+    artifacts: [],
+    mppCost: cost,
+    inputTokens,
+    outputTokens,
+    costBasis: "receipt",
+    toolCalls: ["chart_freshness_gate"],
+    mode: "focused",
+    modeReason: `chart freshness gate: ${e.message.slice(0, 100)}`,
+  };
+}
+
+/** Normalize a metric label or title into a tokenized form so we can compare
+ *  what the title CLAIMS the chart shows against what the data CONTAINS.
+ *  Strips brand/protocol noise so e.g. "Venice Daily DEX Volume" and
+ *  "DEX Volume" share the "dex"+"volume" core tokens. */
+function metricTokens(s: string): Set<string> {
+  return new Set(
+    (s || "")
+      .toLowerCase()
+      .replace(/[^a-z0-9 ]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length >= 3 && !METRIC_STOPWORDS.has(w)),
+  );
+}
+const METRIC_STOPWORDS = new Set([
+  "the", "and", "for", "with", "over", "from", "this", "that", "your", "into",
+  "last", "year", "month", "week", "days", "ytd", "all", "time", "ratio",
+  "chart", "graph", "plot", "show", "shows", "shown",
+]);
+
 function buildChartResponse(
-  chartType: "line" | "bar" | "area" | "composed",
+  chartType: "line" | "bar" | "area" | "composed" | "pie" | "stacked",
   title: string,
   data: any[],
   xAxisKey: string,
@@ -1483,12 +2128,54 @@ function buildChartResponse(
     smoothing?: "none" | "7dma" | "30dma";
     axisLayout?: "single" | "dual";
   },
+  /** Canonical metric description — the SINGLE SOURCE for what this chart
+   *  represents. Title and (optional) override subtitle must both reference
+   *  it. Without this, the title can claim "Daily DEX Volume" while the
+   *  shaper writes a subtitle about "Weekly Burns" and they coexist
+   *  silently — exactly the Venice failure mode. */
+  metricSpec?: {
+    label: string;
+    cadence?: "daily" | "weekly" | "monthly" | "snapshot";
+  },
 ): ResearchResponse {
+  if (metricSpec) {
+    const titleTokens = metricTokens(title);
+    const labelTokens = metricTokens(metricSpec.label);
+    const yAxisTokens = metricTokens(yAxes.map((y) => y.label).join(" "));
+    const haveOverlap = (a: Set<string>, b: Set<string>) => {
+      let hit = false;
+      b.forEach((t) => { if (a.has(t)) hit = true; });
+      return hit;
+    };
+    if (labelTokens.size > 0 && !haveOverlap(titleTokens, labelTokens)) {
+      throw new Error(
+        `Title/metric mismatch: title "${title}" does not reference the canonical metric "${metricSpec.label}". Refusing to render — fix the caller to derive title from metricSpec.label.`,
+      );
+    }
+    if (yAxisTokens.size > 0 && !haveOverlap(titleTokens, yAxisTokens) && !haveOverlap(labelTokens, yAxisTokens)) {
+      throw new Error(
+        `Title/data mismatch: title "${title}" and metricSpec "${metricSpec.label}" share no tokens with the y-axis labels [${yAxes.map((y) => y.label).join(", ")}]. The chart's title and the data it plots disagree on what they show.`,
+      );
+    }
+  }
+
   const sanityIssue = checkChartDataSanity(data, yAxes);
   if (sanityIssue) {
     console.log(`[ChartPipeline] Data sanity check failed: ${sanityIssue}`);
     throw new Error(`Data sanity: ${sanityIssue}`);
   }
+
+  // FRESHNESS GATE: refuse to render a chart whose latest data point is
+  // stale beyond CHART_FRESHNESS_THRESHOLD_DAYS. The Venice case rendered
+  // an Oct-2023 chart on Apr-2026 because nothing checked the tail before
+  // the artifact was finalized.
+  const freshnessLabel = metricSpec?.label || yAxes[0]?.label || title || "this metric";
+  const freshnessProto = refreshRecipe?.protocol || "this protocol";
+  assertChartFreshness(data, {
+    metricLabel: freshnessLabel,
+    protocol: freshnessProto,
+    source: sourceLabel,
+  });
   const primaryKey = yAxes[0]?.dataKey;
   const first = data[0]?.[primaryKey];
   const last = data[data.length - 1]?.[primaryKey];
@@ -1605,6 +2292,26 @@ const SHARED_CHART_USER_ID = "__shared_charts__";
  * the bug report explicitly identified.
  */
 export function splitChartIntents(userMessage: string): string[] {
+  // Pattern A: parenthesized intents joined by "and"/","/"&"/"+", e.g.
+  // "Hyperliquid vs Lighter (weekly volume marketshare) and (weekly revenue
+  // marketshare) over 6 months". Each parenthetical is its own intent; the
+  // text outside the parens is the shared subject + time-range.
+  const parenSplitRe = /\(([^)]+)\)\s*(?:and|&|,|\+)\s*\(([^)]+)\)/i;
+  if (parenSplitRe.test(userMessage)) {
+    const intents = [...userMessage.matchAll(/\(([^)]+)\)/g)].map((m) => m[1].trim());
+    if (intents.length >= 2) {
+      const firstOpen = userMessage.indexOf("(");
+      const lastClose = userMessage.lastIndexOf(")");
+      const before = userMessage.slice(0, firstOpen).trim()
+        .replace(/[,;:]+$/, "").trim();
+      const after = userMessage.slice(lastClose + 1).trim()
+        .replace(/^(?:and|&|,|\+)\s*/i, "").trim();
+      return intents.map((intent) =>
+        [before, intent, after].filter(Boolean).join(" ").replace(/\s+/g, " ").trim(),
+      );
+    }
+  }
+
   const msg = userMessage.toLowerCase();
   const re = /\bshare\s+of\s+([a-z][\w-]*?)(?:'s|\s+(?:total|daily))?\s+(volume|fees|revenue)\b/gi;
   const pairs: Array<{ denom: string; metric: string }> = [];
@@ -1794,10 +2501,11 @@ async function writeChartCache(
     const entities = [payload.protocol, payload.ticker, payload.metric, ...payload.comparison]
       .filter(Boolean)
       .map((e) => String(e).toLowerCase());
+    const entitiesPgArray = `{${entities.map((e) => `"${e.replace(/"/g, '\\"')}"`).join(",")}}`;
     await db.execute(sql`
       INSERT INTO brain_facts (user_id, fact_id, topic, fact, entities, source, date, confidence, embedding, updated_at)
       VALUES (
-        ${SHARED_CHART_USER_ID}, ${cacheKey}, ${topic}, ${fact}, ${entities}::text[],
+        ${SHARED_CHART_USER_ID}, ${cacheKey}, ${topic}, ${fact}, ${entitiesPgArray}::text[],
         ${payload.sources.join("+")}, ${payload.latestDate}, 'verified',
         ${vec}::vector, now()
       )
@@ -1858,6 +2566,7 @@ async function memorializeAgentChart(
     const topic = `Chart: ${title}`;
     const entities = [title.toLowerCase(), ...yAxes.map((y: any) => String(y?.dataKey || "").toLowerCase())]
       .filter(Boolean);
+    const entitiesPgArray = `{${entities.map((e) => `"${e.replace(/"/g, '\\"')}"`).join(",")}}`;
 
     const payload = {
       metric: metricLabel,
@@ -1882,7 +2591,7 @@ async function memorializeAgentChart(
     await db.execute(sql`
       INSERT INTO brain_facts (user_id, fact_id, topic, fact, entities, source, date, confidence, embedding, updated_at)
       VALUES (
-        ${SHARED_CHART_USER_ID}, ${cacheKey}, ${topic}, ${fact}, ${entities}::text[],
+        ${SHARED_CHART_USER_ID}, ${cacheKey}, ${topic}, ${fact}, ${entitiesPgArray}::text[],
         ${payload.sources.join("+")}, ${null}, 'verified',
         ${vec}::vector, now()
       )
@@ -2015,9 +2724,15 @@ export async function runChartPipeline(
     if (rangeMatch) {
       const n = parseInt(rangeMatch[1], 10);
       const unit = rangeMatch[2][0]; // d/w/m/y
-      const tokenMap: Record<string, string> = { d: "d", w: "w", m: "m", y: "y" };
-      const newRange = `${unit === "m" && n === 6 ? 180 : unit === "m" && n === 3 ? 90 : unit === "m" && n === 1 ? 30 : unit === "y" && n === 1 ? 365 : unit === "w" ? n * 7 : n}${unit === "m" || unit === "y" || unit === "w" ? "d" : tokenMap[unit] || "d"}`;
-      extracted.timeRange = newRange;
+      // Convert every unit into days. The prior ternary only handled a
+      // handful of hard-coded month values (1/3/6), so "12 months" fell
+      // through and produced "12d" — a 30x shorter window than requested.
+      const days =
+        unit === "y" ? n * 365 :
+        unit === "m" ? n * 30 :
+        unit === "w" ? n * 7 :
+        n;
+      extracted.timeRange = `${days}d`;
     } else if (/\b(ytd|year[\s-]to[\s-]date)\b/.test(msg)) {
       extracted.timeRange = "ytd";
     } else if (/\b(all[\s-]?time|since\s+launch|since\s+inception)\b/.test(msg)) {
@@ -2249,6 +2964,19 @@ export async function runChartPipeline(
 
       onStep?.({ type: "tool_result", label: `Computed ${chartData.length} ${recipe.displayLabel} data points`, detail: "deterministic_fetch", round: 0 });
 
+      // Apply user's requested variants filter (e.g. "Adj MCAP and FDV"
+      // for a P/E chart should not also plot the plain MCAP series). The
+      // recipe returns every variant it knows how to compute; the user's
+      // explicit subset wins. Falls back to the full set if the filter
+      // would empty the chart.
+      const filteredYAxes = filterYAxesByVariants(yAxes, extracted.variants);
+      const droppedVariants = yAxes.length - filteredYAxes.length;
+      if (droppedVariants > 0) {
+        console.log(
+          `[ChartPipeline] Variants filter: ${yAxes.length} → ${filteredYAxes.length} series (kept: ${filteredYAxes.map(y => y.label).join(", ")})`,
+        );
+      }
+
       const sourceProviders = (sourcesUsed && sourcesUsed.length > 0 ? sourcesUsed : recipe.sources)
         .map(s => s.split(".")[0])
         .filter((v, i, a) => a.indexOf(v) === i);
@@ -2260,14 +2988,14 @@ export async function runChartPipeline(
       // the chart always renders.
       const { computeChartStats, applySmoothing } = await import("./data-source-brain/series-stats");
       const { shapeChart } = await chartShaperImport;
-      const stats = computeChartStats(chartData, yAxes);
+      const stats = computeChartStats(chartData, filteredYAxes);
       // Join the brain context lookup that was kicked off in parallel above.
       const contextFacts = await contextFactsPromise;
       onStep?.({ type: "tool_start", label: `Shaping chart presentation`, detail: "chart_shaper", round: 0 });
       const shaped = await shapeChart({
         recipe,
         rows: chartData,
-        yAxes,
+        yAxes: filteredYAxes,
         stats,
         userQuestion: userMessage,
         ticker: extracted.ticker || extracted.protocol,
@@ -2283,7 +3011,7 @@ export async function runChartPipeline(
       let shapedChartData = chartData;
       if (shaped.smoothing === "7dma" || shaped.smoothing === "30dma") {
         const window = shaped.smoothing === "7dma" ? 7 : 30;
-        shapedChartData = applySmoothing(chartData, yAxes.map((a) => a.dataKey), window);
+        shapedChartData = applySmoothing(chartData, filteredYAxes.map((a) => a.dataKey), window);
       }
 
       // Drop annotations that don't reference a date present in the
@@ -2300,14 +3028,13 @@ export async function runChartPipeline(
         return [{ date: a.date, value: realVal, label: a.label, series: a.series }];
       });
 
-      // Source attribution suffix appended to the shaper's prose so the
-      // user always sees which sources fed the chart.
-      const sourceLabelInline = sourceProviders.join(" + ") || "defillama";
-      const summary = `${shaped.prose}\n\n*${shapedChartData.length} daily observations from ${sourceLabelInline}${shaped.smoothing !== "none" ? ` (${shaped.smoothing.toUpperCase()} smoothed)` : ""}.*`;
+      // Methodology footer: observation count + smoothing window. Source
+      // attribution lives in the artifact:sources block — not in prose.
+      const summary = `${shaped.prose}\n\n*${shapedChartData.length} daily observations${shaped.smoothing !== "none" ? `, ${shaped.smoothing.toUpperCase()} smoothed` : ""}.*`;
 
       // Latest value for cache + log line — read from shaped (post-smoothing)
       // data so cache reflects what the user actually sees.
-      const primaryKey = yAxes[0].dataKey;
+      const primaryKey = filteredYAxes[0].dataKey;
       const latest = shapedChartData[shapedChartData.length - 1];
       const latestVal = Number(latest?.[primaryKey]);
 
@@ -2380,10 +3107,10 @@ export async function runChartPipeline(
       // share-of-fees both as %); "dual" / default → composed with two axes
       // when there are multiple series. The client also respects this via
       // chartConfig.axisLayout so the renderer matches the artifact JSON.
-      const composedType: "line" | "bar" | "area" | "composed" =
+      const composedType: "line" | "bar" | "area" | "composed" | "pie" | "stacked" =
         shaped.axisLayout === "single"
           ? shaped.chartType
-          : shaped.chartType === "composed" || yAxes.length > 1
+          : shaped.chartType === "composed" || filteredYAxes.length > 1
             ? "composed"
             : shaped.chartType;
       const chartResponse = buildChartResponse(
@@ -2391,7 +3118,7 @@ export async function runChartPipeline(
         deterministicTitle,
         shapedChartData,
         "date",
-        yAxes,
+        filteredYAxes,
         summary,
         cost,
         inputTokens,
@@ -2399,6 +3126,7 @@ export async function runChartPipeline(
         derivedRecipe,
         sourceLabel,
         { annotations: safeAnnotations, smoothing: shaped.smoothing, axisLayout: shaped.axisLayout },
+        { label: recipe.displayLabel, cadence: "daily" },
       );
 
       // T5: memorialize this chart in the user's brain so identical
@@ -2425,6 +3153,12 @@ export async function runChartPipeline(
       };
     } catch (e: any) {
       console.log(`[ChartPipeline] ${recipe.displayLabel} failed: ${e.message}`);
+      if (e instanceof ChartFreshnessError) {
+        return {
+          response: buildFreshnessUserResponse(e, extracted, cost, inputTokens, outputTokens),
+          fallbackContext: "", cost, inputTokens, outputTokens,
+        };
+      }
       // Do NOT fall through to the LLM agent path or the raw revenue/fees
       // path. Falling through silently produces a *different* chart that
       // looks plausible but answers a different question (the original
@@ -2459,7 +3193,18 @@ export async function runChartPipeline(
   if (extracted.metric === "revenue" || extracted.metric === "fees") {
     onStep?.({ type: "tool_start", label: `Fetching ${extracted.protocol} ${extracted.metric}`, detail: "deterministic_fetch", round: 0 });
     try {
-      const slug = await defillama.resolveSlug(extracted.protocol);
+      const safe = await resolveSlugSafe(extracted.protocol, {
+        freshnessSampler: async (s) => {
+          try {
+            const fees = await defillama.getProtocolFees(s);
+            const last = fees.dailyFees?.[fees.dailyFees.length - 1];
+            return { latestDate: last ? new Date(last.date * 1000).toISOString().slice(0, 10) : null };
+          } catch {
+            return { latestDate: null };
+          }
+        },
+      });
+      const slug = safe.slug;
       const [feesRes, revenueRes] = await Promise.allSettled([
         defillama.getProtocolFees(slug),
         defillama.getProtocolRevenue(slug),
@@ -2502,18 +3247,55 @@ export async function runChartPipeline(
         timeWindowDays: 365,
       };
       return {
-        response: buildChartResponse("line", `${extracted.ticker || extracted.protocol} Daily Fees & Revenue`, chartData, "date", yAxes, summaryParts.join(", ") + ".", cost, inputTokens, outputTokens, feesRecipe),
+        response: buildChartResponse(
+          "line",
+          `${extracted.ticker || extracted.protocol} Daily Fees & Revenue`,
+          chartData,
+          "date",
+          yAxes,
+          summaryParts.join(", ") + ".",
+          cost,
+          inputTokens,
+          outputTokens,
+          feesRecipe,
+          undefined,
+          undefined,
+          { label: "Daily Fees & Revenue", cadence: "daily" },
+        ),
         fallbackContext: "", cost, inputTokens, outputTokens,
       };
     } catch (e: any) {
       console.log(`[ChartPipeline] Fees/revenue failed: ${e.message}`);
+      if (e instanceof SlugResolutionError) {
+        return {
+          response: buildSlugResolutionUserResponse(e, extracted, cost, inputTokens, outputTokens),
+          fallbackContext: "", cost, inputTokens, outputTokens,
+        };
+      }
+      if (e instanceof ChartFreshnessError) {
+        return {
+          response: buildFreshnessUserResponse(e, extracted, cost, inputTokens, outputTokens),
+          fallbackContext: "", cost, inputTokens, outputTokens,
+        };
+      }
     }
   }
 
   if (extracted.metric === "tvl") {
     onStep?.({ type: "tool_start", label: `Fetching ${extracted.protocol} TVL`, detail: "deterministic_fetch", round: 0 });
     try {
-      const slug = await defillama.resolveSlug(extracted.protocol);
+      const safe = await resolveSlugSafe(extracted.protocol, {
+        freshnessSampler: async (s) => {
+          try {
+            const tvl = await defillama.getProtocolTvl(s);
+            const last = tvl?.[tvl.length - 1];
+            return { latestDate: last ? new Date(last.date * 1000).toISOString().slice(0, 10) : null };
+          } catch {
+            return { latestDate: null };
+          }
+        },
+      });
+      const slug = safe.slug;
       const data = await defillama.getProtocolTvl(slug);
       if (!data || data.length < 7) throw new Error(`Insufficient TVL data`);
 
@@ -2542,18 +3324,55 @@ export async function runChartPipeline(
         timeWindowDays: 365,
       };
       return {
-        response: buildChartResponse("area", `${extracted.ticker || extracted.protocol} Total Value Locked`, chartData, "date", [{ dataKey: "tvl", label: "TVL" }], summary, cost, inputTokens, outputTokens, tvlRecipe),
+        response: buildChartResponse(
+          "area",
+          `${extracted.ticker || extracted.protocol} Total Value Locked`,
+          chartData,
+          "date",
+          [{ dataKey: "tvl", label: "TVL" }],
+          summary,
+          cost,
+          inputTokens,
+          outputTokens,
+          tvlRecipe,
+          undefined,
+          undefined,
+          { label: "Total Value Locked", cadence: "daily" },
+        ),
         fallbackContext: "", cost, inputTokens, outputTokens,
       };
     } catch (e: any) {
       console.log(`[ChartPipeline] TVL failed: ${e.message}`);
+      if (e instanceof SlugResolutionError) {
+        return {
+          response: buildSlugResolutionUserResponse(e, extracted, cost, inputTokens, outputTokens),
+          fallbackContext: "", cost, inputTokens, outputTokens,
+        };
+      }
+      if (e instanceof ChartFreshnessError) {
+        return {
+          response: buildFreshnessUserResponse(e, extracted, cost, inputTokens, outputTokens),
+          fallbackContext: "", cost, inputTokens, outputTokens,
+        };
+      }
     }
   }
 
   if (extracted.metric === "volume") {
     onStep?.({ type: "tool_start", label: `Fetching ${extracted.protocol} volume`, detail: "deterministic_fetch", round: 0 });
     try {
-      const slug = await defillama.resolveSlug(extracted.protocol);
+      const safe = await resolveSlugSafe(extracted.protocol, {
+        freshnessSampler: async (s) => {
+          try {
+            const vol = await defillama.getProtocolDexVolume(s);
+            const last = vol.dailyVolume?.[vol.dailyVolume.length - 1];
+            return { latestDate: last ? new Date(last.date * 1000).toISOString().slice(0, 10) : null };
+          } catch {
+            return { latestDate: null };
+          }
+        },
+      });
+      const slug = safe.slug;
       const volData = await defillama.getProtocolDexVolume(slug);
       const dailyVol = volData?.dailyVolume || [];
       if (dailyVol.length < 7) throw new Error(`Insufficient volume data`);
@@ -2581,11 +3400,37 @@ export async function runChartPipeline(
         timeWindowDays: 365,
       };
       return {
-        response: buildChartResponse("bar", `${extracted.ticker || extracted.protocol} Daily DEX Volume`, chartData, "date", [{ dataKey: "volume", label: "Volume" }], summary, cost, inputTokens, outputTokens, volumeRecipe),
+        response: buildChartResponse(
+          "bar",
+          `${extracted.ticker || extracted.protocol} Daily DEX Volume`,
+          chartData,
+          "date",
+          [{ dataKey: "volume", label: "Volume" }],
+          summary,
+          cost,
+          inputTokens,
+          outputTokens,
+          volumeRecipe,
+          undefined,
+          undefined,
+          { label: "Daily DEX Volume", cadence: "daily" },
+        ),
         fallbackContext: "", cost, inputTokens, outputTokens,
       };
     } catch (e: any) {
       console.log(`[ChartPipeline] Volume failed: ${e.message}`);
+      if (e instanceof SlugResolutionError) {
+        return {
+          response: buildSlugResolutionUserResponse(e, extracted, cost, inputTokens, outputTokens),
+          fallbackContext: "", cost, inputTokens, outputTokens,
+        };
+      }
+      if (e instanceof ChartFreshnessError) {
+        return {
+          response: buildFreshnessUserResponse(e, extracted, cost, inputTokens, outputTokens),
+          fallbackContext: "", cost, inputTokens, outputTokens,
+        };
+      }
     }
   }
 
@@ -2681,7 +3526,7 @@ export async function executeRefreshRecipe(
         userId: opts?.userId,
       },
     );
-    const composedType: "line" | "bar" | "area" | "composed" = yAxes.length > 1 ? "composed" : derivedRecipe.chartType;
+    const composedType: "line" | "bar" | "area" | "composed" | "pie" | "stacked" = yAxes.length > 1 ? "composed" : derivedRecipe.chartType;
     let outData2 = data;
     if (recipe.smoothing === "7dma" || recipe.smoothing === "30dma") {
       const window = recipe.smoothing === "7dma" ? 7 : 30;
@@ -2793,6 +3638,15 @@ export async function runSessionResearchAgent(
 
   const toolCalls: string[] = [];
   const toolCallSignatures: string[] = [];
+  // Structured tool-call trail used to synthesize refreshRecipe for
+  // agent-emitted charts. The agent's chart artifact JSON typically omits
+  // the recipe (the model has no clean way to know what to put there), so
+  // when the artifact ships without one we infer it from the most relevant
+  // tool call (DeFiLlama protocol + endpoint, Dune cached queryId, or
+  // execute_dune_sql's SQL text). Without this, "save to library" charts
+  // can't be refreshed and the live-artifact value prop dies. See refresh
+  // route at server/routes/research-routes.ts:876.
+  const toolCallHistory: Array<{ name: string; input: any }> = [];
   let totalCost = 0;
   let totalInputTokens = 0;
   let totalOutputTokens = 0;
@@ -2807,6 +3661,54 @@ export async function runSessionResearchAgent(
     mode = forceMode;
     modeReason = "user override";
     console.log(`[SessionResearch] Mode: ${mode} (forced by user)`);
+
+    // Brain-first pre-flight: when the user explicitly toggled chart mode
+    // (forceMode = "chart"), the deterministic recipe pipeline is bypassed
+    // and we drop straight into the LLM agent loop. Without this hook, the
+    // agent never sees the proven_queries library and tends to author
+    // execute_dune_sql freehand — which is exactly the sUSDe-APY incident
+    // (a perfect cached query existed but the agent never found it). Run
+    // a vector lookup over proven_queries against the user message and
+    // splice the top hits into the system prompt so the model sees them
+    // before deciding which tool to call. Best-effort; never blocks.
+    if (forceMode === "chart") {
+      try {
+        const { findProvenQueryByIntent } = await import("./proven-queries-search");
+        const matches = await findProvenQueryByIntent(userMessage, {
+          minSimilarity: 0.55,
+          topK: 3,
+        });
+        if (matches.length > 0) {
+          const cacheHitThreshold = 0.65;
+          const formatted = matches.map((m) => {
+            const sql = m.query.sqlQuery || "(no SQL)";
+            const simStr = m.similarity != null ? m.similarity.toFixed(3) : "n/a";
+            const tag = m.similarity != null && m.similarity >= cacheHitThreshold ? " [CACHE-HIT CANDIDATE]" : "";
+            return `- [${m.query.protocol}] "${m.query.metricType}" (sim=${simStr}, ${m.query.successCount} prior successes)${tag}\n  SQL:\n  ${sql}`;
+          }).join("\n\n");
+          chartPrefetchContext = `\n\n<prefetched_proven_queries>
+Pre-fetched proven queries semantically near this chart request. The library is vector-indexed; these were chosen by cosine similarity to your prompt.
+
+${formatted}
+
+If a [CACHE-HIT CANDIDATE] above answers the user's question, execute its SQL directly via execute_dune_sql (saves 30+ seconds and avoids re-authoring known-good SQL). If none fits, call write_dune_query with the intent — it will retry-author fresh and save the result for the next caller.
+</prefetched_proven_queries>`;
+          const top = matches[0];
+          console.log(
+            `[SessionResearch] Chart pre-flight: ${matches.length} proven queries injected (top: ${top.query.protocol}/${top.query.metricType}, sim=${top.similarity?.toFixed(3) ?? "n/a"})`,
+          );
+          onStep?.({
+            type: "tool_result",
+            label: `Found ${matches.length} similar cached queries — top match: ${top.query.metricType}`,
+            detail: "proven_query_preflight",
+          });
+        } else {
+          console.log(`[SessionResearch] Chart pre-flight: no proven queries matched`);
+        }
+      } catch (err: any) {
+        console.warn(`[SessionResearch] Chart pre-flight failed (non-fatal): ${err.message}`);
+      }
+    }
   } else if (isChart) {
     mode = "focused";
     modeReason = "chart request (deterministic pipeline)";
@@ -2880,7 +3782,17 @@ export async function runSessionResearchAgent(
         if (subPrompts.length === 1 && successful.length === 1 && explainOnly.length === 0 && noResponse.length === 0) {
           console.log(`[SessionResearch] Chart pipeline returned complete response — skipping agent loop entirely`);
           onStep?.({ type: "complete", label: "Chart ready", detail: "deterministic_pipeline" });
-          return successful[0].response!;
+          // Brain-grounded validation on the recipe path. Recipe charts
+          // already pass through assertChartFreshness + checkChartDataSanity
+          // inside buildChartResponse; this layer adds the narrative-number
+          // and KG-fact cross-checks. No retry on this path (recipe is
+          // deterministic) — on reject we inject a visible warning callout
+          // and write tail facts on success. See server/chart-validator.ts.
+          return await validateRecipeChartResponse(successful[0].response!, {
+            userMessage,
+            userId: userId || "anonymous",
+            brain,
+          });
         }
         // Merge multiple chart responses into one composite ResearchResponse
         // by concatenating content and stacking artifacts. Append explain-only
@@ -2904,7 +3816,16 @@ export async function runSessionResearchAgent(
           mode: "focused",
           modeReason: `multi-chart fan-out (${successful.length} charts)`,
         };
-        return merged;
+        // Validate the merged response. The first chart artifact dominates
+        // in chart-validator coverage; multi-chart fan-out is rare, and a
+        // separate per-chart pass would multiply the recipe-path cost
+        // unnecessarily. Subsequent charts get telemetry from the
+        // per-pipeline buildChartResponse safety gates.
+        return await validateRecipeChartResponse(merged, {
+          userMessage,
+          userId: userId || "anonymous",
+          brain,
+        });
       }
 
       const firstFallback = pipelines.find((p) => p.fallbackContext)?.fallbackContext;
@@ -2928,7 +3849,7 @@ export async function runSessionResearchAgent(
 
   const retrieved = await retrieveRelevantContext(userMessage, brain, userId);
   const brainContext = formatRetrievedContext(retrieved);
-  console.log(`[SessionResearch] Brain retrieval: ${retrieved.retrievalSummary}`);
+  dlog(`[SessionResearch] Brain retrieval: ${retrieved.retrievalSummary}`);
 
   // ─── Planner pre-step ──────────────────────────────────────────────────────
   // Skip for quick mode and chart mode (data viz doesn't need planner decomposition).
@@ -2985,7 +3906,81 @@ export async function runSessionResearchAgent(
   }
 
   const planAddendum = plan ? `\n\n${renderPlanForSystemPrompt(plan)}` : "";
-  const systemPrompt = buildSystemPrompt(mode, brainContext) + planAddendum + chartPrefetchContext;
+
+  // Numeric provenance: when enabled, the agent gets a compute() tool +
+  // a strict instruction that derived numbers MUST come from compute()
+  // or directly from a tool result. The validator at end-of-turn flags
+  // any prose number that doesn't trace. Off → existing behavior.
+  const npEnabled = process.env.NUMERIC_PROVENANCE_ENABLED === "1";
+  const npTurnId = newTurnId();
+  if (npEnabled) startTurn(npTurnId);
+
+  // Brain disambiguation for polysemous metrics + canonical aggregation
+  // rules. Disambiguation surfaces the both-valid-values cases (HYPE
+  // total network stake vs foundation insider stake). Canonical rules
+  // surface multi-source aggregation requirements (HYPE LTM fees =
+  // DefiLlama perp+spot + StonksOnChain HIP-3) so the agent picks the
+  // right sources from the start.
+  let disambiguationBlock = "";
+  let canonicalBlock = "";
+  let outputReqBlock = "";
+  let inferredEnts: string[] = [];
+  // Output requirements live OUTSIDE the npEnabled gate because they
+  // describe REQUIRED OUTPUT SHAPE (which the user cares about always),
+  // not numeric provenance enforcement. They surface for any agent run
+  // whose prompt matches a known shape (e.g. financial_statement).
+  const promptShape = detectPromptShape(userMessage);
+  if (promptShape) {
+    try {
+      const inferEntsForReq = (userMessage.match(/\b[A-Z][A-Za-z0-9]+\b/g) || [])
+        .map((s) => s.toLowerCase())
+        .slice(0, 8);
+      const block = await buildOutputRequirementsBlock(promptShape, inferEntsForReq);
+      if (block) {
+        outputReqBlock = `\n\n${block}\n`;
+        console.log(`[OutputRequirements] surfacing block for shape=${promptShape} (${block.length} chars)`);
+      }
+    } catch (err: any) {
+      console.warn(`[OutputRequirements] block build failed: ${err.message}`);
+    }
+  }
+  if (npEnabled && userId) {
+    try {
+      inferredEnts = (userMessage.match(/\b[A-Z][A-Za-z0-9]+\b/g) || [])
+        .map((s) => s.toLowerCase())
+        .slice(0, 8);
+      const [disBlock, canBlock] = await Promise.all([
+        buildDisambiguationContext(userMessage, inferredEnts, userId),
+        buildCanonicalContext(userMessage, inferredEnts),
+      ]);
+      if (disBlock) disambiguationBlock = `\n\n${disBlock}\n`;
+      if (canBlock) canonicalBlock = `\n\n${canBlock}\n`;
+    } catch (err: any) {
+      console.warn(`[NumericProvenance] context-block build failed: ${err.message}`);
+    }
+  }
+
+  const provenanceAddendum = npEnabled
+    ? `\n\nNUMERIC PROVENANCE (STRICT MODE):
+Every derived number you put in prose — LTM totals, quarterly aggregates, ARRs, ratios, multiples, growth rates, sums over windows — MUST come from a compute() tool call. Never do arithmetic on long data lists yourself; the model hallucinates sums on long lists.
+
+Workflow:
+1. Fetch source data with a query_* tool (defillama, coingecko, dune, stonksonchain, etc.).
+2. Pass the raw data array into compute() with the right formula. Get back { value, value_str, provenance }.
+3. Use the value_str verbatim in your prose so the validator can match it.
+4. Numbers that come DIRECTLY from a tool result (price, current TVL, latest snapshot value) are also accepted — these have provenance via the tool call itself. You do NOT need to wrap these in compute().
+5. If two sources disagree on the same metric, surface the disagreement in prose with both values labeled.
+
+The validator at end-of-turn flags every prose number that doesn't trace to either compute() or a tool result. A flagged response is shipped with a "DATA INTEGRITY WARNING" callout that the user sees.
+
+CHART EMISSION RULES (avoid renderer bugs):
+- For waterfall / category-bar charts where xAxis values are STRINGS (line items, categories, labels), set xAxis.format to "category" or omit it entirely. Do NOT set xAxis.format = "number" — it triggers numeric-tick formatting on string labels and can prevent bars from rendering. Only use format="number" when the dataKey actually contains numeric x values (rare).
+- For time-series, use xAxis.format = "date" with ISO date strings (\`2025-04-26\`) or unix-second integers in the dataKey.
+- For yAxes: use format="currency" for USD, "percent" for rates (already as percentages, e.g. 13.5 not 0.135), "ratio" for multiples (e.g. 9.2x), "number" for token counts and bare numerics.
+${canonicalBlock}${disambiguationBlock}`
+    : "";
+
+  const systemPrompt = buildSystemPrompt(mode, brainContext) + planAddendum + chartPrefetchContext + provenanceAddendum + outputReqBlock;
 
   const messages: Array<{ role: string; content: any }> = summarizeHistory(history);
   messages.push({ role: "user", content: userMessage });
@@ -3061,7 +4056,7 @@ export async function runSessionResearchAgent(
 
       if (compressed) {
         const origLen = JSON.stringify(msg.content).length;
-        console.log(`[SessionResearch] Compressed tool results from round ${toolResultMsgIndex} (age=${roundAge} rounds, ${origLen} chars remaining)`);
+        dlog(`[SessionResearch] Compressed tool results from round ${toolResultMsgIndex} (age=${roundAge} rounds, ${origLen} chars remaining)`);
       }
     }
   }
@@ -3080,24 +4075,83 @@ export async function runSessionResearchAgent(
       input_schema: t.input_schema,
     }));
 
+  // Brain-gated optional tools — surfaces source-specific capabilities
+  // (currently stonksonchain) only when the user's prefs explicitly name
+  // the source. Makes "Always reference stonksonchain.net for HYPE
+  // unlock data" in the brain directly actionable: the tool appears in
+  // the toolbox, the model uses it, no more web_search fallback for
+  // queries the user has already routed.
+  const gatedTools = selectBrainGatedTools(brain);
+  // Always-on diagnostic: previously this only logged on the success
+  // path, so when the gate didn't fire we couldn't tell whether the
+  // brain was missing, the prefs were empty, or the function returned
+  // []. Always log so a missing brain-gate firing has a visible cause.
+  if (isChart) {
+    const prefSummary = brain
+      ? `${Object.keys(brain.preferences || {}).length} pref keys`
+      : "no brain";
+    console.log(
+      `[SessionResearch] Brain-gated tools: ${gatedTools.length} active (${gatedTools.map(t => t.name).join(", ") || "none"}) — ${prefSummary}`,
+    );
+  }
+  for (const t of gatedTools) {
+    anthropicTools.push({
+      name: t.name,
+      description: t.description,
+      input_schema: t.input_schema,
+    });
+  }
+
+  // Numeric provenance: compute() registered when feature flag is on.
+  if (npEnabled) {
+    anthropicTools.push({
+      name: COMPUTE_TOOL_DEF.name,
+      description: COMPUTE_TOOL_DEF.description,
+      input_schema: COMPUTE_TOOL_DEF.input_schema,
+    });
+  }
+
   anthropicTools.push({
     type: "web_search_20250305",
     name: "web_search",
-    max_uses: mode === "quick" ? 1 : mode === "focused" ? 3 : 5,
+    max_uses: mode === "quick" ? 1 : mode === "focused" ? 3 : mode === "chart" ? 3 : 5,
   });
 
-  const focusedRounds = isChart ? 4 : planNeedsCode ? 10 : 6;
+  // Chart mode round budget escalates with workload:
+  //   - flag off:                    5 rounds  (pre-flight cache + small adapt loop)
+  //   - NPL on, no output reqs:      7 rounds  (compute() + retry headroom)
+  //   - NPL on + output requirements: 12 rounds (FS prompts emit 2 daily-multiple
+  //     charts in addition to income statement + tables; needs execute_code +
+  //     compute() across 3+ artifacts within one turn)
+  // Real-data calibration: $1B-fee FS run with 12 tool calls cost $16 of $35
+  // budget — round-cap was the binding constraint, not cost. Bumping rounds
+  // unlocks the missing daily P/E + P/S charts without budget pressure.
+  const hasOutputReqs = outputReqBlock.length > 0;
+  const focusedRounds = isChart
+    ? (npEnabled ? (hasOutputReqs ? 12 : 7) : 4)
+    : planNeedsCode ? 10 : 6;
   const focusedTokens = isChart ? 8000 : planNeedsCode ? 8000 : 6000;
-  const MAX_TOOL_ROUNDS = mode === "quick" ? 3 : mode === "focused" ? focusedRounds : 20;
-  const maxTokens = mode === "quick" ? 2000 : mode === "focused" ? focusedTokens : 16000;
-  const SPEND_BUDGET_USD = mode === "quick" ? 5 : mode === "focused" ? 15 : 50;
+  const MAX_TOOL_ROUNDS = mode === "quick" ? 3
+    : mode === "focused" ? focusedRounds
+    : mode === "chart" ? (npEnabled ? (hasOutputReqs ? 12 : 7) : 5)
+    : 20;
+  const maxTokens = mode === "quick" ? 2000 : mode === "focused" ? focusedTokens : mode === "chart" ? 8000 : 16000;
+  // Chart $35 (was $8): financial statements with compute() + cross-source
+  // verification need real headroom. Research/deep stays at $50. With
+  // output requirements active (3+ artifacts), bump to $50 to match the
+  // larger workload — the real-test data showed $16 actual cost so this
+  // is headroom, not regular spend.
+  const SPEND_BUDGET_USD = mode === "quick" ? 5
+    : mode === "focused" ? 15
+    : mode === "chart" ? (hasOutputReqs ? 50 : 35)
+    : 50;
   const useModel = isChart ? MODELS.SONNET : MODELS.OPUS;
   let finalText = "";
   let budgetExceeded = false;
 
-  onStep?.({ type: "thinking", label: isChart ? "Building chart..." : mode === "quick" ? "Composing a quick answer..." : mode === "focused" ? "Working through this..." : "Planning deep analysis..." });
+  onStep?.({ type: "thinking", label: isChart ? "Building chart..." : mode === "quick" ? "Composing a quick answer..." : mode === "focused" ? "Working through this..." : mode === "chart" ? "Building chart..." : "Planning deep analysis..." });
   if (isChart) {
-    console.log(`[SessionResearch] Chart fallback mode: model=${useModel}, max ${MAX_TOOL_ROUNDS} rounds, execute_code=${chartNeedsCode ? "enabled" : "blocked"}`);
+    dlog(`[SessionResearch] Chart fallback mode: model=${useModel}, max ${MAX_TOOL_ROUNDS} rounds, execute_code=${chartNeedsCode ? "enabled" : "blocked"}`);
   }
 
   // Reflection checkpoint: for deep mode with a plan, after the agent has
@@ -3109,6 +4163,13 @@ export async function runSessionResearchAgent(
   const REFLECTION_ROUND_IDX = mode === "deep" ? 3 : -1;
 
   let loopError: string | null = null;
+  // The agent occasionally writes substantial body text alongside a final
+  // tool_use (e.g. update_research_brain), then on the next round emits
+  // only an audit-trail closing block. The final-round-wins logic below
+  // would discard the body in that case. Stash any non-trivial text from
+  // each round so we can recover the body if the closing round looks like
+  // a stub.
+  let pendingFinalText = "";
   // ─── Parallel deep branch (feature-flagged) ────────────────────────────────
   // When DEEP_RESEARCH_PARALLEL=1, deep mode with a usable plan diverts to a
   // sub-question parallel pipeline instead of the sequential 15-round loop.
@@ -3142,6 +4203,59 @@ export async function runSessionResearchAgent(
       toolCalls.push(...branchResult.toolCalls);
       pendingBrainUpdate = branchResult.brainUpdate ?? pendingBrainUpdate;
       needsContinuation = branchResult.needsContinuation;
+
+      // Chart validator on the parallel-deep branch. Same retry contract
+      // as the main loop, but the parallel branch's synthesis runs Opus —
+      // so the retry stays on Opus to match.
+      if (isChart) {
+        const validationPass = await runChartValidationPass({
+          finalText,
+          parseArtifacts,
+          userMessage,
+          brain,
+          userId: userId || "anonymous",
+          recipe: null,
+          retryFn: async (systemAddendum, priorFinalText) => {
+            // Streaming to dodge Cloudflare's 100s edge timeout — Opus
+            // synthesis with full context can otherwise hit it.
+            const retryResp = await callStreamOrRaw({
+              model: MODELS.OPUS,
+              max_tokens: maxTokens,
+              system: activeSystemPrompt + systemAddendum,
+              messages: [
+                ...messages,
+                { role: "assistant", content: priorFinalText },
+                {
+                  role: "user",
+                  content:
+                    "Your previous response was rejected by the chart validator. Re-emit the FULL revised response: prose + corrected ```artifact:chart``` block + artifact:sources. Use data already gathered. No tools.",
+                },
+              ],
+            });
+            totalCost += retryResp.mppCost;
+            totalInputTokens += retryResp.usage?.input_tokens || 0;
+            totalOutputTokens += retryResp.usage?.output_tokens || 0;
+            if (retryResp.costSource === "voucher_estimate") anyCostSourceVoucher = true;
+            const retryText = (retryResp.content || [])
+              .filter((b: any) => b.type === "text")
+              .map((b: any) => b.text)
+              .join("");
+            return {
+              text: retryText,
+              cost: retryResp.mppCost,
+              inputTokens: retryResp.usage?.input_tokens || 0,
+              outputTokens: retryResp.usage?.output_tokens || 0,
+            };
+          },
+        });
+        finalText = validationPass.finalText;
+        if (validationPass.retried) {
+          console.log(
+            `[ChartValidator] parallel-deep: retried=${validationPass.retried} warned=${validationPass.warningInjected}`,
+          );
+        }
+      }
+
       const artifacts = parseArtifacts(finalText);
       for (const art of artifacts) {
         if (art.type === "chart" && art.data && art.data.length > 0) {
@@ -3185,7 +4299,7 @@ export async function runSessionResearchAgent(
     const isReflectionRound = plan && !reflectionFired && round === REFLECTION_ROUND_IDX && toolCalls.length >= 2;
     const roundModel = chooseLoopModel(round, !!isReflectionRound);
     const modelLabel = roundModel === MODELS.OPUS ? "OPUS" : roundModel === MODELS.SONNET ? "SONNET" : "HAIKU";
-    console.log(`[SessionResearch] Round ${round + 1}/${MAX_TOOL_ROUNDS} [${modelLabel}]`);
+    dlog(`[SessionResearch] Round ${round + 1}/${MAX_TOOL_ROUNDS} [${modelLabel}]`);
 
     if (plan && !reflectionFired && round === REFLECTION_ROUND_IDX && toolCalls.length >= 2) {
       reflectionFired = true;
@@ -3220,7 +4334,15 @@ export async function runSessionResearchAgent(
     };
 
     let response: AnthropicRawResponse;
-    const needsStreaming = !disableStreaming && !isChart && mode !== "quick";
+    // Chart mode used to force non-streaming because parseArtifacts needs
+    // the full response text intact — but the streaming variant assembles
+    // the same final shape (content[], usage, stop_reason) by buffering
+    // chunks; the only behavioral diff is that Cloudflare's edge sees
+    // chunks arriving and doesn't fire its ~100s timeout. Three back-to-
+    // back 524s on Sonnet chart-mode calls (recurring class of failure)
+    // forced the change. Quick mode stays non-streaming since responses
+    // are tiny and the streaming overhead isn't worth it.
+    const needsStreaming = !disableStreaming && mode !== "quick";
     const apiCall = needsStreaming ? callStreamOrRaw : callAnthropicRaw;
     try {
       response = await apiCall(requestBody);
@@ -3253,15 +4375,33 @@ export async function runSessionResearchAgent(
 
     if (thinkingBlocks.length > 0) {
       const thinkingSummary = (thinkingBlocks[0].thinking || "").slice(0, 200);
-      console.log(`[SessionResearch] Thinking: ${thinkingSummary}...`);
+      dlog(`[SessionResearch] Thinking: ${thinkingSummary}...`);
     }
 
     const hasToolUse = response.content.some((b: any) => b.type === "tool_use");
 
     if (!hasToolUse || response.stop_reason === "end_turn") {
       finalText = outputText;
+      // Recover dropped body content. If the closing round emitted only
+      // an audit-trail tail (a Sources block, or a very short stub) but
+      // an earlier tool-using round wrote a substantive synthesis, fold
+      // the earlier body in so the user actually sees the analysis they
+      // paid for. Without this guard, a $5+ synthesis turn that ends in
+      // update_research_brain gets reduced to its closing "## Sources".
+      if (pendingFinalText && finalLooksLikeStub(finalText)) {
+        finalText = `${pendingFinalText.trim()}\n\n${finalText.trim()}`.trim();
+        console.warn(
+          `[SessionResearch] Recovered ${pendingFinalText.length} chars of body text (final round was a stub).`,
+        );
+      }
       onStep?.({ type: "complete", label: "Composing final analysis" });
       break;
+    }
+
+    // Round had tool_use AND text → preserve the text in case this round's
+    // body is the real synthesis and the next round only emits a closing.
+    if (outputText.trim().length > 200) {
+      pendingFinalText = outputText;
     }
 
     if (outputText.trim()) {
@@ -3281,8 +4421,9 @@ export async function runSessionResearchAgent(
         const label = toolLabel(block.name, block.input);
         onStep?.({ type: "tool_start", label, detail: block.name, round: round + 1 });
         const inputStr = JSON.stringify(block.input);
-        console.log(`[SessionResearch] Tool: ${block.name}(${inputStr.slice(0, 120)})`);
+        dlog(`[SessionResearch] Tool: ${block.name}(${inputStr.slice(0, 120)})`);
         toolCalls.push(block.name);
+        toolCallHistory.push({ name: block.name, input: block.input });
 
         const callSig = `${block.name}:${inputStr}`;
         toolCallSignatures.push(callSig);
@@ -3303,10 +4444,24 @@ export async function runSessionResearchAgent(
           const ec = Object.keys(block.input.entities || {}).length;
           const fc = (block.input.facts || []).length;
           const rc = (block.input.relationships || []).length;
-          console.log(`[SessionResearch] Brain update recorded: ${ec} entities, ${fc} facts, ${rc} relationships`);
+          dlog(`[SessionResearch] Brain update recorded: ${ec} entities, ${fc} facts, ${rc} relationships`);
           const brainResult = JSON.stringify({ status: "recorded", entities: ec, facts: fc, relationships: rc });
           onStep?.({ type: "tool_result", label: `Saved ${ec} entities, ${fc} facts`, detail: block.name, round: round + 1 });
           toolResults.push({ type: "tool_result", tool_use_id: block.id, content: brainResult });
+          continue;
+        }
+
+        // Numeric provenance: compute() runs in-process against a passed-in
+        // data array. Result is cached for the end-of-turn validator.
+        if (block.name === COMPUTE_TOOL_NAME) {
+          const compResult = executeCompute(block.input, { turnId: npTurnId });
+          const compStr = JSON.stringify(compResult);
+          const isErr = (compResult as any).error;
+          const label = isErr
+            ? `compute failed: ${(compResult as any).code}`
+            : `${(compResult as any).name} = ${(compResult as any).value_str}`;
+          onStep?.({ type: "tool_result", label, detail: block.name, round: round + 1 });
+          toolResults.push({ type: "tool_result", tool_use_id: block.id, content: compStr });
           continue;
         }
 
@@ -3331,7 +4486,26 @@ export async function runSessionResearchAgent(
           ? await consultForTool(block.name, block.input).catch(() => "")
           : "";
 
-        result = await executeTool(block.name, block.input);
+        // Brain-driven argument rewriting. Captured user-corrections
+        // (e.g. defillama slug `maple-finance` → `maple`) get applied
+        // here, BEFORE the network call, so the agent never has to
+        // know about the rename. Pass-through when flag is off or
+        // no override matches. See server/data-source-brain/arg-overrides.ts.
+        const { applyArgOverrides } = await import("./data-source-brain/arg-overrides");
+        const overrideResult = userId
+          ? await applyArgOverrides(userId, block.name, block.input).catch(() => null)
+          : null;
+        const finalInput = overrideResult?.args ?? block.input;
+        if (overrideResult && overrideResult.rewrites.length > 0) {
+          const summary = overrideResult.rewrites
+            .map((r) => `${r.arg}: "${r.from}"→"${r.to}"`)
+            .join(", ");
+          console.log(
+            `[ArgOverride] ${block.name} rewrote ${summary} (user-correction)`,
+          );
+        }
+
+        result = await executeTool(block.name, finalInput);
 
         let resultSummary = "";
         let parsedError: string | null = null;
@@ -3366,9 +4540,43 @@ export async function runSessionResearchAgent(
           void observeToolSuccess(block.name, block.input, resultSummary);
         }
 
+        // Numeric provenance: record raw tool output so the validator
+        // can also match prose numbers against direct readouts (price,
+        // current TVL, etc.) without needing them to go through compute().
+        if (npEnabled) {
+          recordToolResult(npTurnId, {
+            toolName: block.name,
+            input: finalInput,
+            rawText: result,
+          });
+        }
+
+        // Provenance hint primes the agent inside its own context: long
+        // arrays of numbers in tool outputs cannot be summed/binned in
+        // prose directly. Either pipe through compute() or cite a labeled
+        // summary field. Constant in-context reminder is more reliable
+        // than relying on the system prompt rule alone.
+        let provenanceHint = "";
+        if (npEnabled) {
+          provenanceHint = "\n<provenance_hint>To cite ANY derived number from this output (LTM, ARR, quarterly bins, sums over windows, ratios, multiples), call compute() — do not do mental arithmetic on long arrays. Labeled summary fields (total30d, totalAllTime, latest, current_*) are safe to cite directly with a [source] tag.</provenance_hint>";
+          // Canonical-aggregation hint: if this tool covers ONE source of a
+          // multi-source canonical metric, name the OTHER required sources
+          // inline so the agent fetches them too. Catches coverage gaps at
+          // the fetch moment, not just at synthesis-time validation.
+          try {
+            const fetchHint = await buildFetchHintForTool(block.name, finalInput, inferredEnts);
+            if (fetchHint) {
+              provenanceHint += `\n<canonical_aggregation_hint>${fetchHint}</canonical_aggregation_hint>`;
+              console.log(`[CanonicalAggregation] fetch hint for ${block.name}: ${fetchHint.slice(0, 200)}`);
+            }
+          } catch (err: any) {
+            console.warn(`[CanonicalAggregation] fetch-hint build failed: ${err.message}`);
+          }
+        }
+
         const finalContent = brainHint
-          ? `<brain_context>\n${brainHint}\n</brain_context>\n<tool_output>\n${result}\n</tool_output>`
-          : result;
+          ? `<brain_context>\n${brainHint}\n</brain_context>\n<tool_output>\n${result}\n</tool_output>${provenanceHint}`
+          : `${result}${provenanceHint}`;
         toolResults.push({
           type: "tool_result",
           tool_use_id: block.id,
@@ -3377,6 +4585,24 @@ export async function runSessionResearchAgent(
       } else if (block.type === "web_search_tool_result" || block.type === "server_tool_use") {
         onStep?.({ type: "tool_start", label: "Searching the web", detail: "web_search", round: round + 1 });
         toolCalls.push("web_search");
+        // Numeric provenance: serialize web-search results into the
+        // source-match pool so prose numbers cited from web sources
+        // (dates, statistics from articles, etc.) trace correctly. The
+        // content shape varies — handle as opaque JSON.stringify.
+        if (npEnabled) {
+          try {
+            const serialized = typeof (block as any).content === "string"
+              ? (block as any).content
+              : JSON.stringify((block as any).content || {});
+            recordToolResult(npTurnId, {
+              toolName: "web_search",
+              input: {},
+              rawText: serialized.slice(0, 80000),
+            });
+          } catch (err: any) {
+            console.warn(`[NumericProvenance] web_search record failed: ${err?.message}`);
+          }
+        }
       }
     }
 
@@ -3411,7 +4637,7 @@ export async function runSessionResearchAgent(
   if (mode === "deep" && !budgetExceeded) {
     try {
       onStep?.({ type: "thinking", label: "Gathering multi-perspective analysis..." });
-      const analysts = ["TopherGMI", "shaundadevens", "thiccyth0t"] as const;
+      const analysts = ANALYST_NAMES;
       const perspectiveResults = await Promise.allSettled(
         analysts.map(async (a) => {
           const result = await generateAnalystPerspective(a, userMessage);
@@ -3429,9 +4655,7 @@ export async function runSessionResearchAgent(
           try {
             const parsed = JSON.parse(r.value.result.payload);
             if (parsed.reasoning) {
-              const lensLabel = r.value.analyst === "TopherGMI" ? "Macro & Market Structure Lens"
-                : r.value.analyst === "shaundadevens" ? "Protocol Economics & DeFi Mechanics Lens"
-                : "Derivatives & Quantitative Lens";
+              const lensLabel = ANALYST_PERSONAS[r.value.analyst]?.lensLabel ?? `${r.value.analyst} Lens`;
               perspectives.push(`### ${lensLabel}\n${parsed.reasoning}`);
             }
           } catch {}
@@ -3440,14 +4664,14 @@ export async function runSessionResearchAgent(
 
       if (perspectives.length > 0) {
         perspectiveAddendum = `\n\n# MULTI-PERSPECTIVE ANALYSIS
-The following are reasoning traces from three different analytical perspectives on the user's question. Each applies different frameworks and analytical styles. You MUST:
+The following are reasoning traces from ${perspectives.length} different analytical perspectives on the user's question. Each applies different frameworks and analytical styles. You MUST:
 1. Integrate these perspectives into your synthesis — do not ignore them
 2. Note where they converge (strong signal) and where they diverge (key uncertainties)
 3. Absorb the reasoning seamlessly — do NOT name the individual analysts. Reference perspectives generically (e.g. "from a macro-structural lens…", "a derivatives-focused analysis suggests…", "examining the protocol economics…")
 4. Take a final synthesized position that weighs these perspectives against the data you gathered
 
 ${perspectives.join("\n\n")}`;
-        console.log(`[SessionResearch] Multi-perspective debate: ${perspectives.length}/3 analyst perspectives generated`);
+        console.log(`[SessionResearch] Multi-perspective debate: ${perspectives.length}/${analysts.length} analyst perspectives generated`);
         onStep?.({ type: "thinking", label: `Synthesizing ${perspectives.length} analyst perspectives...` });
       }
     } catch (err: any) {
@@ -3547,7 +4771,86 @@ Begin the final answer on the next line.`,
     }
   }
 
+  // Brain-grounded chart validation. Runs only when the agent emitted a
+  // chart artifact. On reject, retries once with the validator's diagnostics
+  // injected into the system prompt; if the retry still fails, prepends a
+  // visible artifact:callout warning so the user knows the prose may be
+  // wrong. On success, writes structured tail facts back to the KG brain so
+  // future validators can cross-check against them. See server/chart-validator.ts.
+  if (isChart) {
+    const validationPass = await runChartValidationPass({
+      finalText,
+      parseArtifacts,
+      userMessage,
+      brain,
+      userId: userId || "anonymous",
+      recipe: null,
+      retryFn: async (systemAddendum, priorFinalText) => {
+        // Streaming to dodge Cloudflare's 100s edge timeout — chart-mode
+        // retries with full system prompt + brain context routinely brush
+        // up against it on non-streaming. callStreamOrRaw assembles the
+        // same final response shape.
+        const retryResp = await callStreamOrRaw({
+          model: useModel,
+          max_tokens: maxTokens,
+          system: activeSystemPrompt + systemAddendum,
+          messages: [
+            ...messages,
+            { role: "assistant", content: priorFinalText },
+            {
+              role: "user",
+              content:
+                "Your previous response was rejected by the chart validator (see system feedback above). Re-emit the FULL revised response now: prose + corrected ```artifact:chart``` block + the artifact:sources block. Use only data already gathered above — do not call any tools. Output the complete corrected response.",
+            },
+          ],
+        });
+        totalCost += retryResp.mppCost;
+        totalInputTokens += retryResp.usage?.input_tokens || 0;
+        totalOutputTokens += retryResp.usage?.output_tokens || 0;
+        if (retryResp.costSource === "voucher_estimate") anyCostSourceVoucher = true;
+        const retryText = (retryResp.content || [])
+          .filter((b: any) => b.type === "text")
+          .map((b: any) => b.text)
+          .join("");
+        return {
+          text: retryText,
+          cost: retryResp.mppCost,
+          inputTokens: retryResp.usage?.input_tokens || 0,
+          outputTokens: retryResp.usage?.output_tokens || 0,
+        };
+      },
+    });
+    finalText = validationPass.finalText;
+    if (validationPass.retried) {
+      console.log(
+        `[ChartValidator] agent-path: retried=${validationPass.retried} warned=${validationPass.warningInjected} retryCost=$${validationPass.retryCost.toFixed(4)}`,
+      );
+    }
+  }
+
   const artifacts = parseArtifacts(finalText);
+
+  // Synthesize refreshRecipe for any agent-emitted chart that didn't
+  // declare one. Without this, saved-to-library charts can't be refreshed
+  // because the recipe trail is lost when the artifact is persisted. We
+  // walk the structured toolCallHistory and pick the call most likely to
+  // have produced this chart's data. See inferRefreshRecipeFromToolHistory.
+  for (const art of artifacts) {
+    // Run inference on charts AND tables. Tables are first-class
+    // refreshable artifacts: same tool-call history can identify the
+    // source for a Dune-shaped table or DefiLlama-shaped table just as
+    // it does for charts. Without this branch, saved tables had no
+    // refreshRecipe and the library refresh button stayed disabled.
+    if ((art.type === "chart" || art.type === "table") && !(art as any).refreshRecipe) {
+      const inferred = inferRefreshRecipeFromToolHistory(art as any, toolCallHistory);
+      if (inferred) {
+        (art as any).refreshRecipe = inferred;
+        console.log(
+          `[SessionResearch] Inferred refreshRecipe for "${art.title}" (${art.type}): ${inferred.dataSource}/${inferred.endpoint || inferred.coinId || "sql"}`,
+        );
+      }
+    }
+  }
 
   // Memorialize agent-path charts into the shared library so future
   // semantic-lookup hits (any user, paraphrased question) can short-circuit
@@ -3562,9 +4865,70 @@ Begin the final answer on the next line.`,
     }
   }
 
+  // Numeric-provenance STRICT pass: validate, retry once with addendum
+  // if any prose number fails to trace, then redact remaining failures.
+  // Hard structural enforcement — soft warnings are bandaids.
+  let provenanceErrorCallout: { type: "callout"; variant: string; title: string; text: string } | null = null;
+  if (npEnabled) {
+    try {
+      const strict = await runStrictProvenancePass({
+        finalText,
+        turnId: npTurnId,
+        systemPrompt: activeSystemPrompt,
+        messages,
+        anthropicTools,
+        model: useModel,
+        maxTokens: focusedTokens,
+      });
+      finalText = strict.finalText;
+      provenanceErrorCallout = strict.errorCalloutArtifact;
+      totalCost += strict.retryCost;
+      totalInputTokens += strict.retryInputTokens;
+      totalOutputTokens += strict.retryOutputTokens;
+      console.log(
+        `[NumericProvenance] turn=${npTurnId} initial: ${strict.initialReport.matched}/${strict.initialReport.totalNumbers} matched (compute=${strict.initialReport.matchedByCompute}, source=${strict.initialReport.matchedBySource}, derived=${strict.initialReport.matchedByDerivation}); retried=${strict.retried}; final unmatched=${strict.finalReport.unmatched.length}; cross-source: checks=${strict.crossSourceReport.checks} issues=${strict.crossSourceReport.issues.length}; coverage gaps=${strict.coverageIssues.length}; redacted=${strict.redacted}; errorInjected=${strict.errorInjected}; retry cost=$${strict.retryCost.toFixed(4)}`,
+      );
+    } catch (err: any) {
+      console.warn(`[NumericProvenance] strict pass threw: ${err.message}`);
+    } finally {
+      endTurn(npTurnId);
+    }
+  }
+
+  // Re-parse artifacts from finalText AFTER all mutations land
+  // (chart-validator warnings, NPL strict-pass retry, NPL error
+  // callout injection). The earlier parseArtifacts(finalText) call
+  // captured a snapshot from BEFORE NPL's retry might have stripped
+  // chart-validator's warning callout from finalText — that desync
+  // produced the bug where artifacts had N+1 entries and content
+  // had N, mis-aligning the renderer's positional matching and
+  // hiding the chart entirely. The re-parse guarantees the column
+  // and the inline blocks are byte-aligned.
+  //
+  // The NPL provenanceErrorCallout is already inline in finalText
+  // (strict-pass prepended it as a code block), so the re-parse picks
+  // it up automatically — no separate prepend needed.
+  let finalArtifacts = parseArtifacts(finalText);
+  // Carry the refreshRecipe + memorialization fields the earlier loop
+  // populated by name-matching: titles are stable across the parse so
+  // we copy enriched fields back from the original artifacts when
+  // available.
+  if (artifacts.length > 0) {
+    finalArtifacts = finalArtifacts.map((art: any) => {
+      const enriched: any = artifacts.find(
+        (a: any) => a?.type === art?.type && (a?.title || "") === (art?.title || "")
+      );
+      if (!enriched) return art;
+      return {
+        ...art,
+        ...(enriched.refreshRecipe ? { refreshRecipe: enriched.refreshRecipe } : {}),
+      };
+    });
+  }
+
   return {
     content: finalText,
-    artifacts,
+    artifacts: finalArtifacts,
     mppCost: totalCost,
     inputTokens: totalInputTokens,
     outputTokens: totalOutputTokens,
@@ -3666,7 +5030,7 @@ You are a SUB-QUESTION RESEARCHER. The user's overall question is being decompos
 
 # RULES
 - Stay focused on YOUR sub-question. Do NOT try to answer the overall question.
-- Use tools to fetch live data. Cite numbers with their sources inline.
+- Use tools to fetch live data. Do NOT inline-cite sources after numbers ("[defillama]", "[dune]", etc.) — provenance is tracked internally and the synthesizer adds a single Sources block at the end. Prose stays clean.
 - If the data clearly answers the sub-question, stop calling tools — synthesis happens later.
 - Output a tight findings block (2-6 short paragraphs) plus any artifacts (charts, tables, metric_cards) that materially advance the answer. Use the standard \`\`\`artifact:chart / artifact:table / artifact:metric_cards / artifact:callout\`\`\` JSON blocks exactly as you would in a normal response. The synthesizer will preserve them verbatim.
 - Lead with what is KNOWN, then what is UNCERTAIN, then any contradictions you spotted (with sources).
@@ -4011,7 +5375,7 @@ async function runParallelDeepBranch(opts: {
   // independent of sub-question execution and the synthesizer needs them.
   onStep?.({ type: "thinking", label: "Gathering multi-perspective analysis in parallel..." });
   const perspectivePromise = (async () => {
-    const analysts = ["TopherGMI", "shaundadevens", "thiccyth0t"] as const;
+    const analysts = ANALYST_NAMES;
     const settled = await Promise.allSettled(
       analysts.map(async (a) => ({ analyst: a, result: await generateAnalystPerspective(a, userMessage) }))
     );
@@ -4026,9 +5390,7 @@ async function runParallelDeepBranch(opts: {
       try {
         const parsed = JSON.parse(r.value.result.payload);
         if (parsed.reasoning) {
-          const lensLabel = r.value.analyst === "TopherGMI" ? "Macro & Market Structure Lens"
-            : r.value.analyst === "shaundadevens" ? "Protocol Economics & DeFi Mechanics Lens"
-            : "Derivatives & Quantitative Lens";
+          const lensLabel = ANALYST_PERSONAS[r.value.analyst]?.lensLabel ?? `${r.value.analyst} Lens`;
           perspectives.push(`### ${lensLabel}\n${parsed.reasoning}`);
         }
       } catch {}
@@ -4107,7 +5469,7 @@ async function runParallelDeepBranch(opts: {
 
   const perspectiveAddendum = persp.perspectives.length > 0
     ? `\n\n# MULTI-PERSPECTIVE ANALYSIS
-The following are reasoning traces from three different analytical perspectives on the user's question. You MUST:
+The following are reasoning traces from ${persp.perspectives.length} different analytical perspectives on the user's question. You MUST:
 1. Integrate these perspectives into your synthesis — do not ignore them.
 2. Note where they converge (strong signal) and where they diverge (key uncertainties).
 3. Absorb the reasoning seamlessly — do NOT name the individual analysts. Reference perspectives generically (e.g. "from a macro-structural lens…", "a derivatives-focused analysis suggests…", "examining the protocol economics…").
