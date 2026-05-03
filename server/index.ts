@@ -131,6 +131,37 @@ export function log(message: string, source = "express") {
 // previous middleware that captured response JSON bodies (PII risk).
 app.use(httpLogger);
 
+// Liveness probe — must respond fast, no I/O. ALB / Docker HEALTHCHECK
+// hit this every ~30s, so a green response only means "process is up".
+app.get("/health", (_req, res) => {
+  res.status(200).json({ ok: true });
+});
+
+// Readiness probe — green only when downstreams the app actually needs
+// are usable. 503 with details lets the orchestrator pull the instance
+// out of rotation without killing it (transient DB blip recovers on its own).
+app.get("/ready", async (_req, res) => {
+  const checks: Record<string, { ok: boolean; error?: string }> = {};
+
+  try {
+    const { pool } = await import("./db");
+    await pool.query("SELECT 1");
+    checks.db = { ok: true };
+  } catch (err: any) {
+    checks.db = { ok: false, error: err?.message || "db check failed" };
+  }
+
+  try {
+    const { isServerMppReady } = await import("./mpp-client");
+    checks.mpp = { ok: isServerMppReady() };
+  } catch (err: any) {
+    checks.mpp = { ok: false, error: err?.message || "mpp check failed" };
+  }
+
+  const ok = Object.values(checks).every((c) => c.ok);
+  res.status(ok ? 200 : 503).json({ ok, checks });
+});
+
 (async () => {
   const { seedDatabase } = await import("./seed");
   const { startTelegramBot } = await import("./telegram");
