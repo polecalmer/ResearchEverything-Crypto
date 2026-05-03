@@ -5,16 +5,13 @@ import { requireAuth } from "../auth";
 import { db } from "../db";
 import { dlog } from "../debug-log";
 import { sql } from "drizzle-orm";
-
-// Per-user concurrency: bumped from 1 → 6 to support parallel
-// background spawns (Build Chart, Double Click). One main session +
-// 3-5 in-flight sub-sessions is the realistic ceiling. Global cap
-// stays modest to bound aggregate Anthropic spend; production can
-// tune both via env.
-const MAX_GLOBAL_RESEARCH = Number(process.env.MAX_GLOBAL_RESEARCH || 12);
-const MAX_PER_USER_RESEARCH = Number(process.env.MAX_PER_USER_RESEARCH || 6);
-const inflightPerUser = new Map<string, number>();
-let inflightGlobal = 0;
+import {
+  MAX_GLOBAL_RESEARCH,
+  MAX_PER_USER_RESEARCH,
+  tryAcquireResearchSlot,
+  releaseResearchSlot,
+  getResearchInflight,
+} from "../research-slots";
 
 /**
  * Bend refreshed rows back into the shape the original chart was rendered
@@ -188,26 +185,6 @@ function inferYAxisScaleFromLabel(label: string): number {
   if (/\(\s*\$?\s*m\s*\)|\$m\b|\bmm\b|\bmillion(s)?\b/i.test(label)) return 1e6;
   if (/\(\s*\$?\s*k\s*\)|\$k\b|\bthousand(s)?\b/i.test(label)) return 1e3;
   return 1;
-}
-
-function tryAcquireResearchSlot(userId: string): boolean {
-  const userCount = inflightPerUser.get(userId) || 0;
-  if (inflightGlobal >= MAX_GLOBAL_RESEARCH) return false;
-  if (userCount >= MAX_PER_USER_RESEARCH) return false;
-  inflightGlobal++;
-  inflightPerUser.set(userId, userCount + 1);
-  return true;
-}
-
-function releaseResearchSlot(userId: string): void {
-  inflightGlobal = Math.max(0, inflightGlobal - 1);
-  const userCount = (inflightPerUser.get(userId) || 1) - 1;
-  if (userCount <= 0) inflightPerUser.delete(userId);
-  else inflightPerUser.set(userId, userCount);
-}
-
-export function getResearchInflight() {
-  return { global: inflightGlobal, perUser: Object.fromEntries(inflightPerUser) };
 }
 
 export function registerResearchRoutes(app: Express) {
@@ -525,7 +502,10 @@ export function registerResearchRoutes(app: Express) {
       if (!tryAcquireResearchSlot(userId)) {
         res.setHeader("Retry-After", "10");
         return res.status(429).json({
-          message: `Research concurrency limit reached (${inflightGlobal}/${MAX_GLOBAL_RESEARCH} global, ${inflightPerUser.get(userId) || 0}/${MAX_PER_USER_RESEARCH} per user). Wait for an in-flight request to finish.`,
+          message: (() => {
+            const inflight = getResearchInflight();
+            return `Research concurrency limit reached (${inflight.global}/${MAX_GLOBAL_RESEARCH} global, ${inflight.perUser[userId] || 0}/${MAX_PER_USER_RESEARCH} per user). Wait for an in-flight request to finish.`;
+          })(),
         });
       }
       slotAcquired = true;
