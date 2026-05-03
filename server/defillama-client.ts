@@ -1,3 +1,5 @@
+import { getRequestSignal } from "./request-context";
+
 const PRO_KEY = process.env.DEFILLAMA_PRO_API_KEY?.trim() || "";
 const PRO_BASE = PRO_KEY ? `https://pro-api.llama.fi/${PRO_KEY}` : "";
 
@@ -51,7 +53,9 @@ export interface CoinPriceHistory {
 }
 
 async function fetchJson(url: string): Promise<any> {
-  const res = await fetch(url);
+  const signal = getRequestSignal();
+  signal?.throwIfAborted();
+  const res = await fetch(url, { signal });
   if (!res.ok) throw new Error(`DeFiLlama API error (${res.status}): ${url}`);
   return res.json();
 }
@@ -120,7 +124,9 @@ export async function resolveSlugDetailed(companyName: string): Promise<ResolveS
   const naiveSlug = key.replace(/\s+/g, "-");
 
   try {
-    const res = await fetch(`${DEFILLAMA_BASE}/protocol/${naiveSlug}`);
+    const res = await fetch(`${DEFILLAMA_BASE}/protocol/${naiveSlug}`, {
+      signal: getRequestSignal(),
+    });
     if (res.ok) {
       slugCache.set(key, { slug: naiveSlug, time: Date.now() });
       return await classifySlug(key, naiveSlug);

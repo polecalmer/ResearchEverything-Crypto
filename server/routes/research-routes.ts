@@ -543,12 +543,19 @@ export function registerResearchRoutes(app: Express) {
       const { registerInFlightSse } = await import("../shutdown");
       const deregisterSse = registerInFlightSse(res);
 
+      // Cancellation: abort propagates through AsyncLocalStorage to every
+      // tool client (Dune polling, DefiLlama fetches) so a closed SSE
+      // doesn't leave us holding a 180s Dune poll for a response no one
+      // is waiting for.
+      const abortController = new AbortController();
+
       let clientClosed = false;
       const stopKeepalive = () => { if (keepalive) { clearInterval(keepalive); keepalive = null; } };
       req.on("close", () => {
         clientClosed = true;
         stopKeepalive();
         deregisterSse();
+        abortController.abort();
         console.log(`[SessionResearch] Client disconnected mid-stream (session ${session.id})`);
       });
 
@@ -646,22 +653,30 @@ export function registerResearchRoutes(app: Express) {
         console.log(`[SessionResearch] Auto-routed to chart mode: ${routed.reason}`);
       }
 
-      result = await runSessionResearchAgent(
-        messageForAgent,
-        historyForAgent.slice(0, -1),
-        brainForAgent,
-        (step) => sendEvent("step", step),
-        effectiveMode,
-        async (plan) => {
-          try {
-            await storage.updateMessagePlan(userMsg.id, plan);
-            sendEvent("plan", plan);
-          } catch (err: any) {
-            console.error("[SessionResearch] Failed to persist plan:", err.message);
-          }
+      const { withRequestContext } = await import("../request-context");
+      result = await withRequestContext(
+        {
+          signal: abortController.signal,
+          requestId: (req as any).id,
+          userId: req.user!.id,
         },
-        req.user!.id,
-        isDataMode,
+        () => runSessionResearchAgent(
+          messageForAgent,
+          historyForAgent.slice(0, -1),
+          brainForAgent,
+          (step) => sendEvent("step", step),
+          effectiveMode,
+          async (plan) => {
+            try {
+              await storage.updateMessagePlan(userMsg.id, plan);
+              sendEvent("plan", plan);
+            } catch (err: any) {
+              console.error("[SessionResearch] Failed to persist plan:", err.message);
+            }
+          },
+          req.user!.id,
+          isDataMode,
+        ),
       );
       sendEvent("mode", { mode: result.mode, reason: result.modeReason });
 

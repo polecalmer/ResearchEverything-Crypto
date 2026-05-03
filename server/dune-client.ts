@@ -1,3 +1,5 @@
+import { getRequestSignal, abortableSleep } from "./request-context";
+
 const DUNE_API_BASE = "https://api.dune.com/api/v1";
 
 export interface DuneQueryResult {
@@ -23,6 +25,8 @@ export function isDuneConfigured(): boolean {
 
 async function executeDuneQueryOnce(queryId: number, params?: Record<string, any>): Promise<DuneQueryResult> {
   const apiKey = getDuneApiKey();
+  const signal = getRequestSignal();
+  signal?.throwIfAborted();
 
   const executeRes = await fetch(`${DUNE_API_BASE}/query/${queryId}/execute`, {
     method: "POST",
@@ -31,6 +35,7 @@ async function executeDuneQueryOnce(queryId: number, params?: Record<string, any
       "X-Dune-API-Key": apiKey,
     },
     body: JSON.stringify({ query_parameters: params || {}, performance: "large" }),
+    signal,
   });
 
   if (!executeRes.ok) {
@@ -44,10 +49,11 @@ async function executeDuneQueryOnce(queryId: number, params?: Record<string, any
   const pollInterval = 3000;
 
   for (let i = 0; i < maxAttempts; i++) {
-    await new Promise((r) => setTimeout(r, pollInterval));
+    await abortableSleep(pollInterval, signal);
 
     const statusRes = await fetch(`${DUNE_API_BASE}/execution/${execution_id}/status`, {
       headers: { "X-Dune-API-Key": apiKey },
+      signal,
     });
 
     if (!statusRes.ok) continue;
@@ -58,6 +64,7 @@ async function executeDuneQueryOnce(queryId: number, params?: Record<string, any
     if (state === "QUERY_STATE_COMPLETED") {
       const resultsRes = await fetch(`${DUNE_API_BASE}/execution/${execution_id}/results?limit=1000`, {
         headers: { "X-Dune-API-Key": apiKey },
+        signal,
       });
 
       if (!resultsRes.ok) {
@@ -122,6 +129,8 @@ export async function executeDuneQuery(queryId: number, params?: Record<string, 
 
 export async function executeDuneSQL(sql: string, name?: string): Promise<DuneQueryResult> {
   const apiKey = getDuneApiKey();
+  const signal = getRequestSignal();
+  signal?.throwIfAborted();
   const queryName = name || `agent_sql_${Date.now()}`;
 
   console.log(`[Dune] Creating ad-hoc SQL query: ${queryName}`);
@@ -138,6 +147,7 @@ export async function executeDuneSQL(sql: string, name?: string): Promise<DuneQu
       query_sql: sql,
       is_private: false,
     }),
+    signal,
   });
 
   if (!createRes.ok) {
@@ -172,9 +182,12 @@ async function archiveDuneQuery(queryId: number, apiKey: string): Promise<void> 
 
 export async function getLatestDuneResults(queryId: number): Promise<DuneQueryResult> {
   const apiKey = getDuneApiKey();
+  const signal = getRequestSignal();
+  signal?.throwIfAborted();
 
   const res = await fetch(`${DUNE_API_BASE}/query/${queryId}/results?limit=1000`, {
     headers: { "X-Dune-API-Key": apiKey },
+    signal,
   });
 
   if (!res.ok) {
