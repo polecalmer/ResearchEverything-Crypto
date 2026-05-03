@@ -1,4 +1,6 @@
 import "dotenv/config";
+// Sentry must be imported before anything it instruments (http, express, pg).
+import { Sentry, sentryEnabled } from "./sentry";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupAuth } from "./auth";
@@ -147,6 +149,12 @@ app.use(httpLogger);
   })();
   try { startTelegramBot(); } catch (e: any) { console.log("[Telegram] Bot startup skipped:", e.message); }
 
+  // Sentry's Express error handler captures errors before our serializer
+  // runs. No-op if SENTRY_DSN is unset.
+  if (sentryEnabled) {
+    Sentry.setupExpressErrorHandler(app);
+  }
+
   // Central error handler — uses HttpError + serialises consistently. See
   // server/error-middleware.ts. Route handlers should throw HttpError
   // (badRequest / notFound / etc.) instead of catching + res.status() inline.
@@ -194,6 +202,9 @@ app.use(httpLogger);
       } catch (e: any) {
         console.error(`[shutdown] closeChannel error: ${e.message}`);
       }
+      if (sentryEnabled) {
+        await Sentry.flush(2000).catch(() => {});
+      }
       clearTimeout(forceTimer);
       log(`[shutdown] clean exit`);
       process.exit(0);
@@ -201,4 +212,24 @@ app.use(httpLogger);
   };
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
+
+  // Catch-all for async errors that escape route handlers and background
+  // tasks. Report to Sentry, log, then exit so the orchestrator can restart
+  // us with clean state — continuing on a poisoned process is worse.
+  process.on("unhandledRejection", async (reason) => {
+    logger.fatal({ err: reason }, "unhandledRejection");
+    if (sentryEnabled) {
+      Sentry.captureException(reason);
+      await Sentry.flush(2000).catch(() => {});
+    }
+    process.exit(1);
+  });
+  process.on("uncaughtException", async (err) => {
+    logger.fatal({ err }, "uncaughtException");
+    if (sentryEnabled) {
+      Sentry.captureException(err);
+      await Sentry.flush(2000).catch(() => {});
+    }
+    process.exit(1);
+  });
 })();
