@@ -4597,7 +4597,7 @@ ${canonicalBlock}${disambiguationBlock}`
             recordToolResult(npTurnId, {
               toolName: "web_search",
               input: {},
-              rawText: serialized.slice(0, 80000),
+              rawText: serialized.slice(0, 200000),
             });
           } catch (err: any) {
             console.warn(`[NumericProvenance] web_search record failed: ${err?.message}`);

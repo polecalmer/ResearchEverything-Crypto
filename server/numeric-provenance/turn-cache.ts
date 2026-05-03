@@ -89,19 +89,36 @@ export function endTurn(turnId: string): void {
  *  the agent didn't route through compute(). */
 function extractNumbers(text: string): number[] {
   if (!text) return [];
-  const out: number[] = [];
   // Match plain numbers, with optional commas, decimals, scientific notation.
   const re = /-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi;
+  // Two-pass dedup with prefer-head and prefer-tail sampling. Long Dune
+  // results often have summary/aggregate fields at the END of the blob —
+  // capping at "first N" would silently drop them and trigger
+  // false-positive redactions on the prose that quotes those summaries.
+  // Bumped 5k → 50k, and split the cap across head + tail.
+  const HARD_CAP = 50000;
+  const HALF = HARD_CAP / 2;
   const seen = new Set<number>();
+  const head: number[] = [];
+  const matches: RegExpExecArray[] = [];
   let match: RegExpExecArray | null;
   while ((match = re.exec(text)) !== null) {
-    const n = Number(match[0].replace(/,/g, ""));
-    if (!Number.isFinite(n)) continue;
-    // Dedup; keep set bounded (very long blobs can have millions of digits).
-    if (seen.has(n)) continue;
-    seen.add(n);
-    out.push(n);
-    if (out.length >= 5000) break;
+    matches.push(match);
   }
-  return out;
+  // Head pass.
+  for (let i = 0; i < matches.length && head.length < HALF; i++) {
+    const n = Number(matches[i][0].replace(/,/g, ""));
+    if (!Number.isFinite(n) || seen.has(n)) continue;
+    seen.add(n);
+    head.push(n);
+  }
+  // Tail pass — walk backwards picking up unique numbers we haven't seen.
+  const tail: number[] = [];
+  for (let i = matches.length - 1; i >= 0 && tail.length < HALF; i--) {
+    const n = Number(matches[i][0].replace(/,/g, ""));
+    if (!Number.isFinite(n) || seen.has(n)) continue;
+    seen.add(n);
+    tail.push(n);
+  }
+  return head.concat(tail);
 }

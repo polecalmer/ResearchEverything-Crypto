@@ -175,6 +175,26 @@ export async function runStrictProvenancePass(
   let errorCalloutArtifact: StrictPassResult["errorCalloutArtifact"] = null;
   if (finalReport.unmatched.length > 0) {
     redacted = true;
+    // Structured log of what's being redacted, so when the validator
+    // over-redacts (false positive: the value WAS in tool results /
+    // artifacts but the matcher missed) we can see exactly which value
+    // failed and what the closest available candidates were. Walk
+    // unique raw tokens only — multiple instances of "$300M" log once.
+    const seenRaw = new Set<string>();
+    for (const issue of finalReport.unmatched) {
+      if (seenRaw.has(issue.number.raw)) continue;
+      seenRaw.add(issue.number.raw);
+      const candStr = issue.candidates
+        .slice(0, 3)
+        .map((c) => `${c.value} (${c.from}, Δ=${Math.abs(c.value - issue.number.value).toExponential(2)})`)
+        .join("; ");
+      console.warn(
+        `[NumericProvenance] REDACT "${issue.number.raw}" (${issue.number.format}=${issue.number.value}) ctx="${issue.number.context.slice(0, 80)}" closest=[${candStr || "none"}]`,
+      );
+    }
+    console.warn(
+      `[NumericProvenance] redaction summary: ${finalReport.unmatched.length}/${finalReport.totalNumbers} unmatched; pool sizes: computes=${finalReport.computesAvailable}, toolResults=${finalReport.toolResultsAvailable}, artifactNumbers=${finalReport.artifactNumbersAvailable}`,
+    );
     finalText = redactUnmatchedNumbers(finalText, finalReport.unmatched.map((u) => u.number));
     const ratio = finalReport.totalNumbers > 0
       ? finalReport.unmatched.length / finalReport.totalNumbers
@@ -321,7 +341,7 @@ function buildErrorCalloutInner(
   const blocks: string[] = [];
   if (prov.unmatched.length > 0) {
     blocks.push(
-      `${prov.unmatched.length} prose number${prov.unmatched.length === 1 ? " has" : "s have"} been REDACTED below ([unverified]) because they could not be traced to a compute() call or a tool result, even after one retry. The agent failed to ground these numbers in any data source. Treat the rest of the response with caution; this is the same hallucination class that has produced wrong financial statements before.`,
+      `${prov.unmatched.length} prose number${prov.unmatched.length === 1 ? " is" : "s are"} shown with strikethrough below because the validator could not trace ${prov.unmatched.length === 1 ? "it" : "them"} to a compute() call, a tool result, or any artifact in this response — even after one retry. The agent failed to ground ${prov.unmatched.length === 1 ? "this number" : "these numbers"} in a verified source. The values are still legible so you can see what was claimed, but treat them as the same hallucination class that has produced wrong financial statements before — re-fetch before relying on them.`,
     );
   }
   if (xs.issues.length > 0) {
@@ -343,22 +363,28 @@ function buildErrorCalloutInner(
   return blocks.join("\n\n");
 }
 
-/** Replace each unmatched number's literal token in prose with
- *  "[unverified]". Walks unique ranges in reverse order so indices
- *  stay stable. */
+/** Wrap each unmatched number's literal token in markdown strikethrough
+ *  (~~…~~). Renderer hides the value visually while keeping it readable
+ *  for context — much better prose flow than "[unverified currency]"
+ *  inline placeholders. Approximation prefixes ("~", "≈", "approximately")
+ *  are also consumed so we don't end up with markdown collisions like
+ *  "~~~$300M~~". The data-integrity callout at the top of the response
+ *  explains the visual cue. */
 function redactUnmatchedNumbers(text: string, numbers: ProseNumber[]): string {
-  // Re-extract from the (possibly retry-modified) text — index in the
-  // ProseNumber refers to the ORIGINAL text, which may not match if
-  // the retry changed things. Re-find each raw token in the current text.
   let out = text;
   const seen = new Set<string>();
   for (const n of numbers) {
     if (seen.has(n.raw)) continue;
     seen.add(n.raw);
-    // Escape regex metachars in the raw token.
     const escaped = n.raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const re = new RegExp(escaped, "g");
-    out = out.replace(re, `[unverified ${n.format}]`);
+    // Optional leading approximation prefix — consumed and dropped so
+    // the resulting markdown is "~~$249/month~~" not "~~~$249/month~~"
+    // (which the renderer would parse as literal triple-tilde + content).
+    const re = new RegExp(
+      "(?:~|≈|approximately\\s+|approx\\.\\s+|around\\s+|roughly\\s+|about\\s+)?" + escaped,
+      "g",
+    );
+    out = out.replace(re, `~~${n.raw}~~`);
   }
   return out;
 }

@@ -44,9 +44,11 @@ export interface ProvenanceReport {
   matchedByCompute: number;
   matchedBySource: number;
   matchedByDerivation: number;
+  matchedByArtifact: number;
   unmatched: ProvenanceIssue[];
   computesAvailable: number;
   toolResultsAvailable: number;
+  artifactNumbersAvailable: number;
 }
 
 /**
@@ -61,11 +63,19 @@ export function checkProvenance(
   const computes = turn?.computes || [];
   const toolResults = turn?.toolResults || [];
 
+  // Numbers shown in artifacts (chart.data, table.data, metric_cards.data,
+  // chart subtitles, etc.) ARE provenance — the user can see them in the
+  // rendered output, sourced via the artifact's source field. Without
+  // this match path the validator was redacting prose that quoted the
+  // exact same numbers the chart was showing two inches above.
+  const artifactNumbers = extractArtifactNumbers(finalText);
+
   const numbers = extractProseNumbers(finalText);
   const unmatched: ProvenanceIssue[] = [];
   let matchedByCompute = 0;
   let matchedBySource = 0;
   let matchedByDerivation = 0;
+  let matchedByArtifact = 0;
 
   for (const n of numbers) {
     const computeMatch = matchAgainstComputes(n, computes);
@@ -76,6 +86,10 @@ export function checkProvenance(
     const sourceMatch = matchAgainstSources(n, toolResults);
     if (sourceMatch) {
       matchedBySource++;
+      continue;
+    }
+    if (matchAgainstArtifactNumbers(n, artifactNumbers)) {
+      matchedByArtifact++;
       continue;
     }
     // Derivation match: percent/ratio numbers are often the explicit
@@ -90,19 +104,21 @@ export function checkProvenance(
     unmatched.push({
       number: n,
       reason: "no_match",
-      candidates: collectClosest(n, computes, toolResults),
+      candidates: collectClosest(n, computes, toolResults, artifactNumbers),
     });
   }
 
   return {
     totalNumbers: numbers.length,
-    matched: matchedByCompute + matchedBySource + matchedByDerivation,
+    matched: matchedByCompute + matchedBySource + matchedByDerivation + matchedByArtifact,
     matchedByCompute,
     matchedBySource,
     matchedByDerivation,
+    matchedByArtifact,
     unmatched,
     computesAvailable: computes.length,
     toolResultsAvailable: toolResults.length,
+    artifactNumbersAvailable: artifactNumbers.length,
   };
 }
 
@@ -232,6 +248,72 @@ function matchAgainstSources(n: ProseNumber, results: ToolResultRecord[]): ToolR
   return null;
 }
 
+function matchAgainstArtifactNumbers(n: ProseNumber, artifactNumbers: number[]): boolean {
+  for (const v of artifactNumbers) {
+    if (approxEqual(v, n.value)) return true;
+  }
+  return false;
+}
+
+/** Walk the artifact code-fenced JSON blocks in finalText and pull every
+ *  numeric value into a flat array. Covers chart.data, table.data,
+ *  metric_cards.data values (which are often pre-formatted strings like
+ *  "$44.96"), chart subtitles, callout text, etc. The user sees these
+ *  numbers in the rendered output — they ARE provenance for prose that
+ *  cites them. */
+function extractArtifactNumbers(text: string): number[] {
+  if (!text) return [];
+  const out = new Set<number>();
+  const re = /```artifact:(chart|table|metric_cards|callout|comparison|quote|sources)\s*\n([\s\S]*?)```/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    const body = m[2].trim();
+    try {
+      const json = JSON.parse(body);
+      walkForNumbers(json, out);
+    } catch {
+      // Body isn't valid JSON — fall back to bare-token extraction so
+      // markdown-style sources blocks or malformed artifact bodies
+      // still contribute their numbers. The same logic the tool-result
+      // extractor uses, dedup-bounded.
+      walkBareNumbersFromString(body, out);
+    }
+  }
+  return Array.from(out);
+}
+
+function walkForNumbers(v: any, out: Set<number>): void {
+  if (v == null) return;
+  if (typeof v === "number" && Number.isFinite(v)) {
+    out.add(v);
+    return;
+  }
+  if (typeof v === "string") {
+    walkBareNumbersFromString(v, out);
+    // Also walk the string with the prose extractors so currency strings
+    // like "$44.96" / "$1.21B" / "25.5x" parse to the magnitude-aware
+    // value (44.96 / 1.21e9 / 25.5) rather than just "44.96, 96, 1.21".
+    for (const pn of extractProseNumbers(v)) out.add(pn.value);
+    return;
+  }
+  if (Array.isArray(v)) {
+    for (const x of v) walkForNumbers(x, out);
+    return;
+  }
+  if (typeof v === "object") {
+    for (const k of Object.keys(v)) walkForNumbers(v[k], out);
+  }
+}
+
+function walkBareNumbersFromString(s: string, out: Set<number>): void {
+  const re = /-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|-?\d+(?:\.\d+)?(?:e[+-]?\d+)?/gi;
+  let mm: RegExpExecArray | null;
+  while ((mm = re.exec(s)) !== null) {
+    const n = Number(mm[0].replace(/,/g, ""));
+    if (Number.isFinite(n)) out.add(n);
+  }
+}
+
 /** Derivation matcher. A percent/ratio number in prose often IS the
  *  explicit ratio (or growth %) of two other numbers mentioned just
  *  before it — "fees $6.2M, revenue $3.1M, a 50% take rate." The 50%
@@ -292,12 +374,14 @@ function collectClosest(
   n: ProseNumber,
   computes: ComputeRecord[],
   toolResults: ToolResultRecord[],
+  artifactNumbers: number[] = [],
 ): Array<{ value: number; from: string }> {
   const all: Array<{ value: number; from: string }> = [];
   for (const c of computes) all.push({ value: c.value, from: `compute:${c.name}` });
   for (const r of toolResults) {
     for (const v of r.numericTokens) all.push({ value: v, from: `tool:${r.toolName}` });
   }
+  for (const v of artifactNumbers) all.push({ value: v, from: "artifact" });
   // Top 3 by absolute distance.
   const target = n.value;
   return all

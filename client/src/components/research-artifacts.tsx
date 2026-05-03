@@ -1284,7 +1284,12 @@ export function SourcesBlock({ artifact }: { artifact: Artifact }) {
 }
 
 function InlineFormatted({ text }: { text: string }) {
-  const parts = text.split(/(\*\*.*?\*\*|`.*?`)/g);
+  // Strikethrough is used by the numeric-provenance layer to mark prose
+  // numbers the validator could not trace. The original value stays
+  // visible (so the reader can see what was claimed) but the visual
+  // signal makes it clear the value is unverified — the data-integrity
+  // callout at the top of the response carries the explanation.
+  const parts = text.split(/(\*\*.*?\*\*|`.*?`|~~.+?~~)/g);
   return (
     <>
       {parts.map((part, j) => {
@@ -1292,6 +1297,16 @@ function InlineFormatted({ text }: { text: string }) {
           return <strong key={j} className="font-semibold text-foreground">{part.slice(2, -2)}</strong>;
         if (part.startsWith("`") && part.endsWith("`"))
           return <code key={j} className="bg-muted/60 px-1.5 py-0.5 rounded text-xs font-mono">{part.slice(1, -1)}</code>;
+        if (part.startsWith("~~") && part.endsWith("~~"))
+          return (
+            <s
+              key={j}
+              className="text-muted-foreground/55 decoration-destructive/40 decoration-[1.5px]"
+              title="Value flagged by the numeric-provenance validator — see the data-integrity callout for details"
+            >
+              {part.slice(2, -2)}
+            </s>
+          );
         return <span key={j}>{part}</span>;
       })}
     </>
