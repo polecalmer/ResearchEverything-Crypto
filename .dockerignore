@@ -1,0 +1,43 @@
+# VCS
+.git
+.gitignore
+.gitattributes
+.github
+
+# Dependencies and build output
+node_modules
+dist
+*.tar.gz
+
+# Environment files (secrets must come from the orchestrator at runtime)
+.env
+.env.*
+!.env.example
+
+# Editor / agent / scratch
+.DS_Store
+.vscode
+.idea
+.claude
+.canvas
+.agents
+sed*
+
+# Internal handoff docs (not needed at runtime)
+*.local.md
+HANDOFF.md
+HANDOFF-*.md
+docs/internal
+
+# Runtime user data (belongs in S3, not the image)
+attached_assets
+logs
+screenshots
+
+# Marketing / design assets (not needed at runtime)
+decks
+*.pdf
+landing-page-design-system.md
+landing-full-2.png
+replit.md
+README.md
