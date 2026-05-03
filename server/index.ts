@@ -5,6 +5,7 @@ import { setupAuth } from "./auth";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { WebhookHandlers } from "./webhookHandlers";
+import { logger, httpLogger } from "./logger";
 
 const STRIPE_ENABLED = process.env.ENABLE_STRIPE === "1";
 
@@ -116,42 +117,17 @@ app.use((req, res, next) => {
   next();
 });
 
+// Backwards-compat shim — routes the legacy `log(msg, source)` calls in this
+// file (and any external caller) through Pino. New code should use `logger`
+// (from ./logger) or `req.log` (attached by httpLogger).
 export function log(message: string, source = "express") {
-  const formattedTime = new Date().toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  });
-
-  console.log(`${formattedTime} [${source}] ${message}`);
+  logger.info({ source }, message);
 }
 
-app.use((req, res, next) => {
-  const start = Date.now();
-  const path = req.path;
-  let capturedJsonResponse: Record<string, any> | undefined = undefined;
-
-  const originalResJson = res.json;
-  res.json = function (bodyJson, ...args) {
-    capturedJsonResponse = bodyJson;
-    return originalResJson.apply(res, [bodyJson, ...args]);
-  };
-
-  res.on("finish", () => {
-    const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
-      let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
-      if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
-      }
-
-      log(logLine);
-    }
-  });
-
-  next();
-});
+// Structured JSON request logs (CloudWatch-friendly), with X-Request-ID
+// honored from upstream and echoed back on the response. Replaces the
+// previous middleware that captured response JSON bodies (PII risk).
+app.use(httpLogger);
 
 (async () => {
   const { seedDatabase } = await import("./seed");
