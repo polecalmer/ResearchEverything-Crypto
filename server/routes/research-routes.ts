@@ -538,11 +538,17 @@ export function registerResearchRoutes(app: Express) {
       });
       res.flushHeaders();
 
+      // Track this SSE for graceful shutdown — deregister on any close
+      // path (client disconnect, error, normal completion).
+      const { registerInFlightSse } = await import("../shutdown");
+      const deregisterSse = registerInFlightSse(res);
+
       let clientClosed = false;
       const stopKeepalive = () => { if (keepalive) { clearInterval(keepalive); keepalive = null; } };
       req.on("close", () => {
         clientClosed = true;
         stopKeepalive();
+        deregisterSse();
         console.log(`[SessionResearch] Client disconnected mid-stream (session ${session.id})`);
       });
 

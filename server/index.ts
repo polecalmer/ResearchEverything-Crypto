@@ -211,35 +211,67 @@ app.get("/ready", async (_req, res) => {
     },
   );
 
-  const SHUTDOWN_DRAIN_MS = 15_000;
+  // Total deadline before SIGKILL-equivalent self-exit. Must fit inside
+  // ECS task stopTimeout (default 30s, configurable to 120s). SOFT_DRAIN
+  // is the window we give in-flight SSE handlers to finish naturally
+  // before we force-end them and close the MPP channel.
+  const SHUTDOWN_DRAIN_MS = 30_000;
+  const SOFT_DRAIN_MS = 25_000;
   let shuttingDown = false;
   const shutdown = async (signal: string) => {
     if (shuttingDown) return;
     shuttingDown = true;
-    log(`[shutdown] ${signal} received — draining for up to ${SHUTDOWN_DRAIN_MS}ms`);
+
+    const { markShuttingDown, getInFlightSseCount, notifyShutdownToInFlightSse } =
+      await import("./shutdown");
+    markShuttingDown();
+
+    const startCount = getInFlightSseCount();
+    log(
+      `[shutdown] ${signal} — ${startCount} in-flight SSE; soft drain ${SOFT_DRAIN_MS}ms, hard ${SHUTDOWN_DRAIN_MS}ms`,
+    );
 
     const { markMppShuttingDown, closeChannel } = await import("./mpp-client");
     markMppShuttingDown();
 
     const forceTimer = setTimeout(() => {
-      console.error(`[shutdown] drain timeout — forcing exit`);
+      logger.error(
+        { inflightSse: getInFlightSseCount() },
+        "[shutdown] drain timeout — forcing exit",
+      );
       process.exit(1);
     }, SHUTDOWN_DRAIN_MS);
     forceTimer.unref();
 
-    httpServer.close(async () => {
-      try {
-        await closeChannel();
-      } catch (e: any) {
-        console.error(`[shutdown] closeChannel error: ${e.message}`);
-      }
-      if (sentryEnabled) {
-        await Sentry.flush(2000).catch(() => {});
-      }
-      clearTimeout(forceTimer);
-      log(`[shutdown] clean exit`);
-      process.exit(0);
-    });
+    // Refuse new connections; callback fires once every socket has
+    // actually closed. We don't await it directly — we poll the SSE
+    // count below and force-end anything that's still streaming.
+    httpServer.close();
+
+    // Soft drain: wait for in-flight SSE handlers to finish on their own.
+    const pollDeadline = Date.now() + SOFT_DRAIN_MS;
+    while (getInFlightSseCount() > 0 && Date.now() < pollDeadline) {
+      await new Promise((r) => setTimeout(r, 250));
+    }
+
+    // Anything still streaming gets a graceful "shutdown" event + res.end()
+    // so the client knows the response was truncated by the server, not
+    // a network blip.
+    if (getInFlightSseCount() > 0) {
+      notifyShutdownToInFlightSse(`server shutting down (${signal})`);
+    }
+
+    try {
+      await closeChannel();
+    } catch (e: any) {
+      logger.error({ err: e }, "[shutdown] closeChannel error");
+    }
+    if (sentryEnabled) {
+      await Sentry.flush(2000).catch(() => {});
+    }
+    clearTimeout(forceTimer);
+    log(`[shutdown] clean exit (drained ${startCount} SSE)`);
+    process.exit(0);
   };
   process.on("SIGTERM", () => shutdown("SIGTERM"));
   process.on("SIGINT", () => shutdown("SIGINT"));
