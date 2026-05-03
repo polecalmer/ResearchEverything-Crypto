@@ -808,38 +808,51 @@ export function registerResearchRoutes(app: Express) {
           // Fire-and-forget: promote any data-source mentions in preferences
           // into per-user data-source-brain coverage facts so the resolver
           // can route future chart requests to the user's preferred sources.
+          // Wrapped in retryWithBackoff (logs each attempt + Sentry-reports
+          // exhaustion) so transient Voyage / DB blips don't silently lose
+          // the synthesis.
           (async () => {
             try {
-              const { synthesizeUserPreferenceFacts } = await import("../brain-synthesis");
-              const mergedPrefs = { ...(existing.preferences as any || {}), ...(result.brainUpdates.preferences || {}) };
-              await synthesizeUserPreferenceFacts(req.user!.id, mergedPrefs);
-            } catch (err: any) {
-              console.warn(`[SessionResearch] brain-synthesis after merge failed:`, err.message);
+              const { retryWithBackoff } = await import("../retry");
+              await retryWithBackoff("brain-synthesis-after-merge", async () => {
+                const { synthesizeUserPreferenceFacts } = await import("../brain-synthesis");
+                const mergedPrefs = { ...(existing.preferences as any || {}), ...(result.brainUpdates.preferences || {}) };
+                await synthesizeUserPreferenceFacts(req.user!.id, mergedPrefs);
+              });
+            } catch {
+              // Already logged + Sentry-captured by retryWithBackoff.
+              // Swallow so this fire-and-forget IIFE doesn't surface as
+              // an unhandledRejection.
             }
           })();
 
           try {
-            const { syncBrainFacts, syncBrainEntities } = await import("../brain-embedding-sync");
-            const factsToSync = newFacts.map((f: any) => ({
-              id: f.id,
-              topic: f.topic || "",
-              fact: f.fact || "",
-              entities: f.entities || [],
-              source: f.source || "",
-              date: f.date,
-              confidence: f.confidence || "verified",
-            }));
-            const newEntityEntries: Record<string, any> = {};
-            for (const [name, data] of Object.entries(result.brainUpdates.entities || {})) {
-              newEntityEntries[name] = mergedEntities[name] || data;
-            }
-            const [fSynced, eSynced] = await Promise.all([
-              syncBrainFacts(req.user!.id, factsToSync),
-              syncBrainEntities(req.user!.id, newEntityEntries),
-            ]);
-            console.log(`[BrainSync] Embedded ${fSynced} facts, ${eSynced} entities`);
-          } catch (syncErr: any) {
-            console.warn("[BrainSync] Embedding sync failed (non-fatal):", syncErr.message);
+            const { retryWithBackoff } = await import("../retry");
+            await retryWithBackoff("brain-embedding-sync", async () => {
+              const { syncBrainFacts, syncBrainEntities } = await import("../brain-embedding-sync");
+              const factsToSync = newFacts.map((f: any) => ({
+                id: f.id,
+                topic: f.topic || "",
+                fact: f.fact || "",
+                entities: f.entities || [],
+                source: f.source || "",
+                date: f.date,
+                confidence: f.confidence || "verified",
+              }));
+              const newEntityEntries: Record<string, any> = {};
+              for (const [name, data] of Object.entries(result.brainUpdates.entities || {})) {
+                newEntityEntries[name] = mergedEntities[name] || data;
+              }
+              const [fSynced, eSynced] = await Promise.all([
+                syncBrainFacts(req.user!.id, factsToSync),
+                syncBrainEntities(req.user!.id, newEntityEntries),
+              ]);
+              console.log(`[BrainSync] Embedded ${fSynced} facts, ${eSynced} entities`);
+            });
+          } catch {
+            // Already logged + Sentry-captured by retryWithBackoff. The
+            // user's response continues — brain may be out of sync until
+            // the next research session re-syncs the same facts.
           }
         } catch (brainErr: any) {
           console.warn("[SessionResearch] Brain update failed:", brainErr.message);
