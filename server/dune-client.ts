@@ -1,4 +1,5 @@
 import { getRequestSignal, abortableSleep } from "./request-context";
+import { wrapInCircuit } from "./circuit-breaker";
 
 const DUNE_API_BASE = "https://api.dune.com/api/v1";
 
@@ -23,7 +24,7 @@ export function isDuneConfigured(): boolean {
   return !!process.env.DUNE_API_KEY;
 }
 
-async function executeDuneQueryOnce(queryId: number, params?: Record<string, any>): Promise<DuneQueryResult> {
+async function executeDuneQueryOnceRaw(queryId: number, params?: Record<string, any>): Promise<DuneQueryResult> {
   const apiKey = getDuneApiKey();
   const signal = getRequestSignal();
   signal?.throwIfAborted();
@@ -93,6 +94,15 @@ async function executeDuneQueryOnce(queryId: number, params?: Record<string, any
 
   throw new Error(`Dune query ${queryId} timed out after ${maxAttempts * pollInterval / 1000}s`);
 }
+
+// Dune queries can legitimately take 60+ seconds; circuit breaker trips
+// only on actual errors (not slow calls). The polling loop's maxAttempts
+// is the real time bound.
+const executeDuneQueryOnce = wrapInCircuit(
+  "dune-execute",
+  executeDuneQueryOnceRaw,
+  { timeout: false as any },
+);
 
 export async function executeDuneQuery(queryId: number, params?: Record<string, any>): Promise<DuneQueryResult> {
   try {
@@ -180,7 +190,7 @@ async function archiveDuneQuery(queryId: number, apiKey: string): Promise<void> 
   } catch {}
 }
 
-export async function getLatestDuneResults(queryId: number): Promise<DuneQueryResult> {
+async function getLatestDuneResultsRaw(queryId: number): Promise<DuneQueryResult> {
   const apiKey = getDuneApiKey();
   const signal = getRequestSignal();
   signal?.throwIfAborted();
@@ -212,3 +222,8 @@ export async function getLatestDuneResults(queryId: number): Promise<DuneQueryRe
     },
   };
 }
+
+export const getLatestDuneResults = wrapInCircuit(
+  "dune-results",
+  getLatestDuneResultsRaw,
+);

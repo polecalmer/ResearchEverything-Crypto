@@ -1,4 +1,5 @@
 import { getRequestSignal } from "./request-context";
+import { wrapInCircuit } from "./circuit-breaker";
 
 const PRO_KEY = process.env.DEFILLAMA_PRO_API_KEY?.trim() || "";
 const PRO_BASE = PRO_KEY ? `https://pro-api.llama.fi/${PRO_KEY}` : "";
@@ -52,13 +53,17 @@ export interface CoinPriceHistory {
   symbol: string;
 }
 
-async function fetchJson(url: string): Promise<any> {
+async function fetchJsonRaw(url: string): Promise<any> {
   const signal = getRequestSignal();
   signal?.throwIfAborted();
   const res = await fetch(url, { signal });
   if (!res.ok) throw new Error(`DeFiLlama API error (${res.status}): ${url}`);
   return res.json();
 }
+
+// Single circuit for all DeFiLlama calls — every JSON request goes
+// through fetchJson, so one breaker covers the whole client.
+const fetchJson = wrapInCircuit("defillama", fetchJsonRaw);
 
 let protocolsCache: DefiLlamaProtocol[] | null = null;
 let protocolsCacheTime = 0;
