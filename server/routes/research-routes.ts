@@ -427,6 +427,81 @@ export function registerResearchRoutes(app: Express) {
     }
   });
 
+  // Spawned sessions (Build Chart, Double Click) carry parent_session_id.
+  // The user's first turn in the spawned session is just the highlighted
+  // snippet — without parent context the agent can't tell which entity/
+  // protocol it's about and falls back to whatever the brain weighs most
+  // heavily (which has produced wrong-protocol responses, e.g. an AERO
+  // double-click coming back about HYPE). Inject parent context into the
+  // FIRST turn only — subsequent turns have local history of their own.
+  async function buildParentContextBlock(
+    parentSessionId: number,
+    spawnedMessage: string,
+  ): Promise<string | null> {
+    const parent = await storage.getConversation(parentSessionId);
+    if (!parent) return null;
+    const parentMsgs = await storage.getMessages(parentSessionId);
+    if (parentMsgs.length === 0) return null;
+
+    const parentTitle = parent.title || "(untitled)";
+    const firstUser = parentMsgs.find((m) => m.role === "user");
+    const firstUserPrompt = (firstUser?.content || "").slice(0, 600);
+
+    // Pinpoint the assistant message the highlight came from. Both
+    // spawn shapes embed the highlight as the FIRST quoted string —
+    // Double Click sends `> "highlight"`, Build Chart sends
+    // `Build a chart for: "highlight" ...`. Extract that and
+    // substring-match against parent assistant messages. Fall back to
+    // the most recent assistant message when match fails.
+    const quoteMatch = /"([\s\S]+?)"/.exec(spawnedMessage);
+    const highlight = quoteMatch ? quoteMatch[1] : null;
+    let sourceAssistant = "";
+    if (highlight) {
+      const found = parentMsgs.find(
+        (m) => m.role === "assistant" && m.content?.includes(highlight),
+      );
+      if (found?.content) sourceAssistant = found.content;
+    }
+    if (!sourceAssistant) {
+      const last = [...parentMsgs].reverse().find((m) => m.role === "assistant");
+      sourceAssistant = last?.content || "";
+    }
+    // Token budget: keep the slice around the highlight when possible,
+    // hard-cap the rest.
+    const MAX = 4000;
+    if (sourceAssistant.length > MAX) {
+      if (highlight) {
+        const idx = sourceAssistant.indexOf(highlight);
+        if (idx >= 0) {
+          const start = Math.max(0, idx - 1500);
+          const end = Math.min(sourceAssistant.length, idx + highlight.length + 1500);
+          sourceAssistant =
+            (start > 0 ? "…" : "") +
+            sourceAssistant.slice(start, end) +
+            (end < sourceAssistant.length ? "…" : "");
+        } else {
+          sourceAssistant = sourceAssistant.slice(0, MAX) + "…";
+        }
+      } else {
+        sourceAssistant = sourceAssistant.slice(0, MAX) + "…";
+      }
+    }
+
+    return [
+      `[CONTEXT FROM PARENT SESSION — "${parentTitle}"]`,
+      `The user is following up on a thread from a prior research session. Their original framing question was:`,
+      `> ${firstUserPrompt}`,
+      ``,
+      `They highlighted text from THIS assistant response:`,
+      `--- begin parent assistant message ---`,
+      sourceAssistant,
+      `--- end parent assistant message ---`,
+      `[END PARENT CONTEXT]`,
+      ``,
+      `The follow-up below asks you to go deeper on the highlighted slice. Stay grounded in the SAME entity/protocol the parent was about — do NOT silently switch topics. If the highlight is ambiguous, resolve it against the parent's framing question above.`,
+    ].join("\n");
+  }
+
   app.post("/api/research/sessions/:id/messages", requireAuth, async (req, res) => {
     let keepalive: ReturnType<typeof setInterval> | null = null;
     let slotAcquired = false;
@@ -484,11 +559,41 @@ export function registerResearchRoutes(app: Express) {
         safeWrite(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       };
 
+      // Capture this BEFORE storing the new message — we need to know
+      // if the spawned-session's first turn is happening so we can inject
+      // parent-session context for the agent.
+      const priorMessages = await storage.getMessages(session.id);
+      const isFirstTurn = priorMessages.length === 0;
+
       const userMsg = await storage.createMessage({
         conversationId: session.id,
         role: "user",
         content: message,
       });
+
+      // Build the message variant the AGENT sees. The user's stored
+      // message stays clean (just `> "highlight"`) for the UI; the agent
+      // gets parent context prepended on the first turn of a spawned
+      // session. Without this, the agent has no idea which entity the
+      // highlight came from and falls back to whatever the brain weighs
+      // most heavily — root cause of the "AERO double-click → HYPE memo"
+      // bug.
+      let messageForAgent = message;
+      if (isFirstTurn && session.parentSessionId != null) {
+        try {
+          const parentCtx = await buildParentContextBlock(session.parentSessionId, message);
+          if (parentCtx) {
+            messageForAgent = `${parentCtx}\n\n${message}`;
+            console.log(
+              `[SessionResearch] Injected parent context from session ${session.parentSessionId} (${parentCtx.length} chars, spawnSource=${session.spawnSource || "unknown"})`,
+            );
+          }
+        } catch (err: any) {
+          console.warn(
+            `[SessionResearch] buildParentContextBlock failed for parent ${session.parentSessionId}: ${err?.message}`,
+          );
+        }
+      }
 
       const history = await storage.getMessages(session.id);
       const historyForAgent = history.map(m => ({ role: m.role, content: m.content }));
@@ -536,7 +641,7 @@ export function registerResearchRoutes(app: Express) {
       }
 
       result = await runSessionResearchAgent(
-        message,
+        messageForAgent,
         historyForAgent.slice(0, -1),
         brainForAgent,
         (step) => sendEvent("step", step),
