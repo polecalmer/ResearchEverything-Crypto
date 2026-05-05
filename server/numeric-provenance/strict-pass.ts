@@ -369,22 +369,54 @@ function buildErrorCalloutInner(
  *  inline placeholders. Approximation prefixes ("~", "≈", "approximately")
  *  are also consumed so we don't end up with markdown collisions like
  *  "~~~$300M~~". The data-integrity callout at the top of the response
- *  explains the visual cue. */
-function redactUnmatchedNumbers(text: string, numbers: ProseNumber[]): string {
-  let out = text;
+ *  explains the visual cue.
+ *
+ *  IMPORTANT: only redacts prose. Artifact code-fence bodies are passed
+ *  through unchanged — those are JSON consumed by the renderer (and by
+ *  downstream tools like refresh-recipe inference + embedding sync) and
+ *  must stay clean. A previous version did a global replace and ended up
+ *  with "5~~6%~~ Insider Concentration" inside artifact title fields
+ *  and "At 89.~~" inside quote text, corrupting the artifact data.
+ *
+ *  Exported for unit testing — internal use otherwise. */
+export function redactUnmatchedNumbers(text: string, numbers: ProseNumber[]): string {
+  // Dedup once up front so we don't run N regex replaces per artifact
+  // gap when the same raw token appears many times in the unmatched list.
   const seen = new Set<string>();
+  const deduped: ProseNumber[] = [];
   for (const n of numbers) {
     if (seen.has(n.raw)) continue;
     seen.add(n.raw);
-    const escaped = n.raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    // Optional leading approximation prefix — consumed and dropped so
-    // the resulting markdown is "~~$249/month~~" not "~~~$249/month~~"
-    // (which the renderer would parse as literal triple-tilde + content).
-    const re = new RegExp(
-      "(?:~|≈|approximately\\s+|approx\\.\\s+|around\\s+|roughly\\s+|about\\s+)?" + escaped,
-      "g",
-    );
-    out = out.replace(re, `~~${n.raw}~~`);
+    deduped.push(n);
   }
-  return out;
+
+  const redactProse = (segment: string): string => {
+    let out = segment;
+    for (const n of deduped) {
+      const escaped = n.raw.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      // Optional leading approximation prefix — consumed and dropped so
+      // the resulting markdown is "~~$249/month~~" not "~~~$249/month~~"
+      // (which the renderer would parse as literal triple-tilde + content).
+      const re = new RegExp(
+        "(?:~|≈|approximately\\s+|approx\\.\\s+|around\\s+|roughly\\s+|about\\s+)?" + escaped,
+        "g",
+      );
+      out = out.replace(re, `~~${n.raw}~~`);
+    }
+    return out;
+  };
+
+  // Walk the text by artifact code-fence boundaries. Match any artifact
+  // type (`\w+`) so future fence kinds are picked up automatically.
+  const fenceRe = /```artifact:\w+\s*\n[\s\S]*?```/g;
+  let result = "";
+  let lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = fenceRe.exec(text)) !== null) {
+    result += redactProse(text.slice(lastIndex, m.index));
+    result += m[0]; // fence body passes through unchanged
+    lastIndex = m.index + m[0].length;
+  }
+  result += redactProse(text.slice(lastIndex));
+  return result;
 }
