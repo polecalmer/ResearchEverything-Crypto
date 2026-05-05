@@ -86,6 +86,12 @@ function MemoTextSegments({ text }: { text: string }) {
 
 // Snapshot a live recharts SVG to a PNG data URL. Inlines a minimal <style>
 // block so fonts/fills render correctly when the SVG is read back via Image.
+//
+// Recharts' tooltip layer renders inside a <foreignObject> that contains
+// HTML — when the parent SVG is serialised + decoded back through Image()
+// the foreignObject corrupts the document and the load silently fails
+// (img.onerror fires with no useful message). We strip foreignObjects from
+// the clone before serialising; tooltips aren't visible in print anyway.
 async function svgToPng(svg: SVGSVGElement): Promise<string> {
   const rect = svg.getBoundingClientRect();
   const w = Math.max(rect.width || 0, 600);
@@ -96,6 +102,12 @@ async function svgToPng(svg: SVGSVGElement): Promise<string> {
   clone.setAttribute("width", String(w));
   clone.setAttribute("height", String(h));
   clone.setAttribute("viewBox", `0 0 ${w} ${h}`);
+
+  // Strip <foreignObject> nodes — Recharts uses them for tooltips, and
+  // foreignObject HTML breaks <Image>-decoding of the serialised SVG in
+  // every major browser (the load just fails). Tooltips aren't part of
+  // the printable chart anyway.
+  clone.querySelectorAll("foreignObject").forEach((n) => n.remove());
 
   // Embed font + fill defaults so the rasterised image matches the memo.
   const styleNs = "http://www.w3.org/2000/svg";
@@ -175,30 +187,75 @@ export default function MemoView() {
     if (!assistantMsg) return;
     if (Object.keys(frozenCharts).length > 0) return;
     const ctrl = { cancelled: false };
-    const t = setTimeout(async () => {
+
+    // Poll for SVGs to actually be in the DOM with non-zero dimensions
+    // before snapshotting. The previous fixed 900ms wait was racing
+    // Recharts' ResizeObserver-driven first-paint on slower machines /
+    // when many parts render at once, leaving slots without an SVG and
+    // the freeze silently producing zero PNGs.
+    const POLL_INTERVAL_MS = 150;
+    const POLL_MAX_MS = 6_000;
+    const start = Date.now();
+
+    const allReady = (): boolean => {
+      const slots = document.querySelectorAll<HTMLElement>(".memo-chart-slot");
+      if (slots.length === 0) return false;
+      for (const slot of Array.from(slots)) {
+        const svg = slot.querySelector("svg") as SVGSVGElement | null;
+        if (!svg) return false;
+        const r = svg.getBoundingClientRect();
+        if (!r.width || !r.height) return false;
+      }
+      return true;
+    };
+
+    const run = async () => {
+      // Wait until every slot has a measured SVG, or the deadline.
+      while (!ctrl.cancelled && !allReady() && Date.now() - start < POLL_MAX_MS) {
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+      }
+      if (ctrl.cancelled) return;
+
       const slots = document.querySelectorAll<HTMLElement>(".memo-chart-slot");
       const updates: Record<number, string> = {};
+      let frozen = 0;
+      let failed = 0;
+      let missingSvg = 0;
       for (const slot of Array.from(slots)) {
         const idx = Number(slot.dataset.chartIdx);
-        const svg = slot.querySelector("svg");
-        if (!svg) continue;
+        const svg = slot.querySelector("svg") as SVGSVGElement | null;
+        if (!svg) { missingSvg += 1; continue; }
         try {
-          const png = await svgToPng(svg as SVGSVGElement);
-          updates[idx] = png;
+          updates[idx] = await svgToPng(svg);
+          frozen += 1;
         } catch (err) {
+          failed += 1;
           console.warn(`[Memo] Chart ${idx} freeze failed:`, err);
         }
       }
       if (ctrl.cancelled) return;
+      console.info(
+        `[Memo] freeze done: slots=${slots.length} frozen=${frozen} failed=${failed} missingSvg=${missingSvg} elapsed=${Date.now() - start}ms`,
+      );
       if (Object.keys(updates).length > 0) setFrozenCharts(updates);
-      // Fire print once charts are frozen (or the attempt is done).
+
+      // Fire print regardless of freeze outcome — even if every chart
+      // failed to freeze, the live SVG is still in the DOM and browsers
+      // print it correctly. Skipping print on freeze failure was the
+      // user-visible bug ("charts don't carry across when downloading")
+      // because the print never fired at all when the freeze racing
+      // ResizeObserver produced zero captures.
       const params = new URLSearchParams(window.location.search);
       if (params.get("preview") === "1") return;
       if (printedRef.current) return;
       printedRef.current = true;
+      // Brief delay so React has a chance to render the swap (frozen
+      // <img> in place of live <svg>) before the print snapshot.
       setTimeout(() => window.print(), 400);
-    }, 900);
-    return () => { ctrl.cancelled = true; clearTimeout(t); };
+    };
+
+    run();
+    return () => { ctrl.cancelled = true; };
   }, [assistantMsg]);
 
   // All hooks must run unconditionally — derive memoised values BEFORE any
