@@ -92,6 +92,64 @@ function MemoTextSegments({ text }: { text: string }) {
 // the foreignObject corrupts the document and the load silently fails
 // (img.onerror fires with no useful message). We strip foreignObjects from
 // the clone before serialising; tooltips aren't visible in print anyway.
+/** Walk both trees in parallel and copy computed visual styles from each
+ *  source element onto its clone counterpart as inline `style` props.
+ *  Without this, a serialised+decoded SVG renders without any of the CSS-
+ *  driven fills/strokes the live page applies (Recharts bars use
+ *  currentColor + class-based fill rules; the tags-only clone has neither).
+ *
+ *  Only the properties that affect rasterised output get copied — keeping
+ *  the inline style payload small and the clone free of layout-only props
+ *  that could conflict with the standalone SVG context. */
+const SVG_VISUAL_PROPS = [
+  "fill",
+  "fill-opacity",
+  "stroke",
+  "stroke-width",
+  "stroke-opacity",
+  "stroke-dasharray",
+  "stroke-linecap",
+  "stroke-linejoin",
+  "opacity",
+  "font-family",
+  "font-size",
+  "font-weight",
+  "font-style",
+  "text-anchor",
+  "dominant-baseline",
+  "color",
+] as const;
+
+function inlineComputedStyles(source: SVGSVGElement, clone: SVGSVGElement): void {
+  const sourceEls = source.querySelectorAll<Element>("*");
+  const cloneEls = clone.querySelectorAll<Element>("*");
+  // querySelectorAll on a cloned tree returns nodes in the same document
+  // order as the source, so a positional zip works as long as we didn't
+  // mutate the clone in between (we haven't — foreignObject strip happens
+  // AFTER this in the main flow). If the lengths drift, bail safely.
+  if (sourceEls.length !== cloneEls.length) return;
+  for (let i = 0; i < sourceEls.length; i++) {
+    const src = sourceEls[i];
+    const dst = cloneEls[i] as SVGElement;
+    if (!dst || !("style" in dst)) continue;
+    const cs = window.getComputedStyle(src);
+    for (const prop of SVG_VISUAL_PROPS) {
+      const v = cs.getPropertyValue(prop);
+      if (!v || v === "none" || v === "normal" || v === "initial") continue;
+      // Skip transparent fills/strokes — they're the default for
+      // group elements and inlining them would visibly clobber children.
+      if ((prop === "fill" || prop === "stroke") && (v === "rgba(0, 0, 0, 0)" || v === "transparent")) {
+        continue;
+      }
+      try {
+        (dst.style as any).setProperty(prop, v);
+      } catch {
+        // Some properties don't exist on every SVG element type; skip.
+      }
+    }
+  }
+}
+
 async function svgToPng(svg: SVGSVGElement): Promise<string> {
   const rect = svg.getBoundingClientRect();
   const w = Math.max(rect.width || 0, 600);
@@ -103,13 +161,28 @@ async function svgToPng(svg: SVGSVGElement): Promise<string> {
   clone.setAttribute("height", String(h));
   clone.setAttribute("viewBox", `0 0 ${w} ${h}`);
 
+  // Inline computed visual styles per-element FIRST (before any tree
+  // mutation). Without this, Recharts' bars / lines / areas render as
+  // invisible in the rasterised PNG — their fills come from CSS rules +
+  // currentColor inheritance that don't survive serialisation through
+  // XMLSerializer + data: URL + <Image>. Result: the chart card renders
+  // the title + LATEST badge, but the bars/lines themselves are missing.
+  // Copying the computed fill/stroke/opacity onto each clone element via
+  // inline style makes the standalone SVG self-sufficient.
+  //
+  // Ordering matters: querySelectorAll positional zip relies on the
+  // source and clone trees having identical structure, so the strip
+  // happens AFTER this walk.
+  inlineComputedStyles(svg, clone);
+
   // Strip <foreignObject> nodes — Recharts uses them for tooltips, and
   // foreignObject HTML breaks <Image>-decoding of the serialised SVG in
   // every major browser (the load just fails). Tooltips aren't part of
   // the printable chart anyway.
   clone.querySelectorAll("foreignObject").forEach((n) => n.remove());
 
-  // Embed font + fill defaults so the rasterised image matches the memo.
+  // Belt-and-suspenders: a stylesheet for text + chart elements so
+  // anything the per-element walker missed still has a sane default.
   const styleNs = "http://www.w3.org/2000/svg";
   const styleEl = document.createElementNS(styleNs, "style");
   styleEl.textContent = `
