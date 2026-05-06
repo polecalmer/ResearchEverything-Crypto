@@ -12,6 +12,10 @@ import {
   releaseResearchSlot,
   getResearchInflight,
 } from "../research-slots";
+import {
+  isBulkExtractionRequest,
+  BULK_EXTRACTION_REFUSAL,
+} from "../bulk-extraction-policy";
 
 /**
  * Bend refreshed rows back into the shape the original chart was rendered
@@ -498,6 +502,44 @@ export function registerResearchRoutes(app: Express) {
       }
       const validModes = ["quick", "focused", "deep", "chart"];
       const mode: "quick" | "focused" | "deep" | "chart" | undefined = validModes.includes(forceMode) ? forceMode : undefined;
+
+      // Bulk-extraction policy: deterministic short-circuit before slot
+      // acquisition + agent invocation. Equivalent prompt block was
+      // removed from BASE_PROMPT — this is the replacement, cheaper +
+      // can't be talked around by the model.
+      if (isBulkExtractionRequest(message)) {
+        await storage.createMessage({
+          conversationId: session.id,
+          role: "user",
+          content: message,
+        });
+        const assistantMsg = await storage.createMessage({
+          conversationId: session.id,
+          role: "assistant",
+          content: BULK_EXTRACTION_REFUSAL,
+        });
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache, no-transform",
+          "Connection": "keep-alive",
+          "X-Accel-Buffering": "no",
+        });
+        res.flushHeaders();
+        res.write(
+          `event: done\ndata: ${JSON.stringify({
+            message: assistantMsg,
+            artifacts: [],
+            mppCost: 0,
+            toolCalls: [],
+            needsContinuation: false,
+          })}\n\n`,
+        );
+        res.end();
+        console.log(
+          `[SessionResearch] Refused bulk-extraction request (session ${session.id})`,
+        );
+        return;
+      }
 
       if (!tryAcquireResearchSlot(userId)) {
         res.setHeader("Retry-After", "10");
