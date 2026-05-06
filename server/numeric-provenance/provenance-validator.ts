@@ -45,6 +45,8 @@ export interface ProvenanceReport {
   matchedBySource: number;
   matchedByDerivation: number;
   matchedByArtifact: number;
+  matchedByMultiplicativeDerivation: number;
+  skippedForecast: number;
   unmatched: ProvenanceIssue[];
   computesAvailable: number;
   toolResultsAvailable: number;
@@ -76,8 +78,20 @@ export function checkProvenance(
   let matchedBySource = 0;
   let matchedByDerivation = 0;
   let matchedByArtifact = 0;
+  let matchedByMultiplicativeDerivation = 0;
+  let skippedForecast = 0;
 
   for (const n of numbers) {
+    // Forecast-class numbers (scenario FDVs, projections, "if/would/could"
+    // hypotheticals, time-window estimates) have no source to validate
+    // against — they're model judgment by construction. Skip them rather
+    // than redact, which was disfiguring conclusions like the
+    // "~~$430M~~ FDV target, base case" headline in the May 6 TradeXYZ
+    // memo. See isForecastContext for the trigger words.
+    if (isForecastContext(finalText, n)) {
+      skippedForecast++;
+      continue;
+    }
     const computeMatch = matchAgainstComputes(n, computes);
     if (computeMatch) {
       matchedByCompute++;
@@ -101,6 +115,19 @@ export function checkProvenance(
       matchedByDerivation++;
       continue;
     }
+    // Multiplicative derivation match: catches the FDV / discount /
+    // normalisation class the agent emits constantly:
+    //   "$11.4M ARR × 15x P/S = $170M FDV"
+    //   "$540M × 0.8 (20% discount) = $430M target"
+    //   "$25.96M × 7.9x normalised = $200M"
+    //   "500K HYPE × $40 = $20M"
+    // Both operands are present in the prose / artifacts / tool results;
+    // the validator just wasn't trying multiplication. Without this,
+    // these legitimate derivations were getting strikethrough'd.
+    if (matchAgainstMultiplicativeDerivation(n, numbers, artifactNumbers, computes, toolResults, finalText)) {
+      matchedByMultiplicativeDerivation++;
+      continue;
+    }
     unmatched.push({
       number: n,
       reason: "no_match",
@@ -110,16 +137,51 @@ export function checkProvenance(
 
   return {
     totalNumbers: numbers.length,
-    matched: matchedByCompute + matchedBySource + matchedByDerivation + matchedByArtifact,
+    matched:
+      matchedByCompute +
+      matchedBySource +
+      matchedByDerivation +
+      matchedByArtifact +
+      matchedByMultiplicativeDerivation,
     matchedByCompute,
     matchedBySource,
     matchedByDerivation,
     matchedByArtifact,
+    matchedByMultiplicativeDerivation,
+    skippedForecast,
     unmatched,
     computesAvailable: computes.length,
     toolResultsAvailable: toolResults.length,
     artifactNumbersAvailable: artifactNumbers.length,
   };
+}
+
+/* ──────────── forecast-context skip ──────────── */
+
+/** A wider context window than the 80-char one stored on ProseNumber.
+ *  Forecast trigger words can sit a sentence or two away from the number
+ *  ("If a token launches… → $540M FDV at 15x"); the wider window catches
+ *  these without inflating the per-number context every match path uses. */
+const FORECAST_CONTEXT_RADIUS = 250;
+
+const FORECAST_RE = /\b(?:implied|imply|forecast(?:ed)?|projected?|projection|target|scenario|hypothetical|hypothetically|if|would|could|might|estimate[ds]?|estimating|assume[ds]?|assuming|range|expected|expecting|likely|approximat(?:e|ely)|around|roughly|about|TBD|unknown|unannounced|unknowable|prospective)\b/i;
+
+/** Conclusion-level forecast headers that imply every number inside is
+ *  forward-looking. If a number sits inside a "Bull case" / "Bear case" /
+ *  "Scenario" / "If a token launches" block, treat it as forecast. */
+const FORECAST_HEADER_RE = /(?:^|\n)\s*#{1,6}?\s*(?:bull|bear|base|scenario|projection|forecast|valuation|catalyst|if\s+(?:a\s+token|growth|the))/i;
+
+function isForecastContext(text: string, n: ProseNumber): boolean {
+  const start = Math.max(0, n.index - FORECAST_CONTEXT_RADIUS);
+  const end = Math.min(text.length, n.index + n.raw.length + FORECAST_CONTEXT_RADIUS);
+  const wide = text.slice(start, end);
+  if (FORECAST_RE.test(wide)) return true;
+  // Also check the preceding ~600 chars for a forecast header so any
+  // number inside a Bull/Bear/Scenario block inherits the context even
+  // if its own paragraph doesn't carry a trigger word.
+  const headerWindow = text.slice(Math.max(0, n.index - 600), n.index);
+  if (FORECAST_HEADER_RE.test(headerWindow)) return true;
+  return false;
 }
 
 /* ───────────────────── extractors ───────────────────── */
@@ -368,6 +430,131 @@ function matchAgainstDerivation(n: ProseNumber, all: ProseNumber[]): boolean {
     }
   }
   return false;
+}
+
+/** Multiplicative derivation matcher.
+ *
+ *  The agent emits a TON of numbers that are products of two other
+ *  numbers already grounded by compute / artifact / tool / prose:
+ *    "$11.4M ARR × 15x P/S = $170M FDV"
+ *    "$540M × 0.8 (20% governance discount) = $430M target"
+ *    "$25.96M all-time fees × 7.9x normalised = $200M+"
+ *    "500K HYPE × $40 = $20M staking commitment"
+ *  The previous validator only tried division (a/b), so these all fell
+ *  through and got redacted as "unprovenanced", disfiguring the agent's
+ *  own conclusions.
+ *
+ *  Approach: build a pool of grounded operands (nearby prose + artifact
+ *  numbers + compute results + tool tokens). For each operand `a`,
+ *  compute the multiplier `m = n.value / a` that would produce n. If m
+ *  itself appears in the operand pool (within tolerance) AND m is in a
+ *  plausible range (0.05 – 200, covering the full P/S / fee bps / %
+ *  discount / normalisation-factor space), accept the derivation.
+ *
+ *  Plausible-range gate is what keeps this from being too permissive —
+ *  a random pair (a=5, b=11.4M) doesn't accidentally validate every
+ *  number around 57M because m=5 is searched against b=11.4M, which is
+ *  outside the multiplier range.
+ *
+ *  Currency / "number" formats only — percent / ratio go through the
+ *  existing ratio-based matchAgainstDerivation. */
+function matchAgainstMultiplicativeDerivation(
+  n: ProseNumber,
+  all: ProseNumber[],
+  artifactNumbers: number[],
+  computes: ComputeRecord[],
+  toolResults: ToolResultRecord[],
+  fullText: string,
+): boolean {
+  if (n.format !== "currency" && n.format !== "number") return false;
+  if (n.value === 0) return false;
+
+  const PROXIMITY_RADIUS = 1500;
+  const LOCAL_BARE_RADIUS = 250;
+  const MULTIPLIER_MIN = 0.05;
+  const MULTIPLIER_MAX = 200;
+  const TOLERANCE = 0.01; // 1% — tighter than approxEqual since we're hunting two values
+
+  const proseOperands = all
+    .filter((p) => p !== n && Math.abs(p.index - n.index) < PROXIMITY_RADIUS)
+    .map((p) => p.value);
+
+  // Local bare-number scan: pulls every plausible multiplier-class value
+  // (small integers / decimals without $/K/M/B suffixes) from a window
+  // around n. extractProseNumbers ignores these because they're not
+  // magnitude-suffixed — but they're exactly what most agent
+  // multiplications use ("15x P/S", "0.8 (20% discount)", "7.9x
+  // normalised"). Bounded to (0, 1000) so we don't pull in unrelated
+  // big-but-suffixless numbers like phone digits or year prefixes.
+  const localBareMultipliers = collectLocalBareNumbers(
+    fullText,
+    n.index,
+    n.raw.length,
+    LOCAL_BARE_RADIUS,
+  );
+
+  // Combine into a deduped pool. Order doesn't matter — we'll search both
+  // directions for every pair.
+  const pool: number[] = [];
+  const seen = new Set<number>();
+  const push = (v: number) => {
+    if (!Number.isFinite(v)) return;
+    if (seen.has(v)) return;
+    seen.add(v);
+    pool.push(v);
+  };
+  for (const v of proseOperands) push(v);
+  for (const v of artifactNumbers) push(v);
+  for (const c of computes) push(c.value);
+  for (const r of toolResults) {
+    for (const v of r.numericTokens) push(v);
+  }
+  for (const v of localBareMultipliers) push(v);
+
+  for (const a of pool) {
+    if (a === 0 || !Number.isFinite(a) || a === n.value) continue;
+    const m = n.value / a;
+    if (!Number.isFinite(m)) continue;
+    const absM = Math.abs(m);
+    if (absM < MULTIPLIER_MIN || absM > MULTIPLIER_MAX) continue;
+    // Does some `b` in the pool ≈ m? Skip b === a so a single operand
+    // can't validate itself via m = n/a × 1.
+    for (const b of pool) {
+      if (!Number.isFinite(b) || b === 0 || b === a) continue;
+      const denom = Math.max(Math.abs(b), Math.abs(m));
+      if (denom === 0) continue;
+      if (Math.abs(b - m) / denom <= TOLERANCE) return true;
+    }
+  }
+  return false;
+}
+
+/** Pull bare numeric tokens (no $/K/M/B suffix, just plain digits or
+ *  decimals) from a window around an index. Bounded magnitude so we
+ *  catch multipliers (`15`, `0.8`, `7.9`, `100`) but not unrelated
+ *  big numbers in the same paragraph. */
+function collectLocalBareNumbers(
+  text: string,
+  index: number,
+  rawLen: number,
+  radius: number,
+): number[] {
+  const start = Math.max(0, index - radius);
+  const end = Math.min(text.length, index + rawLen + radius);
+  const window = text.slice(start, end);
+  const out: number[] = [];
+  // Match a decimal, NOT preceded by a word char or $/% (so we don't
+  // grab the integer portion of "$11.4M" or "20%"). Trailing boundary
+  // can be punctuation, whitespace, "x", or end.
+  const re = /(?<![\w$%.])(\d+(?:\.\d+)?)(?=[\sx,;:.)\]]|$)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(window)) !== null) {
+    const v = Number(m[1]);
+    if (!Number.isFinite(v)) continue;
+    if (v <= 0 || v >= 1000) continue;
+    out.push(v);
+  }
+  return out;
 }
 
 function collectClosest(
