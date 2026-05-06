@@ -64,8 +64,15 @@ export interface AnthropicRawResponse {
 // CHANNEL_DEPOSIT_DEFAULT_CAP per channel if anything goes sideways. Benchmark
 // runs need much more headroom (a single full-cycle can cost $50+) and
 // opt in via setBenchmarkMode(true) — they get the full wallet balance.
+//
+// $35 was tight for deep-research sessions (multi-pass synthesis + many
+// tool calls) — a single session could exhaust the channel before the
+// wrap-up call ran, surfacing as "14 sources, need one more pass" or
+// the "wallet needs to be topped up" insufficient-funds path. $60
+// gives ~70% headroom on a typical deep run. Env-overridable via
+// MPP_DEPOSIT_CAP_USD so future tuning doesn't need a code edit.
 const CHANNEL_DEPOSIT_MIN = 2.0;            // never open a channel smaller than this
-const CHANNEL_DEPOSIT_DEFAULT_CAP = 35;     // app-session cap
+const CHANNEL_DEPOSIT_DEFAULT_CAP = Number(process.env.MPP_DEPOSIT_CAP_USD || "60");
 const CHANNEL_BALANCE_RESERVE = 0.5;        // leave a small reserve (gas / dust)
 const SHUTDOWN_TIMEOUT_MS = 15000;
 
