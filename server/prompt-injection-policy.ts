@@ -1,0 +1,100 @@
+// Deterministic short-circuit for prompt-extraction / instruction-
+// override / jailbreak attempts. Replaces the 700+ char "OPERATIONAL
+// SECURITY" meta-refusal block deleted from BASE_PROMPT — same
+// protective intent, zero prompt cost, harder to talk around.
+//
+// Defence-in-depth: this is layer 1 (input router). Layer 2 is a
+// single-sentence prompt hint kept in BASE_PROMPT. Layer 3 (output
+// filter for leaked prompt content) is deferred.
+//
+// Conservative on purpose: false-positives on legitimate research
+// prompts are worse than false-negatives. Legitimate phrasings like
+// "ignore the previous quarter's results" or "pretend the FED cuts
+// rates" must NOT match. Patterns require strong override signals
+// (e.g. "ignore" + "instructions/prompt", not just "ignore").
+
+export const PROMPT_INJECTION_REFUSAL =
+  "I'm a research assistant. I can't share my configuration or change my behaviour mid-session. Tell me what you're researching and I'll get to work.";
+
+interface DetectionPattern {
+  re: RegExp;
+  tag: string;
+}
+
+// Pattern order matters — first match wins, so the more specific verb-
+// based patterns are checked before the generic "direct-mention" catch-all.
+// That way logs/Sentry get the most informative tag for monitoring.
+const PATTERNS: ReadonlyArray<DetectionPattern> = [
+  // Extraction: reveal / dump / repeat / output the prompt or instructions.
+  // Optional "me/us" filler between the verb and the possessive so
+  // "Show me your instructions" matches as well as "Show your instructions".
+  {
+    re: /\b(?:reveal|show|display|print|output|tell|repeat|dump|disclose|expose)\s+(?:(?:me|us)\s+)?(?:your|the)\s+(?:system\s+prompt|instructions?|prompt|directives?|rules?|guidelines?|configuration)\b/i,
+    tag: "extraction",
+  },
+  // Repeat/echo of prior instructions ("repeat the above", "echo your first message").
+  {
+    re: /\b(?:repeat|echo|output|return|print)\s+(?:the\s+)?(?:above|prior|previous|first|original|initial)\s+(?:message|text|content|instructions?|words?|lines?|prompt)\b/i,
+    tag: "echo-attack",
+  },
+  // Translate/paraphrase as extraction vector. Connector allows
+  // "the / your / my" before the temporal/extraction noun ("Summarize
+  // your earlier prompt").
+  {
+    re: /\b(?:translate|paraphrase|summari[sz]e|rephrase|reword)\s+(?:(?:the|your|my)\s+)?(?:above|previous|prior|earlier|original|initial|system)\s+(?:instructions?|prompt|system|message|context)\b/i,
+    tag: "translate-extract",
+  },
+  // Fresh instructions injection.
+  {
+    re: /\bnew\s+(?:instructions?|directives?|rules?|guidelines?|prompt)\s*:/i,
+    tag: "instructions-injection",
+  },
+  // Instruction override: ignore/disregard/forget + (previous/prior/above) + instruction-class noun.
+  {
+    re: /\b(?:ignore|disregard|forget|override|bypass)\s+(?:the\s+|your\s+|all\s+|any\s+)?(?:previous|prior|above|earlier|preceding|original|initial)\s+(?:instructions?|prompt|message|context|system|rules?|directives?|guidelines?)\b/i,
+    tag: "override",
+  },
+  // Behaviour-override openers ("from now on, you act as", "from this point forward").
+  {
+    re: /\bfrom\s+(?:now\s+on|this\s+(?:point|moment)\s+(?:on|forward)),?\s+(?:you|act|pretend|behave|respond|reply)\b/i,
+    tag: "behaviour-override",
+  },
+  // Known jailbreak markers.
+  {
+    re: /\b(?:DAN|developer\s+mode|jailbreak|sudo\s+mode|root\s+access|admin\s+mode|debug\s+mode|safety\s+(?:off|disabled)|unlocked\s+mode|god\s+mode)\b/i,
+    tag: "jailbreak-marker",
+  },
+  // Capability fishing — different from a research question.
+  {
+    re: /\bwhat\s+(?:tools|capabilities|functions|apis?)\s+(?:do|can)\s+you\s+(?:have|access|use|call)\b/i,
+    tag: "capability-fishing",
+  },
+  // Tool inventory probing.
+  {
+    re: /\b(?:list|show\s+me|tell\s+me)\s+(?:your|the\s+available)\s+(?:tools|capabilities|functions|apis?)\b/i,
+    tag: "tool-inventory-probe",
+  },
+  // Direct mentions of the prompt / instructions — catch-all for cases
+  // the verb-based patterns missed.
+  {
+    re: /\b(?:system\s+prompt|your\s+(?:instructions?|system\s+prompt|configuration|prompt|rules|guidelines)|the\s+prompt\s+(?:above|that\s+came\s+before))\b/i,
+    tag: "direct-mention",
+  },
+];
+
+export interface PromptInjectionDetection {
+  matched: boolean;
+  /** Stable tag for the matched pattern — used for logging / Sentry
+   *  grouping so attack-pattern frequency can be tracked. */
+  tag?: string;
+}
+
+export function detectPromptInjection(message: string): PromptInjectionDetection {
+  if (!message) return { matched: false };
+  const m = message.trim();
+  if (m.length === 0) return { matched: false };
+  for (const p of PATTERNS) {
+    if (p.re.test(m)) return { matched: true, tag: p.tag };
+  }
+  return { matched: false };
+}

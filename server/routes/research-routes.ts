@@ -16,6 +16,12 @@ import {
   isBulkExtractionRequest,
   BULK_EXTRACTION_REFUSAL,
 } from "../bulk-extraction-policy";
+import {
+  detectPromptInjection,
+  PROMPT_INJECTION_REFUSAL,
+} from "../prompt-injection-policy";
+import { Sentry, sentryEnabled } from "../sentry";
+import { logger } from "../logger";
 
 /**
  * Bend refreshed rows back into the shape the original chart was rendered
@@ -502,6 +508,56 @@ export function registerResearchRoutes(app: Express) {
       }
       const validModes = ["quick", "focused", "deep", "chart"];
       const mode: "quick" | "focused" | "deep" | "chart" | undefined = validModes.includes(forceMode) ? forceMode : undefined;
+
+      // Prompt-injection policy: deterministic short-circuit for
+      // prompt-extraction / instruction-override / jailbreak attempts.
+      // Replaces the OPERATIONAL SECURITY meta-refusal block deleted
+      // from BASE_PROMPT — same protective intent, zero prompt cost,
+      // logged + Sentry-captured for attack-pattern monitoring.
+      const injection = detectPromptInjection(message);
+      if (injection.matched) {
+        logger.warn(
+          { tag: injection.tag, sessionId: session.id, userId },
+          "prompt-injection.detected",
+        );
+        if (sentryEnabled) {
+          Sentry.captureMessage(`Prompt-injection attempt: ${injection.tag}`, {
+            level: "warning",
+            tags: {
+              policy: "prompt-injection",
+              detection_tag: injection.tag || "unknown",
+            },
+          });
+        }
+        await storage.createMessage({
+          conversationId: session.id,
+          role: "user",
+          content: message,
+        });
+        const assistantMsg = await storage.createMessage({
+          conversationId: session.id,
+          role: "assistant",
+          content: PROMPT_INJECTION_REFUSAL,
+        });
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache, no-transform",
+          "Connection": "keep-alive",
+          "X-Accel-Buffering": "no",
+        });
+        res.flushHeaders();
+        res.write(
+          `event: done\ndata: ${JSON.stringify({
+            message: assistantMsg,
+            artifacts: [],
+            mppCost: 0,
+            toolCalls: [],
+            needsContinuation: false,
+          })}\n\n`,
+        );
+        res.end();
+        return;
+      }
 
       // Bulk-extraction policy: deterministic short-circuit before slot
       // acquisition + agent invocation. Equivalent prompt block was
