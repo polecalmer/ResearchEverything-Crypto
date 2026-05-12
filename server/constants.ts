@@ -11,7 +11,11 @@ export const TOKENS = {
 
 export const MODELS = {
   OPUS: "claude-opus-4-7",
-  SONNET: "claude-sonnet-4-6",
+  // Sonnet-tier work routes to Opus 4.6 — quality bump for the medium-tier
+  // calls (agent main loop, chart extraction, chart shaper, reflection
+  // intermediate rounds). Costs ~5× more than Sonnet per token; deliberate.
+  // Revert to "claude-sonnet-4-6" if costs need to come back down.
+  SONNET: "claude-opus-4-6",
   HAIKU: "claude-haiku-4-5",
 } as const;
 
