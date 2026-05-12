@@ -829,7 +829,34 @@ export function registerResearchRoutes(app: Express) {
           const existingFacts = (existing.knowledge as any[] || []);
           const newContradictions = [...(existing.contradictions as any[] || [])];
 
-          const newFacts = (result.brainUpdates.facts || []).reduce((acc: any[], f: any) => {
+          // Mine the assistant's final text for architectural / disambiguation
+          // facts the agent's own brain-updates emitter missed. Closes the
+          // ingestion gap that produced the TradeXYZ/TRADE incident: agent
+          // prose said "TRADE on CoinGecko is an unrelated token" but no
+          // brain fact captured that, so the next session repeated the
+          // confusion. Treated identically to agent-emitted facts from here
+          // — dedup, merge, embed, sync.
+          let extractedDisambiguations: any[] = [];
+          try {
+            const { extractDisambiguationFacts } = await import("../brain-disambiguation");
+            extractedDisambiguations = extractDisambiguationFacts(result.content || "");
+            if (extractedDisambiguations.length > 0) {
+              console.log(
+                `[SessionResearch] disambiguation extractor: ${extractedDisambiguations.length} new architectural facts`,
+              );
+            }
+          } catch (err: any) {
+            console.warn(
+              `[SessionResearch] disambiguation extractor failed (non-fatal): ${err?.message}`,
+            );
+          }
+
+          const allIncomingFacts = [
+            ...(result.brainUpdates.facts || []),
+            ...extractedDisambiguations,
+          ];
+
+          const newFacts = allIncomingFacts.reduce((acc: any[], f: any) => {
             const exactDupe = existingFacts.find((ef: any) =>
               ef.topic === f.topic && ef.fact === f.fact
             );

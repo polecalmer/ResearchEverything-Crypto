@@ -91,10 +91,23 @@ const COINGECKO_TICKER_TO_ID: Record<string, string> = {
   hnt: "helium",
 };
 
+// Search-resolved tickers (NOT in the hardcoded TICKER_TO_ID map) below
+// this market-cap threshold are refused. The TradeXYZ/TRADE incident
+// (May 12 2026) had CoinGecko's search hot-match TradeXYZ → a $4M-FDV
+// unrelated token named "polytrade"; that price data then poisoned an
+// entire deep-research run's valuation tables. A protocol with real
+// economic substance has at least tens of millions in mcap; a ticker
+// collision with a micro-cap is almost certainly the wrong match.
+// Hardcoded-map entries (HYPE, ETH, BTC, etc.) skip this check — they
+// were explicitly curated.
+const MIN_SEARCH_RESOLVED_MCAP_USD = 50_000_000;
+
 async function fetchViaCoinGeckoId(
   ticker: string,
 ): Promise<{ data: any; mppCost: number }> {
-  let coinId = COINGECKO_TICKER_TO_ID[ticker.toLowerCase()];
+  const hardcodedHit = COINGECKO_TICKER_TO_ID[ticker.toLowerCase()];
+  let coinId = hardcodedHit;
+  let wasSearchResolved = false;
   if (!coinId) {
     try {
       const searchUrl = `https://api.coingecko.com/api/v3/search?query=${encodeURIComponent(ticker)}`;
@@ -104,6 +117,7 @@ async function fetchViaCoinGeckoId(
         const match = searchData.coins?.find((c: any) => c.symbol?.toLowerCase() === ticker.toLowerCase());
         if (match?.id) {
           coinId = match.id;
+          wasSearchResolved = true;
           console.log(`[CoinGecko] Resolved ticker ${ticker} → ${coinId} via search`);
         }
       }
@@ -127,6 +141,18 @@ async function fetchViaCoinGeckoId(
   const market = json.market_data;
   if (!market) {
     return { data: null, mppCost: 0 };
+  }
+
+  // Sanity check: refuse search-resolved micro-cap matches. See
+  // MIN_SEARCH_RESOLVED_MCAP_USD comment.
+  if (wasSearchResolved) {
+    const mcap = market.market_cap?.usd;
+    if (typeof mcap === "number" && Number.isFinite(mcap) && mcap < MIN_SEARCH_RESOLVED_MCAP_USD) {
+      console.warn(
+        `[CoinGecko] Refused search-resolved ticker ${ticker} → ${coinId}: market cap $${(mcap / 1e6).toFixed(1)}M below sanity threshold $${MIN_SEARCH_RESOLVED_MCAP_USD / 1e6}M. Likely a ticker collision with an unrelated token.`,
+      );
+      return { data: null, mppCost: 0 };
+    }
   }
 
   return {
