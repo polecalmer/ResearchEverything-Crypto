@@ -4127,7 +4127,13 @@ ${canonicalBlock}${disambiguationBlock}`
   const focusedTokens = isChart ? 8000 : planNeedsCode ? 8000 : 6000;
   const MAX_TOOL_ROUNDS = mode === "quick" ? 3
     : mode === "focused" ? focusedRounds
-    : mode === "chart" ? (npEnabled ? (hasOutputReqs ? 12 : 7) : 5)
+    // Chart-mode caps: 12 when output-requirements are loaded (financial
+    // statements etc. that need many cross-source pulls), 10 otherwise.
+    // Was 7 — bumped because Opus-tier models deliberate more before
+    // synthesising and were hitting the cap before producing final text,
+    // forcing the no-tools wrap-up fallback. With Opus 4.6 on the medium
+    // tier this became the common case rather than the exception.
+    : mode === "chart" ? (npEnabled ? (hasOutputReqs ? 12 : 10) : 5)
     : 20;
   const maxTokens = mode === "quick" ? 2000 : mode === "focused" ? focusedTokens : mode === "chart" ? 8000 : 16000;
   // Chart $35 (was $8): financial statements with compute() + cross-source
