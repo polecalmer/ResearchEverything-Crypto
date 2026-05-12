@@ -28,3 +28,9 @@ export const EXTERNAL_URLS = {
   TEMPO_RPC: "https://rpc.mainnet.tempo.xyz",
   TEMPO_EXPLORER: "https://explore.mainnet.tempo.xyz",
 } as const;
+
+// Direct OpenRouter endpoint (not via MPP). Used when LLM_PROVIDER=openrouter
+// — see server/openrouter-client.ts. OpenRouter speaks OpenAI-compatible chat
+// completions; the openrouter-client wrapper translates to/from Anthropic
+// shape so call sites don't change.
+export const OPENROUTER_DIRECT_URL = "https://openrouter.ai/api/v1/chat/completions";

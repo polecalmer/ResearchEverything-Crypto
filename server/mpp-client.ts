@@ -583,6 +583,15 @@ export async function callAnthropicServerHeavy(request: AnthropicRequest): Promi
 }
 
 export async function callAnthropicRaw(request: any): Promise<AnthropicRawResponse> {
+  // Provider dispatch — LLM_PROVIDER=openrouter routes every call through
+  // server/openrouter-client.ts, which speaks the SAME AnthropicRawResponse
+  // contract via shape translation. Default stays "mpp" so unflipped envs
+  // behave identically. Safe to flip back at any moment.
+  if (process.env.LLM_PROVIDER === "openrouter") {
+    const { callAnthropicViaOpenRouter } = await import("./openrouter-client");
+    return callAnthropicViaOpenRouter(request);
+  }
+
   if (isShuttingDown) {
     throw new Error("Server is shutting down — please retry in a moment.");
   }
@@ -677,6 +686,12 @@ export async function callAnthropicRaw(request: any): Promise<AnthropicRawRespon
 }
 
 export async function callAnthropicRawStreaming(request: any): Promise<AnthropicRawResponse> {
+  // Provider dispatch — see comment in callAnthropicRaw.
+  if (process.env.LLM_PROVIDER === "openrouter") {
+    const { callAnthropicStreamingViaOpenRouter } = await import("./openrouter-client");
+    return callAnthropicStreamingViaOpenRouter(request);
+  }
+
   if (isShuttingDown) {
     throw new Error("Server is shutting down — please retry in a moment.");
   }
