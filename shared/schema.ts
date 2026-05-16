@@ -958,6 +958,51 @@ export const brainEntities = pgTable("brain_entities", {
   userEntityUnique: uniqueIndex("brain_entities_user_entity_unique").on(table.userId, table.entityName),
 }));
 
+/**
+ * synthesis_observations — Self-learning substrate for memo OUTPUT structure.
+ *
+ * Mirrors hermes' `data_source_facts` accumulation pattern but applied to the
+ * synthesis output itself. Every memo synthesis fires a structural-pattern
+ * extractor over the final text and writes one row. Bootstrap rows are
+ * inserted from analyst_documents (the curated HRC corpus — externally
+ * endorsed "good" memos). Later, the correlator (Phase 3) joins these rows
+ * against memo outcome signals (save / download / regenerate / correction)
+ * to derive which patterns predict positive outcomes — and promotes those to
+ * synthesis_discipline rules.
+ *
+ * Design notes:
+ *  - patterns is a flat string[] for fast filtering ("which memos used
+ *    a scenario_lattice?"). patternsDetail holds the heuristic evidence
+ *    (matched snippet, row count, var names) for audit + Phase-3 weighting.
+ *  - provenance distinguishes runtime memos from bootstrap rows so the
+ *    correlator can weight them differently.
+ *  - subjectEntities is denormalised so we can correlate patterns to
+ *    subject-type (token vs sector vs macro) without re-extracting.
+ */
+export const synthesisObservations = pgTable("synthesis_observations", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  sessionId: text("session_id"),
+  messageId: text("message_id"),
+  userId: text("user_id").notNull().default("default"),
+  mode: text("mode"),                                       // deep | focused | chart | quick
+  playbookId: text("playbook_id"),
+  memoChars: integer("memo_chars").notNull().default(0),
+  subjectEntities: text("subject_entities").array().notNull().default(sql`'{}'::text[]`),
+  patterns: text("patterns").array().notNull().default(sql`'{}'::text[]`),
+  patternsDetail: jsonb("patterns_detail").notNull().default(sql`'{}'::jsonb`),
+  provenance: text("provenance").notNull(),                  // 'sessions:runtime' | 'analyst-corpus:bootstrap' | 'manual'
+  provenanceRef: text("provenance_ref"),                     // session_id or analyst_documents.id
+  observedAt: timestamp("observed_at").notNull().defaultNow(),
+}, (table) => ({
+  patternsIdx: index("synthesis_observations_patterns_idx").using("gin", table.patterns),
+  provenanceIdx: index("synthesis_observations_provenance_idx").on(table.provenance),
+  sessionIdx: index("synthesis_observations_session_idx").on(table.sessionId),
+  observedAtIdx: index("synthesis_observations_observed_at_idx").on(table.observedAt),
+}));
+
+export type SynthesisObservation = typeof synthesisObservations.$inferSelect;
+export type InsertSynthesisObservation = typeof synthesisObservations.$inferInsert;
+
 export type BrainFactRow = typeof brainFacts.$inferSelect;
 export type BrainEntityRow = typeof brainEntities.$inferSelect;
 

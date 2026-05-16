@@ -776,6 +776,29 @@ export function registerResearchRoutes(app: Express) {
         kind: result.mode === "deep" ? "deep_model" : undefined,
       });
 
+      // Self-learning Phase 1: observe the structural patterns this memo
+      // emitted. Pure observation — no rule promotion. Phase 3 will join
+      // these against outcome signals (save / download / regenerate / correction)
+      // to derive synthesis_discipline rules via correlation. Fire-and-forget;
+      // a failed observation never blocks user-visible work.
+      import("../synthesis-observer")
+        .then((m) =>
+          m.observeSynthesisOutput({
+            sessionId: session.id,
+            messageId: assistantMsg.id,
+            userId: req.user!.id,
+            mode: result.mode,
+            playbookId: result.plan?.playbook_used ?? null,
+            memoBody: result.content,
+            subjectEntities: Object.keys(result.brainUpdates?.entities || {}).slice(0, 20),
+            provenance: "sessions:runtime",
+            provenanceRef: session.id,
+          }),
+        )
+        .catch((err) =>
+          console.warn(`[SynthesisObserver] runtime observation failed: ${err?.message}`),
+        );
+
       // Drain any queued correction extractions for this conversation. Fires
       // only when there's a pending row (set by the storage detector when the
       // user's prior message contained corrective language). Best-effort.
