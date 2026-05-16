@@ -47,25 +47,35 @@ const INPUTS: Inputs = {
   sessionsPerUserPerDay: 5,
   daysPerMonth: 30,
 
-  // Current state (May 12) — Opus 4.6 on Sonnet tier, Opus 4.7 on Opus tier.
-  // Comment line shows what "Sonnet 4.6 on medium tier" would look like.
+  // Current state (May 16) — Opus 4.7 on BOTH medium and heavy tier.
+  // Observed costs from real sessions:
+  //   - Deep research (TradeXYZ, multi-perspective debate, ~17 rounds): $5-10
+  //   - Chart-building (10 rounds + Opus wrap-up): $2-3
+  //   - Quick lookup: $0.20-0.50
+  // The medium-tier swap (Sonnet 4.6 → Opus 4.7) roughly doubled the
+  // per-session cost. Commented values show what each session would cost
+  // with Sonnet 4.6 on the medium tier (the original config).
   mix: {
-    deep:    { pct: 0.20, costPerSession: 4.00 /* sonnet-mid: 2.20 */ },
-    focused: { pct: 0.50, costPerSession: 1.50 /* sonnet-mid: 0.80 */ },
-    quick:   { pct: 0.30, costPerSession: 0.20 /* sonnet-mid: 0.15 */ },
+    deep:    { pct: 0.20, costPerSession: 7.50 /* sonnet-mid: 3.50 */ },
+    focused: { pct: 0.50, costPerSession: 2.50 /* sonnet-mid: 1.20 */ },
+    quick:   { pct: 0.30, costPerSession: 0.35 /* sonnet-mid: 0.20 */ },
   },
 
   awsFixedPerMonth: 130,
   externalApisPerMonth: 820, // 300 + 390 + 130
   miscPerMonth: 30,
 
+  // Pro-only product: single paid tier, no Analyst/Trial/Free downsells
+  // (Free below kept only as a "what if a user paid nothing" baseline).
+  // Price points + cap variants you can sensitivity-analyse the single
+  // Pro tier across. Pick the row that looks right.
   priceTiers: [
-    { name: "Free", pricePerMonth: 0 },
-    { name: "Trial $99", pricePerMonth: 99, sessionCap: 20 },
-    { name: "Analyst $249", pricePerMonth: 249, sessionCap: 60 },
-    { name: "Pro $499", pricePerMonth: 499, sessionCap: 150 },
-    { name: "Pro $799", pricePerMonth: 799, sessionCap: 200 },
-    { name: "Fund $2000", pricePerMonth: 2000, sessionCap: undefined },
+    { name: "Free (no pay)",      pricePerMonth: 0,    sessionCap: 5   },
+    { name: "Pro $399 / 200",     pricePerMonth: 399,  sessionCap: 200 },
+    { name: "Pro $499 / 250",     pricePerMonth: 499,  sessionCap: 250 },
+    { name: "Pro $599 / 300",     pricePerMonth: 599,  sessionCap: 300 },
+    { name: "Pro $799 / unlim",   pricePerMonth: 799,  sessionCap: undefined },
+    { name: "Pro $999 / unlim",   pricePerMonth: 999,  sessionCap: undefined },
   ],
 };
 
