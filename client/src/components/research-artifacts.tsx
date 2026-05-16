@@ -411,6 +411,16 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
     if (isDate) {
       try { return format(toDate(val), "MMM d, yyyy"); } catch { return val; }
     }
+    if (isCategoricalX) return String(val ?? "");
+    // Apply the X-axis format to the tooltip header. Without this, a
+    // chart with X-axis = T-bill yield percentages rendered tooltip
+    // headers like "4" instead of "4.00%" — the user couldn't tell at
+    // a glance which X-value the tooltip was showing.
+    const xFmt = inferFormat(xAxis?.dataKey, xAxis?.label, xAxis?.format);
+    if (xFmt) {
+      const labelPrefix = xAxis?.label ? `${xAxis.label}: ` : "";
+      return `${labelPrefix}${formatValue(val, xFmt)}`;
+    }
     return String(val);
   };
 
@@ -1283,6 +1293,24 @@ export function SourcesBlock({ artifact }: { artifact: Artifact }) {
   );
 }
 
+/** Typographic polish: straight quotes → curly, double-hyphen → em-dash,
+ *  triple-dot → ellipsis. Operates only on plain-text spans (not inside
+ *  bold/code/strike segments, where the raw character is what was
+ *  intended). Mirrors the rendering rules pro publication typesetters
+ *  apply by default. */
+function applyTypography(s: string): string {
+  let out = s;
+  // Em-dash: " -- " → " — " (also "word--word" inline)
+  out = out.replace(/(\s)--(\s)/g, "$1—$2").replace(/(\w)--(\w)/g, "$1—$2");
+  // Ellipsis
+  out = out.replace(/\.{3,}/g, "…");
+  // Curly double quotes — opening if preceded by start/space/punct, else closing
+  out = out.replace(/(^|[\s\(\[\{])"/g, "$1“").replace(/"/g, "”");
+  // Curly single quotes & apostrophes
+  out = out.replace(/(^|[\s\(\[\{])'/g, "$1‘").replace(/'/g, "’");
+  return out;
+}
+
 function InlineFormatted({ text }: { text: string }) {
   // Strikethrough is used by the numeric-provenance layer to mark prose
   // numbers the validator could not trace. The original value stays
@@ -1296,7 +1324,9 @@ function InlineFormatted({ text }: { text: string }) {
         if (part.startsWith("**") && part.endsWith("**"))
           return <strong key={j} className="font-semibold text-foreground">{part.slice(2, -2)}</strong>;
         if (part.startsWith("`") && part.endsWith("`"))
-          return <code key={j} className="bg-muted/60 px-1.5 py-0.5 rounded text-xs font-mono">{part.slice(1, -1)}</code>;
+          // Inline code styling is handled in .prose-surface code CSS so
+          // we don't need utility classes here.
+          return <code key={j}>{part.slice(1, -1)}</code>;
         if (part.startsWith("~~") && part.endsWith("~~"))
           return (
             <s
@@ -1307,7 +1337,7 @@ function InlineFormatted({ text }: { text: string }) {
               {part.slice(2, -2)}
             </s>
           );
-        return <span key={j}>{part}</span>;
+        return <span key={j}>{applyTypography(part)}</span>;
       })}
     </>
   );
@@ -1349,80 +1379,248 @@ function MarkdownTable({ rows }: { rows: string[] }) {
   );
 }
 
+/**
+ * Markdown renderer with proper paragraph grouping + native list semantics.
+ *
+ * Previous implementation emitted ONE block-level element per line, which:
+ *   1. broke text selection (selection extended through the `space-y-*`
+ *      gaps between sibling blocks — the "highlighting extends beyond
+ *      words/lines" complaint)
+ *   2. broke proper paragraph semantics (every line a separate <p>)
+ *   3. used a flex-bullet hack for list items that made selection drag
+ *      through the bullet glyph + gap
+ *
+ * Current implementation groups lines into BLOCKS by type:
+ *   - consecutive plain-text lines → ONE <p> with line breaks preserved
+ *   - consecutive bullet lines → ONE <ul> with native <li>
+ *   - tables, headings, hr, blockquote — as before but rendered atomically
+ *
+ * This matches proper markdown semantics (CommonMark: blank line ends
+ * paragraph; consecutive bullets form one list) and lets the browser's
+ * native selection behavior work correctly across paragraph and list
+ * boundaries.
+ */
 export function MarkdownText({ text }: { text: string }) {
   const lines = text.split("\n");
 
-  const blocks: Array<{ type: "line"; index: number; content: string } | { type: "table"; index: number; rows: string[] }> = [];
+  type Block =
+    | { type: "p"; lines: string[] }
+    | { type: "ul"; items: string[] }
+    | { type: "ol"; items: string[] }
+    | { type: "quote"; lines: string[] }
+    | { type: "h2" | "h3" | "h4"; content: string }
+    | { type: "hr" }
+    | { type: "spacer" }
+    | { type: "table"; rows: string[] };
+
+  const blocks: Block[] = [];
+
+  const isBullet = (s: string) => s.startsWith("- ") || s.startsWith("* ");
+  const isOrdered = (s: string) => /^\d+\.\s/.test(s);
+  const isQuote = (s: string) => s.startsWith("> ");
+  const isHr = (s: string) => s.startsWith("---") || s.startsWith("***");
+  const headingOf = (s: string): "h2" | "h3" | "h4" | null => {
+    if (s.startsWith("### ")) return "h4";
+    if (s.startsWith("## ")) return "h3";
+    if (s.startsWith("# ")) return "h2";
+    return null;
+  };
+
   let i = 0;
   while (i < lines.length) {
-    if (isTableRow(lines[i])) {
+    const ln = lines[i];
+
+    // Blank line → paragraph break / spacer
+    if (!ln.trim()) {
+      // Don't double up — only emit a spacer if the previous block was a
+      // textual block (so we get vertical breathing room). Consecutive
+      // blanks collapse to one spacer.
+      const prev = blocks[blocks.length - 1];
+      if (prev && prev.type !== "spacer") blocks.push({ type: "spacer" });
+      i++;
+      continue;
+    }
+
+    // Table
+    if (isTableRow(ln)) {
       const tableRows: string[] = [];
       while (i < lines.length && (isTableRow(lines[i]) || isTableSeparator(lines[i]))) {
         tableRows.push(lines[i]);
         i++;
       }
       if (tableRows.length >= 2) {
-        blocks.push({ type: "table", index: i, rows: tableRows });
+        blocks.push({ type: "table", rows: tableRows });
       } else {
-        tableRows.forEach((r, ri) => blocks.push({ type: "line", index: i + ri, content: r }));
+        // Not actually a table — fall through as prose
+        blocks.push({ type: "p", lines: tableRows });
       }
-    } else {
-      blocks.push({ type: "line", index: i, content: lines[i] });
+      continue;
+    }
+
+    // Heading
+    const h = headingOf(ln);
+    if (h) {
+      const slice = ln.startsWith("### ") ? 4 : ln.startsWith("## ") ? 3 : 2;
+      blocks.push({ type: h, content: ln.slice(slice) });
+      i++;
+      continue;
+    }
+
+    // HR
+    if (isHr(ln)) {
+      blocks.push({ type: "hr" });
+      i++;
+      continue;
+    }
+
+    // Unordered list — consume consecutive bullets into ONE block
+    if (isBullet(ln)) {
+      const items: string[] = [];
+      while (i < lines.length && isBullet(lines[i])) {
+        items.push(lines[i].slice(2));
+        i++;
+      }
+      blocks.push({ type: "ul", items });
+      continue;
+    }
+
+    // Ordered list — same treatment
+    if (isOrdered(ln)) {
+      const items: string[] = [];
+      while (i < lines.length && isOrdered(lines[i])) {
+        items.push(lines[i].replace(/^\d+\.\s/, ""));
+        i++;
+      }
+      blocks.push({ type: "ol", items });
+      continue;
+    }
+
+    // Blockquote — consume consecutive `>` lines
+    if (isQuote(ln)) {
+      const quoteLines: string[] = [];
+      while (i < lines.length && isQuote(lines[i])) {
+        quoteLines.push(lines[i].slice(2));
+        i++;
+      }
+      blocks.push({ type: "quote", lines: quoteLines });
+      continue;
+    }
+
+    // Plain prose — consume consecutive non-blank, non-structural lines
+    // into ONE paragraph. This is the change that fixes the "selection
+    // extends beyond lines" complaint: instead of N adjacent <p>s with
+    // gaps between them, we get ONE <p> the user can drag across cleanly.
+    const proseLines: string[] = [];
+    while (
+      i < lines.length &&
+      lines[i].trim() &&
+      !isBullet(lines[i]) &&
+      !isOrdered(lines[i]) &&
+      !isQuote(lines[i]) &&
+      !isHr(lines[i]) &&
+      !headingOf(lines[i]) &&
+      !isTableRow(lines[i])
+    ) {
+      proseLines.push(lines[i]);
       i++;
     }
+    if (proseLines.length > 0) blocks.push({ type: "p", lines: proseLines });
   }
 
   return (
-    <div className="space-y-1.5">
+    <div className="prose-surface">
       {blocks.map((block, bi) => {
-        if (block.type === "table") {
-          return <MarkdownTable key={`table-${bi}`} rows={block.rows} />;
+        switch (block.type) {
+          case "spacer":
+            return <div key={bi} className="h-3" aria-hidden="true" />;
+          case "hr":
+            return <hr key={bi} className="border-border/20 my-4" />;
+          case "table":
+            return <MarkdownTable key={`table-${bi}`} rows={block.rows} />;
+          case "h2":
+            return (
+              <h2 key={bi} className="text-foreground">
+                <InlineFormatted text={block.content} />
+              </h2>
+            );
+          case "h3":
+            return (
+              <h3 key={bi} className="text-foreground">
+                <InlineFormatted text={block.content} />
+              </h3>
+            );
+          case "h4":
+            return (
+              <h4 key={bi} className="text-foreground">
+                <InlineFormatted text={block.content} />
+              </h4>
+            );
+          case "ul":
+            // Bullet rendering via padding-left + absolutely-positioned
+            // marker, NOT flex layout. Rationale: a flex layout with
+            // `flex-1` on the text span makes the span's box take all
+            // remaining flex space, and the browser's selection rect on
+            // wrapped lines paints across the FULL FLEX-ITEM BOX width
+            // (not just the glyph width). That caused the spillover.
+            // With `padding-left` on the LI and the bullet sitting in
+            // absolute position, the LI's text content is just normal
+            // inline flow — selection paints the actual glyph rects
+            // on each line. The bullet glyph is select-none so even if
+            // a stray pointer hits its box, it won't enter the selection.
+            return (
+              <ul key={bi} className="list-none pl-0">
+                {block.items.map((item, ii) => (
+                  <li key={ii} className="text-foreground/85 pl-5 relative block py-0.5">
+                    <span aria-hidden="true" className="absolute left-0 top-[3px] select-none text-foreground/40 w-4 text-center">•</span>
+                    <InlineFormatted text={item} />
+                  </li>
+                ))}
+              </ul>
+            );
+          case "ol":
+            return (
+              <ol key={bi} className="list-none pl-0">
+                {block.items.map((item, ii) => (
+                  <li key={ii} className="text-foreground/85 pl-7 relative block py-0.5">
+                    <span aria-hidden="true" className="absolute left-0 top-[3px] select-none text-foreground/45 w-6 text-right tabular-nums">{ii + 1}.</span>
+                    <InlineFormatted text={item} />
+                  </li>
+                ))}
+              </ol>
+            );
+          case "quote":
+            return (
+              <blockquote key={bi} className="text-foreground/65 italic border-l-2 pl-4 py-1 my-3">
+                {block.lines.map((ql, qi) => (
+                  <span key={qi}>
+                    <InlineFormatted text={ql} />
+                    {qi < block.lines.length - 1 && <br />}
+                  </span>
+                ))}
+              </blockquote>
+            );
+          case "p":
+            // Bold-only single-line paragraphs get a slightly heavier weight
+            // (preserves the previous behavior for "**Heading-style line**"
+            // patterns the agent sometimes emits).
+            if (block.lines.length === 1 && block.lines[0].startsWith("**") && block.lines[0].endsWith("**")) {
+              return (
+                <p key={bi} className="font-semibold text-foreground">
+                  {block.lines[0].slice(2, -2)}
+                </p>
+              );
+            }
+            return (
+              <p key={bi} className="text-foreground/85">
+                {block.lines.map((ln, li) => (
+                  <span key={li}>
+                    <InlineFormatted text={ln} />
+                    {li < block.lines.length - 1 && " "}
+                  </span>
+                ))}
+              </p>
+            );
         }
-        const line = block.content;
-        if (line.startsWith("### ")) return (
-          <h4 key={bi} className="text-[14px] font-semibold text-foreground mt-5 mb-1">
-            <InlineFormatted text={line.slice(4)} />
-          </h4>
-        );
-        if (line.startsWith("## ")) return (
-          <h3 key={bi} className="text-base font-bold text-foreground mt-6 mb-2 pb-1.5 border-b border-border/20">
-            <InlineFormatted text={line.slice(3)} />
-          </h3>
-        );
-        if (line.startsWith("# ")) return (
-          <h2 key={bi} className="text-lg font-bold text-foreground mt-6 mb-2 pb-2 border-b border-border/30">
-            <InlineFormatted text={line.slice(2)} />
-          </h2>
-        );
-        if (line.startsWith("- ") || line.startsWith("* ")) return (
-          <p key={bi} className="text-[13px] text-foreground/80 pl-4 leading-relaxed flex gap-2">
-            <span className="text-muted-foreground/50 shrink-0">•</span>
-            <span><InlineFormatted text={line.slice(2)} /></span>
-          </p>
-        );
-        if (line.match(/^\d+\.\s/)) return (
-          <p key={bi} className="text-[13px] text-foreground/80 pl-4 leading-relaxed">
-            <InlineFormatted text={line} />
-          </p>
-        );
-        if (line.startsWith("> ")) return (
-          <p key={bi} className="text-[13px] text-foreground/60 italic border-l-2 border-border/40 pl-4 py-0.5 my-1">
-            <InlineFormatted text={line.slice(2)} />
-          </p>
-        );
-        if (line.startsWith("---") || line.startsWith("***")) return <hr key={bi} className="border-border/20 my-4" />;
-        if (line.startsWith("**") && line.endsWith("**")) return (
-          <p key={bi} className="text-[13px] font-semibold text-foreground/90 mt-1">
-            {line.slice(2, -2)}
-          </p>
-        );
-        if (!line.trim()) return <div key={bi} className="h-2" />;
-
-        return (
-          <p key={bi} className="text-[13px] text-foreground/80 leading-[1.7]">
-            <InlineFormatted text={line} />
-          </p>
-        );
       })}
     </div>
   );
@@ -1895,7 +2093,11 @@ export function MessageBubble({
 
   return (
     <div className="mb-6 group/msg" data-testid={`msg-assistant-${msg.id}`}>
-      <div className="flex items-center gap-2 mb-3">
+      {/* The chrome row (mode badge + Save Memo / Download buttons) is
+          marked select-none via the prose-chrome class so drag-selecting
+          inside the memo body never accidentally grabs the chrome text.
+          See client/src/index.css for the rule. */}
+      <div className="flex items-center gap-2 mb-3 prose-chrome">
         {mode && <ModeBadge mode={mode} />}
         <div className="flex-1" />
         {onAddToReport && (
@@ -1992,7 +2194,7 @@ export function MessageBubble({
         })}
       </div>
       {needsContinuation && isLast && !busy && onContinue && (
-        <div className="mt-5 flex justify-center" data-testid="continue-analysis-section">
+        <div className="mt-5 flex justify-center prose-chrome" data-testid="continue-analysis-section">
           <button
             onClick={onContinue}
             className="group/btn flex items-center gap-3 px-6 py-3 rounded-xl border border-primary/30 bg-primary/5 hover:bg-primary/10 hover:border-primary/50 transition-all duration-200"
@@ -2009,7 +2211,7 @@ export function MessageBubble({
         </div>
       )}
       {showOverrides && !needsContinuation && (
-        <div className="mt-4 flex items-center gap-2 flex-wrap" data-testid="mode-overrides">
+        <div className="mt-4 flex items-center gap-2 flex-wrap prose-chrome" data-testid="mode-overrides">
           {canShorter && (
             <button
               onClick={() => onOverride!({ forceMode: shorterTo })}

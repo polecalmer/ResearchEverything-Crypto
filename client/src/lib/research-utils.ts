@@ -108,7 +108,15 @@ const PRESCALED_UNIT_RE = /\(\s*\$?\s*([KMBkmb])\s*\)|\$([KMBkmb])\b/;
 const RATIO_HINTS = /\b(P[\/-]?E|P[\/-]?S|P[\/-]?F|EV[\/-]|multiple|ratio)\b/i;
 
 // Strong percent signals — the label is unambiguously a rate.
-const STRONG_PERCENT_HINTS = /\bpercent\b|%|\bapr\b|\bapy\b|\d+\s*bps\b/i;
+//
+// The `%` part uses a negative lookbehind `(?<!\d)%` so it does NOT match
+// when % is preceded by a digit. Rationale: "10%", "25%", "50%" in a
+// series name like "10% CEX ($7.3B)" is a descriptive label (the scenario
+// represents 10% of CEX TAM), not a unit declaration. Bare `%` with no
+// preceding digit ("share %", "Take Rate %") IS a unit. The pre-fix
+// regex matched both and caused dollar values to render as "263160000.0%"
+// when the series name contained a percent-descriptor.
+const STRONG_PERCENT_HINTS = /\bpercent\b|(?<!\d)%|\bapr\b|\bapy\b|\d+\s*bps\b/i;
 // Weak percent signals — words that USUALLY mean a rate but can also
 // describe a USD amount ("yield paid out $4.4M", "fee rate breakdown
 // in $").
@@ -130,11 +138,15 @@ export function inferFormat(dataKey?: string, label?: string, explicitFmt?: stri
   // agent often does) silently rendered ticks like "25.5" instead of
   // "25.5x" because explicitFmt short-circuited the ratio check.
   if (RATIO_HINTS.test(combined)) return "ratio";
-  // Strong percent first.
-  if (STRONG_PERCENT_HINTS.test(combined)) return "percent";
-  // Strong currency next — beats weak percent (e.g. "Weekly Yield Paid
-  // Out" with dataKey "weekly_yield_usd" → currency, not percent).
+  // Strong currency FIRST. If a label has BOTH `$` and `%` (e.g.
+  // "10% CEX ($7.3B)" — a scenario name that combines a percent
+  // descriptor and a dollar tag), currency wins. The bare `$` in the
+  // label is a stronger unit declaration than an embedded "10%". This
+  // ordering also catches "Weekly Yield Paid Out" with dataKey
+  // "weekly_yield_usd" → currency, not percent.
   if (STRONG_CURRENCY_HINTS.test(combined)) return "currency";
+  // Strong percent next — only fires when no currency signal beat it.
+  if (STRONG_PERCENT_HINTS.test(combined)) return "percent";
   // Then explicit fmt. Honor it before falling through to weak hints.
   if (explicitFmt) return explicitFmt;
   // Weak percent fires only when no currency signal beat it.

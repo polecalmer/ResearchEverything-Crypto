@@ -595,3 +595,179 @@
 .terminal-scrollbar::-webkit-scrollbar-thumb:hover {
   background: hsl(142 70% 45% / 0.3);
 }
+
+/* ─────────────────────── Text selection UX ───────────────────────
+ * Snappy, high-contrast selection across the app. The default browser
+ * selection color is the OS accent at low opacity, which often looks
+ * muddy on dark backgrounds. Override with a tuned color that reads
+ * clearly without overwhelming the text.
+ *
+ * Two scopes:
+ *   1. Global default — same tuned color everywhere
+ *   2. `.prose-surface` — applied to assistant memo bodies; signals
+ *      "this is text" via cursor, opts into text-rendering tuning
+ *      that makes drag-selection feel sharper, and ensures explicit
+ *      user-select: text in case any ancestor disables it.
+ *
+ * `.prose-chrome` is the inverse: badges, action buttons, mode pills.
+ * Marks them user-select: none so drag-selection from above doesn't
+ * accidentally grab their text. */
+
+::selection {
+  background: hsl(220 90% 56% / 0.30);
+  color: inherit;
+  /* No text-shadow on selection — keeps the rendered char crisp */
+  text-shadow: none;
+}
+.dark ::selection {
+  background: hsl(220 100% 70% / 0.32);
+  color: inherit;
+  text-shadow: none;
+}
+
+.prose-surface {
+  cursor: text;
+  -webkit-user-select: text;
+  user-select: text;
+  /* Crisper font rendering during selection. optimizeLegibility forces
+     kerning + ligatures; antialiasing prevents the "fuzzy edge" feel on
+     selected text under dark backgrounds. */
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Tabular-nums: every digit gets the same width. Numbers in different
+     paragraphs and across lines/tables line up visually — important for
+     research memos where readers cross-compare figures. Slashed zero
+     improves 0/O discrimination in dense numeric output. */
+  font-variant-numeric: tabular-nums slashed-zero;
+}
+
+/* ───── Memo typography ─────
+ * Scoped to .prose-surface so only memo bodies get the upgrades. Goal:
+ * the look of a research thread (Stratechery / Matt Levine / a really
+ * well-written Twitter thread) — atomic paragraphs separated by
+ * generous breathing room, body text large enough to be read not
+ * scanned, and a heading hierarchy that's typographic rather than
+ * boxed in.
+ *
+ * Numbers/inline code/emphasis policy:
+ *   - Bold = decisive color lift + 600 weight
+ *   - Inline code = monospaced + tight bg so it doesn't blend into prose
+ *   - Quotation marks rendered as curly via InlineFormatted JS
+ *   - Em-dash / ellipsis normalised via InlineFormatted JS
+ *
+ * Spacing policy (where the "Twitter thread" feel comes from):
+ *   - Body paragraphs: 14px / 1.75 line-height / 0.9rem vertical gap
+ *   - Headings: lighter weight, much more breathing room above, tight
+ *     below (heading is closely bound to the content that follows it)
+ *   - Lists: same body size, list items have py-0.5 internal padding so
+ *     drag-select rectangles feel anchored to text, not floating in space
+ *   - HRs: subtle gradient, generous margins — section breaks ARE visible
+ *
+ * Selection policy:
+ *   - All structural elements use display:block + padding-based indent
+ *     (not flex). Avoids the wrapping-line selection spillover where
+ *     flex item boxes painted full container width on wrapped lines.
+ */
+
+.prose-surface {
+  font-size: 14px;
+  line-height: 1.75;
+}
+
+/* Paragraph spacing — atomic blocks with breathing room */
+.prose-surface p {
+  margin-block: 0.95rem;
+}
+
+/* Headings: lighter weight, MORE space above (separation), LESS space
+ * below (tight coupling to the content). Letter-spacing tightened to
+ * read as a hierarchy marker rather than a label. */
+.prose-surface h2 {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin-top: 2.25rem;
+  margin-bottom: 0.5rem;
+  border-bottom: 0;
+  padding-left: 0;
+  color: hsl(var(--foreground));
+}
+.prose-surface h3 {
+  font-size: 15.5px;
+  font-weight: 650;
+  letter-spacing: -0.008em;
+  margin-top: 1.75rem;
+  margin-bottom: 0.4rem;
+  border-bottom: 0;
+  color: hsl(var(--foreground));
+}
+.prose-surface h4 {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  margin-top: 1.25rem;
+  margin-bottom: 0.3rem;
+  color: hsl(var(--foreground) / 0.95);
+}
+
+/* Lists: take the .prose-surface size, with paragraph-style internal
+ * spacing so each item reads as its own atomic line. */
+.prose-surface ul,
+.prose-surface ol {
+  margin-block: 1rem;
+}
+.prose-surface li {
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+/* Bold text: decisive emphasis lift. The default `font-bold` was too
+ * close in weight to body — barely visible in dense prose. Subtle
+ * color lift up to full foreground + a real weight delta. */
+.prose-surface p strong,
+.prose-surface li strong,
+.prose-surface blockquote strong {
+  color: hsl(var(--foreground));
+  font-weight: 600;
+}
+
+/* Inline code: monospace with a tight backdrop so it doesn't blend
+ * into prose. The default <code> renders inline but blends in. */
+.prose-surface code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.92em;
+  padding: 0.05em 0.35em;
+  border-radius: 3px;
+  background: hsl(var(--muted) / 0.55);
+  color: hsl(var(--foreground) / 0.92);
+  border: 1px solid hsl(var(--border) / 0.4);
+}
+
+/* HR divider with a touch of presence — currently a 1px hairline that
+ * almost disappears. A double-thickness with stronger color reads as
+ * an intentional section break. */
+.prose-surface hr {
+  border: 0;
+  height: 1px;
+  margin: 1.5rem 0;
+  background: linear-gradient(
+    to right,
+    transparent,
+    hsl(var(--border) / 0.6) 12%,
+    hsl(var(--border) / 0.6) 88%,
+    transparent
+  );
+}
+
+/* Blockquotes: lift the left accent into the same hue as the heading
+ * rule, for cohesion. */
+.prose-surface blockquote {
+  border-left-color: hsl(var(--primary) / 0.4);
+}
+
+.prose-chrome,
+.prose-chrome * {
+  -webkit-user-select: none;
+  user-select: none;
+}
