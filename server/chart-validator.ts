@@ -473,12 +473,27 @@ function checkCadence(userMessage: string, rows: any[], xAxisKey: string | undef
 
   if (detected === cadence) return null;
 
+  // Expected row count for the chart's date range at the requested cadence.
+  // Anchored to the actual date span of the chart so the model sees the
+  // concrete target rather than a generic "~daily" instruction.
+  const spanDays = (dateValues[dateValues.length - 1] - dateValues[0]) / 86400000;
+  const expectedRows = cadence === "daily"
+    ? Math.round(spanDays) + 1
+    : cadence === "weekly"
+    ? Math.round(spanDays / 7) + 1
+    : Math.round(spanDays / 30) + 1;
+
   return {
     kind: "cadence_mismatch",
     tier: 1,
     message: `Cadence mismatch: user asked for ${cadence} but chart's median point spacing is ~${medianGap.toFixed(1)} days (looks ${detected}).`,
-    modelHint: `The user asked for ${cadence} cadence but your chart has points spaced ${medianGap.toFixed(1)} days apart on average — that's ${detected}, not ${cadence}. Re-emit with one row per ${cadence === "daily" ? "day" : cadence === "weekly" ? "week" : "month"}.`,
-    evidence: { requested: cadence, detected, medianGapDays: medianGap, pointCount: rows.length },
+    // Aggressive retry hint: tell the agent EXACTLY what to do. Previous
+    // version ("Re-emit with one row per day") was vague enough that the
+    // agent would re-emit the same decimated array with cosmetic edits.
+    // The new hint names the bug (decimation), the cause (sampleData /
+    // every-Nth-day pattern), and the target row count.
+    modelHint: `CADENCE FAILURE — Your chart was DECIMATED. The data array has only ${rows.length} rows spanning ${Math.round(spanDays)} days, which is one row every ${medianGap.toFixed(1)} days. The user asked for ${cadence}. Required action: call execute_code AGAIN to produce the FULL ${cadence} series — your output array MUST have ~${expectedRows} rows (one per ${cadence === "daily" ? "day" : cadence === "weekly" ? "week" : "month"}). Do NOT sample/decimate inside the code (no \`every Nth\`, no \`step = data.length / 40\`, no \`sampleData(merged, 40)\`). If your code is using \`Math.ceil(data.length / N)\` for step size: REMOVE THAT — the chart renderer handles its own visual sampling and your job is to ship the full series.`,
+    evidence: { requested: cadence, detected, medianGapDays: medianGap, pointCount: rows.length, spanDays: Math.round(spanDays), expectedRows },
   };
 }
 

@@ -10,13 +10,16 @@ export const TOKENS = {
 } as const;
 
 export const MODELS = {
+  // Heavy + medium tiers consolidated on Opus 4.7 — the cost/quality
+  // frontier for this product. Established on the May 12 Funding Rate
+  // deep dive: ~$3-9 per session, pro-grade memo output, ~25-40s per
+  // round. The 2026-05-16 GPT-5.5 A/B test ruled out the OpenAI tier:
+  //   - base GPT 5.5: cheap (~$0.20-0.40/session) but shallow output
+  //   - GPT 5.5 Pro: deep-ish output but 4-6x more expensive than
+  //     Opus 4.7 ($28+ on a single deep dive) and 3-4x slower per round
+  // Revert to "claude-sonnet-4-6" on SONNET if cost optimisation becomes
+  // necessary (cuts medium-tier ~50%) at the expense of judgment quality.
   OPUS: "claude-opus-4-7",
-  // Sonnet-tier work also routes to Opus 4.7 — Opus 4.7 priced at parity
-  // with (or below) Opus 4.6 per OpenRouter rate cards, and observed
-  // blended cost per call is identical in our logs. No reason to run a
-  // strictly older model when the newer is the same price. Revert to
-  // "claude-sonnet-4-6" if cost optimisation becomes necessary (cuts
-  // medium-tier cost ~50%) at the expense of judgment quality.
   SONNET: "claude-opus-4-7",
   HAIKU: "claude-haiku-4-5",
 } as const;

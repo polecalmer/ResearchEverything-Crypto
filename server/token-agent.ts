@@ -244,6 +244,12 @@ Fetched At: ${tokenSnapshot.fetchedAt}
       max_tokens: 5000,
       system: TOKEN_ANALYSIS_SYSTEM,
       messages: [{ role: "user", content: `PHASE 1 — MARKET DATA RESEARCH for ${tokenProfile.tokenTicker || company.name}.\n\n${dataContext}\n\nFocus your web searches on gathering:\n- Current token price, market cap, FDV from CoinGecko/CoinMarketCap\n- Token supply schedule, vesting details, unlock calendar\n- DEX/CEX liquidity depth, trading volume data\n- On-chain holder distribution\n- Staking rates and lock-up data\n\nCompile ALL findings as detailed research notes. Do NOT write the final analysis report yet — just gather and organize the raw data.` }],
+      // TODO: this is the Anthropic server-side web_search tool — works only
+      // on Claude direct. On LLM_PROVIDER=openrouter it's filtered out by the
+      // translator. token-agent needs its own tool-execution loop to use the
+      // local web_search / web_fetch tools (see server/web-tools.ts).
+      // Tracked: token-agent web search currently degrades to no-search on
+      // OpenRouter routing.
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 8 }],
     };
     const phase1Result = await callAnthropicServerHeavy(phase1Request);
@@ -259,6 +265,12 @@ Fetched At: ${tokenSnapshot.fetchedAt}
       max_tokens: 5000,
       system: TOKEN_ANALYSIS_SYSTEM,
       messages: [{ role: "user", content: `PHASE 2 — VALUATION & RISK RESEARCH for ${tokenProfile.tokenTicker || company.name}.\n\nToken: ${tokenProfile.tokenTicker || "Unknown"} on ${tokenProfile.chain}\nContract: ${tokenProfile.contractAddress}\nCompany: ${company.name} (${company.sector || "Unknown"})\n\nFocus your web searches on:\n- Protocol revenue data from Token Terminal, DefiLlama\n- Revenue multiples, P/E ratios vs comparable tokens\n- Value accrual mechanisms (buyback, burn, staking rewards, fee distribution)\n- Competitive landscape — similar protocols and their valuations\n- Regulatory risks and exposure\n- Recent governance proposals or tokenomics changes\n- Any red flags (exploit history, insider selling, concentration)\n\nCompile ALL findings as detailed research notes. Do NOT write the final analysis report yet.` }],
+      // TODO: this is the Anthropic server-side web_search tool — works only
+      // on Claude direct. On LLM_PROVIDER=openrouter it's filtered out by the
+      // translator. token-agent needs its own tool-execution loop to use the
+      // local web_search / web_fetch tools (see server/web-tools.ts).
+      // Tracked: token-agent web search currently degrades to no-search on
+      // OpenRouter routing.
       tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 8 }],
     };
     const phase2Result = await callAnthropicServerHeavy(phase2Request);

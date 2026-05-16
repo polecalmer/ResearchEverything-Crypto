@@ -178,16 +178,48 @@ export function toOpenAIRequest(anthropicReq: any): OpenAIRequest {
 
   // 3. Tools — Anthropic uses { name, description, input_schema };
   //    OpenAI uses { type: "function", function: { name, description, parameters } }.
+  //
+  // Filter out Anthropic-only SERVER-SIDE tools (e.g. "web_search_20250305").
+  // Those are executed on Anthropic's infrastructure and only resolve when the
+  // call lands on a Claude model. If we naively forwarded them as OpenAI
+  // function specs, the non-Anthropic model would see a tool with no schema
+  // and either ignore it or emit a malformed call that we can't service.
+  // Pattern: a `type` field that is NOT one of the standard Anthropic client-
+  // tool shapes ("custom" / "function" / undefined) AND looks like a server-
+  // tool (versioned-suffix `_YYYYMMDD` or contains "server"). The capability
+  // gap is handled at the call site — agents should use the locally-implemented
+  // `web_search` / `web_fetch` tools instead, which work on any provider.
   let tools: OpenAITool[] | undefined;
   if (Array.isArray(anthropicReq.tools) && anthropicReq.tools.length > 0) {
-    tools = anthropicReq.tools.map((t: any) => ({
-      type: "function" as const,
-      function: {
-        name: t.name,
-        description: t.description,
-        parameters: t.input_schema || { type: "object", properties: {} },
-      },
-    }));
+    const dropped: string[] = [];
+    const kept = anthropicReq.tools.filter((t: any) => {
+      const ty = typeof t?.type === "string" ? t.type : "";
+      const isServerTool =
+        /_\d{8}$/.test(ty) || // versioned server tools, e.g. web_search_20250305
+        ty.startsWith("server_") ||
+        ty === "code_execution_20250522" ||
+        ty === "computer_20250124";
+      if (isServerTool) {
+        dropped.push(t?.name || ty);
+        return false;
+      }
+      return true;
+    });
+    if (dropped.length > 0) {
+      console.warn(
+        `[openrouter-client] Dropped ${dropped.length} Anthropic server-side tool(s) when routing to non-Anthropic model: ${dropped.join(", ")}. The agent should use locally-implemented equivalents (web_search, web_fetch).`,
+      );
+    }
+    if (kept.length > 0) {
+      tools = kept.map((t: any) => ({
+        type: "function" as const,
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.input_schema || { type: "object", properties: {} },
+        },
+      }));
+    }
   }
 
   const out: OpenAIRequest = {
@@ -323,9 +355,185 @@ async function postOpenRouter(body: OpenAIRequest, signal?: AbortSignal): Promis
   });
 }
 
+/** OpenRouter's Anthropic-compatible endpoint — uses native /v1/messages
+ *  protocol so cache_control markers, thinking blocks, tool_use shape,
+ *  cache_creation_input_tokens, and cache_read_input_tokens are all
+ *  preserved end-to-end. Use this for `anthropic/*` models. */
+async function postOpenRouterMessages(body: any, signal?: AbortSignal): Promise<Response> {
+  return fetch("https://openrouter.ai/api/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getApiKey()}`,
+      // Opt into the Anthropic prompt-caching beta header — required for
+      // cache_control markers to actually create / read cache entries.
+      "anthropic-beta": "prompt-caching-2024-07-31",
+      "HTTP-Referer": "https://researcheverything.xyz",
+      "X-Title": "Sessions Research",
+    },
+    body: JSON.stringify(body),
+    signal,
+  });
+}
+
+function isAnthropicTargetModel(model: string): boolean {
+  const resolved = toOpenRouterModelId(model);
+  return resolved.startsWith("anthropic/");
+}
+
+/** Strip Anthropic server-side tools from the tool list. These are
+ *  Anthropic-managed (web_search_20250305, code_execution_*, etc.) and
+ *  must be filtered when routing through OpenRouter's native messages
+ *  endpoint because OpenRouter doesn't run them. Same filter as the
+ *  OpenAI translator; centralised here so both paths agree. */
+function filterServerTools(tools: any[] | undefined): { kept: any[]; dropped: string[] } {
+  if (!Array.isArray(tools) || tools.length === 0) return { kept: [], dropped: [] };
+  const dropped: string[] = [];
+  const kept = tools.filter((t: any) => {
+    const ty = typeof t?.type === "string" ? t.type : "";
+    const isServerTool =
+      /_\d{8}$/.test(ty) ||
+      ty.startsWith("server_") ||
+      ty === "code_execution_20250522" ||
+      ty === "computer_20250124";
+    if (isServerTool) {
+      dropped.push(t?.name || ty);
+      return false;
+    }
+    return true;
+  });
+  return { kept, dropped };
+}
+
+/** Compute cost from Anthropic-native usage. Treats cache reads as 0.1×
+ *  input pricing and cache writes (cache_creation) as 1.25×, matching
+ *  Anthropic's published rate card.
+ *
+ *  Rate-card fallback used when OpenRouter doesn't return usage.cost.
+ *  Source: Anthropic public pricing as of 2026-05; safe to overestimate
+ *  slightly because we treat the returned cost as authoritative when
+ *  available. */
+function fallbackCostFromAnthropicUsage(model: string, usage: any): number {
+  const inputRate = model.includes("opus") ? 15 : model.includes("sonnet") ? 3 : 0.8; // $/M input
+  const outputRate = model.includes("opus") ? 75 : model.includes("sonnet") ? 15 : 4; // $/M output
+  const inputTok = Number(usage?.input_tokens || 0);
+  const outputTok = Number(usage?.output_tokens || 0);
+  const cacheReadTok = Number(usage?.cache_read_input_tokens || 0);
+  const cacheWriteTok = Number(usage?.cache_creation_input_tokens || 0);
+  // input_tokens reported by Anthropic is the NON-cached input. cache_read
+  // and cache_creation are separate.
+  const inputUSD = (inputTok / 1e6) * inputRate;
+  const outputUSD = (outputTok / 1e6) * outputRate;
+  const cacheReadUSD = (cacheReadTok / 1e6) * inputRate * 0.1;
+  const cacheWriteUSD = (cacheWriteTok / 1e6) * inputRate * 1.25;
+  return inputUSD + outputUSD + cacheReadUSD + cacheWriteUSD;
+}
+
+/** Native Anthropic /v1/messages call via OpenRouter. Preserves the
+ *  request shape verbatim (system, messages, tools, cache_control markers,
+ *  thinking blocks) and returns the response in AnthropicRawResponse
+ *  shape. Use this for Anthropic-family models so prompt caching works. */
+export async function callAnthropicNativeViaOpenRouter(request: any): Promise<AnthropicRawResponse> {
+  // Filter Anthropic server-side tools (web_search_20250305 etc.) — they
+  // only work on Anthropic direct, not through OpenRouter's proxy.
+  const { kept: tools, dropped } = filterServerTools(request.tools);
+  if (dropped.length > 0) {
+    console.warn(
+      `[openrouter-client] Native path: dropped ${dropped.length} server-side tool(s): ${dropped.join(", ")}. Use the local web_search/web_fetch tools instead.`,
+    );
+  }
+
+  const body: any = {
+    model: toOpenRouterModelId(request.model),
+    max_tokens: request.max_tokens ?? 4096,
+    messages: request.messages,
+  };
+  if (request.system) body.system = request.system;
+  if (tools.length > 0) body.tools = tools;
+  if (request.tool_choice) body.tool_choice = request.tool_choice;
+  if (request.temperature != null) body.temperature = request.temperature;
+  if (request.top_p != null) body.top_p = request.top_p;
+  if (request.top_k != null) body.top_k = request.top_k;
+  if (request.thinking) body.thinking = request.thinking;
+  if (request.metadata) body.metadata = request.metadata;
+  if (request.stop_sequences) body.stop_sequences = request.stop_sequences;
+
+  let lastError: Error | null = null;
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const res = await postOpenRouterMessages(body);
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        if (isRetryable(res.status) && attempt < MAX_RETRIES) {
+          await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)));
+          continue;
+        }
+        throw new Error(`OpenRouter (messages) error ${res.status}: ${text.slice(0, 400)}`);
+      }
+      const anthropic = await res.json();
+      // Anthropic-native response: { content, usage, stop_reason, ... }
+      // Wrap in AnthropicRawResponse with costSource discrimination.
+      const usage = anthropic.usage || {};
+      // OpenRouter may include `cost` in some response envelopes; if so use it.
+      const reportedCost = typeof anthropic.cost === "number" ? anthropic.cost : null;
+      const cost = reportedCost ?? fallbackCostFromAnthropicUsage(body.model, usage);
+      const costSource: CostSource = reportedCost != null ? "receipt" : "voucher_estimate";
+
+      logger.info(
+        {
+          requestModel: body.model,
+          inputTokens: usage.input_tokens || 0,
+          outputTokens: usage.output_tokens || 0,
+          cacheReadTokens: usage.cache_read_input_tokens || 0,
+          cacheWriteTokens: usage.cache_creation_input_tokens || 0,
+          cost,
+          costSource,
+          path: "native",
+        },
+        "openrouter.request",
+      );
+
+      return {
+        id: anthropic.id || "unknown",
+        type: "message",
+        role: "assistant",
+        content: anthropic.content || [],
+        model: anthropic.model || body.model,
+        stop_reason: anthropic.stop_reason || "end_turn",
+        stop_sequence: anthropic.stop_sequence || null,
+        usage: {
+          input_tokens: usage.input_tokens || 0,
+          output_tokens: usage.output_tokens || 0,
+          cache_creation_input_tokens: usage.cache_creation_input_tokens || 0,
+          cache_read_input_tokens: usage.cache_read_input_tokens || 0,
+        } as any,
+        mppCost: cost,
+        costSource,
+      };
+    } catch (err: any) {
+      lastError = err;
+      const msg = err?.message || "";
+      const isNet = /fetch|ECONNRESET|EAI_AGAIN|aborted|network|terminated/i.test(msg);
+      if (isNet && attempt < MAX_RETRIES) {
+        await new Promise((r) => setTimeout(r, RETRY_DELAY_MS * (attempt + 1)));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError || new Error("OpenRouter native messages call failed after retries");
+}
+
 /* ──────────────────────── Public API ──────────────────────── */
 
 export async function callAnthropicViaOpenRouter(request: any): Promise<AnthropicRawResponse> {
+  // Native path for Anthropic models — preserves cache_control,
+  // thinking blocks, native tool_use shape, and reports cache hit tokens
+  // back in the usage. Caching is the dominant cost lever on long-context
+  // agent loops (5-20x cheaper input on cache reads).
+  if (isAnthropicTargetModel(request.model)) {
+    return callAnthropicNativeViaOpenRouter(request);
+  }
   const openAIReq = toOpenAIRequest({ ...request, stream: false });
   let lastError: Error | null = null;
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
@@ -369,10 +577,24 @@ export async function callAnthropicViaOpenRouter(request: any): Promise<Anthropi
 /** Streaming variant — accumulates the OpenAI SSE stream and returns the
  *  final AnthropicRawResponse. Matches the contract of mpp-client's
  *  callAnthropicRawStreaming: streaming is for transparency / progress,
- *  not for an iterator interface. */
+ *  not for an iterator interface.
+ *
+ *  For Anthropic models, currently falls back to non-streaming via the
+ *  native path. The native /v1/messages streaming protocol (SSE with
+ *  message_start / content_block_delta events) is incompatible with the
+ *  OpenAI SSE parser below; rather than fork a second streaming
+ *  implementation tonight, we route Anthropic models through non-streaming
+ *  native (cache_control still works, just no chunk-by-chunk UI feedback).
+ *  Followup: add native Anthropic SSE parser for full streaming + caching. */
 export async function callAnthropicStreamingViaOpenRouter(
   request: any,
 ): Promise<AnthropicRawResponse> {
+  if (isAnthropicTargetModel(request.model)) {
+    // Non-streaming native path preserves cache_control. Caller's onStep
+    // callbacks just won't fire mid-stream — they fire on completion.
+    // Acceptable tradeoff for the caching win.
+    return callAnthropicNativeViaOpenRouter(request);
+  }
   const openAIReq = toOpenAIRequest({ ...request, stream: true });
   let lastError: Error | null = null;
 

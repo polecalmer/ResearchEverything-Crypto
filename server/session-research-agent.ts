@@ -786,7 +786,7 @@ When the user asks for a chart of a metric that doesn't exist in a single API en
     - Align dates between the two series (join on date string)
     - Compute the derived metric for each row (e.g. pe = mcap / (dailyRevenue * 365))
     - Output a clean data array for the chart: [{date, pe_ratio}, ...]
-    - Keep data under 365 points
+    - CADENCE-PRESERVING: emit one row per day for "daily", one per week for "weekly", one per month for "monthly". Do NOT decimate ("every Nth day") to keep the array small — that breaks the user's stated cadence. A 12-month daily chart MUST have ~365 rows, not 40. A 6-month daily chart MUST have ~180 rows. The point cap is a SAFETY ceiling around 1000, not a target — the validator hard-rejects any cadence mismatch (median gap between consecutive dates > 1.5 days when "daily" was requested).
   Step 3: Render the chart artifact using the computed data array from execute_code.
   
   CRITICAL: Do NOT try to manually construct 100+ row data arrays in your text output. Always use execute_code for multi-row derived computations. This is the #1 reason chart requests fail.`;
@@ -1606,6 +1606,22 @@ async function executeTool(name: string, input: any): Promise<string> {
         );
         addSubCallCost(perspResult);
         return perspResult.payload;
+      }
+      case "web_search": {
+        // Local web search (Tavily-backed). Replaces the Anthropic server-
+        // side web_search_20250305 tool so search works on ANY provider
+        // (Claude direct, Claude via OpenRouter, GPT 5.5, DeepSeek, etc.).
+        const { webSearch } = await import("./web-tools");
+        return await webSearch(String(input.query || ""), Number(input.limit) || 5);
+      }
+      case "web_fetch": {
+        // Local URL fetch (direct HTTP + Playwright fallback for JS-heavy
+        // hosts). Auto-summarises pages > 5000 chars via Haiku to keep the
+        // payload compact. Required to resolve user-pasted URLs (e.g.
+        // X/Twitter, news articles, docs) under non-Anthropic providers.
+        const { webFetch } = await import("./web-tools");
+        const urls = Array.isArray(input.urls) ? input.urls : [];
+        return await webFetch(urls, input.raw === true);
       }
       default:
         return JSON.stringify({ error: `Unknown tool: ${name}` });
@@ -4105,11 +4121,24 @@ ${canonicalBlock}${disambiguationBlock}`
     });
   }
 
-  anthropicTools.push({
-    type: "web_search_20250305",
-    name: "web_search",
-    max_uses: mode === "quick" ? 1 : mode === "focused" ? 3 : mode === "chart" ? 3 : 5,
-  });
+  // Local web_search + web_fetch (Tavily + direct HTTP + Playwright fallback).
+  // Was previously the Anthropic server-side `web_search_20250305` tool — that
+  // only worked on Claude. The local tools work on any provider and add a
+  // proper URL-extraction path (web_fetch) which we never had. See
+  // server/web-tools.ts.
+  {
+    const { WEB_SEARCH_TOOL_DEF, WEB_FETCH_TOOL_DEF } = await import("./web-tools");
+    anthropicTools.push({
+      name: WEB_SEARCH_TOOL_DEF.name,
+      description: WEB_SEARCH_TOOL_DEF.description,
+      input_schema: WEB_SEARCH_TOOL_DEF.input_schema,
+    });
+    anthropicTools.push({
+      name: WEB_FETCH_TOOL_DEF.name,
+      description: WEB_FETCH_TOOL_DEF.description,
+      input_schema: WEB_FETCH_TOOL_DEF.input_schema,
+    });
+  }
 
   // Chart mode round budget escalates with workload:
   //   - flag off:                    5 rounds  (pre-flight cache + small adapt loop)
@@ -4325,12 +4354,52 @@ ${canonicalBlock}${disambiguationBlock}`
 
     compressOlderToolResults(messages, round);
 
+    // Prompt-caching breakpoints (Anthropic). Each `cache_control` marker
+    // tells Anthropic to cache content up to and including that block.
+    // Subsequent requests within the 5-minute TTL pay 0.1× input pricing
+    // for cache reads — a ~10× discount on the stable portion of every
+    // round. Sessions' agent loop re-sends:
+    //   - The SAME system prompt (long, 4-8k tokens)
+    //   - The SAME tool definitions (very long, 6-10k tokens)
+    //   - GROWING messages array (older tool results accumulate)
+    //
+    // Pre-caching, every round paid 1× on all of this. Now:
+    //   - Breakpoint 1: end of system prompt (cache stable system)
+    //   - Breakpoint 2: last tool in the tool list (cache all tool defs)
+    //
+    // We deliberately do NOT add a breakpoint inside `messages` — message
+    // content shifts each round (new tool results pushed in, old ones
+    // compressed by compressOlderToolResults). Marking message content
+    // would just churn the cache. The 5-minute TTL on system + tools is
+    // the dominant win.
+    //
+    // Anthropic allows up to 4 cache breakpoints per request. We use 2.
+    // Caching only kicks in for blocks ≥ 1024 tokens; our system + tools
+    // are well above that threshold.
+    const systemAsBlocks = typeof activeSystemPrompt === "string"
+      ? [
+          {
+            type: "text",
+            text: activeSystemPrompt,
+            cache_control: { type: "ephemeral" as const },
+          },
+        ]
+      : activeSystemPrompt; // already an array (assume caller marked it)
+
+    const cachedTools = anthropicTools.length > 0
+      ? anthropicTools.map((t: any, i: number) =>
+          i === anthropicTools.length - 1
+            ? { ...t, cache_control: { type: "ephemeral" as const } }
+            : t,
+        )
+      : anthropicTools;
+
     const requestBody: any = {
       model: roundModel,
       max_tokens: maxTokens,
-      system: activeSystemPrompt,
+      system: systemAsBlocks,
       messages,
-      tools: anthropicTools,
+      tools: cachedTools,
     };
 
     let response: AnthropicRawResponse;
