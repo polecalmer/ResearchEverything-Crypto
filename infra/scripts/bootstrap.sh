@@ -109,13 +109,16 @@ else
   echo "  ✓ created"
 fi
 # Inline policy needs the secret ARN substituted — we DON'T know it yet
-# (Secrets Manager comes next, manually). The policy file uses
-# placeholders; we render it now and the user replaces <SECRETS_MANAGER_ARN>
-# after creating the secret, then re-runs `aws iam put-role-policy`.
+# (Secrets Manager comes next, manually). Use "*" as a placeholder so
+# AWS accepts the policy; the next phase (Secrets) re-runs put-role-policy
+# with the real ARN once the secret exists. Wildcard is harmless for the
+# 30 seconds between this bootstrap and the secret creation because no
+# task runs yet.
 RENDERED_EXEC_POLICY="$(mktemp)"
 sed \
   -e "s|<REGION>|${AWS_REGION}|g" \
   -e "s|<ACCOUNT_ID>|${AWS_ACCOUNT_ID}|g" \
+  -e "s|<SECRETS_MANAGER_ARN>|*|g" \
   "$REPO_ROOT/infra/iam/task-execution-role-policy.json" > "$RENDERED_EXEC_POLICY"
 aws iam put-role-policy \
   --role-name "$EXEC_ROLE_NAME" \
