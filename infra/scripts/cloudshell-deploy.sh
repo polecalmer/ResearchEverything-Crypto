@@ -237,16 +237,24 @@ VPC_ID="$(aws ec2 describe-vpcs --filters Name=is-default,Values=true \
   --query 'Vpcs[0].VpcId' --output text)"
 echo "✓ Default VPC: $VPC_ID"
 
-# Pick the first two subnets in different AZs
-SUBNETS_JSON="$(aws ec2 describe-subnets \
+# Pick two subnets in DIFFERENT AZs (RDS subnet groups + ALB require
+# multi-AZ). Use plain text output + awk to avoid jq quoting bugs.
+ALL_SUBNETS="$(aws ec2 describe-subnets \
   --filters "Name=vpc-id,Values=$VPC_ID" \
-  --query 'Subnets[].[SubnetId,AvailabilityZone]' --output json)"
-SUBNET_A="$(echo "$SUBNETS_JSON" | jq -r '.[0][0]')"
-SUBNET_B="$(echo "$SUBNETS_JSON" | jq -r 'map(select(.[1] != (.[0]|.[1]))) | .[0][0]' 2>/dev/null)"
-if [[ -z "$SUBNET_B" || "$SUBNET_B" == "null" ]]; then
-  SUBNET_B="$(echo "$SUBNETS_JSON" | jq -r '.[1][0]')"
+  --query 'Subnets[].[SubnetId,AvailabilityZone]' \
+  --output text)"
+
+SUBNET_A="$(echo "$ALL_SUBNETS" | head -1 | awk '{print $1}')"
+AZ_A="$(echo "$ALL_SUBNETS" | head -1 | awk '{print $2}')"
+SUBNET_B="$(echo "$ALL_SUBNETS" | awk -v az="$AZ_A" '$2 != az {print $1; exit}')"
+
+if [[ -z "$SUBNET_A" || -z "$SUBNET_B" ]]; then
+  echo "✗ Could not find 2 subnets in distinct AZs in default VPC $VPC_ID"
+  echo "  Subnets available:"
+  echo "$ALL_SUBNETS" | sed 's/^/    /'
+  exit 1
 fi
-echo "✓ Subnets: $SUBNET_A, $SUBNET_B"
+echo "✓ Subnets: $SUBNET_A (${AZ_A}), $SUBNET_B"
 
 # Security groups (RDS + ECS)
 make_sg() {
