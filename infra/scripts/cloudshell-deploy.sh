@@ -522,6 +522,102 @@ export SECURITY_GROUP_ID="$ECS_SG_ID"
 bash "$WORK_DIR/infra/scripts/migrate.sh"
 
 # ───────────────────────────────────────────────────────────────────
+# Phase 7.5 — Copy dev data from Supabase → new RDS (optional)
+# ───────────────────────────────────────────────────────────────────
+# Brings over the brain (proven_queries, master_dune_queries,
+# analyst corpus, brain_facts, dashboard_charts, etc.) + session
+# history from your Supabase dev DB. Without this, prod launches
+# with an empty brain and every user gets a cold start.
+#
+# Idempotent in spirit but NOT safe to run twice — re-running may
+# insert duplicates on tables without unique constraints. The
+# script asks before proceeding so a re-run after CloudShell
+# timeout doesn't accidentally double-import.
+section "Phase 7.5 / Dev-data migration (Supabase → RDS)"
+
+if PGPASSWORD="$RDS_PASSWORD" psql -h "$RDS_ENDPOINT" -U sessionsadmin -d postgres -t -c \
+    "SELECT count(*) FROM brain_facts" 2>/dev/null | grep -q "^\s*0\s*$"; then
+  RDS_HAS_DATA=false
+else
+  RDS_HAS_DATA=true
+fi
+
+if [[ "$RDS_HAS_DATA" == "true" ]]; then
+  echo "= RDS already has brain_facts rows — skipping Supabase import (re-run safe)."
+else
+  echo "→ RDS brain_facts is empty. Importing from Supabase."
+  pause_for_input "Paste your Supabase DATABASE_URL on the next prompt.
+
+It's the connection string from your .env.save, looks like:
+  postgresql://postgres.<id>:<password>@aws-1-...pooler.supabase.com:5432/postgres
+
+Press Enter to continue (the input itself is hidden when you paste)."
+
+  read -rsp "Supabase DATABASE_URL: " SUPABASE_URL; echo
+  if [[ -z "$SUPABASE_URL" ]]; then
+    echo "⚠ No URL provided — skipping data migration. RDS stays empty."
+    echo "  You can run this manually later with:"
+    echo "    pg_dump --data-only --no-owner --no-privileges --column-inserts <supabase-url> > /tmp/data.sql"
+    echo "    psql -v ON_ERROR_STOP=0 <rds-url> < /tmp/data.sql"
+  else
+    # Temporarily open RDS to CloudShell IP (same dance as pgvector phase).
+    CLOUDSHELL_IP="$(curl -s https://checkip.amazonaws.com)/32"
+    aws ec2 authorize-security-group-ingress \
+      --group-id "$RDS_SG_ID" --protocol tcp --port 5432 --cidr "$CLOUDSHELL_IP" 2>/dev/null || true
+    aws rds modify-db-instance \
+      --db-instance-identifier sessions-prod \
+      --publicly-accessible --apply-immediately > /dev/null
+    echo "→ Waiting 90s for RDS public-access flip..."
+    sleep 90
+
+    DUMP_FILE="/tmp/supabase-data-$(date +%s).sql"
+
+    echo "→ Dumping data from Supabase (may take 1-5 min)..."
+    # --data-only: keep the schema RDS already has (from migrations);
+    # --no-owner / --no-privileges: drizzle doesn't manage roles;
+    # --column-inserts: per-row INSERT so a single FK conflict doesn't
+    #   abort the whole load;
+    # Exclude drizzle migration meta + session-auth tables that
+    # don't need to carry over.
+    pg_dump --data-only --no-owner --no-privileges --column-inserts \
+      --exclude-table-data='drizzle.*' \
+      --exclude-table-data='*sessions*_*' \
+      "$SUPABASE_URL" > "$DUMP_FILE"
+
+    DUMP_SIZE_MB="$(du -m "$DUMP_FILE" | awk '{print $1}')"
+    echo "✓ Dump complete: ${DUMP_SIZE_MB} MB at $DUMP_FILE"
+
+    echo "→ Restoring into RDS (errors on duplicate rows are OK — script continues)..."
+    PGPASSWORD="$RDS_PASSWORD" psql \
+      -v ON_ERROR_STOP=0 \
+      -h "$RDS_ENDPOINT" -U sessionsadmin -d postgres \
+      < "$DUMP_FILE" 2>&1 | grep -vE "(NOTICE:|^SET$|^$)" | tail -40 || true
+
+    # Quick verify
+    COPIED_FACTS="$(PGPASSWORD="$RDS_PASSWORD" psql -h "$RDS_ENDPOINT" -U sessionsadmin -d postgres -t -c \
+      "SELECT count(*) FROM brain_facts" 2>/dev/null | tr -d ' ')"
+    COPIED_QUERIES="$(PGPASSWORD="$RDS_PASSWORD" psql -h "$RDS_ENDPOINT" -U sessionsadmin -d postgres -t -c \
+      "SELECT count(*) FROM proven_queries" 2>/dev/null | tr -d ' ')"
+    COPIED_CONVS="$(PGPASSWORD="$RDS_PASSWORD" psql -h "$RDS_ENDPOINT" -U sessionsadmin -d postgres -t -c \
+      "SELECT count(*) FROM conversations" 2>/dev/null | tr -d ' ')"
+    echo "✓ Restored: brain_facts=${COPIED_FACTS}, proven_queries=${COPIED_QUERIES}, conversations=${COPIED_CONVS}"
+
+    # Clean up
+    shred -u "$DUMP_FILE" 2>/dev/null || rm -f "$DUMP_FILE"
+    SUPABASE_URL=""
+
+    # Close RDS public access again
+    aws rds modify-db-instance \
+      --db-instance-identifier sessions-prod \
+      --no-publicly-accessible --apply-immediately > /dev/null
+    aws ec2 revoke-security-group-ingress \
+      --group-id "$RDS_SG_ID" --protocol tcp --port 5432 --cidr "$CLOUDSHELL_IP" 2>/dev/null || true
+
+    echo "✓ Dev data imported, RDS is back to private."
+  fi
+fi
+
+# ───────────────────────────────────────────────────────────────────
 # Phase 8 — ACM cert + ALB + listeners
 # ───────────────────────────────────────────────────────────────────
 section "Phase 8 / ACM cert + ALB"
