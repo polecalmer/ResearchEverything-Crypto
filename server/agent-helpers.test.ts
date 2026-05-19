@@ -12,11 +12,16 @@
 //                                      the fan-out planner runs
 //   inferRefreshRecipeFromToolHistory— attaches recipes to artifacts so
 //                                      "save to library" can refresh them
+//   detectDeepFollowupShortCircuit   — deep-mode persistence: methodology
+//                                      pushbacks on prior deep work stay
+//                                      in deep mode (no LLM call)
 import { describe, it, expect } from "vitest";
 import {
   parseArtifacts,
   splitChartIntents,
   inferRefreshRecipeFromToolHistory,
+  sanitizeInternalSourceLabels,
+  detectDeepFollowupShortCircuit,
 } from "./session-research-agent";
 
 describe("parseArtifacts", () => {
@@ -132,6 +137,239 @@ describe("parseArtifacts", () => {
     const a = parseArtifacts(content)[0] as any;
     // Unknown variants fall back to "insight".
     expect(a.variant).toBe("insight");
+  });
+
+  it("parses a file_download artifact with subtype + filename + url", () => {
+    // write_xlsx / write_csv emit a JSON object the agent re-embeds verbatim
+    // as ```artifact:file_download```. The parser must land it on
+    // msg.artifacts so the client side panel can render the FileChip.
+    const content = [
+      "```artifact:file_download",
+      JSON.stringify({
+        type: "file_download",
+        subtype: "xlsx",
+        filename: "hyperliquid_model_abc123.xlsx",
+        url: "/api/research/artifacts/sess-1/hyperliquid_model_abc123.xlsx",
+        sizeBytes: 24576,
+        sheets: 3,
+        title: "Hyperliquid valuation model",
+      }),
+      "```",
+    ].join("\n");
+    const a = parseArtifacts(content)[0] as any;
+    expect(a.type).toBe("file_download");
+    expect(a.subtype).toBe("xlsx");
+    expect(a.filename).toBe("hyperliquid_model_abc123.xlsx");
+    expect(a.url).toBe("/api/research/artifacts/sess-1/hyperliquid_model_abc123.xlsx");
+    expect(a.sizeBytes).toBe(24576);
+    expect(a.sheets).toBe(3);
+    expect(a.title).toBe("Hyperliquid valuation model");
+  });
+
+  it("skips a file_download artifact missing url or filename", () => {
+    // No url → nothing to download. No filename → chip has no label.
+    // Either way: drop silently rather than poison the artifact list.
+    const noUrl = [
+      "```artifact:file_download",
+      JSON.stringify({ subtype: "csv", filename: "x.csv" }),
+      "```",
+    ].join("\n");
+    const noFilename = [
+      "```artifact:file_download",
+      JSON.stringify({ subtype: "csv", url: "/api/research/artifacts/s/x.csv" }),
+      "```",
+    ].join("\n");
+    expect(parseArtifacts(noUrl)).toEqual([]);
+    expect(parseArtifacts(noFilename)).toEqual([]);
+  });
+});
+
+describe("sanitizeInternalSourceLabels", () => {
+  it("coerces 'Brain' in the Sources H2 line to 'Sessions'", () => {
+    const input = [
+      "Some prose here.",
+      "",
+      "## Sources",
+      "DeFiLlama, Brain, Dune Analytics",
+      "",
+    ].join("\n");
+    const out = sanitizeInternalSourceLabels(input);
+    expect(out).toContain("## Sources\nDeFiLlama, Sessions, Dune Analytics");
+    expect(out).not.toMatch(/, Brain[,\s]/);
+  });
+
+  it("coerces 'Analyst corpus' to 'Sessions'", () => {
+    const input = [
+      "## Sources",
+      "DeFiLlama, Analyst corpus, CoinGecko",
+    ].join("\n");
+    const out = sanitizeInternalSourceLabels(input);
+    expect(out).toContain("DeFiLlama, Sessions, CoinGecko");
+  });
+
+  it("deduplicates Sessions when multiple internal labels collapse together", () => {
+    const input = [
+      "## Sources",
+      "DeFiLlama, Brain, Analyst corpus, Skill packs, Dune Analytics",
+    ].join("\n");
+    const out = sanitizeInternalSourceLabels(input);
+    // All three internal labels collapse to one "Sessions".
+    expect(out).toContain("DeFiLlama, Sessions, Dune Analytics");
+    expect(out.match(/Sessions/g)?.length).toBe(1);
+  });
+
+  it("leaves prose containing 'brain' outside the Sources section alone", () => {
+    const input = [
+      "The team's brain trust knew the answer.",
+      "",
+      "## Sources",
+      "DeFiLlama",
+    ].join("\n");
+    const out = sanitizeInternalSourceLabels(input);
+    expect(out).toContain("brain trust");
+  });
+
+  it("rewrites internal labels inside an artifact:sources JSON block", () => {
+    const input = [
+      "Some prose.",
+      "```artifact:sources",
+      JSON.stringify({ sources: ["DeFiLlama", "Brain", "Analyst corpus"] }),
+      "```",
+    ].join("\n");
+    const out = sanitizeInternalSourceLabels(input);
+    expect(out).toContain('"Sessions"');
+    expect(out).not.toContain('"Brain"');
+    expect(out).not.toContain('"Analyst corpus"');
+  });
+
+  it("returns the input unchanged when there is no Sources section or artifact block", () => {
+    const input = "Just some prose with no sources annotation.";
+    expect(sanitizeInternalSourceLabels(input)).toBe(input);
+  });
+});
+
+describe("detectDeepFollowupShortCircuit (deep-mode persistence)", () => {
+  const deepPrior = [
+    { role: "user", content: "build me a financial model" },
+    { role: "assistant", content: "<!-- mode:deep -->\n# Model...", kind: "deep_model" },
+  ];
+  const focusedPrior = [
+    { role: "user", content: "show me TVL chart" },
+    { role: "assistant", content: "chart here", kind: undefined },
+  ];
+
+  it("returns null when there is no prior assistant turn", () => {
+    expect(detectDeepFollowupShortCircuit("how are you calculating SBC?", [])).toBeNull();
+  });
+
+  it("returns null when the prior assistant turn was not deep_model", () => {
+    expect(
+      detectDeepFollowupShortCircuit("how are you calculating SBC? It seems understated", focusedPrior),
+    ).toBeNull();
+  });
+
+  it("catches methodology pushback ('how are you calculating X')", () => {
+    // The exact failure mode that motivated the fix.
+    const out = detectDeepFollowupShortCircuit(
+      "How are you calculating validator SBC? I think you might be understating it",
+      deepPrior,
+    );
+    expect(out?.mode).toBe("deep");
+    expect(out?.reason).toContain("methodology pushback");
+  });
+
+  it("catches under/overstatement corrections", () => {
+    const out = detectDeepFollowupShortCircuit(
+      "you might be understating revenue here — refresh the forecast",
+      deepPrior,
+    );
+    expect(out?.mode).toBe("deep");
+  });
+
+  it("catches explicit re-run requests", () => {
+    const out = detectDeepFollowupShortCircuit(
+      "rerun the model with the corrected SBC line",
+      deepPrior,
+    );
+    expect(out?.mode).toBe("deep");
+    expect(out?.reason).toContain("re-run");
+  });
+
+  it("catches extension requests ('also include X')", () => {
+    const out = detectDeepFollowupShortCircuit(
+      "include HIP-3 priority fees in the forecast as a separate revenue line",
+      deepPrior,
+    );
+    expect(out?.mode).toBe("deep");
+    expect(out?.reason).toContain("extension");
+  });
+
+  it("catches scenario changes ('what if X')", () => {
+    const out = detectDeepFollowupShortCircuit(
+      "what if base case revenue assumes 30% growth instead of 50%",
+      deepPrior,
+    );
+    expect(out?.mode).toBe("deep");
+    expect(out?.reason).toContain("scenario");
+  });
+
+  it("catches direct critiques ('your model is wrong / off')", () => {
+    const out = detectDeepFollowupShortCircuit(
+      "your model is off — the validator emissions number looks stale",
+      deepPrior,
+    );
+    expect(out?.mode).toBe("deep");
+  });
+
+  it("respects explicit downgrade ('quick question')", () => {
+    expect(
+      detectDeepFollowupShortCircuit(
+        "quick question: how are you calculating SBC?",
+        deepPrior,
+      ),
+    ).toBeNull();
+  });
+
+  it("respects explicit downgrade ('tldr')", () => {
+    expect(
+      detectDeepFollowupShortCircuit(
+        "tldr — what's the punchline of the forecast?",
+        deepPrior,
+      ),
+    ).toBeNull();
+  });
+
+  it("respects explicit downgrade ('in one line')", () => {
+    expect(
+      detectDeepFollowupShortCircuit(
+        "in one line, what's the base case P/E target you derived?",
+        deepPrior,
+      ),
+    ).toBeNull();
+  });
+
+  it("returns null for very short clarifications (<25 chars)", () => {
+    expect(detectDeepFollowupShortCircuit("nice, thx", deepPrior)).toBeNull();
+    expect(detectDeepFollowupShortCircuit("what's MAU?", deepPrior)).toBeNull();
+  });
+
+  it("catches substantive iteration via soft signal (numeric pushback + length)", () => {
+    // No hard refinement pattern but has a numeric reference + >80 chars +
+    // prior was deep. Should still stay deep.
+    const out = detectDeepFollowupShortCircuit(
+      "the FDV multiple in the bull case implies a 12x P/E by November — that seems aggressive given current 23% APR validator yields",
+      deepPrior,
+    );
+    expect(out?.mode).toBe("deep");
+    expect(out?.reason).toContain("substantive");
+  });
+
+  it("catches data-source references as soft signal", () => {
+    const out = detectDeepFollowupShortCircuit(
+      "can you pull the validator stake amounts from the Hyperliquid info API and feed them into the SBC line",
+      deepPrior,
+    );
+    expect(out?.mode).toBe("deep");
   });
 });
 

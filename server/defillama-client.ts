@@ -305,8 +305,20 @@ export async function getCoinPriceHistory(
     const key = Object.keys(coins)[0];
     if (!key) return { prices: [], symbol: coinId };
 
+    // Source-side hygiene: drop NaN, null/undefined, negative, and zero
+    // prices. Coingecko / DeFiLlama occasionally emit zeros during pool
+    // migrations or LP-imbalance moments; these are not real prices and
+    // pin the Y-axis when included. Single-spike outlier detection is
+    // NOT done here — that lives in the chart-axis-policy layer, which
+    // can compare against the rest of the series in context.
+    const raw = coins[key].prices || [];
+    const clean = raw.filter((p: any) =>
+      typeof p?.price === "number" &&
+      Number.isFinite(p.price) &&
+      p.price > 0,
+    );
     return {
-      prices: (coins[key].prices || []).map((p: any) => ({
+      prices: clean.map((p: any) => ({
         date: p.timestamp,
         price: p.price,
       })),

@@ -31,8 +31,18 @@ const PATTERNS: ReadonlyArray<RegExp> = [
   /\b(?:your|the)\s+(?:knowledge[ -]?base|whole\s+index|entire\s+index|database|brain\s+contents?)\b/i,
   // "full export / complete export / data dump"
   /\b(?:full|complete|raw|wholesale)\s+(?:export|dump|listing|directory)\b/i,
-  // "everything you have/know about X"
-  /\b(?:everything|all)\s+(?:you|we)\s+(?:have|know|store|have stored|track|index)\b/i,
+  // "everything you have/know" — bulk-dump request.
+  // CRITICAL: must NOT be scoped to a specific entity via `about <X>`.
+  // "everything we know about Hyperliquid" / "everything you have on AAVE"
+  // is a legitimate research framing (use all relevant context about
+  // subject X), not an extraction attempt. The negative lookahead
+  // `(?!\s+about\b|\s+on\b|\s+regarding\b|\s+re:?\s)` requires the
+  // dump-verb to be UNSCOPED — only matches when "everything you know"
+  // is followed by end-of-sentence / "in your DB" / etc., not by an
+  // entity scope. False positive history: user "Build a financial model
+  // on HYPE … take into consideration everything we know about
+  // Hyperliquid" was refused with the directory message on 2026-05-17.
+  /\b(?:everything|all)\s+(?:you|we)\s+(?:have|know|store|have stored|track|index)\b(?!\s+(?:about|on|regarding|re:?|of|for)\b)/i,
   // "every company/founder/token/protocol/entity you have/know"
   /\bevery\s+(?:company|founder|token|protocol|entity|fact|deal|investor|wallet|address)\s+(?:you|we)\s+(?:have|know|track|stored|indexed|store)\b/i,
 ];

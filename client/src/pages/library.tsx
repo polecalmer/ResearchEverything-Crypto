@@ -2,13 +2,12 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { FileText, BarChart3, Loader2, Search, ArrowRight } from "lucide-react";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Loader2, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { formatDistanceToNow } from "date-fns";
 import DataStation from "@/pages/data-station";
+import type { Session } from "@/lib/research-utils";
 
 interface Report {
   id: string;
@@ -16,19 +15,14 @@ interface Report {
   description: string | null;
   createdAt: string;
   updatedAt: string;
-  // Source session + message the memo was saved from. Populated by
-  // save-to-report. Older rows may be null; we fall back to /reports/:id.
   sourceConversationId: number | null;
   sourceMessageId: number | null;
 }
 
-const TABS = ["charts", "reports"] as const;
+const TABS = ["charts", "memos", "sessions"] as const;
 type Tab = typeof TABS[number];
 
 // Known protocol + ticker names the memo extractor is likely to surface.
-// Match on a word boundary against the title first, then description, so
-// "Jupiter: Revenue Streams" gets a "Jupiter" chip even if the description
-// mentions other protocols later in the body.
 const PROTOCOL_TAG_PATTERNS: Array<[RegExp, string]> = [
   [/\bhyperliquid\b|\bhype\b|\bhip-?3\b/i, "Hyperliquid"],
   [/\bethena\b|\busde\b|\bsusde\b|\bena\b/i, "Ethena"],
@@ -62,6 +56,8 @@ function detectProtocolTag(...fields: Array<string | null | undefined>): string 
 function getTabFromQuery(search: string): Tab {
   const params = new URLSearchParams(search);
   const t = (params.get("tab") || "").toLowerCase();
+  // Back-compat: the second tab used to be ?tab=reports; rename to memos.
+  if (t === "reports") return "memos";
   return (TABS as readonly string[]).includes(t) ? (t as Tab) : "charts";
 }
 
@@ -95,7 +91,7 @@ export default function Library() {
               Library
             </h1>
             <p className="text-xs text-muted-foreground/70 mt-0.5">
-              Everything your sessions have produced — live Charts and Memos.
+              Everything your sessions have produced — Charts, Memos, and session history.
             </p>
           </div>
         </div>
@@ -106,16 +102,21 @@ export default function Library() {
               className="h-7 px-3 text-[12px] data-[state=active]:bg-accent data-[state=active]:shadow-none"
               data-testid="tab-charts"
             >
-              <BarChart3 className="w-3.5 h-3.5 mr-1.5" />
               Charts
             </TabsTrigger>
             <TabsTrigger
-              value="reports"
+              value="memos"
               className="h-7 px-3 text-[12px] data-[state=active]:bg-accent data-[state=active]:shadow-none"
               data-testid="tab-reports"
             >
-              <FileText className="w-3.5 h-3.5 mr-1.5" />
               Memos
+            </TabsTrigger>
+            <TabsTrigger
+              value="sessions"
+              className="h-7 px-3 text-[12px] data-[state=active]:bg-accent data-[state=active]:shadow-none"
+              data-testid="tab-sessions"
+            >
+              Sessions
             </TabsTrigger>
           </TabsList>
         </Tabs>
@@ -127,7 +128,8 @@ export default function Library() {
             <DataStation embedded />
           </div>
         )}
-        {tab === "reports" && <ReportsTab />}
+        {tab === "memos" && <ReportsTab />}
+        {tab === "sessions" && <SessionsTab />}
       </div>
     </div>
   );
@@ -153,7 +155,7 @@ function ReportsTab() {
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="max-w-5xl mx-auto px-6 py-6">
+      <div className="max-w-4xl mx-auto px-6 py-6">
         <div className="relative mb-4">
           <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/50" />
           <Input
@@ -180,49 +182,138 @@ function ReportsTab() {
             )}
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          // Slick list: no row separators, two-line layout (title above,
+          // meta below in muted small type), generous vertical rhythm.
+          // Hover gives a subtle inset background instead of a border.
+          <ul className="flex flex-col">
             {filtered.map((r) => {
-              // Prefer the memo view (same rendering as download) when the
-              // memo was saved from a session. Fall back to the legacy report
-              // viewer for old rows that were saved before we tracked source.
               const href =
                 r.sourceConversationId != null && r.sourceMessageId != null
                   ? `/memo/${r.sourceConversationId}/${r.sourceMessageId}?preview=1`
                   : `/reports/${r.id}`;
               const protocolTag = detectProtocolTag(r.title, r.description);
               return (
-                <Link key={r.id} href={href}>
-                  <Card
-                    className="group p-4 cursor-pointer hover-elevate active-elevate-2 transition-all h-full flex flex-col"
-                    data-testid={`card-report-${r.id}`}
+                <li key={r.id}>
+                  <Link
+                    href={href}
+                    className="block rounded-md px-3 py-3 hover:bg-accent/30 active:bg-accent/50 transition-colors"
+                    data-testid={`row-report-${r.id}`}
                   >
-                    <div className="flex items-center gap-2 mb-2 text-[10px] text-muted-foreground/60 uppercase tracking-wider">
+                    <div
+                      className="text-[13.5px] font-medium text-foreground/95 leading-snug truncate"
+                      data-testid={`text-report-title-${r.id}`}
+                    >
+                      {r.title}
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground/60">
                       {protocolTag && (
-                        <Badge variant="secondary" className="text-[10px] h-4 px-1.5 font-medium">
-                          {protocolTag}
-                        </Badge>
+                        <>
+                          <span className="font-medium text-muted-foreground/80">{protocolTag}</span>
+                          <span className="text-muted-foreground/30">·</span>
+                        </>
                       )}
                       <span className="tabular-nums">
                         {formatDistanceToNow(new Date(r.updatedAt), { addSuffix: true })}
                       </span>
-                      <ArrowRight className="w-3 h-3 ml-auto opacity-0 group-hover:opacity-60 transition-opacity" />
+                      {r.description && (
+                        <>
+                          <span className="text-muted-foreground/30">·</span>
+                          <span className="truncate">{r.description}</span>
+                        </>
+                      )}
                     </div>
-                    <h3
-                      className="text-[13.5px] font-semibold leading-snug line-clamp-2 mb-1.5"
-                      data-testid={`text-report-title-${r.id}`}
-                    >
-                      {r.title}
-                    </h3>
-                    {r.description && (
-                      <p className="text-xs text-muted-foreground/75 line-clamp-3 leading-relaxed">
-                        {r.description}
-                      </p>
-                    )}
-                  </Card>
-                </Link>
+                  </Link>
+                </li>
               );
             })}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SessionsTab() {
+  const { user } = useAuth();
+  const [q, setQ] = useState("");
+
+  const sessionsQuery = useQuery<Session[]>({
+    queryKey: ["/api/research/sessions"],
+    enabled: !!user,
+  });
+
+  const sessions = sessionsQuery.data || [];
+  const filtered = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    if (!needle) return sessions;
+    return sessions.filter((s) => s.title?.toLowerCase().includes(needle));
+  }, [sessions, q]);
+
+  return (
+    <div className="h-full overflow-y-auto">
+      <div className="max-w-4xl mx-auto px-6 py-6">
+        <div className="relative mb-4">
+          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground/50" />
+          <Input
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search sessions…"
+            className="h-9 pl-8 text-sm"
+            data-testid="input-search-sessions"
+          />
+        </div>
+
+        {sessionsQuery.isLoading ? (
+          <div className="flex items-center justify-center py-16">
+            <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
           </div>
+        ) : filtered.length === 0 ? (
+          <div className="text-center py-16 text-sm text-muted-foreground">
+            {sessions.length === 0 ? (
+              <>No sessions yet. Start one from the Research page.</>
+            ) : (
+              <>No sessions match "{q}".</>
+            )}
+          </div>
+        ) : (
+          <ul className="flex flex-col">
+            {filtered.map((s) => {
+              const protocolTag = detectProtocolTag(s.title);
+              return (
+                <li key={s.id}>
+                  <Link
+                    href={`/research?sessionId=${s.id}`}
+                    className="block rounded-md px-3 py-3 hover:bg-accent/30 active:bg-accent/50 transition-colors"
+                    data-testid={`row-session-${s.id}`}
+                  >
+                    <div
+                      className="text-[13.5px] font-medium text-foreground/95 leading-snug truncate"
+                      data-testid={`text-session-title-${s.id}`}
+                    >
+                      {s.title || "Untitled session"}
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground/60">
+                      {protocolTag && (
+                        <>
+                          <span className="font-medium text-muted-foreground/80">{protocolTag}</span>
+                          <span className="text-muted-foreground/30">·</span>
+                        </>
+                      )}
+                      <span className="tabular-nums">
+                        {formatDistanceToNow(new Date(s.createdAt), { addSuffix: true })}
+                      </span>
+                      {s.parentSessionId && (
+                        <>
+                          <span className="text-muted-foreground/30">·</span>
+                          <span>spawned thread</span>
+                        </>
+                      )}
+                    </div>
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
         )}
       </div>
     </div>

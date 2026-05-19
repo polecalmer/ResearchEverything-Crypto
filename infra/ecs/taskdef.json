@@ -1,0 +1,67 @@
+{
+  "family": "sessions",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "1024",
+  "memory": "2048",
+  "executionRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/sessionsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/sessionsTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "app",
+      "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/sessions:latest",
+      "essential": true,
+      "portMappings": [
+        { "containerPort": 5000, "protocol": "tcp" }
+      ],
+      "environment": [
+        { "name": "NODE_ENV", "value": "production" },
+        { "name": "PORT", "value": "5000" },
+        { "name": "STORAGE_BACKEND", "value": "s3" },
+        { "name": "S3_ARTIFACTS_BUCKET", "value": "<S3_BUCKET>" },
+        { "name": "AWS_REGION", "value": "<REGION>" },
+        { "name": "ENABLE_STRIPE", "value": "1" },
+        { "name": "USER_DAILY_COST_CEILING_USD", "value": "20" },
+        { "name": "PER_TURN_SPEND_CAP_USD", "value": "50" },
+        { "name": "RATE_LIMIT_API_PER_MIN", "value": "60" },
+        { "name": "RATE_LIMIT_LLM_PER_HOUR", "value": "30" }
+      ],
+      "secrets": [
+        { "name": "DATABASE_URL",         "valueFrom": "<SECRETS_MANAGER_ARN>:DATABASE_URL::" },
+        { "name": "OPENROUTER_API_KEY",   "valueFrom": "<SECRETS_MANAGER_ARN>:OPENROUTER_API_KEY::" },
+        { "name": "DUNE_API_KEY",         "valueFrom": "<SECRETS_MANAGER_ARN>:DUNE_API_KEY::" },
+        { "name": "DEFILLAMA_PRO_API_KEY","valueFrom": "<SECRETS_MANAGER_ARN>:DEFILLAMA_PRO_API_KEY::" },
+        { "name": "COINGECKO_API_KEY",    "valueFrom": "<SECRETS_MANAGER_ARN>:COINGECKO_API_KEY::" },
+        { "name": "ALLIUM_API_KEY",       "valueFrom": "<SECRETS_MANAGER_ARN>:ALLIUM_API_KEY::" },
+        { "name": "VOYAGE_API_KEY",       "valueFrom": "<SECRETS_MANAGER_ARN>:VOYAGE_API_KEY::" },
+        { "name": "JWT_SECRET",           "valueFrom": "<SECRETS_MANAGER_ARN>:JWT_SECRET::" },
+        { "name": "PRIVY_APP_ID",         "valueFrom": "<SECRETS_MANAGER_ARN>:PRIVY_APP_ID::" },
+        { "name": "PRIVY_APP_SECRET",     "valueFrom": "<SECRETS_MANAGER_ARN>:PRIVY_APP_SECRET::" },
+        { "name": "VITE_PRIVY_APP_ID",    "valueFrom": "<SECRETS_MANAGER_ARN>:VITE_PRIVY_APP_ID::" },
+        { "name": "STRIPE_SECRET_KEY",    "valueFrom": "<SECRETS_MANAGER_ARN>:STRIPE_SECRET_KEY::" },
+        { "name": "STRIPE_WEBHOOK_SECRET","valueFrom": "<SECRETS_MANAGER_ARN>:STRIPE_WEBHOOK_SECRET::" },
+        { "name": "PUBLIC_BASE_URL",      "valueFrom": "<SECRETS_MANAGER_ARN>:PUBLIC_BASE_URL::" },
+        { "name": "CORS_ALLOWED_ORIGINS", "valueFrom": "<SECRETS_MANAGER_ARN>:CORS_ALLOWED_ORIGINS::" },
+        { "name": "SENTRY_DSN",           "valueFrom": "<SECRETS_MANAGER_ARN>:SENTRY_DSN::" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/sessions-prod",
+          "awslogs-region": "<REGION>",
+          "awslogs-stream-prefix": "app"
+        }
+      },
+      "healthCheck": {
+        "command": [
+          "CMD-SHELL",
+          "node -e \"require('http').get('http://localhost:'+(process.env.PORT||5000)+'/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\""
+        ],
+        "interval": 30,
+        "timeout": 5,
+        "retries": 3,
+        "startPeriod": 30
+      }
+    }
+  ]
+}

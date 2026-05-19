@@ -7,6 +7,19 @@ vite.config.ts.*
 .env
 .env.local
 .env.*.local
+.env.save
+.env.bak
+
+# Python sandbox venv (per-host, do not commit)
+server/python-sandbox/venv/
+server/python-sandbox/__pycache__/
+server/python-sandbox/*.pyc
+
+# Marketing/presentation assets — built locally, not source
+decks/
+
+# Internal handoff / scratch
+attached_assets/
 
 # Editor / agent config
 .claude/

@@ -80,16 +80,45 @@ export function registerBillingRoutes(app: Express) {
 
   app.post("/api/credits/checkout", requireAuth, async (req, res) => {
     try {
-      const { priceId, mode } = req.body;
-      if (!priceId) return res.status(400).json({ message: "priceId required" });
-
+      const { priceId: rawPriceId, lookupKey, mode } = req.body;
+      // Resolve priceId from either an explicit Stripe price id OR a
+      // stable lookup_key (session_single, session_pack_10). The
+      // lookup_key path is what the out-of-credits modal uses so the
+      // frontend doesn't need to know Stripe-specific ids.
+      let priceId = rawPriceId;
       const stripe = await getUncachableStripeClient();
+
+      if (!priceId && lookupKey) {
+        const prices = await stripe.prices.list({
+          lookup_keys: [String(lookupKey)],
+          limit: 1,
+          active: true,
+        });
+        if (prices.data.length === 0) {
+          return res.status(404).json({ message: `No active price for lookupKey "${lookupKey}". Run script/stripe-setup-beta-products.ts to create products.` });
+        }
+        priceId = prices.data[0].id;
+      }
+      if (!priceId) return res.status(400).json({ message: "priceId or lookupKey required" });
+
       const user = await storage.getUser(req.user!.id);
       if (!user) return res.status(404).json({ message: "User not found" });
+
+      // Wallet-only users land here with `email === ""`. Stripe accepts
+      // an empty email on a customer record, but receipts won't reach
+      // anyone, and Stripe's anti-fraud heuristics dislike missing
+      // emails on $7-$70 charges. Demand one before sending to checkout.
+      if (!user.email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(user.email)) {
+        return res.status(400).json({
+          error: "email_required",
+          message: "We need an email for your Stripe receipt. PATCH /api/user/email with { email } and retry.",
+        });
+      }
 
       let customerId = user.stripeCustomerId;
       if (!customerId) {
         const customer = await stripe.customers.create({
+          email: user.email,
           metadata: { userId: user.id, username: user.username },
         });
         await storage.updateStripeCustomerId(user.id, customer.id);

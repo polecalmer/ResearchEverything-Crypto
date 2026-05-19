@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, timestamp, integer, jsonb, boolean, doublePrecision, vector, index, uniqueIndex, customType } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, timestamp, integer, jsonb, boolean, doublePrecision, numeric, vector, index, uniqueIndex, customType } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -276,13 +276,43 @@ export const users = pgTable("users", {
   email: text("email"),
   username: text("username").notNull().unique(),
   password: text("password").notNull(),
-  credits: integer("credits").notNull().default(0),
+  // Default bumped from 0 → 20 in migration 0005. Beta users get 20
+  // free turns on signup; production tier will swap this for a
+  // subscription-based monthly grant.
+  credits: integer("credits").notNull().default(20),
   stripeCustomerId: text("stripe_customer_id"),
   subscriptionStatus: text("subscription_status"),
   subscriptionId: text("subscription_id"),
   subscriptionPeriodEnd: timestamp("subscription_period_end"),
   telegramChatId: text("telegram_chat_id"),
 });
+
+/** Waitlist for signups that arrive after the 20-user beta cap is full.
+ *  At least one of (email, walletAddress, privyId) must be present so
+ *  we have a way to invite the user later. */
+export const waitlist = pgTable("waitlist", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  email: text("email"),
+  walletAddress: text("wallet_address"),
+  privyId: text("privy_id"),
+  joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
+  invitedAt: timestamp("invited_at", { withTimezone: true }),
+  notes: text("notes"),
+});
+export type WaitlistEntry = typeof waitlist.$inferSelect;
+export type InsertWaitlistEntry = typeof waitlist.$inferInsert;
+
+/** Audit log of beta free-tier grants. One row per user the moment
+ *  they receive their free 20 credits. Prevents accidental double-
+ *  grants (e.g. if a Privy account gets soft-deleted and re-created
+ *  under a new id, we can detect that via wallet/email match). */
+export const betaGrants = pgTable("beta_grants", {
+  userId: varchar("user_id").primaryKey(),
+  grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
+  amount: integer("amount").notNull(),
+  reason: text("reason").notNull().default("beta_free_tier"),
+});
+export type BetaGrant = typeof betaGrants.$inferSelect;
 
 export const transactions = pgTable("transactions", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -539,6 +569,31 @@ export const insertQueryAttemptSchema = createInsertSchema(queryAttempts).omit({
 export type QueryAttempt = typeof queryAttempts.$inferSelect;
 export type InsertQueryAttempt = z.infer<typeof insertQueryAttemptSchema>;
 
+/* ─── llm_cost_events: per-call cost ledger (migration 0004) ───────────
+ * Every openrouter.request emits a row. Solves the gap where rotated
+ * server logs lost cost history (sessions' internal voucher_estimate
+ * vs OpenRouter's actual receipts diverged ~25-40%). Reconcile via
+ * nightly OR receipts job.                                              */
+export const llmCostEvents = pgTable("llm_cost_events", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  conversationId: integer("conversation_id"),
+  messageId: integer("message_id"),
+  userId: text("user_id"),
+  requestId: text("request_id"),
+  model: text("model").notNull(),
+  callKind: text("call_kind").notNull().default("agent_loop"),
+  path: text("path"),
+  inputTokens: integer("input_tokens").notNull().default(0),
+  outputTokens: integer("output_tokens").notNull().default(0),
+  cacheReadTokens: integer("cache_read_tokens").notNull().default(0),
+  cacheWriteTokens: integer("cache_write_tokens").notNull().default(0),
+  costEstimate: numeric("cost_estimate", { precision: 12, scale: 6 }).notNull(),
+  costActual: numeric("cost_actual", { precision: 12, scale: 6 }),
+  costSource: text("cost_source").notNull().default("voucher_estimate"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+});
+export type LlmCostEvent = typeof llmCostEvents.$inferSelect;
+
 /** Ground truth benchmark cases — auto-seeded from DeFiLlama */
 export const benchmarkCases = pgTable("benchmark_cases", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -783,7 +838,27 @@ export type User = typeof users.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;
 export type UsageEvent = typeof usageEvents.$inferSelect;
 
-export const DATA_SOURCES = ["defillama", "coingecko", "dune", "allium", "stonksonchain"] as const;
+// "Source" used to mean just protocol-data adapters (defillama, dune, etc.)
+// — now broadened to include any tool family the brain can learn about.
+// 2026-05-17 extension adds: `web` (web_search + web_fetch routing
+// through Tavily/Exa/Firecrawl/Parallel + Playwright); `python_sandbox`
+// (execute_python subprocess); `file_artifact` (write_xlsx + write_csv);
+// `agent_skill` (the query_agent_skills retrieval over the lifted
+// hermes skill packs). All five participate in the same per-call
+// consult-pre + observe-post pattern as the protocol-data sources, so
+// the brain auto-learns failure modes / quirks across the whole tool
+// surface, matching the hermes brain-in-loop pattern.
+export const DATA_SOURCES = [
+  "defillama",
+  "coingecko",
+  "dune",
+  "allium",
+  "stonksonchain",
+  "web",
+  "python_sandbox",
+  "file_artifact",
+  "agent_skill",
+] as const;
 export type DataSource = typeof DATA_SOURCES[number];
 
 export const FACT_SCOPES = ["source", "endpoint", "field", "cross-source"] as const;
@@ -903,6 +978,130 @@ export const analystFrameworks = pgTable("analyst_frameworks", {
 export type AnalystDocument = typeof analystDocuments.$inferSelect;
 export type AnalystChunk = typeof analystChunks.$inferSelect;
 export type AnalystFramework = typeof analystFrameworks.$inferSelect;
+
+// ─────────────────────────────────────────────────────────────────────────
+// Hermes analyst substrate (migration 0003) — 5 perspective tables ported
+// from /Users/sessions/.hermes/dune-brain. The framework table sessions
+// already has (analystFrameworks above) is REUSED — the new perspective
+// tables join to `analysts` and feed the brain-context block at consult
+// time.
+// ─────────────────────────────────────────────────────────────────────────
+
+// Master identity table. All perspective tables FK back here by slug.
+export const analysts = pgTable("analysts", {
+  slug: text("slug").primaryKey(),
+  displayName: text("display_name").notNull(),
+  bio: text("bio"),
+  twitterHandle: text("twitter_handle"),
+  twitterUrl: text("twitter_url"),
+  website: text("website"),
+  telegram: text("telegram"),
+  imageUrl: text("image_url"),
+  source: text("source").notNull(), // 'hrc' | 'manual' | etc.
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  twitterHandleIdx: index("analysts_twitter_handle_idx").on(t.twitterHandle),
+  sourceIdx: index("analysts_source_idx").on(t.source),
+}));
+
+// Platform-aware raw landing. Idempotent by (platform, post_id).
+export const analystRawPosts = pgTable("analyst_raw_posts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  analystSlug: text("analyst_slug").notNull(),
+  platform: text("platform").notNull(),        // 'hrc' | 'x' | 'substack' | etc.
+  postId: text("post_id").notNull(),
+  url: text("url"),
+  title: text("title"),
+  excerpt: text("excerpt"),
+  category: text("category"),
+  contentHtml: text("content_html"),
+  contentMd: text("content_md"),
+  wordCount: integer("word_count"),
+  contentType: text("content_type"),           // 'post' | 'newsletter' | 'tweet' | ...
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+  metadata: jsonb("metadata").default(sql`'{}'::jsonb`),
+}, (t) => ({
+  analystIdx: index("analyst_raw_posts_analyst_idx").on(t.analystSlug),
+  platformIdx: index("analyst_raw_posts_platform_idx").on(t.platform),
+  publishedIdx: index("analyst_raw_posts_published_at_idx").on(t.publishedAt),
+  platformPostIdUnique: uniqueIndex("analyst_raw_posts_platform_post_id_key").on(t.platform, t.postId),
+}));
+
+// LAYER 1 — investigation patterns. Most generalizable; transfers to topics
+// the analyst hasn't written about yet.
+export const analystQuestions = pgTable("analyst_questions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  analystSlug: text("analyst_slug").notNull(),
+  questionText: text("question_text").notNull(),
+  questionTopic: text("question_topic"),
+  questionType: text("question_type"),         // investigation_starter | risk_check | thesis_validation | mechanism_check | unit_economics | comparative
+  evidenceQuote: text("evidence_quote"),
+  sourcePostIds: text("source_post_ids").array().default(sql`'{}'::text[]`),
+  embedding: vector("embedding", { dimensions: 1024 }),
+  contentTsv: tsvector("content_tsv").generatedAlwaysAs(
+    sql`to_tsvector('english', coalesce(question_text,'') || ' ' || coalesce(question_topic,'') || ' ' || coalesce(question_type,''))`,
+    { mode: "stored" as any },
+  ),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  analystIdx: index("analyst_questions_analyst_idx").on(t.analystSlug),
+  topicIdx: index("analyst_questions_topic_idx").on(t.questionTopic),
+  typeIdx: index("analyst_questions_type_idx").on(t.questionType),
+  embeddingIdx: index("analyst_questions_embedding_idx").using("hnsw", t.embedding.op("vector_cosine_ops")),
+  tsvIdx: index("analyst_questions_tsv_idx").using("gin", t.contentTsv),
+}));
+
+// LAYER 3 — default data sources / dashboards / metrics each analyst reaches
+// for. Joined at consult-time to enrich brain context.
+export const analystSignals = pgTable("analyst_signals", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  analystSlug: text("analyst_slug").notNull(),
+  signalName: text("signal_name").notNull(),
+  signalKind: text("signal_kind"),             // on_chain_event | derived_metric | dashboard | data_source | rule_of_thumb
+  sourceRef: text("source_ref"),
+  useCase: text("use_case"),
+  sourcePostIds: text("source_post_ids").array().default(sql`'{}'::text[]`),
+  embedding: vector("embedding", { dimensions: 1024 }),
+  contentTsv: tsvector("content_tsv").generatedAlwaysAs(
+    sql`to_tsvector('english', coalesce(signal_name,'') || ' ' || coalesce(signal_kind,'') || ' ' || coalesce(use_case,''))`,
+    { mode: "stored" as any },
+  ),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  analystIdx: index("analyst_signals_analyst_idx").on(t.analystSlug),
+  kindIdx: index("analyst_signals_kind_idx").on(t.signalKind),
+  embeddingIdx: index("analyst_signals_embedding_idx").using("hnsw", t.embedding.op("vector_cosine_ops")),
+  tsvIdx: index("analyst_signals_tsv_idx").using("gin", t.contentTsv),
+  analystSignalUnique: uniqueIndex("analyst_signals_analyst_name_key").on(t.analystSlug, t.signalName),
+}));
+
+// LAYER 4 — output structure conventions. Conditioned on memo-mode + analyst
+// persona only — not injected into every prompt.
+export const analystStylePatterns = pgTable("analyst_style_patterns", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  analystSlug: text("analyst_slug").notNull(),
+  patternName: text("pattern_name").notNull(),
+  patternKind: text("pattern_kind"),           // opening | closing | transition | caveat | structure
+  description: text("description"),
+  exampleQuote: text("example_quote"),
+  sourcePostIds: text("source_post_ids").array().default(sql`'{}'::text[]`),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (t) => ({
+  analystIdx: index("analyst_style_patterns_analyst_idx").on(t.analystSlug),
+  kindIdx: index("analyst_style_patterns_kind_idx").on(t.patternKind),
+  analystPatternUnique: uniqueIndex("analyst_style_patterns_analyst_name_key").on(t.analystSlug, t.patternName),
+}));
+
+export type Analyst = typeof analysts.$inferSelect;
+export type AnalystRawPost = typeof analystRawPosts.$inferSelect;
+export type AnalystQuestion = typeof analystQuestions.$inferSelect;
+export type AnalystSignal = typeof analystSignals.$inferSelect;
+export type AnalystStylePattern = typeof analystStylePatterns.$inferSelect;
 
 export const financialModels = pgTable("financial_models", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),

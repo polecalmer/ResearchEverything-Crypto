@@ -1,25 +1,15 @@
-import { usePrivy, useWallets } from "@privy-io/react-auth";
+import { usePrivy } from "@privy-io/react-auth";
 import { useQuery } from "@tanstack/react-query";
-import { useEffect } from "react";
 import { queryClient } from "@/lib/queryClient";
-import { initMppx, resetMppx } from "@/lib/mpp";
 import type { User } from "@shared/schema";
+
+// Client-side MPP wallet initialisation removed 2026-05-19. Browser
+// no longer signs on-chain payment proofs — billing is Stripe-only.
+// Privy still handles identity + the embedded wallet for users who
+// signed up wallet-first; we just don't wire it to a payment channel.
 
 export function useAuth() {
   const { ready, authenticated, login, logout: privyLogout, getAccessToken, user: privyUser } = usePrivy();
-  const { wallets } = useWallets();
-
-  useEffect(() => {
-    if (!authenticated || wallets.length === 0) return;
-
-    const wallet = wallets.find((w) => w.walletClientType === "privy")
-      || wallets[0];
-    if (!wallet) return;
-
-    wallet.getEthereumProvider().then((provider) => {
-      initMppx(provider).catch(console.error);
-    });
-  }, [authenticated, wallets]);
 
   const { data: user, isLoading: userLoading } = useQuery<User | null>({
     queryKey: ["/api/user"],
@@ -31,6 +21,19 @@ export function useAuth() {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (res.status === 401) return null;
+      // 403 with body.error === "beta_full" means the user authenticated
+      // with Privy but the 20-user beta cap was hit. The auth middleware
+      // auto-added them to the waitlist. Return a sentinel so the UI can
+      // render the "you're on the list" state.
+      if (res.status === 403) {
+        try {
+          const body = await res.json();
+          if (body?.error === "beta_full") {
+            return { __betaFull: true, ...body } as any;
+          }
+        } catch {}
+        return null;
+      }
       if (!res.ok) throw new Error("Failed to fetch user");
       return res.json();
     },
@@ -42,7 +45,6 @@ export function useAuth() {
   const isLoading = !ready || (authenticated && userLoading);
 
   const handleLogout = async () => {
-    resetMppx();
     await privyLogout();
     queryClient.setQueryData(["/api/user"], null);
     queryClient.clear();

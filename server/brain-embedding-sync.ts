@@ -2,6 +2,7 @@ import { db } from "./db";
 import { brainFacts, brainEntities } from "@shared/schema";
 import { embed, embedBatch } from "./data-source-brain/embeddings";
 import { sql } from "drizzle-orm";
+import { canonicalProtocolName, buildCanonicalEntitiesArray } from "./protocol-canonical";
 import type { BrainUpdate, BrainEntity } from "./session-research-agent";
 
 const BATCH_SIZE = 32;
@@ -29,7 +30,12 @@ export async function syncBrainFacts(
     for (let j = 0; j < batchFacts.length; j++) {
       const f = batchFacts[j];
       const vec = embeddings[j];
-      const entitiesArr = Array.isArray(f.entities) ? f.entities : (f.entities ? [String(f.entities)] : []);
+      // Canonicalize entities BEFORE storage so "HYPE" + "Hyperliquid"
+      // collapse to a single "hyperliquid" key in the text[] column.
+      // Without this, two facts about the same protocol stored under
+      // different aliases never collide on retrieval.
+      const rawArr = Array.isArray(f.entities) ? f.entities : (f.entities ? [String(f.entities)] : []);
+      const entitiesArr = buildCanonicalEntitiesArray(...rawArr);
       const pgArray = `{${entitiesArr.map((e: string) => `"${String(e).replace(/"/g, '\\"')}"`).join(",")}}`;
       try {
         await db.execute(sql`
@@ -82,10 +88,17 @@ export async function syncBrainEntities(
     for (let j = 0; j < batchEntries.length; j++) {
       const [name, e] = batchEntries[j];
       const vec = embeddings[j];
+      // Canonicalize the entity_name on write. "HYPE", "Hyperliquid",
+      // and "hyperliquid" now ALL upsert into a single row keyed by
+      // "hyperliquid". The ON CONFLICT handles dedup; subsequent
+      // writes update the row's category/summary/embedding with the
+      // most recent values. Existing fragmented rows remain (separate
+      // backfill if/when worth it) but go-forward writes are unified.
+      const canonicalName = canonicalProtocolName(name) || name;
       try {
         await db.execute(sql`
           INSERT INTO brain_entities (user_id, entity_name, type, category, summary, embedding, updated_at)
-          VALUES (${userId}, ${name}, ${e.type}, ${e.category || null}, ${e.summary || null}, ${`[${vec.join(",")}]`}::vector, NOW())
+          VALUES (${userId}, ${canonicalName}, ${e.type}, ${e.category || null}, ${e.summary || null}, ${`[${vec.join(",")}]`}::vector, NOW())
           ON CONFLICT (user_id, entity_name)
           DO UPDATE SET
             type = EXCLUDED.type,
@@ -96,7 +109,7 @@ export async function syncBrainEntities(
         `);
         synced++;
       } catch (err: any) {
-        console.error(`[BrainSync] Failed to upsert entity ${name}: ${err.message}`);
+        console.error(`[BrainSync] Failed to upsert entity ${name} (canonical=${canonicalName}): ${err.message}`);
       }
     }
   }

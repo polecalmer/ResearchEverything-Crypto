@@ -53,6 +53,15 @@ describe("isChartRequest — negative cases (false-positive regressions)", () =>
     // Narrative-only prompts
     "Write me a memo on Ethena's risks",
     "Summarize the latest DeFi news",
+    // 2026-05-17 false-positive: "Fee Growth" / "Revenue Growth" / "take
+    // rate" appearing in deep-mode prose used to route to chart pipeline
+    // because pattern #7 had an OPTIONAL chart-suffix. These now require
+    // an explicit chart/trend/graph/plot/over/breakdown suffix.
+    "How are you calculating validator SBC? I think you might be understating it. Also account for Fee Growth from HIP-3 in non growth mode (use tradexyz as proxy for earnings)",
+    "model fee growth from HIP-3 as a separate revenue line in the forecast",
+    "include revenue growth from priority fees in the next version of the model",
+    "factor in fee growth and take rate compression when projecting forward",
+    "the take rate assumption looks too aggressive — what's the historical median?",
   ];
 
   for (const q of shouldNotMatch) {

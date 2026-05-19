@@ -1,0 +1,93 @@
+name: Deploy to AWS (prod)
+
+# Triggered manually from the GitHub Actions UI (workflow_dispatch).
+# Builds the linux/amd64 image, pushes to ECR with the git SHA + latest
+# tags, then optionally rolls the ECS service if the secret
+# DEPLOY_AUTO_ROLL is set to "1" in the repo's GitHub secrets.
+#
+# Required GitHub repo secrets (Settings → Secrets and variables →
+# Actions → Repository secrets):
+#   AWS_ROLE_TO_ASSUME    — arn of the role this workflow assumes via OIDC
+#                            (created by the CloudShell bootstrap script)
+#   AWS_REGION            — e.g. us-east-1
+#   AWS_ACCOUNT_ID        — your 12-digit account number
+#
+# Optional:
+#   DEPLOY_AUTO_ROLL=1    — also force-new-deployment on the ECS service
+#                            after image push (default: just push image)
+#   ECS_CLUSTER           — defaults to "sessions-prod"
+#   ECS_SERVICE           — defaults to "app"
+#   ECR_REPO              — defaults to "sessions"
+
+on:
+  workflow_dispatch:
+    inputs:
+      auto_roll:
+        description: "Auto-roll the ECS service after push?"
+        required: true
+        default: "yes"
+        type: choice
+        options: ["yes", "no"]
+
+permissions:
+  id-token: write   # required for OIDC
+  contents: read
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        env:
+          ECR_REGISTRY: ${{ steps.ecr-login.outputs.registry }}
+          ECR_REPO: ${{ vars.ECR_REPO || 'sessions' }}
+          GIT_SHA: ${{ github.sha }}
+        run: |
+          SHORT_SHA="${GIT_SHA:0:7}"
+          docker buildx build \
+            --platform linux/amd64 \
+            -t "$ECR_REGISTRY/$ECR_REPO:$SHORT_SHA" \
+            -t "$ECR_REGISTRY/$ECR_REPO:latest" \
+            --push \
+            .
+          echo "image_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+          echo "## ✓ Pushed to ECR" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo '`'"$ECR_REGISTRY/$ECR_REPO:$SHORT_SHA"'`' >> "$GITHUB_STEP_SUMMARY"
+        id: build
+
+      - name: Roll ECS service (auto)
+        if: ${{ github.event.inputs.auto_roll == 'yes' }}
+        env:
+          AWS_REGION: ${{ secrets.AWS_REGION }}
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER || 'sessions-prod' }}
+          ECS_SERVICE: ${{ vars.ECS_SERVICE || 'app' }}
+        run: |
+          aws ecs update-service \
+            --region "$AWS_REGION" \
+            --cluster "$ECS_CLUSTER" \
+            --service "$ECS_SERVICE" \
+            --force-new-deployment \
+            > /dev/null
+          echo "→ Rolling service ${ECS_SERVICE}..."
+          aws ecs wait services-stable \
+            --region "$AWS_REGION" \
+            --cluster "$ECS_CLUSTER" \
+            --services "$ECS_SERVICE"
+          echo "## ✓ Service stable" >> "$GITHUB_STEP_SUMMARY"

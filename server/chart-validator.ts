@@ -39,6 +39,7 @@
 import { sql } from "drizzle-orm";
 import { db } from "./db";
 import { computeChartStats, type ChartSeriesStats, type SeriesStats } from "./data-source-brain/series-stats";
+import { inferYAxisPolicy, type YAxisPolicy } from "./chart-axis-policy";
 import {
   assertChartFreshness,
   ChartFreshnessError,
@@ -63,7 +64,8 @@ export type ValidationKind =
   | "recipe_definition_mismatch"
   | "brain_contradiction"
   | "internal_inconsistency"
-  | "fabricated_data_admission";
+  | "fabricated_data_admission"
+  | "outlier_crush";
 
 export interface ValidationIssue {
   kind: ValidationKind;
@@ -162,6 +164,15 @@ export async function validateChartArtifact(
   }
 
   const issues: ValidationIssue[] = [];
+
+  // ─── Axis policy auto-correction ─────────────────────────────────────
+  // INTENTIONAL EXCEPTION to the "validator does not mutate artifact"
+  // rule: silent auto-correction is the agreed UX for wide-range Y-axis
+  // pathology (the SERV outlier-crush bug). The mutation happens BEFORE
+  // Tier 1 so the validator gates on what the user will actually see.
+  // Belt-and-suspenders: if Layer 2 misses something, Tier 1's
+  // outlier_crush check (below) catches it as a regression.
+  applyAxisPolicy(input.artifact, stats);
 
   // ─── Tier 1 ──────────────────────────────────────────────────────────
   issues.push(...runTier1(input, rows, yAxes, stats));
@@ -271,6 +282,106 @@ function finalize(
   };
 }
 
+// ─── Axis policy auto-correction ─────────────────────────────────────────
+//
+// Documented exception to the no-mutation rule. Mutates each yAxis to
+// add a `scale` (and possibly `domain`) hint derived purely from the
+// series stats, so the renderer can switch to a log axis when the data
+// has the wide-range pattern that crushes a linear chart (the SERV
+// outlier-crush case, where a single $4 point dominated 199 $0.02
+// points). The agent NEVER has to think about this — the server makes
+// the right call based on what's actually in the data array.
+//
+// Note: this mutates the *parsed* artifact. Callers that need the
+// change to land in the user-visible response text MUST also call
+// applyAxisPolicyToText() (below) to splice the updated yAxes back
+// into the artifact code fence. runChartValidationPass does both.
+//
+// Idempotent: if the artifact already has a scale set, we leave it
+// alone (agent gets to override). Logs the auto-application for
+// telemetry on how often it fires in production.
+function applyAxisPolicy(artifact: any, stats: ChartSeriesStats | null): void {
+  if (!artifact?.chartConfig?.yAxes || !Array.isArray(artifact.chartConfig.yAxes)) return;
+  if (!stats || !stats.series || stats.series.length === 0) return;
+
+  for (let i = 0; i < artifact.chartConfig.yAxes.length; i++) {
+    const yAxis = artifact.chartConfig.yAxes[i];
+    if (!yAxis) continue;
+
+    // Agent-provided scale wins. The auto-correct is a fallback when the
+    // agent didn't specify (the common case).
+    if (yAxis.scale === "linear" || yAxis.scale === "log") continue;
+
+    const seriesStat = stats.series[i];
+    if (!seriesStat || seriesStat.length === 0) continue;
+
+    // We need the raw values, not the stat summary, to compute p99 and
+    // run the policy logic. Re-derive from the artifact data rows.
+    const rows: any[] = Array.isArray(artifact?.data) ? artifact.data : [];
+    const values: number[] = [];
+    for (const row of rows) {
+      const v = (row as any)[yAxis.dataKey];
+      if (typeof v === "number" && Number.isFinite(v)) values.push(v);
+    }
+    if (values.length === 0) continue;
+
+    const policy: YAxisPolicy = inferYAxisPolicy(values, yAxis.format);
+    if (policy.scale !== "linear") {
+      yAxis.scale = policy.scale;
+      if (policy.domain) yAxis.domain = policy.domain;
+      console.log(
+        `[chart-axis-policy] auto-applied scale=${policy.scale} to yAxis "${yAxis.dataKey}" — ${policy.reasoning}`,
+      );
+    }
+  }
+}
+
+/**
+ * Splice axis-policy changes back into the user-facing response text.
+ *
+ * `applyAxisPolicy` mutates the parsed chart object, but the response
+ * the agent loop streams to the user is a string with the chart JSON
+ * inside ```artifact:chart``` fences. We need to re-serialize the
+ * fence so the new `scale`/`domain` actually reaches the client.
+ *
+ * Returns the (possibly-rewritten) text. If no axes have a `scale`
+ * set, returns the input unchanged (zero allocation in the common
+ * case where the policy didn't fire).
+ */
+export function applyAxisPolicyToText(text: string, chart: any): string {
+  const yAxes = chart?.chartConfig?.yAxes;
+  if (!Array.isArray(yAxes) || yAxes.length === 0) return text;
+
+  // Only fire if at least one yAxis carries scale or domain — the
+  // common no-op case (linear, auto-fit) should skip the rewrite.
+  const hasOverride = yAxes.some((y: any) => y?.scale === "log" || y?.domain);
+  if (!hasOverride) return text;
+
+  const re = /(```artifact:chart\s*\n)([\s\S]*?)(```)/;
+  const match = text.match(re);
+  if (!match) return text;
+
+  let json: any;
+  try {
+    json = JSON.parse(match[2].trim());
+  } catch {
+    return text;
+  }
+
+  // Merge scale/domain into the JSON's yAxes by index. Preserve other
+  // agent-provided fields (label, format, chartType, etc.).
+  if (!Array.isArray(json.yAxes)) return text;
+  for (let i = 0; i < json.yAxes.length && i < yAxes.length; i++) {
+    const src = yAxes[i];
+    if (!src) continue;
+    if (src.scale === "log" || src.scale === "linear") json.yAxes[i].scale = src.scale;
+    if (src.domain) json.yAxes[i].domain = src.domain;
+  }
+
+  const newFence = `${match[1]}${JSON.stringify(json, null, 2)}\n${match[3]}`;
+  return text.replace(re, newFence);
+}
+
 // ─── Tier 1: symbolic checks over the chart's own data + prose ────────────
 
 function runTier1(
@@ -321,6 +432,29 @@ function runTier1(
           modelHint: `Series "${s.label}" values are unrealistically large (>1e15) — you're probably plotting raw on-chain amounts without dividing by the token's decimals. Convert to human units (e.g. divide by 1e18 for ETH).`,
           evidence: { series: s.label, max: s.max.value },
         });
+      } else if (
+        s.max && s.median &&
+        s.median > 0 && s.max.value > 0 &&
+        s.max.value / s.median >= 50
+      ) {
+        // Outlier-crush regression guard. applyAxisPolicy() should have
+        // mutated this yAxis to scale="log" before Tier 1 runs. If we
+        // get here with neither scale=log NOR scale=linear (explicitly
+        // chosen by the agent), Layer 2 didn't fire. Surface it so the
+        // chart still ships with a visible warning callout, and we have
+        // telemetry on the regression.
+        const yAxisCfg = (input.artifact?.chartConfig?.yAxes || [])[stats.series.indexOf(s)];
+        const hasLogScale = yAxisCfg?.scale === "log";
+        const ratio = (s.max.value / s.median).toFixed(1);
+        if (!hasLogScale) {
+          issues.push({
+            kind: "outlier_crush",
+            tier: 1,
+            message: `Series "${s.label}" has max=${s.max.value.toPrecision(3)} vs median=${s.median.toPrecision(3)} (${ratio}× range). Linear Y-axis will crush most data points.`,
+            modelHint: `Series "${s.label}" has max/median = ${ratio}× — a linear Y-axis will render the rest of the data as a flat line. Set \`scale: "log"\` on this yAxis, or remove the outlier point(s) if they're known-bad data.`,
+            evidence: { series: s.label, max: s.max.value, median: s.median, maxOverMedian: s.max.value / s.median },
+          });
+        }
       }
     }
   }
@@ -1169,6 +1303,13 @@ export async function runChartValidationPass(
     now: input.now,
   });
   result.verdicts.push(verdict);
+
+  // Splice any axis-policy auto-corrections (scale="log", etc.) from
+  // the validator's mutated parsed chart back into the response text
+  // so the user-facing artifact JSON carries the new scale. No-op when
+  // the policy didn't fire.
+  workingText = applyAxisPolicyToText(workingText, chart);
+  result.finalText = workingText;
 
   // Log-only mode: surface verdict but do NOT alter behavior.
   if (VALIDATOR_LOG_ONLY) {

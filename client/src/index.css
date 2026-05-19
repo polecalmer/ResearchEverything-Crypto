@@ -670,56 +670,247 @@
  *     flex item boxes painted full container width on wrapped lines.
  */
 
-.prose-surface {
-  font-size: 14px;
-  line-height: 1.75;
+/* ───── Memo reading surface ─────
+ * Light reading "page" wrapping the assistant memo body — prose AND
+ * embedded artifacts (charts, callouts, tables, metric cards). Even in
+ * dark-mode app chrome the memo reads like a long-form research note
+ * (Stratechery / Helius / Substack feel).
+ *
+ * Implementation: overrides Tailwind's CSS variables locally on this
+ * subtree so every descendant that uses `text-foreground`, `bg-card`,
+ * `border-border/30`, etc. resolves to the LIGHT-mode values. No need
+ * to rewrite individual artifact components. The container also sets
+ * a hard background + text color so the override is visible even if
+ * a child uses a raw color.
+ */
+.memo-reading-surface {
+  /* Override the dark-theme CSS vars used by Tailwind utilities */
+  --background: 0 0% 100%;
+  --foreground: 220 14% 11%;
+  --muted: 220 14% 97%;
+  --muted-foreground: 220 9% 36%;
+  --border: 220 13% 92%;
+  --card: 220 14% 99%;
+  --card-foreground: 220 14% 11%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 220 14% 11%;
+  --primary: 220 14% 11%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 220 14% 95%;
+  --accent-foreground: 220 14% 11%;
+  --input: 220 13% 75%;
+  --ring: 220 14% 11%;
+
+  /* Reading-page layout. Subtle 1px hairline (no shadow, no panel feel)
+   * — the white-on-dark contrast is enough to separate the page from
+   * the app chrome. Generous outer padding matches the long-form
+   * margins in publication-style layouts. */
+  background: hsl(0 0% 100%);
+  color: hsl(220 14% 11%);
+  padding: 2.25rem 3rem 2.5rem;
+  margin-top: 0.75rem;
+  /* No border, no shadow — the dark chat surround naturally frames the
+   * page. Keeping a tiny 4px radius for soft corners; the white surface
+   * still reads as a clean "page" without the panel/card vibe. */
+  border-radius: 4px;
+
+  /* Long-form reading typography — sans-serif body to match modern
+   * crypto-research publication aesthetics (Helius, Messari, Delphi,
+   * Galaxy, Bankless). Inter system stack with full feature-set. */
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Helvetica Neue",
+    "Segoe UI", Roboto, "Apple Color Emoji", "Segoe UI Emoji", Arial,
+    sans-serif;
+  font-size: 13px;
+  line-height: 1.65;
+  letter-spacing: -0.002em;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+  font-variant-numeric: tabular-nums slashed-zero;
+  font-feature-settings: "kern", "liga", "calt", "ss01";
+
+  /* Selection styling on the light bg */
+  -webkit-user-select: text;
+  user-select: text;
+  cursor: text;
 }
 
-/* Paragraph spacing — atomic blocks with breathing room */
-.prose-surface p {
-  margin-block: 0.95rem;
+/* Body and headings now share the same sans family — hierarchy via
+ * weight + size, not family contrast. Headings inherit font-family
+ * from .memo-reading-surface; we only need color + letter-spacing
+ * adjustments here. */
+.memo-reading-surface h1,
+.memo-reading-surface h2,
+.memo-reading-surface h3,
+.memo-reading-surface h4 {
+  color: hsl(220 14% 8%);
+  letter-spacing: -0.018em;
 }
-
-/* Headings: lighter weight, MORE space above (separation), LESS space
- * below (tight coupling to the content). Letter-spacing tightened to
- * read as a hierarchy marker rather than a label. */
-.prose-surface h2 {
-  font-size: 17px;
+.memo-reading-surface h2 {
+  font-size: 16px;
   font-weight: 700;
-  letter-spacing: -0.01em;
-  margin-top: 2.25rem;
+  margin-top: 1.75rem;
   margin-bottom: 0.5rem;
+  line-height: 1.3;
+}
+.memo-reading-surface h3 {
+  font-size: 14px;
+  font-weight: 650;
+  margin-top: 1.4rem;
+  margin-bottom: 0.4rem;
+  line-height: 1.35;
+}
+.memo-reading-surface h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 1.1rem;
+  margin-bottom: 0.3rem;
+  line-height: 1.4;
+}
+
+/* Body prose — comfortable long-form spacing */
+.memo-reading-surface p {
+  margin-block: 1.1rem;
+  color: hsl(220 14% 14%);
+}
+.memo-reading-surface p strong,
+.memo-reading-surface li strong {
+  color: hsl(220 14% 8%);
+  font-weight: 650;
+}
+
+/* Lists: looser, more breathing room per item. The bullet glyph
+ * (rendered as an absolute-positioned select-none span by the agent
+ * renderer) stays visually anchored. */
+.memo-reading-surface ul,
+.memo-reading-surface ol {
+  margin-block: 1.25rem;
+}
+.memo-reading-surface li {
+  font-size: 16.5px;
+  line-height: 1.75;
+  color: hsl(220 14% 14%);
+  margin-block: 0.4rem;
+}
+.memo-reading-surface li span[aria-hidden="true"] {
+  color: hsl(220 14% 40%);
+}
+
+/* Inline code stays distinct but reads light-on-light */
+.memo-reading-surface code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.88em;
+  padding: 0.08em 0.4em;
+  border-radius: 4px;
+  background: hsl(220 14% 95%);
+  color: hsl(220 14% 18%);
+  border: 1px solid hsl(220 13% 90%);
+}
+
+/* Section divider — more subtle on light bg */
+.memo-reading-surface hr {
+  border: 0;
+  height: 1px;
+  margin: 2.25rem 0;
+  background: linear-gradient(
+    to right,
+    transparent,
+    hsl(220 13% 86%) 12%,
+    hsl(220 13% 86%) 88%,
+    transparent
+  );
+}
+
+/* Blockquote: thicker accent + indent, dark-on-white reads as a pull
+ * quote */
+.memo-reading-surface blockquote {
+  border-left: 3px solid hsl(220 14% 25%);
+  padding-left: 1.25rem;
+  margin-block: 1.5rem;
+  color: hsl(220 14% 32%);
+  font-style: italic;
+}
+
+/* Tables embedded inside the reading surface inherit light styling.
+ * IMPORTANT: no `background` on table / th / td here — the InlineTable
+ * component owns its own minimal cell aesthetic (hairline dividers,
+ * muted header text, no fills). Backgrounds added at this layer made
+ * tables read as contained cards even though the component itself
+ * intended flat-in-flow rendering. */
+.memo-reading-surface th {
+  color: hsl(220 9% 50%);
+  border-color: hsl(220 13% 90%);
+}
+.memo-reading-surface td {
+  color: hsl(220 14% 18%);
+  border-color: hsl(220 13% 92%);
+}
+
+/* Selection contrast on light bg */
+.memo-reading-surface ::selection {
+  background: hsl(220 90% 56% / 0.22);
+  color: inherit;
+}
+
+/* In-chat memo typography — Calibri-family (Carlito = metric-identical
+ * open-source clone fallback on non-Windows systems), tight sizing +
+ * spacing per 2026-05-17 reference. Calibri reads as a familiar Office /
+ * publication typeface; combined with smaller font + tighter leading,
+ * the output feels like a polished worksheet/memo rather than a chat
+ * stream. */
+.prose-surface {
+  font-family: "Calibri", "Carlito", -apple-system, BlinkMacSystemFont,
+    "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+  font-size: 12.5px;
+  line-height: 1.5;
+  letter-spacing: 0;
+}
+
+/* Paragraph spacing — tighter than the previous reading-page treatment.
+ * Atomic paragraphs but visually closer together. */
+.prose-surface p {
+  margin-block: 0.55rem;
+}
+
+/* Headings: tight scale, modest weight, minimal vertical breathing.
+ * Calibri's higher x-height means smaller numbers still read clearly. */
+.prose-surface h2 {
+  font-size: 14.5px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  margin-top: 1.25rem;
+  margin-bottom: 0.3rem;
   border-bottom: 0;
   padding-left: 0;
   color: hsl(var(--foreground));
 }
 .prose-surface h3 {
-  font-size: 15.5px;
-  font-weight: 650;
-  letter-spacing: -0.008em;
-  margin-top: 1.75rem;
-  margin-bottom: 0.4rem;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  margin-top: 1rem;
+  margin-bottom: 0.25rem;
   border-bottom: 0;
   color: hsl(var(--foreground));
 }
 .prose-surface h4 {
-  font-size: 14px;
-  font-weight: 600;
-  letter-spacing: -0.005em;
-  margin-top: 1.25rem;
-  margin-bottom: 0.3rem;
-  color: hsl(var(--foreground) / 0.95);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: 0;
+  margin-top: 0.85rem;
+  margin-bottom: 0.2rem;
+  color: hsl(var(--foreground));
 }
 
-/* Lists: take the .prose-surface size, with paragraph-style internal
- * spacing so each item reads as its own atomic line. */
+/* Lists: same body size + Calibri inheritance, tight per-item spacing. */
 .prose-surface ul,
 .prose-surface ol {
-  margin-block: 1rem;
+  margin-block: 0.6rem;
 }
 .prose-surface li {
-  font-size: 14px;
-  line-height: 1.7;
+  font-size: 12.5px;
+  line-height: 1.5;
+  margin-block: 0.15rem;
 }
 
 /* Bold text: decisive emphasis lift. The default `font-bold` was too
@@ -770,4 +961,98 @@
 .prose-chrome * {
   -webkit-user-select: none;
   user-select: none;
+}
+
+/* ───── Specificity override: prose-surface INSIDE memo-reading-surface ─────
+ * The `.prose-surface` typography block above (font-size, margins, headings,
+ * code, hr) is intended for views where the prose isn't wrapped in a memo
+ * reading surface — primarily memo-view.tsx (the print/PDF route). When the
+ * prose IS inside `.memo-reading-surface` (the in-chat memo body), those
+ * rules have the SAME specificity as `.memo-reading-surface p`/h2/etc. and
+ * come LATER in the file, so they win on source order — defeating the
+ * publication-style typography.
+ *
+ * This block re-states the reading-surface typography with `.memo-reading-
+ * surface .prose-surface ...` selectors (specificity 0,2,1) so they win
+ * unconditionally. Kept at the END of the file deliberately for clarity
+ * about the override intent. */
+
+.memo-reading-surface .prose-surface p {
+  font-size: 13px;
+  line-height: 1.65;
+  margin-block: 0.75rem;
+  color: hsl(220 14% 14%);
+}
+.memo-reading-surface .prose-surface li {
+  font-size: 13px;
+  line-height: 1.65;
+  color: hsl(220 14% 14%);
+  margin-block: 0.25rem;
+}
+.memo-reading-surface .prose-surface ul,
+.memo-reading-surface .prose-surface ol {
+  margin-block: 0.85rem;
+}
+.memo-reading-surface .prose-surface h2 {
+  font-size: 16px;
+  font-weight: 700;
+  margin-top: 1.75rem;
+  margin-bottom: 0.5rem;
+  line-height: 1.3;
+  letter-spacing: -0.018em;
+  border-bottom: 0;
+  padding-left: 0;
+  color: hsl(220 14% 8%);
+}
+.memo-reading-surface .prose-surface h3 {
+  font-size: 14px;
+  font-weight: 650;
+  margin-top: 1.4rem;
+  margin-bottom: 0.4rem;
+  line-height: 1.35;
+  letter-spacing: -0.018em;
+  border-bottom: 0;
+  color: hsl(220 14% 8%);
+}
+.memo-reading-surface .prose-surface h4 {
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 1.1rem;
+  margin-bottom: 0.3rem;
+  line-height: 1.4;
+  letter-spacing: -0.018em;
+  color: hsl(220 14% 8%);
+}
+.memo-reading-surface .prose-surface hr {
+  border: 0;
+  height: 1px;
+  margin: 2.25rem 0;
+  background: linear-gradient(
+    to right,
+    transparent,
+    hsl(220 13% 86%) 12%,
+    hsl(220 13% 86%) 88%,
+    transparent
+  );
+}
+.memo-reading-surface .prose-surface blockquote {
+  border-left: 3px solid hsl(220 14% 25%);
+  padding-left: 1.25rem;
+  margin-block: 1.5rem;
+  color: hsl(220 14% 32%);
+  font-style: italic;
+}
+.memo-reading-surface .prose-surface code {
+  background: hsl(220 14% 95%);
+  color: hsl(220 14% 18%);
+  border: 1px solid hsl(220 13% 90%);
+}
+.memo-reading-surface .prose-surface p strong,
+.memo-reading-surface .prose-surface li strong,
+.memo-reading-surface .prose-surface blockquote strong {
+  color: hsl(220 14% 8%);
+  font-weight: 650;
+}
+.memo-reading-surface .prose-surface li span[aria-hidden="true"] {
+  color: hsl(220 14% 40%);
 }

@@ -12,6 +12,12 @@ export interface RequestContext {
   signal?: AbortSignal;
   requestId?: string;
   userId?: string;
+  /** Active research session id — set by the SSE handler when the
+   *  request is for /api/research/sessions/:id/messages. Read by
+   *  file-artifact tools (write_xlsx / write_csv) so they can scope
+   *  generated files to the correct session's artifact directory
+   *  without threading sessionId through 5500 LOC of agent code. */
+  sessionId?: string;
 }
 
 const storage = new AsyncLocalStorage<RequestContext>();

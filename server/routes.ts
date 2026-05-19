@@ -2,7 +2,6 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { requireAuth } from "./auth";
 import { callAnthropicServer, isServerMppReady } from "./mpp-client";
-import { callOpenRouter } from "./openrouter-mpp-client";
 import { generateTelegramLinkCode } from "./telegram";
 import { registerBillingRoutes } from "./routes/billing-routes";
 import { registerEnrichmentRoutes } from "./routes/enrichment-routes";
@@ -12,6 +11,7 @@ import { registerDataRoutes } from "./routes/data-routes";
 import { registerAdminRoutes } from "./routes/admin-routes";
 import { registerResearchRoutes } from "./routes/research-routes";
 import { registerSecurityAuditRoutes } from "./routes/security-audit-routes";
+import { registerWaitlistRoutes } from "./routes/waitlist-routes";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -35,52 +35,9 @@ export async function registerRoutes(
     }
   });
 
-  // TEMP smoke test for OpenRouter-via-MPP. Remove after validating.
-  // Fire-and-poll: POST starts the call, returns a jobId. GET reads the result.
-  const smokeJobs = new Map<string, any>();
-  app.post("/api/__smoke/openrouter", async (req, res) => {
-    if (!isServerMppReady()) {
-      return res.status(503).json({ message: "MPP not configured" });
-    }
-    const model = (req.body?.model as string) || "moonshotai/kimi-k2";
-    const prompt = (req.body?.prompt as string) || "Say hello in exactly 5 words.";
-    const maxTokens = (req.body?.max_tokens as number) || 64;
-    const tools = req.body?.tools as any[] | undefined;
-    const jobId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const t0 = Date.now();
-    smokeJobs.set(jobId, { status: "running", startedAt: t0, model, prompt });
-    // Fire, don't await. Client will poll GET /api/__smoke/openrouter/:jobId.
-    (async () => {
-      try {
-        const result = await callOpenRouter({
-          model,
-          messages: [{ role: "user", content: prompt }],
-          max_tokens: maxTokens,
-          ...(tools ? { tools, tool_choice: req.body?.tool_choice ?? "auto" } : {}),
-        });
-        smokeJobs.set(jobId, {
-          status: "done",
-          model,
-          elapsedMs: Date.now() - t0,
-          text: result.text,
-          toolCalls: result.toolCalls,
-          usage: result.usage,
-          mppCost: result.mppCost,
-          costSource: result.costSource,
-          finishReason: result.finishReason,
-        });
-      } catch (e: any) {
-        console.error("[Smoke/OpenRouter]", e?.message);
-        smokeJobs.set(jobId, { status: "error", error: e?.message, elapsedMs: Date.now() - t0 });
-      }
-    })();
-    res.json({ ok: true, jobId });
-  });
-  app.get("/api/__smoke/openrouter/:jobId", (req, res) => {
-    const job = smokeJobs.get(req.params.jobId);
-    if (!job) return res.status(404).json({ status: "not_found" });
-    res.json(job);
-  });
+  // OpenRouter smoke-test endpoint removed 2026-05-19 along with the
+  // MPP teardown. Use `npx vitest run server/openrouter-client.test.ts`
+  // for OR client coverage; the test suite is the durable smoke-check.
 
   // TEMP: verify methodology retrieval for an arbitrary query.
   app.post("/api/__smoke/brain-retrieve", async (req, res) => {
@@ -152,6 +109,7 @@ export async function registerRoutes(
   registerAdminRoutes(app);
   registerResearchRoutes(app);
   registerSecurityAuditRoutes(app);
+  registerWaitlistRoutes(app);
 
   return httpServer;
 }

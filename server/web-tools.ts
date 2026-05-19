@@ -401,7 +401,7 @@ function isJsRequired(url: string): boolean {
 /** Strip HTML to a markdown-ish text representation. Cheap and good
  *  enough for plain documentation, news, blog posts. JS-rendered SPAs
  *  return the empty shell — they go through the browser path instead. */
-function htmlToText(html: string): string {
+export function htmlToText(html: string): string {
   // Strip script/style/svg blocks (with bodies)
   let s = html
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
@@ -443,6 +443,20 @@ function htmlToText(html: string): string {
 }
 
 async function fetchDirect(url: string): Promise<{ contentType: string; body: string } | { error: string }> {
+  // SSRF guard — refuse fetches to private/loopback/AWS-metadata
+  // addresses BEFORE making the HTTP request. Defends against an
+  // attacker prompting the agent to hit 169.254.169.254 (AWS metadata
+  // → IAM credential leak), localhost, RFC 1918 private space, or
+  // DNS-rebinding hostnames. See server/ssrf-guard.ts for the full
+  // address-class list. Errors surface as "error" in the structured
+  // tool result so the agent reports the failure cleanly.
+  try {
+    const { rejectIfPrivateAddress } = await import("./ssrf-guard");
+    await rejectIfPrivateAddress(url);
+  } catch (ssrfErr: any) {
+    logger.warn?.({ url, err: ssrfErr?.message }, "web_fetch blocked by SSRF guard");
+    return { error: `SSRF block: ${ssrfErr?.message || String(ssrfErr)}` };
+  }
   try {
     const controller = new AbortController();
     const t = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);

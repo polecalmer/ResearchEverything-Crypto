@@ -2,7 +2,9 @@ import type { Express } from "express";
 import { z } from "zod";
 import { storage } from "../storage";
 import { requireAuth } from "../auth";
-import { enrichmentPaywall, nextStepsPaywall, deepResearchPaywall } from "../mpp";
+// MPP paywall replaced with credit-gate 2026-05-19. Same per-turn
+// gating, billed via Stripe top-ups instead of on-chain settlement.
+import { requireCredits, consumeCredit } from "../credit-gate";
 import {
   startEnrichmentSession, advanceEnrichmentSession,
   startNextStepsSession, advanceNextStepsSession,
@@ -28,7 +30,7 @@ const stepRequestSchema = z.object({
 });
 
 export function registerEnrichmentRoutes(app: Express) {
-  app.post("/api/enrich/prepare", requireAuth, enrichmentPaywall, async (req, res) => {
+  app.post("/api/enrich/prepare", requireAuth, requireCredits, async (req, res) => {
     try {
       const parsed = enrichRequestSchema.safeParse(req.body);
       if (!parsed.success) {
@@ -79,7 +81,7 @@ export function registerEnrichmentRoutes(app: Express) {
     }
   });
 
-  app.post("/api/companies/:id/next-steps/prepare", requireAuth, nextStepsPaywall, async (req, res) => {
+  app.post("/api/companies/:id/next-steps/prepare", requireAuth, requireCredits, async (req, res) => {
     try {
       const userId = req.user!.id;
       const company = await storage.getCompany(req.params.id, userId);
@@ -167,7 +169,7 @@ export function registerEnrichmentRoutes(app: Express) {
     }
   });
 
-  app.post("/api/companies/:id/reports/prepare", requireAuth, deepResearchPaywall, async (req, res) => {
+  app.post("/api/companies/:id/reports/prepare", requireAuth, requireCredits, async (req, res) => {
     try {
       const userId = req.user!.id;
       const company = await storage.getCompany(req.params.id, userId);

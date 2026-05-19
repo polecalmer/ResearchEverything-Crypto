@@ -158,10 +158,62 @@ export function getBinding(toolName: string): ToolBrainBinding | null {
   return BINDINGS.get(toolName) ?? null;
 }
 
+/** Pull the most-relevant scope identifier from a tool's input. Different
+ *  tool families use different input shapes — protocol-data tools key on
+ *  protocol/coinId/slug/ticker; web tools key on query or URL host;
+ *  file/code tools key on filename or description. Returns a short
+ *  string suitable for appending to the brain consult query. */
+function extractScopeFromInput(toolName: string, input: any): string {
+  if (!input || typeof input !== "object") return "";
+
+  // Protocol-data tools — the historical scope-key set.
+  const protocolish = input.protocol || input.coinId || input.slug || input.ticker;
+  if (protocolish) return String(protocolish).slice(0, 80);
+
+  // Web tools — query is the natural scope.
+  if (toolName === "web_search" && input.query) {
+    return String(input.query).slice(0, 80);
+  }
+  if (toolName === "web_fetch") {
+    const url = Array.isArray(input.urls) ? input.urls[0] : input.url;
+    if (typeof url === "string") {
+      try {
+        return new URL(url).hostname.toLowerCase();
+      } catch {
+        return url.slice(0, 80);
+      }
+    }
+  }
+
+  // File-output tools — filename is the most informative ID.
+  if (toolName === "write_xlsx" || toolName === "write_csv") {
+    if (input.filename) return String(input.filename).slice(0, 80);
+  }
+
+  // Python sandbox — description label (what the agent says it's doing).
+  if (toolName === "execute_python" && input.description) {
+    return String(input.description).slice(0, 80);
+  }
+
+  // Agent skill retrieval — the query.
+  if (toolName === "query_agent_skills" && input.query) {
+    return String(input.query).slice(0, 80);
+  }
+
+  return "";
+}
+
 /**
  * Consult the brain for facts relevant to a tool call. Returns a short
  * formatted hint string (or empty if no relevant facts), suitable for
  * injection into the tool result that the LLM sees.
+ *
+ * Hermes-style brain-in-loop: fires BEFORE every bound tool call, returns
+ * the top 1-3 most-relevant facts about (toolName, scope) for the model
+ * to see alongside the tool's output. Combined with post-call observe(),
+ * the brain accumulates failure modes / quirks across the whole tool
+ * surface (rate limits, coverage gaps, anti-bot behaviour, etc.) and
+ * auto-promotes them at observed_count >= 5.
  */
 export async function consultForTool(
   toolName: string,
@@ -169,8 +221,8 @@ export async function consultForTool(
 ): Promise<string> {
   const binding = getBinding(toolName);
   if (!binding) return "";
-  const protocol = input?.protocol || input?.coinId || input?.slug || input?.ticker || "";
-  const query = `${toolName} ${protocol}`.trim();
+  const scope = extractScopeFromInput(toolName, input);
+  const query = `${toolName} ${scope}`.trim();
   try {
     const hits = await consult({
       query,
@@ -207,10 +259,12 @@ export async function shouldShortCircuit(
 ): Promise<string | null> {
   const binding = getBinding(toolName);
   if (!binding) return null;
-  const protocol = input?.protocol || input?.coinId || input?.slug || input?.ticker || "";
-  if (!protocol) return null;
+  // Generalised scope — supports new tool families. Bail when extraction
+  // returns nothing (no scope to short-circuit on).
+  const scope = extractScopeFromInput(toolName, input);
+  if (!scope) return null;
 
-  const query = `${toolName} ${protocol}`;
+  const query = `${toolName} ${scope}`;
   try {
     const hits = await consult({
       query,
@@ -233,7 +287,7 @@ export async function shouldShortCircuit(
           content.includes("no tvl") ||
           content.includes("no fees") ||
           content.includes("no revenue")) &&
-        content.includes(protocol.toLowerCase())
+        content.includes(scope.toLowerCase())
       );
     });
 
@@ -246,7 +300,7 @@ export async function shouldShortCircuit(
         : toolName.includes("volume") ? "volume"
         : toolName.includes("price") ? "price"
         : "data";
-      const altQuery = `alternative endpoint ${dataType} ${protocol} ${binding.source}`;
+      const altQuery = `alternative endpoint ${dataType} ${scope} ${binding.source}`;
       const altHits = await consult({
         query: altQuery,
         source: binding.source,
@@ -263,7 +317,7 @@ export async function shouldShortCircuit(
     } catch {}
 
     console.log(
-      `[DataSourceBrain] Short-circuit: ${toolName}(${protocol}) — brain says "${coverageHit.fact.content.slice(0, 100)}" (confidence=${coverageHit.fact.confidence}, seen=${coverageHit.fact.observedCount}x)${alternatives ? ` + ${alternatives.split("\n").length - 2} alternative hints` : ""}`,
+      `[DataSourceBrain] Short-circuit: ${toolName}(${scope}) — brain says "${coverageHit.fact.content.slice(0, 100)}" (confidence=${coverageHit.fact.confidence}, seen=${coverageHit.fact.observedCount}x)${alternatives ? ` + ${alternatives.split("\n").length - 2} alternative hints` : ""}`,
     );
     return JSON.stringify({
       error: `[Brain short-circuit] ${coverageHit.fact.content}. This call was SKIPPED — the brain has learned this data is unavailable here.${alternatives}`,
@@ -288,17 +342,21 @@ export async function observeToolSuccess(
 ): Promise<void> {
   const binding = getBinding(toolName);
   if (!binding) return;
-  const protocol = input?.protocol || input?.coinId || input?.slug || input?.ticker || "";
-  if (!protocol) return;
-  const key = `${binding.source}:${protocol}:${toolName}`;
+  // Generalised scope extraction — covers the new tool families
+  // (web, python_sandbox, file_artifact, agent_skill) in addition to
+  // the protocol-data tools. Bail only when extraction returns empty;
+  // for protocol-data tools that still means "no protocol identified".
+  const scope = extractScopeFromInput(toolName, input);
+  if (!scope) return;
+  const key = `${binding.source}:${scope}:${toolName}`;
   if (_successObserved.has(key)) return;
   _successObserved.add(key);
   try {
     const content =
-      `${toolName}(${protocol}) succeeded: ${resultSummary.slice(0, 200)}`;
+      `${toolName}(${scope}) succeeded: ${resultSummary.slice(0, 200)}`;
     await observe({
       source: binding.source,
-      scope_ref: binding.scopeRef.replace("{slug}", protocol),
+      scope_ref: binding.scopeRef.replace("{slug}", scope),
       category: "coverage",
       content,
       source_of_fact: `runtime:${toolName}`,
@@ -331,26 +389,30 @@ export async function observeToolError(
     else if (lower.includes("not tracked") || lower.includes("no data") || lower.includes("not found"))
       category = "coverage";
 
-    const protocol = input?.protocol || input?.coinId || input?.slug || input?.ticker || "unknown";
+    // Generalised scope extraction. "unknown" fallback retained so we
+    // still observe SOME signal (rate-limit / auth / reliability) even
+    // when input doesn't carry an identifiable scope — those facts are
+    // tagged against the source as a whole, which is still useful.
+    const scope = extractScopeFromInput(toolName, input) || "unknown";
     const content =
-      `Runtime observation: ${toolName}(${protocol}) returned: ` +
+      `Runtime observation: ${toolName}(${scope}) returned: ` +
       errorText.slice(0, 240);
 
     await observe({
       source: binding.source,
-      scope_ref: binding.scopeRef.replace("{slug}", protocol),
+      scope_ref: binding.scopeRef.replace("{slug}", scope),
       category,
       content,
       source_of_fact: `runtime:${toolName}`,
       confidence,
     });
 
-    if (category === "coverage" && protocol !== "unknown") {
+    if (category === "coverage" && scope !== "unknown") {
       void recordSystemLearning({
         scope: "data_source",
-        scopeKey: `${binding.source}:${protocol}`,
+        scopeKey: `${binding.source}:${scope}`,
         ruleType: "coverage_gap",
-        ruleText: `${toolName} has no data for ${protocol}. Try proven_queries or alternative data sources instead of ${binding.source}.`,
+        ruleText: `${toolName} has no data for ${scope}. Try proven_queries or alternative data sources instead of ${binding.source}.`,
         source: `auto:${toolName}`,
         triggeredBy: "runtime_error_observation",
       });

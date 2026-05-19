@@ -28,6 +28,8 @@ import {
   conversations, messages, researchBrains,
   financialModels,
   costAlertSettings,
+  waitlist, betaGrants,
+  type WaitlistEntry, type InsertWaitlistEntry, type BetaGrant,
   type CostAlertSettings,
 } from "@shared/schema";
 import { db } from "./db";
@@ -224,7 +226,48 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
-  async createPrivyUser(data: { privyId: string; email: string; walletAddress: string; username: string }): Promise<User> {
+  /** Maximum users allowed in the beta cohort. Once this many `users`
+   *  rows exist, further Privy signups land on the waitlist instead. */
+  static readonly BETA_USER_CAP = 20;
+  /** Free turns granted at signup. Subject to BETA_USER_CAP — users
+   *  past the cap go to waitlist and get 0 credits on admission until
+   *  an admin invites them. */
+  static readonly BETA_FREE_CREDITS = 20;
+
+  /** Throws { code: "BETA_FULL" } when the cap is hit so the auth
+   *  layer can route the signup to waitlist instead. */
+  async createPrivyUser(data: {
+    privyId: string;
+    email: string;
+    walletAddress: string;
+    username: string;
+    /** When true, skip the beta cap check — used when admin invites
+     *  someone off the waitlist. */
+    bypassCap?: boolean;
+  }): Promise<User> {
+    if (!data.bypassCap) {
+      // Count only real beta accounts: a Privy id is set (excludes
+      // raw seed/test rows that have password="" or password set but
+      // no privy_id) AND username doesn't look like a test scaffold
+      // (excludes `tgtest_*`, `testuser_*`, etc.). Without these
+      // filters, orphaned test accounts in the users table consume
+      // beta slots and real users get rejected.
+      const [{ count }] = await db
+        .select({ count: sql<number>`count(*)::int` })
+        .from(users)
+        .where(sql`
+          privy_id IS NOT NULL
+          AND username NOT LIKE 'tgtest\\_%' ESCAPE '\\'
+          AND username NOT LIKE 'testuser\\_%' ESCAPE '\\'
+          AND username NOT LIKE 'delreport\\_%' ESCAPE '\\'
+          AND username NOT LIKE 'linktest%\\_%' ESCAPE '\\'
+        `);
+      if (Number(count) >= DatabaseStorage.BETA_USER_CAP) {
+        const err: any = new Error("Beta is at capacity");
+        err.code = "BETA_FULL";
+        throw err;
+      }
+    }
     const uniqueUsername = `${data.username}_${Date.now()}`;
     const [user] = await db.insert(users).values({
       privyId: data.privyId,
@@ -232,12 +275,79 @@ export class DatabaseStorage implements IStorage {
       walletAddress: data.walletAddress,
       username: uniqueUsername,
       password: "privy_auth",
+      credits: DatabaseStorage.BETA_FREE_CREDITS,
     }).returning();
+
+    // Audit the grant so we can detect double-grants if a Privy id
+    // ever gets re-issued for the same human.
+    await db.insert(betaGrants).values({
+      userId: user.id,
+      amount: DatabaseStorage.BETA_FREE_CREDITS,
+      reason: "beta_free_tier",
+    }).onConflictDoNothing();
+
     return user;
+  }
+
+  /** Waitlist helpers — used when the beta cap is full. */
+  async addToWaitlist(data: {
+    email?: string;
+    walletAddress?: string;
+    privyId?: string;
+    notes?: string;
+  }): Promise<WaitlistEntry> {
+    if (!data.email && !data.walletAddress && !data.privyId) {
+      throw new Error("waitlist entry needs email, wallet, or privyId");
+    }
+    const [entry] = await db.insert(waitlist).values({
+      email: data.email,
+      walletAddress: data.walletAddress,
+      privyId: data.privyId,
+      notes: data.notes,
+    }).returning();
+    return entry;
+  }
+
+  async listWaitlist(opts: { onlyPending?: boolean; limit?: number } = {}): Promise<WaitlistEntry[]> {
+    const where = opts.onlyPending ? isNull(waitlist.invitedAt) : undefined;
+    let q = db.select().from(waitlist).orderBy(asc(waitlist.joinedAt));
+    if (where) q = q.where(where) as any;
+    if (opts.limit) q = q.limit(opts.limit) as any;
+    return await q;
+  }
+
+  async markWaitlistInvited(entryId: string): Promise<void> {
+    await db.update(waitlist).set({ invitedAt: new Date() }).where(eq(waitlist.id, entryId));
+  }
+
+  async countActiveUsers(): Promise<number> {
+    // Same filter as createPrivyUser's cap check — excludes test
+    // scaffolds so the admin dashboard count matches reality.
+    const [{ count }] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(users)
+      .where(sql`
+        privy_id IS NOT NULL
+        AND username NOT LIKE 'tgtest\\_%' ESCAPE '\\'
+        AND username NOT LIKE 'testuser\\_%' ESCAPE '\\'
+        AND username NOT LIKE 'delreport\\_%' ESCAPE '\\'
+        AND username NOT LIKE 'linktest%\\_%' ESCAPE '\\'
+      `);
+    return Number(count);
   }
 
   async updateWalletAddress(userId: string, walletAddress: string): Promise<void> {
     await db.update(users).set({ walletAddress }).where(eq(users.id, userId));
+  }
+
+  /** Add or change a user's email. Used by the wallet-only-user email
+   *  capture flow (Stripe needs an email for receipts). */
+  async updateUserEmail(userId: string, email: string): Promise<void> {
+    const normalized = email.trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalized)) {
+      throw new Error("Invalid email");
+    }
+    await db.update(users).set({ email: normalized }).where(eq(users.id, userId));
   }
 
   private async isAdminUser(userId: string): Promise<boolean> {
@@ -583,7 +693,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   async findProvenQuery(protocol: string, metricType: string): Promise<ProvenQuery | undefined> {
-    const normalizedProtocol = protocol.toLowerCase().trim();
+    // Route the lookup protocol through canonicalization so callers
+    // asking for "HYPE" find rows stored as "hyperliquid". Without
+    // this, the proven-query cache effectively didn't have aliases.
+    const { canonicalProtocolName } = await import("./protocol-canonical");
+    const normalizedProtocol = canonicalProtocolName(protocol) || protocol.toLowerCase().trim();
     const normalizedMetric = metricType.toLowerCase().trim();
     const [query] = await db.select().from(provenQueries)
       .where(and(
@@ -629,9 +743,15 @@ export class DatabaseStorage implements IStorage {
   }
 
   async saveProvenQuery(data: InsertProvenQuery): Promise<ProvenQuery> {
+    // Route protocol through the canonical alias table so "HYPE",
+    // "Hyperliquid", and "hyperliquid" all land under the single
+    // "hyperliquid" key. Without this, the same metric got saved
+    // twice under different protocol labels and the proven-query
+    // cache fragmented. See server/protocol-canonical.ts.
+    const { canonicalProtocolName } = await import("./protocol-canonical");
     const normalizedData = {
       ...data,
-      protocol: data.protocol.toLowerCase().trim(),
+      protocol: canonicalProtocolName(data.protocol) || data.protocol.toLowerCase().trim(),
       metricType: data.metricType.toLowerCase().trim(),
     };
     const existing = await this.findProvenQuery(normalizedData.protocol, normalizedData.metricType);

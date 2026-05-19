@@ -1,0 +1,11 @@
+# Whitelisted libs for the execute_python sandbox.
+# Bootstrap: bash server/python-sandbox/bootstrap.sh
+# Pinned to known-stable versions; bump deliberately, not casually.
+
+pandas>=2.2,<3.0
+numpy>=1.26,<3.0
+scipy>=1.13,<2.0
+statsmodels>=0.14,<1.0
+scikit-learn>=1.4,<2.0
+openpyxl>=3.1,<4.0
+matplotlib>=3.8,<4.0

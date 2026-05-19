@@ -2,6 +2,8 @@ import "dotenv/config";
 // Sentry must be imported before anything it instruments (http, express, pg).
 import { Sentry, sentryEnabled } from "./sentry";
 import express, { type Request, Response, NextFunction } from "express";
+import rateLimit from "express-rate-limit";
+import { makeCostCeiling } from "./cost-ceiling";
 import { registerRoutes } from "./routes";
 import { setupAuth } from "./auth";
 import { serveStatic } from "./static";
@@ -107,9 +109,28 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
+// CORS — origin whitelist (replaces previous wildcard `*`). For prod
+// AWS deploy, set CORS_ALLOWED_ORIGINS to a comma-separated list of
+// exact origins (scheme + host + port). In dev, fallback to "*" only
+// when NODE_ENV !== "production".
+const CORS_ALLOWED_ORIGINS = (process.env.CORS_ALLOWED_ORIGINS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+const CORS_DEV_FALLBACK = process.env.NODE_ENV !== "production";
+
 app.use((req, res, next) => {
   if (req.path.startsWith("/api/")) {
-    res.header("Access-Control-Allow-Origin", "*");
+    const origin = req.headers.origin;
+    if (origin && CORS_ALLOWED_ORIGINS.includes(origin)) {
+      res.header("Access-Control-Allow-Origin", origin);
+      res.header("Vary", "Origin");
+      res.header("Access-Control-Allow-Credentials", "true");
+    } else if (CORS_DEV_FALLBACK && !CORS_ALLOWED_ORIGINS.length) {
+      // Dev convenience: wildcard echo so local Vite + curl still work.
+      // In prod, CORS_ALLOWED_ORIGINS MUST be set or origin is omitted.
+      res.header("Access-Control-Allow-Origin", "*");
+    }
     res.header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
     res.header("Access-Control-Allow-Headers", "Content-Type, Authorization");
     if (req.method === "OPTIONS") {
@@ -118,6 +139,50 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// Rate limiting — defense against brute-force, scraping, and runaway
+// usage (incl. cost protection on LLM-firing routes).
+//
+// General API limiter: 60 req/min per IP — generous enough that a
+// chatty UI doesn't trip but bots/scrapers will.
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  limit: Number(process.env.RATE_LIMIT_API_PER_MIN || 60),
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  message: { error: "Rate limit exceeded — try again in a moment" },
+});
+
+// Tighter limiter on LLM-firing routes — these cost real money
+// ($0.10-$0.50 per turn). 30 turns/hour/user is a generous cap that
+// still bounds the worst case to ~$15/hour even before cost-ceiling
+// enforcement kicks in.
+const llmLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: Number(process.env.RATE_LIMIT_LLM_PER_HOUR || 30),
+  standardHeaders: "draft-7",
+  legacyHeaders: false,
+  keyGenerator: (req: any) => req.user?.id || req.ip,
+  message: { error: "Hourly LLM request limit exceeded — wait an hour or contact support to raise the cap" },
+});
+
+// Cost ceiling — caps per-user 24h LLM spend in dollars. Belt-and-
+// suspenders with the LLM rate limiter (which caps count, not cost).
+const costCeiling = makeCostCeiling();
+
+// Only apply the LLM limiter + cost ceiling on POST (the LLM-firing
+// verb). GET on the same path returns message history and must NOT be
+// cost-gated — otherwise a budget-exhausted user can't read their own
+// past turns.
+function postOnly(mw: (req: Request, res: Response, next: NextFunction) => any) {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (req.method !== "POST") return next();
+    return mw(req, res, next);
+  };
+}
+
+app.use("/api/", apiLimiter);
+app.use("/api/research/sessions/:id/messages", postOnly(llmLimiter), postOnly(costCeiling));
 
 // Backwards-compat shim — routes the legacy `log(msg, source)` calls in this
 // file (and any external caller) through Pino. New code should use `logger`

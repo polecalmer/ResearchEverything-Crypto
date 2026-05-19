@@ -6,7 +6,43 @@ import { apiRequest, queryClient } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import type { Report } from "@shared/schema";
 import { useEffect, useState } from "react";
+import DOMPurify from "dompurify";
 import { parseContentAndArtifacts } from "@/lib/research-utils";
+
+/**
+ * Sanitize legacy renderMarkdown() HTML before injecting via
+ * dangerouslySetInnerHTML. The report content is agent-generated and a
+ * crafted user prompt could nudge the agent into emitting <script>,
+ * <iframe>, on*= handlers, or javascript: URLs. DOMPurify with an
+ * explicit allow-list prevents any such payload from executing.
+ *
+ * Tag/attr allow-list mirrors what renderMarkdown actually emits — extra
+ * tags would just be stripped silently, but we keep the list tight so a
+ * future renderMarkdown change can't broaden the attack surface
+ * accidentally.
+ */
+const REPORT_HTML_ALLOWED_TAGS = [
+  "h1", "h2", "h3", "h4", "h5", "h6",
+  "p", "br", "hr", "strong", "em", "code", "pre", "blockquote",
+  "ul", "ol", "li",
+  "table", "thead", "tbody", "tr", "th", "td",
+  "a", "div", "span",
+];
+const REPORT_HTML_ALLOWED_ATTRS = [
+  "href", "title", "target", "rel", "class",
+  "colspan", "rowspan", "align",
+];
+function sanitizeReportHtml(html: string): string {
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: REPORT_HTML_ALLOWED_TAGS,
+    ALLOWED_ATTR: REPORT_HTML_ALLOWED_ATTRS,
+    // Force-strip these even if the LLM tries to embed them via odd casing
+    FORBID_TAGS: ["script", "iframe", "object", "embed", "svg", "style", "form", "input", "button", "link", "meta"],
+    FORBID_ATTR: ["style", "onerror", "onload", "onclick", "onmouseover", "onfocus", "onblur"],
+    // Block javascript: / data: URLs in href attributes
+    ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[^a-z]|[a-z+.-]+(?:[^a-z+.\-:]|$))/i,
+  });
+}
 import {
   MarkdownText,
   MetricCards,
@@ -307,7 +343,7 @@ export default function ReportViewer() {
             ) : (
               <div
                 className="report-body"
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(report.content) }}
+                dangerouslySetInnerHTML={{ __html: sanitizeReportHtml(renderMarkdown(report.content)) }}
                 data-testid="report-content"
               />
             )}

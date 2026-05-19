@@ -2,6 +2,7 @@ import type { Express } from "express";
 import crypto from "crypto";
 import { storage } from "../storage";
 import { requireAuth } from "../auth";
+import { requireCredits, consumeCredit } from "../credit-gate";
 import { db } from "../db";
 import { dlog } from "../debug-log";
 import { sql } from "drizzle-orm";
@@ -414,6 +415,49 @@ export function registerResearchRoutes(app: Express) {
     }
   });
 
+  // Download a file artifact (Excel workbook, CSV, PNG) the agent
+  // generated during a research session. Auth-scoped to the session's
+  // owner; path-traversal defended in resolveArtifactPath. Files live
+  // under /tmp/sessions-artifacts/{session_id}/ (configurable via
+  // ARTIFACTS_ROOT env). See server/file-artifacts.ts.
+  app.get(
+    "/api/research/artifacts/:sessionId/:filename",
+    requireAuth,
+    async (req, res) => {
+      try {
+        const sessionId = parseInt(req.params.sessionId);
+        if (isNaN(sessionId)) {
+          return res.status(400).json({ message: "Invalid session id" });
+        }
+        // Auth: only the owning user can download
+        const session = await storage.getConversation(sessionId);
+        if (!session || session.userId !== req.user!.id) {
+          return res.status(404).json({ message: "Session not found" });
+        }
+        // Backend-agnostic: streams from local disk OR S3 depending on
+        // STORAGE_BACKEND env. See server/storage-backend.ts.
+        const { resolveArtifact } = await import("../file-artifacts");
+        const resolved = await resolveArtifact(
+          String(sessionId),
+          req.params.filename,
+        );
+        if (!resolved) {
+          return res.status(404).json({ message: "Artifact not found" });
+        }
+        res.setHeader("Content-Type", resolved.contentType);
+        if (resolved.sizeBytes) res.setHeader("Content-Length", resolved.sizeBytes);
+        res.setHeader(
+          "Content-Disposition",
+          `attachment; filename="${req.params.filename.replace(/"/g, "")}"`,
+        );
+        resolved.stream.on("error", () => res.status(500).end());
+        resolved.stream.pipe(res);
+      } catch (e: any) {
+        res.status(500).json({ message: e?.message || "Download failed" });
+      }
+    },
+  );
+
   // Spawned sessions (Build Chart, Double Click) carry parent_session_id.
   // The user's first turn in the spawned session is just the highlighted
   // snippet — without parent context the agent can't tell which entity/
@@ -489,9 +533,13 @@ export function registerResearchRoutes(app: Express) {
     ].join("\n");
   }
 
-  app.post("/api/research/sessions/:id/messages", requireAuth, async (req, res) => {
+  // Credit gate (requireCredits) runs BEFORE the handler — rejects
+  // with 402 when the user has 0 credits. consumeCredit is called by
+  // the handler ONLY on a successful turn.
+  app.post("/api/research/sessions/:id/messages", requireAuth, requireCredits, async (req, res) => {
     let keepalive: ReturnType<typeof setInterval> | null = null;
     let slotAcquired = false;
+    let creditConsumed = false;
     const userId = req.user!.id;
     try {
       const id = parseInt(req.params.id);
@@ -501,13 +549,20 @@ export function registerResearchRoutes(app: Express) {
         return res.status(404).json({ message: "Session not found" });
       }
 
-      const { message, forceMode, refreshBrain, sessionMode } = req.body;
-      const isDataMode = sessionMode === "data";
+      const { message, forceMode, refreshBrain } = req.body;
+      // Chart mode was removed 2026-05-19 — focused/deep produce charts
+      // natively via the artifact emission path, and enforceChartAxisPolicy
+      // runs on every response. The `sessionMode` and `isDataMode` flags
+      // are no longer read; left here as dead body fields for back-compat
+      // with older clients that still send them.
       if (!message || typeof message !== "string") {
         return res.status(400).json({ message: "Message is required" });
       }
-      const validModes = ["quick", "focused", "deep", "chart"];
-      const mode: "quick" | "focused" | "deep" | "chart" | undefined = validModes.includes(forceMode) ? forceMode : undefined;
+      // Mode consolidation 2026-05-19: quick + focused removed.
+      // Every turn runs as deep. forceMode is accepted for back-compat
+      // but anything other than "deep" is treated as undefined (and
+      // the agent loop defaults to "deep" anyway).
+      const mode: "deep" | undefined = forceMode === "deep" ? "deep" : undefined;
 
       // Prompt-injection policy: deterministic short-circuit for
       // prompt-extraction / instruction-override / jailbreak attempts.
@@ -687,7 +742,15 @@ export function registerResearchRoutes(app: Express) {
       }
 
       const history = await storage.getMessages(session.id);
-      const historyForAgent = history.map(m => ({ role: m.role, content: m.content }));
+      // Include `kind` so classifyIntent can detect prior deep-mode work and
+      // keep follow-ups in deep mode by default (mode persistence). Without
+      // this, methodology pushbacks like "how are you calculating SBC?" get
+      // re-classified as quick/focused and drop the tool-execution loop.
+      const historyForAgent = history.map(m => ({
+        role: m.role,
+        content: m.content,
+        kind: m.kind ?? undefined,
+      }));
 
       const brainRecord = await storage.getResearchBrain(req.user!.id);
       const brain = brainRecord ? {
@@ -703,10 +766,9 @@ export function registerResearchRoutes(app: Express) {
 
       let result: any;
 
-      // Chart toggle (sessionMode === "data") routes to the unified research
-      // agent with forceMode="chart" — the data-agent.ts path is deprecated
-      // (focused mode of the research agent already produces better charts;
-      // chart mode is a tightened variant of focused).
+      // Chart mode removed 2026-05-19. Focused/deep modes produce charts
+      // natively via the artifact emission path; enforceChartAxisPolicy
+      // runs on every response. No special routing here anymore.
       let brainForAgent = brain;
       if (refreshBrain && brain) {
         const LIVE = /\b(price|tvl|mcap|market cap|fdv|fee|fees|revenue|volume|apy|apr|yield|supply|circulating|inflation|holders|active users|dau|wau)\b/i;
@@ -718,18 +780,11 @@ export function registerResearchRoutes(app: Express) {
         console.log(`[SessionResearch] refreshBrain=true → dropped ${(brain.knowledge || []).length - filtered.length} live-metric facts from context`);
       }
 
-      // Auto-route financial-statement prompts to chart mode (chart's
-      // artifact-emission contract is a tighter forcing function for
-      // numeric grounding than free-form research mode). Explicit user
-      // forceMode and isDataMode toggle still win.
-      const { resolveEffectiveMode } = await import("../numeric-provenance/fs-router");
-      const routed = resolveEffectiveMode(message, mode, isDataMode);
-      const effectiveMode: "quick" | "focused" | "deep" | "chart" | undefined = routed.mode;
-      if (isDataMode) {
-        console.log(`[SessionResearch] Chart toggle → forceMode=chart on unified agent`);
-      } else if (routed.routedToChart) {
-        console.log(`[SessionResearch] Auto-routed to chart mode: ${routed.reason}`);
-      }
+      // Effective mode = whatever the user forced (or undefined → classifier
+      // picks). The previous auto-route-to-chart logic for financial-statement
+      // prompts is gone with chart mode; focused/deep handle those equally
+      // well now that the artifact path is shared.
+      const effectiveMode: "deep" | undefined = mode;
 
       const { withRequestContext } = await import("../request-context");
       result = await withRequestContext(
@@ -737,6 +792,11 @@ export function registerResearchRoutes(app: Express) {
           signal: abortController.signal,
           requestId: (req as any).id,
           userId: req.user!.id,
+          // sessionId is read by file-artifact tools (write_xlsx /
+          // write_csv) to scope generated files to the right session
+          // directory on disk. Avoids threading sessionId through
+          // 5500 LOC of agent dispatch.
+          sessionId: session.id,
         },
         () => runSessionResearchAgent(
           messageForAgent,
@@ -753,7 +813,7 @@ export function registerResearchRoutes(app: Express) {
             }
           },
           req.user!.id,
-          isDataMode,
+          false, // isDataMode — always false now that chart mode is gone
         ),
       );
       sendEvent("mode", { mode: result.mode, reason: result.modeReason });
@@ -766,6 +826,24 @@ export function registerResearchRoutes(app: Express) {
       const artifacts = (result.artifacts && result.artifacts.length > 0)
         ? result.artifacts
         : parseArtifacts(result.content);
+
+      // Assign stable artifactId + auto-bumping version to each artifact
+      // before persisting. Two artifacts in the same session with the same
+      // identity signature (type + subtype + primary subject) are the SAME
+      // logical artifact — v1, v2, v3. The split-screen ArtifactsPanel
+      // uses artifactId to render the LATEST version of each artifact
+      // pinned in the side panel, not every per-message emission.
+      // See server/artifact-versioning.ts.
+      try {
+        const { assignArtifactVersions, collectArtifactsFromMessages } =
+          await import("../artifact-versioning");
+        const priorMsgs = await storage.getMessages(session.id);
+        const priorArtifacts = collectArtifactsFromMessages(priorMsgs as any);
+        assignArtifactVersions(session.id, artifacts as any, priorArtifacts);
+      } catch (err: any) {
+        console.warn(`[ArtifactVersioning] assign failed: ${err?.message}`);
+      }
+
       const continuationTag = result.needsContinuation ? "<!-- needs_continuation -->\n" : "";
       const contentWithMode = `<!-- mode:${result.mode} -->\n${continuationTag}${result.content}`;
       const assistantMsg = await storage.createMessage({
@@ -969,34 +1047,49 @@ export function registerResearchRoutes(app: Express) {
             }
           })();
 
-          try {
-            const { retryWithBackoff } = await import("../retry");
-            await retryWithBackoff("brain-embedding-sync", async () => {
-              const { syncBrainFacts, syncBrainEntities } = await import("../brain-embedding-sync");
-              const factsToSync = newFacts.map((f: any) => ({
-                id: f.id,
-                topic: f.topic || "",
-                fact: f.fact || "",
-                entities: f.entities || [],
-                source: f.source || "",
-                date: f.date,
-                confidence: f.confidence || "verified",
-              }));
-              const newEntityEntries: Record<string, any> = {};
-              for (const [name, data] of Object.entries(result.brainUpdates.entities || {})) {
-                newEntityEntries[name] = mergedEntities[name] || data;
-              }
-              const [fSynced, eSynced] = await Promise.all([
-                syncBrainFacts(req.user!.id, factsToSync),
-                syncBrainEntities(req.user!.id, newEntityEntries),
-              ]);
-              console.log(`[BrainSync] Embedded ${fSynced} facts, ${eSynced} entities`);
-            });
-          } catch {
-            // Already logged + Sentry-captured by retryWithBackoff. The
-            // user's response continues — brain may be out of sync until
-            // the next research session re-syncs the same facts.
-          }
+          // Fire-and-forget the embedding sync. Voyage embedding +
+          // pgvector writes for N facts + N entities was the dominant
+          // post-stream blocking step (often 500-2000ms), delaying the
+          // SSE `done` event and therefore the moment the frontend
+          // renders the final artifact + button row. Moving it to a
+          // background IIFE lets the user see the final response
+          // appear immediately; the brain catches up shortly after.
+          //
+          // upsertResearchBrain (line above) stays awaited — its DB
+          // write is fast (~50ms) AND the next turn's brain retrieval
+          // reads from that row directly. Embeddings only matter for
+          // hybrid vector search, which a subsequent turn within the
+          // same second is unlikely to hit before completion anyway.
+          (async () => {
+            try {
+              const { retryWithBackoff } = await import("../retry");
+              await retryWithBackoff("brain-embedding-sync", async () => {
+                const { syncBrainFacts, syncBrainEntities } = await import("../brain-embedding-sync");
+                const factsToSync = newFacts.map((f: any) => ({
+                  id: f.id,
+                  topic: f.topic || "",
+                  fact: f.fact || "",
+                  entities: f.entities || [],
+                  source: f.source || "",
+                  date: f.date,
+                  confidence: f.confidence || "verified",
+                }));
+                const newEntityEntries: Record<string, any> = {};
+                for (const [name, data] of Object.entries(result.brainUpdates.entities || {})) {
+                  newEntityEntries[name] = mergedEntities[name] || data;
+                }
+                const [fSynced, eSynced] = await Promise.all([
+                  syncBrainFacts(req.user!.id, factsToSync),
+                  syncBrainEntities(req.user!.id, newEntityEntries),
+                ]);
+                console.log(`[BrainSync] Embedded ${fSynced} facts, ${eSynced} entities`);
+              });
+            } catch {
+              // Already logged + Sentry-captured by retryWithBackoff.
+              // Swallow so the fire-and-forget doesn't surface as an
+              // unhandledRejection.
+            }
+          })();
         } catch (brainErr: any) {
           console.warn("[SessionResearch] Brain update failed:", brainErr.message);
         }
@@ -1023,6 +1116,12 @@ export function registerResearchRoutes(app: Express) {
         needsContinuation: result.needsContinuation || false,
       });
 
+      // Turn shipped successfully — consume 1 credit. Admin users
+      // are no-op. Fire-and-forget; logged on error but never
+      // surfaced to the user since the response already went out.
+      consumeCredit(userId, 1).catch(() => {});
+      creditConsumed = true;
+
       res.end();
     } catch (e: any) {
       if (keepalive) clearInterval(keepalive);
@@ -1035,6 +1134,29 @@ export function registerResearchRoutes(app: Express) {
       }
     } finally {
       if (slotAcquired) releaseResearchSlot(userId);
+
+      // Partial-failure billing: if the credit-gate reserved a slot
+      // for this turn AND we never reached the success-path
+      // consumeCredit call, but the cost-ledger shows the request
+      // burned LLM tokens, charge the user one credit. Otherwise
+      // they'd pay USD via OR but see their credit balance unchanged
+      // — silent billing discrepancy. Skip when nothing actually
+      // fired (validation errors, immediate aborts, etc.).
+      if (!creditConsumed && (req as any).creditGate?.reserved) {
+        const requestId = (req as any).id as string | undefined;
+        (async () => {
+          try {
+            const { requestIncurredCost } = await import("../cost-ledger");
+            const incurred = await requestIncurredCost(requestId);
+            if (incurred) {
+              await consumeCredit(userId, 1);
+              console.log(`[CreditGate] Partial-failure charge: user=${userId} req=${requestId} — 1 credit consumed (LLM cost was incurred before error).`);
+            }
+          } catch {
+            // best-effort; the original error already surfaced
+          }
+        })();
+      }
     }
   });
 
@@ -1106,6 +1228,31 @@ export function registerResearchRoutes(app: Express) {
       }
       await storage.deleteConversation(session.id);
       res.json({ ok: true });
+    } catch (e: any) {
+      res.status(500).json({ message: e.message });
+    }
+  });
+
+  // Rename a session — user-edit from the UI. Title is trimmed and
+  // length-capped server-side so a 50k-char paste can't break the
+  // sidebar layout. Returns the updated conversation so the client
+  // can update its cache without re-fetching.
+  app.patch("/api/research/sessions/:id", requireAuth, async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) return res.status(400).json({ message: "Invalid session ID" });
+      const session = await storage.getConversation(id);
+      if (!session || session.userId !== req.user!.id) {
+        return res.status(404).json({ message: "Session not found" });
+      }
+      const rawTitle = typeof req.body?.title === "string" ? req.body.title : "";
+      const title = rawTitle.trim().slice(0, 200);
+      if (!title) {
+        return res.status(400).json({ message: "Title cannot be empty" });
+      }
+      await storage.updateConversationTitle(session.id, title);
+      const updated = await storage.getConversation(session.id);
+      res.json(updated);
     } catch (e: any) {
       res.status(500).json({ message: e.message });
     }

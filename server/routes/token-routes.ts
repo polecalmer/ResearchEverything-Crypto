@@ -2,7 +2,8 @@ import type { Express } from "express";
 import { storage } from "../storage";
 import { insertTokenProfileSchema, insertDuneQuerySchema, insertMasterDuneQuerySchema } from "@shared/schema";
 import { requireAuth } from "../auth";
-import { tokenIntelPaywall, duneQueryPaywall, tokenSnapshotPaywall } from "../mpp";
+// MPP paywall replaced with credit-gate 2026-05-19.
+import { requireCredits } from "../credit-gate";
 import { MARKUP_MULTIPLIER } from "../enrichment";
 import { fetchTokenSnapshot } from "../allium-client";
 import { executeDuneQuery, getLatestDuneResults, isDuneConfigured } from "../dune-client";
@@ -286,7 +287,7 @@ export function registerTokenRoutes(app: Express) {
     res.status(204).end();
   });
 
-  app.post("/api/dune-queries/:id/execute", requireAuth, duneQueryPaywall, async (req, res) => {
+  app.post("/api/dune-queries/:id/execute", requireAuth, requireCredits, async (req, res) => {
     try {
       if (!isDuneConfigured()) return res.status(503).json({ message: "Dune API key not configured" });
       const userId = req.user!.id;
@@ -312,7 +313,7 @@ export function registerTokenRoutes(app: Express) {
     }
   });
 
-  app.post("/api/dune-queries/:id/refresh", requireAuth, duneQueryPaywall, async (req, res) => {
+  app.post("/api/dune-queries/:id/refresh", requireAuth, requireCredits, async (req, res) => {
     try {
       if (!isDuneConfigured()) return res.status(503).json({ message: "Dune API key not configured" });
       const userId = req.user!.id;
@@ -392,7 +393,7 @@ export function registerTokenRoutes(app: Express) {
     }
   });
 
-  app.post("/api/companies/:id/token-analyses/generate", requireAuth, tokenIntelPaywall, async (req, res) => {
+  app.post("/api/companies/:id/token-analyses/generate", requireAuth, requireCredits, async (req, res) => {
     try {
       const userId = req.user!.id;
       const company = await storage.getCompany(req.params.id, userId);

@@ -27,19 +27,17 @@ export const MODELS = {
 export const ADMIN_EMAILS = ["allmysubscriptions10@proton.me"] as const;
 export const ADMIN_USERNAMES = ["polecalmer"] as const;
 
-export const MPP_FLAT_FEE = "0.50";
+// MPP_FLAT_FEE + ANTHROPIC_MPP + OPENROUTER_MPP + TEMPO_* removed
+// 2026-05-19 with the MPP teardown. shared/constants.ts still exports
+// TEMPO_RPC/TEMPO_EXPLORER for the wallet UI page, which is
+// independent of LLM billing.
 
 export const EXTERNAL_URLS = {
-  ANTHROPIC_MPP: "https://anthropic.mpp.tempo.xyz/v1/messages",
-  OPENROUTER_MPP: "https://openrouter.mpp.tempo.xyz/v1/chat/completions",
   DUNE_MCP: "https://api.dune.com/mcp/v1",
   VOYAGE_EMBEDDINGS: "https://api.voyageai.com/v1/embeddings",
-  TEMPO_RPC: "https://rpc.mainnet.tempo.xyz",
-  TEMPO_EXPLORER: "https://explore.mainnet.tempo.xyz",
 } as const;
 
-// Direct OpenRouter endpoint (not via MPP). Used when LLM_PROVIDER=openrouter
-// — see server/openrouter-client.ts. OpenRouter speaks OpenAI-compatible chat
-// completions; the openrouter-client wrapper translates to/from Anthropic
-// shape so call sites don't change.
+// OpenRouter endpoint — the only LLM provider now that MPP is gone.
+// openrouter-client.ts handles the OpenAI ↔ Anthropic shape translation
+// so call sites don't change.
 export const OPENROUTER_DIRECT_URL = "https://openrouter.ai/api/v1/chat/completions";

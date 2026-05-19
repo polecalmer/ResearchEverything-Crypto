@@ -1,0 +1,31 @@
+{
+  "family": "sessions-migrate",
+  "networkMode": "awsvpc",
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "512",
+  "memory": "1024",
+  "executionRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/sessionsTaskExecutionRole",
+  "taskRoleArn": "arn:aws:iam::<ACCOUNT_ID>:role/sessionsTaskRole",
+  "containerDefinitions": [
+    {
+      "name": "migrate",
+      "image": "<ACCOUNT_ID>.dkr.ecr.<REGION>.amazonaws.com/sessions:latest",
+      "essential": true,
+      "command": ["npm", "run", "db:migrate"],
+      "environment": [
+        { "name": "NODE_ENV", "value": "production" }
+      ],
+      "secrets": [
+        { "name": "DATABASE_URL", "valueFrom": "<SECRETS_MANAGER_ARN>:DATABASE_URL::" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/sessions-prod",
+          "awslogs-region": "<REGION>",
+          "awslogs-stream-prefix": "migrate"
+        }
+      }
+    }
+  ]
+}

@@ -12,6 +12,16 @@ export interface RetrievedContext {
   methodology: Array<{ scopeKey: string; ruleText: string; confidence: number }>;
   meta: BrainGraph["meta"] | null;
   retrievalSummary: string;
+  // Hermes-parity analyst perspective layers (migration 0003). Surface
+  // the top-matching investigation patterns, frameworks, and signals
+  // from the ingested HRC corpus, ranked by hybrid vector + BM25 + RRF
+  // against the user's query. Empty when no corpus is loaded or no
+  // matches clear the similarity floor.
+  analystPerspectives: {
+    questions: Array<{ analystSlug: string; questionText: string; questionType: string | null; questionTopic: string | null; evidenceQuote: string | null; vectorSim: number | null }>;
+    frameworks: Array<{ analyst: string; name: string; description: string; category: string | null; vectorSim: number | null }>;
+    signals: Array<{ analystSlug: string; signalName: string; signalKind: string | null; useCase: string | null; sourceRef: string | null; vectorSim: number | null }>;
+  };
 }
 
 // Fetches synthesis-discipline rules from system_learnings. Always-on rules
@@ -198,6 +208,247 @@ async function hybridSearchEntities(
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────
+// Analyst-perspective hybrid retrieval (migration 0003)
+//
+// Same RRF pattern as facts/entities. Cross-analyst — the brain context
+// surfaces matches from any analyst whose extracted question/framework/
+// signal aligns with the user's query. The agent absorbs the perspective
+// without naming the analyst (methodology-opacity rule).
+//
+// Min similarity floor is intentionally low (0.25 vs 0.35 for facts) —
+// these are interpretive cues, not factual claims, so we'd rather pull
+// in a related question than miss it entirely. The synthesizer ignores
+// noise gracefully.
+// ─────────────────────────────────────────────────────────────────────────
+const ANALYST_PERSPECTIVE_CANDIDATES = 12;
+const ANALYST_PERSPECTIVE_MIN_SIM = 0.25;
+
+interface ScoredQuestion {
+  analystSlug: string;
+  questionText: string;
+  questionType: string | null;
+  questionTopic: string | null;
+  evidenceQuote: string | null;
+  rrfScore: number;
+  vectorSim: number | null;
+}
+
+interface ScoredFramework {
+  analyst: string;
+  name: string;
+  description: string;
+  category: string | null;
+  rrfScore: number;
+  vectorSim: number | null;
+}
+
+interface ScoredSignal {
+  analystSlug: string;
+  signalName: string;
+  signalKind: string | null;
+  useCase: string | null;
+  sourceRef: string | null;
+  rrfScore: number;
+  vectorSim: number | null;
+}
+
+async function hybridSearchAnalystQuestions(
+  queryVec: number[],
+  queryText: string,
+  topK: number,
+): Promise<ScoredQuestion[]> {
+  const vec = `[${queryVec.join(",")}]`;
+  try {
+    const rows = await db.execute(sql`
+      WITH vec AS (
+        SELECT id,
+               1 - (embedding <=> ${vec}::vector) AS sim,
+               ROW_NUMBER() OVER (ORDER BY embedding <=> ${vec}::vector) AS rank
+        FROM analyst_questions
+        WHERE embedding IS NOT NULL
+        ORDER BY embedding <=> ${vec}::vector
+        LIMIT ${ANALYST_PERSPECTIVE_CANDIDATES}
+      ),
+      txt AS (
+        SELECT id,
+               ROW_NUMBER() OVER (ORDER BY ts_rank_cd(content_tsv, q) DESC) AS rank
+        FROM analyst_questions, plainto_tsquery('english', ${queryText}) q
+        WHERE content_tsv @@ q
+        ORDER BY ts_rank_cd(content_tsv, q) DESC
+        LIMIT ${ANALYST_PERSPECTIVE_CANDIDATES}
+      ),
+      fused AS (
+        SELECT
+          COALESCE(v.id, t.id) AS id,
+          v.sim AS vector_sim,
+          v.rank::int AS vector_rank,
+          t.rank::int AS text_rank,
+          COALESCE(1.0 / (${RRF_K} + v.rank), 0) +
+          COALESCE(1.0 / (${RRF_K} + t.rank), 0) AS rrf_score
+        FROM vec v
+        FULL OUTER JOIN txt t ON v.id = t.id
+      )
+      SELECT aq.analyst_slug, aq.question_text, aq.question_type, aq.question_topic, aq.evidence_quote,
+             f.vector_sim, f.rrf_score
+        FROM fused f
+        JOIN analyst_questions aq ON aq.id = f.id
+       ORDER BY f.rrf_score DESC
+       LIMIT ${topK}
+    `);
+    const raw: any[] = (rows as any).rows ?? rows;
+    return raw
+      .filter((r: any) => {
+        const sim = r.vector_sim != null ? Number(r.vector_sim) : 0;
+        return sim >= ANALYST_PERSPECTIVE_MIN_SIM || r.text_rank != null;
+      })
+      .map((r: any) => ({
+        analystSlug: r.analyst_slug,
+        questionText: r.question_text,
+        questionType: r.question_type,
+        questionTopic: r.question_topic,
+        evidenceQuote: r.evidence_quote,
+        rrfScore: Number(r.rrf_score),
+        vectorSim: r.vector_sim != null ? Number(r.vector_sim) : null,
+      }));
+  } catch (err: any) {
+    // Table may not exist yet (migration 0003 not applied). Silent.
+    if (!/relation .* does not exist/i.test(err.message || "")) {
+      console.warn(`[BrainRetrieval] Analyst-question search failed: ${err.message}`);
+    }
+    return [];
+  }
+}
+
+async function hybridSearchAnalystFrameworks(
+  queryVec: number[],
+  queryText: string,
+  topK: number,
+): Promise<ScoredFramework[]> {
+  const vec = `[${queryVec.join(",")}]`;
+  try {
+    const rows = await db.execute(sql`
+      WITH vec AS (
+        SELECT id,
+               1 - (embedding <=> ${vec}::vector) AS sim,
+               ROW_NUMBER() OVER (ORDER BY embedding <=> ${vec}::vector) AS rank
+        FROM analyst_frameworks
+        ORDER BY embedding <=> ${vec}::vector
+        LIMIT ${ANALYST_PERSPECTIVE_CANDIDATES}
+      ),
+      txt AS (
+        SELECT id,
+               ROW_NUMBER() OVER (ORDER BY ts_rank_cd(content_tsv, q) DESC) AS rank
+        FROM analyst_frameworks, plainto_tsquery('english', ${queryText}) q
+        WHERE content_tsv @@ q
+        ORDER BY ts_rank_cd(content_tsv, q) DESC
+        LIMIT ${ANALYST_PERSPECTIVE_CANDIDATES}
+      ),
+      fused AS (
+        SELECT
+          COALESCE(v.id, t.id) AS id,
+          v.sim AS vector_sim,
+          v.rank::int AS vector_rank,
+          t.rank::int AS text_rank,
+          COALESCE(1.0 / (${RRF_K} + v.rank), 0) +
+          COALESCE(1.0 / (${RRF_K} + t.rank), 0) AS rrf_score
+        FROM vec v
+        FULL OUTER JOIN txt t ON v.id = t.id
+      )
+      SELECT af.analyst, af.name, af.description, af.category, f.vector_sim, f.rrf_score
+        FROM fused f
+        JOIN analyst_frameworks af ON af.id = f.id
+       ORDER BY f.rrf_score DESC
+       LIMIT ${topK}
+    `);
+    const raw: any[] = (rows as any).rows ?? rows;
+    return raw
+      .filter((r: any) => {
+        const sim = r.vector_sim != null ? Number(r.vector_sim) : 0;
+        return sim >= ANALYST_PERSPECTIVE_MIN_SIM || r.text_rank != null;
+      })
+      .map((r: any) => ({
+        analyst: r.analyst,
+        name: r.name,
+        description: r.description,
+        category: r.category,
+        rrfScore: Number(r.rrf_score),
+        vectorSim: r.vector_sim != null ? Number(r.vector_sim) : null,
+      }));
+  } catch (err: any) {
+    if (!/relation .* does not exist/i.test(err.message || "")) {
+      console.warn(`[BrainRetrieval] Analyst-framework search failed: ${err.message}`);
+    }
+    return [];
+  }
+}
+
+async function hybridSearchAnalystSignals(
+  queryVec: number[],
+  queryText: string,
+  topK: number,
+): Promise<ScoredSignal[]> {
+  const vec = `[${queryVec.join(",")}]`;
+  try {
+    const rows = await db.execute(sql`
+      WITH vec AS (
+        SELECT id,
+               1 - (embedding <=> ${vec}::vector) AS sim,
+               ROW_NUMBER() OVER (ORDER BY embedding <=> ${vec}::vector) AS rank
+        FROM analyst_signals
+        WHERE embedding IS NOT NULL
+        ORDER BY embedding <=> ${vec}::vector
+        LIMIT ${ANALYST_PERSPECTIVE_CANDIDATES}
+      ),
+      txt AS (
+        SELECT id,
+               ROW_NUMBER() OVER (ORDER BY ts_rank_cd(content_tsv, q) DESC) AS rank
+        FROM analyst_signals, plainto_tsquery('english', ${queryText}) q
+        WHERE content_tsv @@ q
+        ORDER BY ts_rank_cd(content_tsv, q) DESC
+        LIMIT ${ANALYST_PERSPECTIVE_CANDIDATES}
+      ),
+      fused AS (
+        SELECT
+          COALESCE(v.id, t.id) AS id,
+          v.sim AS vector_sim,
+          v.rank::int AS vector_rank,
+          t.rank::int AS text_rank,
+          COALESCE(1.0 / (${RRF_K} + v.rank), 0) +
+          COALESCE(1.0 / (${RRF_K} + t.rank), 0) AS rrf_score
+        FROM vec v
+        FULL OUTER JOIN txt t ON v.id = t.id
+      )
+      SELECT a.analyst_slug, a.signal_name, a.signal_kind, a.use_case, a.source_ref,
+             f.vector_sim, f.rrf_score
+        FROM fused f
+        JOIN analyst_signals a ON a.id = f.id
+       ORDER BY f.rrf_score DESC
+       LIMIT ${topK}
+    `);
+    const raw: any[] = (rows as any).rows ?? rows;
+    return raw
+      .filter((r: any) => {
+        const sim = r.vector_sim != null ? Number(r.vector_sim) : 0;
+        return sim >= ANALYST_PERSPECTIVE_MIN_SIM || r.text_rank != null;
+      })
+      .map((r: any) => ({
+        analystSlug: r.analyst_slug,
+        signalName: r.signal_name,
+        signalKind: r.signal_kind,
+        useCase: r.use_case,
+        sourceRef: r.source_ref,
+        rrfScore: Number(r.rrf_score),
+        vectorSim: r.vector_sim != null ? Number(r.vector_sim) : null,
+      }));
+  } catch (err: any) {
+    if (!/relation .* does not exist/i.test(err.message || "")) {
+      console.warn(`[BrainRetrieval] Analyst-signal search failed: ${err.message}`);
+    }
+    return [];
+  }
+}
+
 async function hasEmbeddedData(userId: string): Promise<boolean> {
   try {
     const result = await db.execute(
@@ -325,6 +576,10 @@ async function legacyRetrieve(
     preferences: brain.preferences || {},
     methodology,
     meta: brain.meta || null,
+    // Legacy path runs when there's no embedded brain — skip the analyst
+    // perspective layer (it depends on embeddings). Empty default keeps
+    // the type signature stable.
+    analystPerspectives: emptyAnalystPerspectives(),
     retrievalSummary: directMatches.length > 0
       ? `[legacy] Matched: ${directMatches.join(", ")}. ${Object.keys(relevantEntities).length} entities, ${relevantFacts.length} facts, ${methodology.length} rules`
       : `[legacy] Keyword search: ${relevantFacts.length} facts, ${methodology.length} rules`,
@@ -338,6 +593,33 @@ export async function retrieveRelevantContext(
 ): Promise<RetrievedContext> {
   if (!brain) {
     const methodology = await retrieveMethodologyRules(query);
+    // Even with no per-user brain, the analyst perspective layer is
+    // shared across users (it's the ingested HRC corpus). Try to surface
+    // it — it's gated on embeddings, so if Voyage is down we silently
+    // return empty.
+    let analystPerspectives = emptyAnalystPerspectives();
+    try {
+      const queryVec = await embed(query, "query");
+      const [questions, frameworks, signals] = await Promise.all([
+        hybridSearchAnalystQuestions(queryVec, query, 6),
+        hybridSearchAnalystFrameworks(queryVec, query, 5),
+        hybridSearchAnalystSignals(queryVec, query, 6),
+      ]);
+      analystPerspectives = {
+        questions: questions.map((q) => ({
+          analystSlug: q.analystSlug, questionText: q.questionText, questionType: q.questionType,
+          questionTopic: q.questionTopic, evidenceQuote: q.evidenceQuote, vectorSim: q.vectorSim,
+        })),
+        frameworks: frameworks.map((f) => ({
+          analyst: f.analyst, name: f.name, description: f.description, category: f.category, vectorSim: f.vectorSim,
+        })),
+        signals: signals.map((s) => ({
+          analystSlug: s.analystSlug, signalName: s.signalName, signalKind: s.signalKind,
+          useCase: s.useCase, sourceRef: s.sourceRef, vectorSim: s.vectorSim,
+        })),
+      };
+    } catch { /* embedding failure → skip perspectives */ }
+    const apTotal = analystPerspectives.questions.length + analystPerspectives.frameworks.length + analystPerspectives.signals.length;
     return {
       entities: {},
       relationships: [],
@@ -346,8 +628,9 @@ export async function retrieveRelevantContext(
       preferences: {},
       methodology,
       meta: null,
-      retrievalSummary: methodology.length > 0
-        ? `No prior research brain, ${methodology.length} rules`
+      analystPerspectives,
+      retrievalSummary: methodology.length > 0 || apTotal > 0
+        ? `No prior research brain, ${methodology.length} rules, ${apTotal} analyst perspectives`
         : "No prior research brain",
     };
   }
@@ -366,9 +649,12 @@ export async function retrieveRelevantContext(
     return legacyRetrieve(query, brain);
   }
 
-  const [scoredFacts, scoredEntities] = await Promise.all([
+  const [scoredFacts, scoredEntities, apQuestions, apFrameworks, apSignals] = await Promise.all([
     hybridSearchFacts(userId, queryVec, query, FACT_CANDIDATES),
     hybridSearchEntities(userId, queryVec, query, ENTITY_CANDIDATES),
+    hybridSearchAnalystQuestions(queryVec, query, 6),
+    hybridSearchAnalystFrameworks(queryVec, query, 5),
+    hybridSearchAnalystSignals(queryVec, query, 6),
   ]);
 
   const retrievedEntityNames = new Set(scoredEntities.map(e => e.entityName));
@@ -400,11 +686,16 @@ export async function retrieveRelevantContext(
     if (matchedCategories.size > 0) {
       try {
         const catArray = [...matchedCategories];
+        // Drizzle binds a JS array as a composite `record` rather than
+        // a `text[]`, which makes `::text[]` fail with "cannot cast type
+        // record to text[]". Use IN (...) with a comma-joined list of
+        // individually-bound text params instead — drizzle escapes each
+        // value safely and Postgres sees `text` not `record`.
         const peerRows = await db.execute(sql`
           SELECT entity_name, type, category, summary
           FROM brain_entities
           WHERE user_id = ${userId}
-            AND category = ANY(${catArray}::text[])
+            AND category IN (${sql.join(catArray.map((c) => sql`${c}`), sql`, `)})
           LIMIT 20
         `);
         const raw: any[] = (peerRows as any).rows ?? peerRows;
@@ -454,7 +745,8 @@ export async function retrieveRelevantContext(
   } as BrainFact));
 
   const methodology = await retrieveMethodologyRules(query);
-  const summary = `[hybrid] ${scoredFacts.length} facts (top sim: ${scoredFacts[0]?.vectorSim?.toFixed(3) ?? "n/a"}), ${scoredEntities.length} entities, ${relationships.length} rels, ${methodology.length} rules`;
+  const apTotal = apQuestions.length + apFrameworks.length + apSignals.length;
+  const summary = `[hybrid] ${scoredFacts.length} facts (top sim: ${scoredFacts[0]?.vectorSim?.toFixed(3) ?? "n/a"}), ${scoredEntities.length} entities, ${relationships.length} rels, ${methodology.length} rules, ${apTotal} analyst perspectives`;
 
   return {
     entities,
@@ -464,16 +756,37 @@ export async function retrieveRelevantContext(
     preferences: brain.preferences || {},
     methodology,
     meta: brain.meta || null,
+    analystPerspectives: {
+      questions: apQuestions.map((q) => ({
+        analystSlug: q.analystSlug, questionText: q.questionText, questionType: q.questionType,
+        questionTopic: q.questionTopic, evidenceQuote: q.evidenceQuote, vectorSim: q.vectorSim,
+      })),
+      frameworks: apFrameworks.map((f) => ({
+        analyst: f.analyst, name: f.name, description: f.description, category: f.category, vectorSim: f.vectorSim,
+      })),
+      signals: apSignals.map((s) => ({
+        analystSlug: s.analystSlug, signalName: s.signalName, signalKind: s.signalKind,
+        useCase: s.useCase, sourceRef: s.sourceRef, vectorSim: s.vectorSim,
+      })),
+    },
     retrievalSummary: summary,
   };
 }
 
+function emptyAnalystPerspectives(): RetrievedContext["analystPerspectives"] {
+  return { questions: [], frameworks: [], signals: [] };
+}
+
 export function formatRetrievedContext(ctx: RetrievedContext): string {
+  const apCount = (ctx.analystPerspectives?.questions.length || 0)
+                + (ctx.analystPerspectives?.frameworks.length || 0)
+                + (ctx.analystPerspectives?.signals.length || 0);
   if (
     Object.keys(ctx.entities).length === 0 &&
     ctx.facts.length === 0 &&
     Object.keys(ctx.preferences).length === 0 &&
-    (ctx.methodology?.length || 0) === 0
+    (ctx.methodology?.length || 0) === 0 &&
+    apCount === 0
   ) {
     return "";
   }
@@ -587,7 +900,63 @@ export function formatRetrievedContext(ctx: RetrievedContext): string {
       (ctx.meta.topEntities?.length ? `, most researched: ${ctx.meta.topEntities.join(", ")}` : ""));
   }
 
+  // ─── Analyst perspective layer (migration 0003) ────────────────────────
+  // Hermes-parity: questions, frameworks, signals matched to the query
+  // from the ingested HRC corpus. ABSORBED into reasoning — never
+  // name-attributed in output prose (methodology opacity rule). The
+  // block carries its own char budget (~4K) so it can't crowd out the
+  // primary brain context.
+  const apBlock = formatAnalystPerspectives(ctx.analystPerspectives);
+  if (apBlock) {
+    sections.push(apBlock);
+  }
+
   return "\n\nRESEARCH BRAIN (relevant context from past sessions):\n" + sections.join("\n\n");
+}
+
+const MAX_ANALYST_PERSPECTIVE_CHARS = 4000;
+
+function formatAnalystPerspectives(ap: RetrievedContext["analystPerspectives"]): string {
+  if (!ap) return "";
+  const totalCount = ap.questions.length + ap.frameworks.length + ap.signals.length;
+  if (totalCount === 0) return "";
+
+  const parts: string[] = [];
+  parts.push(
+    "ANALYST PERSPECTIVE LAYER (absorb into reasoning; NEVER cite by analyst name in output prose — methodology opacity rule):",
+  );
+
+  if (ap.questions.length > 0) {
+    const lines = ap.questions.slice(0, 6).map((q) => {
+      const tag = [q.questionType, q.questionTopic].filter(Boolean).join(" / ");
+      return `- ${q.questionText}${tag ? ` (${tag})` : ""}`;
+    });
+    parts.push("Investigation questions worth asking on this topic:\n" + lines.join("\n"));
+  }
+
+  if (ap.frameworks.length > 0) {
+    const lines = ap.frameworks.slice(0, 5).map((f) => {
+      const cat = f.category ? ` [${f.category}]` : "";
+      const desc = f.description ? ` — ${f.description.slice(0, 300)}` : "";
+      return `- ${f.name}${cat}${desc}`;
+    });
+    parts.push("Frameworks / decision rules to apply when interpreting evidence:\n" + lines.join("\n"));
+  }
+
+  if (ap.signals.length > 0) {
+    const lines = ap.signals.slice(0, 6).map((s) => {
+      const kind = s.signalKind ? ` [${s.signalKind}]` : "";
+      const use = s.useCase ? ` — ${s.useCase.slice(0, 200)}` : "";
+      const ref = s.sourceRef ? ` (ref: ${s.sourceRef.slice(0, 120)})` : "";
+      return `- ${s.signalName}${kind}${use}${ref}`;
+    });
+    parts.push("Default data sources / signals analysts reach for on this topic:\n" + lines.join("\n"));
+  }
+
+  const joined = parts.join("\n\n");
+  return joined.length > MAX_ANALYST_PERSPECTIVE_CHARS
+    ? joined.slice(0, MAX_ANALYST_PERSPECTIVE_CHARS - 30) + "\n... (truncated)"
+    : joined;
 }
 
 function formatPreferences(preferences: Record<string, any>): string {

@@ -17,7 +17,27 @@ export interface SourceItem {
 }
 
 export interface Artifact {
-  type: "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote" | "sources";
+  type:
+    | "chart"
+    | "table"
+    | "metric_cards"
+    | "callout"
+    | "comparison"
+    | "quote"
+    | "sources"
+    | "file_download";
+  /** Stable identifier for THIS LOGICAL ARTIFACT across iterations.
+   *  Two artifacts in the same session with the same artifact_id are
+   *  the same thing — v1, v2, v3, etc. The ArtifactsPanel in the
+   *  split-screen UX uses artifact_id to render the LATEST version
+   *  of each artifact, not every emission of every iteration.
+   *  Derived deterministically from (session_id, type, subtype, primary
+   *  subject entity OR normalised title) at message-persistence time —
+   *  see server/artifact-versioning.ts. */
+  artifactId?: string;
+  /** Iteration number within the same artifact_id, starting at 1.
+   *  Auto-bumped when a new emission shares an existing artifact_id. */
+  version?: number;
   title?: string;
   subtitle?: string;
   source?: string;
@@ -37,6 +57,24 @@ export interface Artifact {
   // sources artifact: structured list (preferred) or raw markdown body fallback
   sources?: SourceItem[];
   body?: string;
+  // Table heatmap mode — value-encoded cell backgrounds for 2-D
+  // sensitivity matrices and scenario grids. See InlineTable renderer.
+  heatmap?: {
+    enabled: boolean;
+    scale?: "sequential" | "diverging";
+    scope?: "column" | "global";
+    center?: number;
+    hue?: number;
+  };
+  // file_download artifact — server-generated downloadable file (Excel
+  // workbook, CSV, PNG). The url is a /api/research/artifacts/:sid/:filename
+  // path served by server/routes/research-routes.ts.
+  subtype?: "xlsx" | "csv" | "png";
+  filename?: string;
+  url?: string;
+  sizeBytes?: number;
+  sheets?: number;
+  rows?: number;
 }
 
 export interface SessionMessage {
@@ -82,7 +120,72 @@ export interface ThinkingStep {
   subQuestionText?: string;
 }
 
-export type PartType = "text" | "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote" | "sources";
+export type PartType = "text" | "chart" | "table" | "metric_cards" | "callout" | "comparison" | "quote" | "sources" | "file_download";
+
+/**
+ * Collect every artifact across every message in a session in
+ * chronological order. The split-screen ArtifactsPanel + DownloadsPanel
+ * use this as the input to getLatestArtifacts() — see below.
+ */
+export function collectSessionArtifacts(messages: SessionMessage[] | null | undefined): Artifact[] {
+  if (!Array.isArray(messages)) return [];
+  const out: Artifact[] = [];
+  for (const m of messages) {
+    const arts = Array.isArray(m?.artifacts) ? m.artifacts : [];
+    for (const a of arts) {
+      if (a && typeof a === "object") out.push(a as Artifact);
+    }
+  }
+  return out;
+}
+
+/**
+ * Identify callout artifacts emitted by the data-integrity layer (chart
+ * validator + numeric-provenance) vs agent-emitted callouts (insight /
+ * risk / contrarian / catch).
+ *
+ * Validator callouts are surfaced as small-print "quality notes" in the
+ * bottom-right side panel, not inline in the memo body — they're
+ * audit-trail artefacts, not part of the analytical narrative. Pattern-
+ * matched against known emission titles since the artifact schema
+ * doesn't yet carry an explicit `source: "validator"` field.
+ *
+ * Patterns matched:
+ *   - "Data quality warning" (server/chart-validator.ts)
+ *   - "DATA INTEGRITY ERROR — numbers redacted" (server/numeric-provenance/strict-pass.ts)
+ *   - "DO NOT USE — DATA INTEGRITY FAILURE" (same)
+ *   - "Cadence mismatch" / "Numbers redacted" (defensive variants)
+ */
+const VALIDATOR_TITLE_RE = /^(data\s+(integrity|quality)|do\s+not\s+use|numbers?\s+redacted|cadence\s+mismatch|validator\s+flagged)/i;
+
+export function isValidatorCallout(artifact: Artifact | null | undefined): boolean {
+  if (!artifact || artifact.type !== "callout") return false;
+  const title = (artifact.title || "").trim();
+  return VALIDATOR_TITLE_RE.test(title);
+}
+
+/**
+ * Reduce a list of artifacts (potentially many versions of the same
+ * logical artifact) to the LATEST version of each. Identity is keyed
+ * by artifactId — the deterministic id the server assigns in
+ * server/artifact-versioning.ts. Iteration order preserved as
+ * insertion order, so latest emissions appear last → newest-first
+ * if the caller reverses.
+ *
+ * Artifacts emitted before the versioning system landed don't have
+ * an artifactId; each one is preserved as a distinct unversioned entry
+ * (no collapsing of legacy artifacts).
+ */
+export function getLatestArtifacts(artifacts: Artifact[]): Artifact[] {
+  const byId = new Map<string, Artifact>();
+  for (let i = 0; i < artifacts.length; i++) {
+    const a = artifacts[i];
+    if (!a) continue;
+    const key = a.artifactId || `__unversioned_${i}`;
+    byId.set(key, a);
+  }
+  return Array.from(byId.values());
+}
 
 // Series colors are theme-aware via CSS vars — dark mode keeps the
 // existing high-contrast (light grey on dark bg) secondaries; light mode
@@ -355,7 +458,7 @@ function parseSourcesPayload(raw: string): { sources?: SourceItem[]; body?: stri
 
 export function parseContentAndArtifacts(content: string, artifacts?: Artifact[] | null): Array<{ type: PartType; content?: string; artifact?: Artifact; artifactIdx?: number }> {
   const parts: Array<{ type: PartType; content?: string; artifact?: Artifact; artifactIdx?: number }> = [];
-  const regex = /```artifact:(chart|table|metric_cards|callout|comparison|quote|sources)\s*\n([\s\S]*?)```/g;
+  const regex = /```artifact:(chart|table|metric_cards|callout|comparison|quote|sources|file_download)\s*\n([\s\S]*?)```/g;
   let lastIndex = 0;
   let match;
   // Track which artifact-column entries have been consumed already so
@@ -400,12 +503,34 @@ export function parseContentAndArtifacts(content: string, artifacts?: Artifact[]
           artifact = { type: "metric_cards", title: json.title || "Metrics", data: json.data || [] };
         } else if (type === "table") {
           artifact = { type: "table", title: json.title || "Table", data: json.data || [], columns: json.columns };
+          // Heatmap mode for sensitivity-matrix/scenario-grid tables.
+          // Mirror the server-side sanitization shape so the renderer
+          // can trust the field is well-formed.
+          if (json.heatmap && typeof json.heatmap === "object" && json.heatmap.enabled === true) {
+            const hm: any = { enabled: true };
+            if (json.heatmap.scale === "sequential" || json.heatmap.scale === "diverging") hm.scale = json.heatmap.scale;
+            if (json.heatmap.scope === "column" || json.heatmap.scope === "global") hm.scope = json.heatmap.scope;
+            if (typeof json.heatmap.center === "number") hm.center = json.heatmap.center;
+            if (typeof json.heatmap.hue === "number") hm.hue = Math.max(0, Math.min(360, json.heatmap.hue));
+            (artifact as any).heatmap = hm;
+          }
         } else if (type === "callout") {
           artifact = { type: "callout", variant: json.variant || "insight", title: json.title, text: json.text || "" };
         } else if (type === "comparison") {
           artifact = { type: "comparison", title: json.title, left: json.left || { label: "Left", items: [] }, right: json.right || { label: "Right", items: [] } };
         } else if (type === "quote") {
           artifact = { type: "quote", text: json.text || "", attribution: json.attribution };
+        } else if (type === "file_download") {
+          artifact = {
+            type: "file_download",
+            subtype: json.subtype || "xlsx",
+            filename: json.filename || "",
+            url: json.url || "",
+            sizeBytes: typeof json.sizeBytes === "number" ? json.sizeBytes : undefined,
+            title: json.title || undefined,
+            sheets: typeof json.sheets === "number" ? json.sheets : undefined,
+            rows: typeof json.rows === "number" ? json.rows : undefined,
+          };
         } else {
           // sources — accept structured list, list of strings, or raw markdown body
           const sources = parseSourcesPayload(match[2]);
@@ -447,16 +572,18 @@ export function isTableRow(line: string): boolean {
   return trimmed.includes("|") && (trimmed.startsWith("|") || trimmed.endsWith("|"));
 }
 
+// Suggested-query pills shown on the landing page. Curated from real
+// prompts users ran in the last week (May 2026) — varied across deep
+// dives, chart builds, model work, and competitive comparisons so the
+// pills showcase what the system can do.
 export const SUGGESTED_QUERIES = [
-  "Compare TVL growth of Aave vs Compound vs Morpho over the last year",
-  "Show me Hyperliquid's derivatives volume trend",
-  "Which DEXs have the highest revenue in the last 30 days?",
-  "What's the P/E ratio trend for Ethereum L2s?",
+  "Build a chart for HYPE P/E — actual vs AQAv2-adjusted, daily over the last 12 months",
+  "Run a deep dive on TradeXYZ",
+  "What does Hyperliquid monthly revenue look like over the last 6 months?",
+  "Build me a financial model for HYPE NTM revenue with AQAv2 retroactive uplift",
+  "Octra (OCT) — project legitimacy + tokenomics breakdown",
+  "Compare Hyperliquid vs Jupiter on perp DEX volume",
 ];
 
-export const SUGGESTED_DATA_QUERIES = [
-  "Chart Hyperliquid 30D MA ARR vs price over the last 6 months",
-  "Build a fees and revenue comparison: Uniswap vs Aave vs Lido",
-  "Show me Ethereum L2 TVL breakdown as a stacked area chart",
-  "Compare daily active users across top 5 DEXs",
-];
+// SUGGESTED_DATA_QUERIES removed 2026-05-19 with chart mode. Chart-
+// shaped prompts are first-class examples in SUGGESTED_QUERIES now.

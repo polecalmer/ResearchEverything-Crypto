@@ -24,6 +24,7 @@ import {
   CHART_COLORS, inferFormat, formatValue, formatAxisTick,
   extractMode, parseContentAndArtifacts,
   parseMarkdownTableCells, isTableSeparator, isTableRow,
+  isValidatorCallout,
 } from "@/lib/research-utils";
 
 type ChartViewMode = "line" | "bar" | "area" | "cumulative" | "pie" | "stacked";
@@ -584,37 +585,65 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
       return out;
     };
 
+    // Build the YAxis prop bag. Pulls scale/domain from the artifact's
+    // yAxes spec (set by the server's chart-axis-policy when data has a
+    // wide range — the SERV outlier-crush fix). Defaults preserve
+    // legacy behaviour: linear scale, auto-fit domain, no decimals.
+    const buildYAxisProps = (
+      y: { scale?: string; domain?: [number | "auto", number | "auto"]; format?: string; dataKey?: string; label?: string } | undefined,
+      opts: { tickFormatter: (v: number) => string; tint?: "primary" | "soft" },
+    ): any => {
+      const isLog = y?.scale === "log";
+      const props: any = {
+        tickFormatter: opts.tickFormatter,
+        tick: { fontSize: 11, fill: opts.tint === "soft" ? "var(--color-chart-tick-soft)" : "var(--color-chart-tick)" },
+        axisLine: false,
+        tickLine: false,
+        width: 72,
+        tickMargin: 4,
+        tickCount: 5,
+        interval: "preserveStartEnd",
+        minTickGap: 20,
+        // Log scale charts can render values like 0.02 — we MUST allow
+        // decimals or Recharts rounds tick labels into uselessness.
+        allowDecimals: isLog ? true : false,
+      };
+      if (isLog) {
+        props.scale = "log";
+        props.type = "number";
+        // Log scale requires an explicit positive domain; "auto"
+        // breaks Recharts' log-decade tick generation. Use ["auto", "auto"]
+        // when no domain is set so Recharts picks decade-friendly bounds
+        // from the data; allowDataOverflow lets the agent or policy
+        // override cleanly.
+        props.domain = y?.domain ?? ["auto", "auto"];
+        props.allowDataOverflow = !!y?.domain;
+      } else if (y?.domain) {
+        props.type = "number";
+        props.domain = y.domain;
+        props.allowDataOverflow = true;
+      }
+      return props;
+    };
+
     if (isComposedOrDualAxis) {
       return (
         <ComposedChart {...commonProps}>
           {grid}{xAx}
           <YAxis
             yAxisId="left"
-            tickFormatter={(v: number) => formatAxisTick(v, inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format))}
-            tick={{ fontSize: 11, fill: "var(--color-chart-tick)" }}
-            axisLine={false}
-            tickLine={false}
-            width={72}
-            tickMargin={4}
-            tickCount={5}
-            interval="preserveStartEnd"
-            minTickGap={20}
-            allowDecimals={false}
+            {...buildYAxisProps(yAxes[0], {
+              tickFormatter: (v: number) => formatAxisTick(v, inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format)),
+            })}
           />
           {hasRightAxis && (
             <YAxis
               yAxisId="right"
               orientation="right"
-              tickFormatter={(v: number) => formatAxisTick(v, rightFormat!)}
-              tick={{ fontSize: 11, fill: "var(--color-chart-tick-soft)" }}
-              axisLine={false}
-              tickLine={false}
-              width={72}
-              tickMargin={4}
-              tickCount={5}
-              interval="preserveStartEnd"
-              minTickGap={20}
-              allowDecimals={false}
+              {...buildYAxisProps(yAxes[1], {
+                tickFormatter: (v: number) => formatAxisTick(v, rightFormat!),
+                tint: "soft",
+              })}
             />
           )}
           {tip}{leg}
@@ -636,16 +665,9 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
 
     const yAx = (
       <YAxis
-        tickFormatter={(v: number) => formatAxisTick(v, inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format))}
-        tick={{ fontSize: 11, fill: "var(--color-chart-tick)" }}
-        axisLine={false}
-        tickLine={false}
-        width={72}
-        tickMargin={4}
-        tickCount={5}
-        interval="preserveStartEnd"
-        minTickGap={20}
-        allowDecimals={false}
+        {...buildYAxisProps(yAxes[0], {
+          tickFormatter: (v: number) => formatAxisTick(v, inferFormat(yAxes[0]?.dataKey, yAxes[0]?.label, yAxes[0]?.format)),
+        })}
       />
     );
 
@@ -749,103 +771,112 @@ export function InlineChart({ artifact, hideSave, compact }: { artifact: Artifac
     }
   };
 
+  // Inline chart — minimal "figure" treatment. Just the title + chart.
+  // Utility chrome (Save to Library, CSV download, Cumulative toggle,
+  // Source attribution row, date stamp, big "Latest" callout) was
+  // crowding the publication-style memo body — moved to the side panel
+  // or dropped entirely. The chart artifact's role in the memo is to
+  // BE READ, not to be a control surface.
+  //
+  // `hideSave` legacy prop: kept (with no effect inline) so library
+  // / data-station call sites that pass hideSave still type-check.
+  // The side panel's ArtifactCard renders this with its own thin
+  // header, so a card border here would double-frame.
+  // Chart figure with thin theme-aware border to match the new
+  // worksheet-style table grid. Title rendered as a small figcaption
+  // ABOVE the bordered chart area (outside the frame) so it doesn't
+  // crowd the plot itself. Border colour resolves via CSS var — works
+  // on both dark and light app themes.
   return (
-    <div className={`rounded-lg border border-border/30 bg-card/40 shadow-sm ${compact ? "my-0 p-2" : "my-5 p-5"}`} style={{ overflow: "visible" }}>
-      <div className="flex items-start justify-between mb-1">
-        <div className="flex-1 min-w-0">
-          {title && (
-            <h4 className={`font-semibold text-foreground/90 tracking-tight ${compact ? "text-xs" : "text-sm"}`} data-testid="text-chart-title">
-              {title}
-              {smoothingSuffix && (
-                <span className="ml-1.5 text-muted-foreground font-normal" data-testid="text-chart-smoothing-badge">
-                  {smoothingSuffix}
-                </span>
-              )}
-            </h4>
+    <figure
+      className={compact ? "my-0" : "my-5"}
+      style={{ overflow: "visible" }}
+      data-testid="inline-chart-figure"
+    >
+      {title && (
+        <figcaption
+          className={`tracking-tight ${compact ? "text-[11.5px] font-semibold mb-1" : "text-[12.5px] font-semibold mb-1.5"}`}
+          data-testid="text-chart-title"
+        >
+          {title}
+          {smoothingSuffix && (
+            <span className="ml-1.5 font-normal opacity-60" data-testid="text-chart-smoothing-badge">
+              {smoothingSuffix}
+            </span>
           )}
-          {subtitle && <p className={`font-medium text-emerald-400 uppercase tracking-wider mt-1 leading-snug ${compact ? "text-[9px] line-clamp-1" : "text-[11px]"}`}>{subtitle}</p>}
-        </div>
-        <div className="flex items-center gap-2 ml-4 shrink-0">
-          {latestValue && (
-            <div className="text-right">
-              <p className={`font-bold font-mono tabular-nums tracking-tight leading-none ${compact ? "text-base" : "text-xl"}`} style={{ color: CHART_COLORS[0] }}>{latestValue}</p>
-              <p className="text-[10px] text-muted-foreground/50 mt-0.5">Latest</p>
-            </div>
-          )}
-          {/* CSV download — scoped to library context (`hideSave` is true
-              when InlineChart is rendered inside the library / data-station
-              embed; session memos pass hideSave={false} to keep prose
-              clean). */}
-          {hideSave && (
-            <button
-              onClick={() => downloadCsv(title || "chart", rowsToCsv(data || []))}
-              className="flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-all border text-muted-foreground/60 hover:text-foreground/80 hover:bg-muted/30 border-border/30"
-              data-testid="button-download-chart-csv"
-              title="Download chart data as CSV"
-              disabled={!data || data.length === 0}
-            >
-              <FileDown className="h-3 w-3" />
-              CSV
-            </button>
-          )}
-          {!hideSave && !savedChartId && (
-            <button
-              onClick={handleSaveChart}
-              disabled={saving || saved}
-              className={`flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-all border ${
-                saved
-                  ? "bg-amber-500/10 text-amber-500/90 border-amber-500/30"
-                  : "text-muted-foreground/60 hover:text-foreground/80 hover:bg-muted/30 border-border/30"
-              }`}
-              data-testid="button-save-chart"
-              title="Save to library"
-            >
-              {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : saved ? <Check className="h-3 w-3" /> : <Bookmark className="h-3 w-3" />}
-              {saved ? "Saved" : "Save"}
-            </button>
-          )}
-          {!hideSave && savedChartId && (
-            <ArtifactActions chartId={savedChartId} chartTitle={title} size="xs" />
-          )}
-        </div>
-      </div>
-      {!compact && !isDisabled("cumulative").disabled && (
-        <div className="flex items-center gap-1 mt-2 mb-3" data-testid="chart-type-toggle">
-          <button
-            onClick={() => setCumulative((c) => !c)}
-            title="Toggle cumulative (running sum)"
-            data-testid="chart-toggle-cumulative"
-            className={`px-2.5 py-1 rounded-md text-[11px] font-medium flex items-center gap-1.5 transition-all ${
-              cumulative
-                ? "bg-primary/15 text-primary border border-primary/30"
-                : "text-muted-foreground/50 hover:text-muted-foreground/80 hover:bg-muted/30 border border-transparent"
-            }`}
-          >
-            <ArrowUp size={12} strokeWidth={cumulative ? 2.2 : 1.5} />
-            Cumulative
-          </button>
-        </div>
+        </figcaption>
       )}
-      <div style={{ overflow: "visible" }} className={compact ? "mt-1" : "mt-2"}>
-        <ResponsiveContainer width="100%" height={compact ? 280 : 300} style={{ overflow: "visible" }}>
+      <div
+        style={{
+          overflow: "visible",
+          border: "1px solid hsl(var(--border) / 0.5)",
+          borderRadius: "2px",
+          padding: compact ? "6px 4px 4px" : "10px 6px 6px",
+        }}
+      >
+        <ResponsiveContainer width="100%" height={compact ? 339 : 415} style={{ overflow: "visible" }}>
           {renderChart()}
         </ResponsiveContainer>
       </div>
-      {source && !compact && (
-        <div className="border-t border-border/20 flex items-center justify-between mt-2 pt-2">
-          <p className="text-[11px] text-emerald-400/70 italic">Source: {source}</p>
-          <p className="text-[10px] text-muted-foreground/50">{new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</p>
+      {/* Compact utility row — source on the left, save / refresh on
+       *  the right. Restored after the earlier strip went too far:
+       *  charts need a Save-to-library affordance + a Refresh button
+       *  for live-data refresh recipes. Kept minimal — icon-only
+       *  buttons, no fill, no rounded card frame, so it reads as a
+       *  thin footer line under the chart rather than a control bar. */}
+      {!compact && (source || !hideSave) && (
+        <div className="mt-1.5 flex items-center justify-between text-[10px] text-muted-foreground/60 prose-chrome">
+          <span className="italic truncate">
+            {source ? `Source: ${source}` : ""}
+          </span>
+          <span className="flex items-center gap-2 shrink-0">
+            {!hideSave && !savedChartId && (
+              <button
+                onClick={handleSaveChart}
+                disabled={saving || saved}
+                className={`flex items-center gap-1 px-1.5 py-0.5 transition-colors ${
+                  saved ? "text-amber-400/80" : "hover:text-foreground/85"
+                }`}
+                data-testid="button-save-chart"
+                title="Save to library"
+              >
+                {saving ? (
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                ) : saved ? (
+                  <Check className="h-3 w-3" />
+                ) : (
+                  <Bookmark className="h-3 w-3" />
+                )}
+                {saved ? "Saved" : "Save"}
+              </button>
+            )}
+            {!hideSave && savedChartId && (
+              <ArtifactActions chartId={savedChartId} chartTitle={title} size="xs" />
+            )}
+            {hideSave && (
+              <button
+                onClick={() => downloadCsv(title || "chart", rowsToCsv(data || []))}
+                className="flex items-center gap-1 px-1.5 py-0.5 hover:text-foreground/85 transition-colors"
+                data-testid="button-download-chart-csv"
+                title="Download chart data as CSV"
+                disabled={!data || data.length === 0}
+              >
+                <FileDown className="h-3 w-3" />
+                CSV
+              </button>
+            )}
+          </span>
         </div>
       )}
-    </div>
+    </figure>
   );
 }
 
 export function InlineTable({ artifact, compact, hideSave }: { artifact: Artifact; compact?: boolean; hideSave?: boolean }) {
-  const { data, columns, title, subtitle, source, refreshRecipe } = artifact;
-  const { toast } = useToast();
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
+  // Note: hideSave is still in the prop signature so library call sites
+  // that pass it keep type-checking. With the in-table Save UI removed,
+  // the prop has no effect — save lives in the side panel now.
+  const { data, columns, title } = artifact;
 
   if (!data?.length) return null;
 
@@ -867,175 +898,234 @@ export function InlineTable({ artifact, compact, hideSave }: { artifact: Artifac
 
   const cols = columns || (Array.isArray(data[0]) ? data[0].map((_: any, i: number) => `Col ${i + 1}`) : Object.keys(data[0]));
 
-  // Save to library: reuses /api/research/charts/save with chartType:"table".
-  // The dashboard_charts table already supports table-type entries; the
-  // library's data-station tab renders chartType === "table" via InlineTable.
-  // Only the save action was missing — adding it here makes tables a
-  // first-class library citizen alongside charts.
-  const handleSaveTable = async () => {
-    setSaving(true);
-    try {
-      const authHeaders = await getAuthHeaders();
-      const res = await fetch("/api/research/charts/save", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...authHeaders },
-        credentials: "include",
-        body: JSON.stringify({
-          title: title || "Untitled Table",
-          chartType: "table",
-          chartConfig: { columns: cols },
-          data,
-          description: subtitle || source || "",
-          // Pass refreshRecipe through so saved tables become refreshable
-          // live artifacts in the library — same parity with charts.
-          ...(refreshRecipe ? { refreshRecipe } : {}),
-        }),
-      });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || "Failed to save");
-      setSaved(true);
-      queryClient.invalidateQueries({ queryKey: ["/api/research/charts/saved"] });
-      toast({ title: "Saved to Library", description: `"${title || "Table"}" — find it in the Charts tab.` });
-    } catch (e: any) {
-      toast({ title: "Error", description: e.message, variant: "destructive" });
-    } finally {
-      setSaving(false);
-    }
-  };
+  // Save-to-library was previously a per-table button — removed when we
+  // stripped the inline chrome. The path is now: tables auto-persist as
+  // versioned artifacts (server/artifact-versioning.ts), the side panel
+  // shows the latest version, save / CSV-download utilities live there.
 
-  // Memo-style table aesthetic, dark-theme adapted: top + bottom thick
-  // rules, uppercase indigo headers, no card chrome, no zebra, no hover
-  // shading, tabular-nums in body cells, first-column emphasis. Strips
-  // the rounded-card frame the prior look relied on.
+  // Inline table — clean, publication-style. Just title + table.
+  // Save / CSV download chrome was crowding the reading flow; both
+  // belong as utilities in the side panel where the artifact is pinned,
+  // not in the main memo body. handleSaveTable / saving / saved state
+  // are kept (referenced by other callsites) but the in-table button
+  // is removed. CSV is reachable via the side panel's download list
+  // once tables get auto-versioned as artifacts.
   return (
     <div className={compact ? "my-0" : "my-5"}>
-      {(title || !hideSave || hideSave) && (
-        <div className="flex items-start justify-between gap-3 mb-1">
-          {title && (
-            <h4
-              className={`font-semibold text-foreground/90 tracking-tight flex-1 min-w-0 ${compact ? "text-xs pb-1" : "text-sm pb-2"}`}
-            >
-              {title}
-            </h4>
-          )}
-          {/* CSV download — shown in library context (hideSave=true) so
-              users can extract the underlying table data. */}
-          {hideSave && (
-            <button
-              onClick={() => downloadCsv(title || "table", rowsToCsv(data || [], cols))}
-              className="shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-all border text-muted-foreground/60 hover:text-foreground/80 hover:bg-muted/30 border-border/30"
-              data-testid="button-download-table-csv"
-              title="Download table as CSV"
-              disabled={!data || data.length === 0}
-            >
-              <FileDown className="h-3 w-3" />
-              CSV
-            </button>
-          )}
-          {!hideSave && (
-            <button
-              onClick={handleSaveTable}
-              disabled={saving || saved}
-              className={`shrink-0 flex items-center gap-1 px-2 py-1 rounded text-[10px] font-medium transition-all border ${
-                saved
-                  ? "bg-amber-500/10 text-amber-500/90 border-amber-500/30"
-                  : "text-muted-foreground/60 hover:text-foreground/80 hover:bg-muted/30 border-border/30"
-              }`}
-              data-testid="button-save-table"
-              title="Save table to library"
-            >
-              {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : saved ? <Check className="h-3 w-3" /> : <Bookmark className="h-3 w-3" />}
-              {saved ? "Saved" : "Save"}
-            </button>
-          )}
-        </div>
-      )}
-      <div className={`overflow-x-auto ${compact ? "max-h-[300px] overflow-y-auto" : ""}`}>
-        <table
-          className={`w-full ${compact ? "text-[11px]" : "text-[13px]"}`}
-          style={{
-            borderCollapse: "collapse",
-            fontVariantNumeric: "tabular-nums",
-            borderTop: "1.5px solid var(--color-block-rule)",
-            borderBottom: "1.5px solid var(--color-block-rule)",
-          }}
+      {/* Title always shown — the side-panel ArtifactCard no longer
+       *  renders its own header bar, so the table's title is the only
+       *  identifier visible in both inline and compact contexts. */}
+      {title && (
+        <h4
+          className={`tracking-tight font-semibold ${compact ? "text-[11.5px] mb-1" : "text-[12px] mb-1.5"}`}
         >
-          <thead>
-            <tr>
-              {cols.map((c) => (
-                <th
-                  key={c}
-                  className={`text-left font-bold uppercase tracking-wider ${compact ? "px-2.5 py-1.5 text-[9.5px]" : "px-3 py-2 text-[11px]"}`}
-                  style={{
-                    color: "#A4B6E8",
-                    borderBottom: "1px solid rgba(164,182,232,0.45)",
-                    letterSpacing: "0.04em",
-                    background: "transparent",
-                  }}
-                >
-                  {c.replace(/_/g, " ")}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {data.slice(0, compact ? 20 : 50).map((row: any, i: number) => (
-              <tr key={i}>
-                {cols.map((c, ci) => (
-                  <td
-                    key={c}
-                    className={compact ? "px-2.5 py-1.5" : "px-3 py-1.5"}
-                    style={{
-                      borderBottom:
-                        i === Math.min(data.length, compact ? 20 : 50) - 1
-                          ? "none"
-                          : "1px solid var(--color-block-separator)",
-                      color:
-                        ci === 0
-                          ? "var(--color-block-text-strong)"
-                          : "var(--color-block-text)",
-                      fontWeight: ci === 0 ? 600 : 400,
-                      verticalAlign: "top",
-                    }}
-                  >
-                    {formatValue(resolveCell(row, c))}
-                  </td>
+          {title}
+        </h4>
+      )}
+      {/* Polished spreadsheet grid: every cell has a 1px hairline border
+       *  on all four sides (collapsed so adjacent borders merge to a
+       *  single line). Header row gets a slightly heavier bottom border
+       *  + subtle fill so it visually anchors the data underneath.
+       *  Uniform 12px font everywhere — the only hierarchy is color +
+       *  weight, never size. Numeric columns auto-detected and right-
+       *  aligned for vertical figure-stack. */}
+      <div className={`overflow-x-auto ${compact ? "max-h-[300px] overflow-y-auto" : ""}`}>
+        {(() => {
+          const isNumericCol = cols.map((c) => {
+            const sample = data.slice(0, 5).map((r: any) => resolveCell(r, c));
+            const nonNull = sample.filter((v: any) => v != null && v !== "");
+            if (nonNull.length === 0) return false;
+            return nonNull.every((v: any) => {
+              const n = Number(typeof v === "string" ? v.replace(/[$,%]/g, "") : v);
+              return !isNaN(n) && isFinite(n);
+            });
+          });
+
+          // ── Heatmap pre-computation ─────────────────────────────────
+          // When the table artifact carries heatmap.enabled === true,
+          // compute per-column (or global) min/max across numeric cells
+          // so we can map each value to a background color. Cell text
+          // stays visible; color is enrichment that lets the analyst
+          // spot the cliff in a 2-D sensitivity grid at a glance.
+          const heatmap = artifact.heatmap;
+          const heatmapOn = !!heatmap?.enabled;
+          const heatmapScope = heatmap?.scope || "column";
+          const heatmapScale = heatmap?.scale || "sequential";
+          const heatmapHue = typeof heatmap?.hue === "number" ? heatmap.hue : 142; // default sequential green
+          const heatmapCenter = typeof heatmap?.center === "number" ? heatmap.center : 0;
+
+          // Parse cell to number consistently with isNumericCol detection
+          const cellNum = (v: any): number | null => {
+            if (v == null || v === "") return null;
+            const n = Number(typeof v === "string" ? v.replace(/[$,%(\)]/g, "") : v);
+            return isNaN(n) || !isFinite(n) ? null : n;
+          };
+
+          // Compute ranges only when heatmap is enabled (skip cost otherwise)
+          let colRanges: Array<{ min: number; max: number } | null> = cols.map(() => null);
+          let globalRange: { min: number; max: number } | null = null;
+          if (heatmapOn) {
+            cols.forEach((c, ci) => {
+              if (!isNumericCol[ci]) return;
+              let lo = Infinity, hi = -Infinity;
+              for (const r of data) {
+                const n = cellNum(resolveCell(r, c));
+                if (n != null) { lo = Math.min(lo, n); hi = Math.max(hi, n); }
+              }
+              if (isFinite(lo) && isFinite(hi)) colRanges[ci] = { min: lo, max: hi };
+            });
+            if (heatmapScope === "global") {
+              let lo = Infinity, hi = -Infinity;
+              colRanges.forEach((r) => {
+                if (r) { lo = Math.min(lo, r.min); hi = Math.max(hi, r.max); }
+              });
+              if (isFinite(lo) && isFinite(hi)) globalRange = { min: lo, max: hi };
+            }
+          }
+
+          // Map a numeric value to {bg, text} colors. For sequential:
+          // light fill at low → dark fill at high (hue-keyed). For
+          // diverging: red below center, white at center, green above.
+          const colorForValue = (n: number, ci: number): { bg: string; text: string } | null => {
+            const range = heatmapScope === "global"
+              ? globalRange
+              : colRanges[ci];
+            if (!range || range.max <= range.min) return null;
+
+            if (heatmapScale === "diverging") {
+              // Map distance from center; cells equal to center are white.
+              const span = Math.max(Math.abs(range.max - heatmapCenter), Math.abs(range.min - heatmapCenter)) || 1;
+              const d = (n - heatmapCenter) / span; // -1..1
+              const mag = Math.min(1, Math.abs(d));
+              const hue = d >= 0 ? 142 : 12; // green up, red down
+              // Lightness: 96 (near white) at d=0, 55 at |d|=1
+              const lightness = 96 - mag * 41;
+              const sat = 60;
+              return {
+                bg: `hsl(${hue} ${sat}% ${lightness}%)`,
+                text: lightness < 60 ? "white" : "hsl(var(--foreground))",
+              };
+            } else {
+              // Sequential: t=0 at min → t=1 at max
+              const t = (n - range.min) / (range.max - range.min);
+              const tt = Math.max(0, Math.min(1, t));
+              // 94% (very light) → 42% (dark) — readable across the range
+              const lightness = 94 - tt * 52;
+              const sat = 55;
+              return {
+                bg: `hsl(${heatmapHue} ${sat}% ${lightness}%)`,
+                text: lightness < 60 ? "white" : "hsl(var(--foreground))",
+              };
+            }
+          };
+
+          // Theme-aware via CSS variables — `hsl(var(--border) / X)` and
+          // `hsl(var(--foreground) / X)` resolve correctly under both
+          // dark and light app themes. Excel-grid aesthetic: hairline
+          // border on all four cell sides (collapsed → merged grid),
+          // header row gets a subtle fill + heavier bottom border.
+          const CELL_BORDER = "1px solid hsl(var(--border) / 0.5)";
+          const HEADER_BORDER_BOTTOM = "1px solid hsl(var(--border))";
+          const HEADER_FILL = "hsl(var(--muted) / 0.35)";
+
+          return (
+            <table
+              className="w-full"
+              style={{
+                borderCollapse: "collapse",
+                fontVariantNumeric: "tabular-nums",
+                fontSize: "12px",
+                lineHeight: "1.45",
+                border: CELL_BORDER,
+              }}
+            >
+              <thead>
+                <tr>
+                  {cols.map((c, ci) => (
+                    <th
+                      key={c}
+                      style={{
+                        color: "hsl(var(--foreground))",
+                        textAlign: isNumericCol[ci] ? "right" : "left",
+                        border: CELL_BORDER,
+                        borderBottom: HEADER_BORDER_BOTTOM,
+                        background: HEADER_FILL,
+                        fontWeight: 600,
+                        letterSpacing: "0",
+                        textTransform: "none",
+                        padding: compact ? "4px 8px" : "5px 10px",
+                      }}
+                    >
+                      {c.replace(/_/g, " ")}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {data.slice(0, compact ? 20 : 50).map((row: any, i: number) => (
+                  <tr key={i}>
+                    {cols.map((c, ci) => {
+                      const cellVal = resolveCell(row, c);
+                      // Apply heatmap coloring only on numeric cells when
+                      // mode is enabled. Non-numeric (e.g. label column)
+                      // and null cells fall through to the base styling.
+                      let cellBg: string | undefined;
+                      let cellTextColor: string | undefined;
+                      if (heatmapOn && isNumericCol[ci]) {
+                        const n = cellNum(cellVal);
+                        if (n != null) {
+                          const c2 = colorForValue(n, ci);
+                          if (c2) {
+                            cellBg = c2.bg;
+                            cellTextColor = c2.text;
+                          }
+                        }
+                      }
+                      return (
+                        <td
+                          key={c}
+                          style={{
+                            border: CELL_BORDER,
+                            color: cellTextColor || (ci === 0 ? "hsl(var(--foreground))" : "hsl(var(--foreground) / 0.82)"),
+                            background: cellBg,
+                            fontWeight: ci === 0 ? 500 : 400,
+                            textAlign: isNumericCol[ci] ? "right" : "left",
+                            verticalAlign: "top",
+                            padding: compact ? "4px 8px" : "5px 10px",
+                          }}
+                        >
+                          {formatValue(cellVal)}
+                        </td>
+                      );
+                    })}
+                  </tr>
                 ))}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+              </tbody>
+            </table>
+          );
+        })()}
       </div>
     </div>
   );
 }
 
 export function MetricCards({ artifact }: { artifact: Artifact }) {
-  // Memo-style metric snapshot: a 3-column table with uppercase indigo
-  // labels, bold values, italic subtitles. Replaces the prior look (a
-  // grid of rounded card boxes side-by-side) which read like a SaaS
-  // dashboard widget. Same visual language as the new InlineTable —
-  // thick top/bottom rules, indigo header underline, no card chrome,
-  // no zebra. data-testid retained so the memo's print-CSS overrides
-  // continue to apply unchanged.
+  // Clean cell-table aesthetic per 2026-05-17 reference: hairline row
+  // dividers, muted label column, bold value column, italic subtitle
+  // column. NO heavy top/bottom rules, NO loud indigo uppercase labels,
+  // NO underlined title. Same visual rhythm as the new InlineTable —
+  // muted/strong contrast, tabular-nums, no card chrome.
   const { data, title } = artifact;
   if (!data?.length) return null;
 
-  const ACCENT = "#A4B6E8";
-  const RULE = "var(--color-block-rule)";
-  const SEP = "var(--color-block-separator)";
+  // Excel-grid styling, same vocabulary as InlineTable. Theme-aware
+  // via CSS variables — renders correctly on dark or light app theme.
+  const CELL_BORDER = "1px solid hsl(var(--border) / 0.5)";
 
   return (
     <div className="my-5" data-testid="metric-cards">
       {title && (
-        <h4
-          className="text-[11px] font-bold uppercase mb-1.5 m-0"
-          style={{
-            color: ACCENT,
-            letterSpacing: "0.04em",
-            paddingBottom: "3px",
-            borderBottom: `1px solid ${ACCENT}`,
-          }}
-        >
+        <h4 className="text-[12px] font-semibold tracking-tight mb-1.5">
           {title}
         </h4>
       )}
@@ -1044,52 +1134,53 @@ export function MetricCards({ artifact }: { artifact: Artifact }) {
           display: "table",
           width: "100%",
           borderCollapse: "collapse",
-          borderTop: `1.5px solid ${RULE}`,
-          borderBottom: `1.5px solid ${RULE}`,
           fontVariantNumeric: "tabular-nums",
+          fontSize: "12px",
+          lineHeight: "1.45",
+          border: CELL_BORDER,
         }}
       >
         {data.map((card: any, i: number) => {
-          const isLast = i === data.length - 1;
-          const cellBorder = isLast ? "none" : `1px solid ${SEP}`;
           return (
             <div key={i} style={{ display: "table-row" }}>
               <p
-                className="text-[10px] font-bold uppercase m-0"
+                className="m-0"
                 style={{
                   display: "table-cell",
                   width: "38%",
-                  padding: "6px 10px",
+                  padding: "5px 10px",
                   verticalAlign: "middle",
-                  color: ACCENT,
-                  letterSpacing: "0.04em",
-                  borderBottom: cellBorder,
+                  color: "hsl(var(--foreground))",
+                  fontWeight: 500,
+                  border: CELL_BORDER,
                 }}
               >
                 {card.label}
               </p>
               <p
-                className="text-[14px] font-bold m-0"
+                className="m-0"
                 style={{
                   display: "table-cell",
                   width: "28%",
-                  padding: "6px 10px",
+                  padding: "5px 10px",
                   verticalAlign: "middle",
-                  color: "var(--color-block-text-strong)",
-                  borderBottom: cellBorder,
+                  color: "hsl(var(--foreground))",
+                  fontWeight: 600,
+                  textAlign: "right",
+                  border: CELL_BORDER,
                 }}
               >
                 {card.value}
               </p>
               <p
-                className="text-[12px] italic m-0"
+                className="italic m-0"
                 style={{
                   display: "table-cell",
                   width: "34%",
-                  padding: "6px 10px",
+                  padding: "5px 10px",
                   verticalAlign: "middle",
-                  color: "var(--color-block-text-muted)",
-                  borderBottom: cellBorder,
+                  color: "hsl(var(--muted-foreground))",
+                  border: CELL_BORDER,
                 }}
               >
                 {card.subtitle || ""}
@@ -1264,6 +1355,63 @@ function extractSourcesFromBody(body: string): string[] {
     if (lower.includes(slug)) out.add(SOURCE_NAME_CANON[slug]);
   }
   return Array.from(out);
+}
+
+/**
+ * FileDownloadBlock — renders a server-generated downloadable file
+ * (Excel workbook, CSV, PNG) as a click-to-download card. The agent
+ * generates the file via the `write_xlsx` / `write_csv` tools, then
+ * embeds an `artifact:file_download` block referencing the URL the
+ * download endpoint serves.
+ *
+ * Visual treatment: compact "card" with a file-type icon on the left,
+ * filename + size + sheet/row count on the right, click to download.
+ * No preview — sessions can't render xlsx inline reliably, and the
+ * point of this artifact is to take the file elsewhere.
+ */
+export function FileDownloadBlock({ artifact }: { artifact: Artifact }) {
+  const url = artifact.url || "";
+  const filename = artifact.filename || "download";
+  const subtype = artifact.subtype || "xlsx";
+  const sizeBytes = artifact.sizeBytes ?? 0;
+  const kbStr = sizeBytes > 1024 * 1024
+    ? `${(sizeBytes / 1024 / 1024).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(sizeBytes / 1024))} KB`;
+  const detail = subtype === "xlsx" && artifact.sheets
+    ? `${artifact.sheets} sheet${artifact.sheets === 1 ? "" : "s"} · ${kbStr}`
+    : subtype === "csv" && artifact.rows
+    ? `${artifact.rows.toLocaleString()} rows · ${kbStr}`
+    : kbStr;
+  const icon = subtype === "xlsx" ? "📊" : subtype === "csv" ? "📄" : subtype === "png" ? "🖼" : "📎";
+  const typeLabel = subtype === "xlsx" ? "Excel workbook" : subtype === "csv" ? "CSV data" : subtype === "png" ? "Image" : "File";
+
+  if (!url) {
+    return (
+      <div className="my-3 rounded-md border border-border/40 bg-card/30 px-4 py-3 text-[12px] text-muted-foreground/70">
+        File artifact emitted with no URL — server may have failed to write the file.
+      </div>
+    );
+  }
+
+  return (
+    <a
+      href={url}
+      download={filename}
+      data-testid={`file-download-${subtype}`}
+      className="group/file my-4 flex items-center gap-3 rounded-md border border-border/40 bg-card/30 px-4 py-3 transition-colors hover:border-border/70 hover:bg-card/50"
+    >
+      <span className="text-2xl leading-none shrink-0" aria-hidden="true">{icon}</span>
+      <div className="flex-1 min-w-0">
+        <div className="text-[13px] font-medium text-foreground truncate">{artifact.title || filename}</div>
+        <div className="text-[11px] text-muted-foreground/70 mt-0.5">
+          {typeLabel} · {detail}
+        </div>
+      </div>
+      <span className="text-[11px] uppercase tracking-wider font-medium text-primary/70 group-hover/file:text-primary shrink-0">
+        Download
+      </span>
+    </a>
+  );
 }
 
 export function SourcesBlock({ artifact }: { artifact: Artifact }) {
@@ -1627,17 +1775,25 @@ export function MarkdownText({ text }: { text: string }) {
 }
 
 export function ModeBadge({ mode }: { mode: ResearchMode }) {
-  const configs: Record<string, { label: string; className: string }> = {
-    quick: { label: "Quick", className: "bg-emerald-400/10 text-emerald-400 border-emerald-400/30" },
-    focused: { label: "Focused", className: "bg-blue-400/10 text-blue-400 border-blue-400/30" },
-    deep: { label: "Deep Dive", className: "bg-purple-400/10 text-purple-400 border-purple-400/30" },
-    chart: { label: "Chart", className: "bg-cyan-400/10 text-cyan-400 border-cyan-400/30" },
+  // Neutral label — no per-mode accent colour. Was previously emerald /
+  // blue / purple / cyan tinted; that read as "promotional" and pulled
+  // the eye away from the actual response content. Now: a small muted
+  // uppercase tag, same colour for every mode. The mode itself stays
+  // identifiable via the label text.
+  const label: Record<string, string> = {
+    quick: "Quick",
+    focused: "Focused",
+    deep: "Deep Dive",
+    chart: "Chart",
   };
-  const config = configs[mode];
-  if (!config) return null;
+  const text = label[mode];
+  if (!text) return null;
   return (
-    <span className={`inline-block px-2.5 py-1 rounded-md border text-[10px] uppercase tracking-wider font-semibold ${config.className}`} data-testid={`mode-badge-${mode}`}>
-      {config.label}
+    <span
+      className="inline-block text-[9.5px] uppercase tracking-[0.14em] font-medium text-muted-foreground/60"
+      data-testid={`mode-badge-${mode}`}
+    >
+      {text}
     </span>
   );
 }
@@ -2138,6 +2294,12 @@ export function MessageBubble({
           Download Memo
         </a>
       </div>
+      {/* Clean chat output — assistant memo renders directly on the chat
+          background (dark or light per app theme), no light "page" wrapper.
+          The reading-surface mode was tried 2026-05-17 and dropped: it
+          felt like a layered card-on-card instead of a clean response.
+          Tables / charts / etc. theme-aware via CSS vars so they read
+          correctly on whichever background. */}
       <div className="max-w-full">
         {parts.map((part, i) => {
           const isArtifact = part.type === "table" || part.type === "chart" || part.type === "metric_cards" || part.type === "comparison";
@@ -2148,10 +2310,25 @@ export function MessageBubble({
             if (part.type === "metric_cards" && part.artifact) return <MetricCards key={i} artifact={part.artifact} />;
             if (part.type === "chart" && part.artifact) return <InlineChart key={i} artifact={part.artifact} />;
             if (part.type === "table" && part.artifact) return <InlineTable key={i} artifact={part.artifact} />;
-            if (part.type === "callout" && part.artifact) return <CalloutBlock key={i} artifact={part.artifact} />;
+            if (part.type === "callout" && part.artifact) {
+              // Validator callouts (data quality / numbers-redacted /
+              // cadence-mismatch warnings) are audit-trail artefacts,
+              // not part of the analytical narrative. They render as
+              // small-print quality notes in the side panel instead of
+              // inline blocks in the memo body. See SessionSidePanel
+              // → ValidatorNotesPanel.
+              if (isValidatorCallout(part.artifact)) return null;
+              return <CalloutBlock key={i} artifact={part.artifact} />;
+            }
             if (part.type === "comparison" && part.artifact) return <ComparisonBlock key={i} artifact={part.artifact} />;
             if (part.type === "quote" && part.artifact) return <QuoteBlock key={i} artifact={part.artifact} />;
             if (part.type === "sources" && part.artifact) return <SourcesBlock key={i} artifact={part.artifact} />;
+            // file_download artifacts are NOT rendered inline in the
+            // chat — they live ONLY in the right pane's "Files generated"
+            // strip (see SessionSidePanel → DownloadsPanel). Inline
+            // render would duplicate the affordance and bloat the memo
+            // body with a large card that interrupts reading flow.
+            if (part.type === "file_download") return null;
             return null;
           })();
           const artifactEl = raw == null

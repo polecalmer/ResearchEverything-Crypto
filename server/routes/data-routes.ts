@@ -1,7 +1,8 @@
 import type { Express } from "express";
 import { storage } from "../storage";
 import { requireAuth } from "../auth";
-import { dataChartPaywall } from "../mpp";
+// MPP paywall replaced with credit-gate 2026-05-19.
+import { requireCredits } from "../credit-gate";
 import { MARKUP_MULTIPLIER } from "../enrichment";
 import { runDataAgent, refreshChartData } from "../data-agent";
 import { fetchTokenSnapshot } from "../allium-client";
@@ -18,7 +19,7 @@ export function registerDataRoutes(app: Express) {
     }
   });
 
-  app.post("/api/companies/:id/charts/generate", requireAuth, dataChartPaywall, async (req, res) => {
+  app.post("/api/companies/:id/charts/generate", requireAuth, requireCredits, async (req, res) => {
     try {
       const { prompt } = req.body;
       if (!prompt || typeof prompt !== "string") {

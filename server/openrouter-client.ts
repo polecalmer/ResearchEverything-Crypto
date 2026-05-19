@@ -19,6 +19,7 @@
 import { OPENROUTER_DIRECT_URL } from "./constants";
 import { logger } from "./logger";
 import type { AnthropicRawResponse, CostSource } from "./mpp-client";
+import { recordCostEvent } from "./cost-ledger";
 
 const MAX_RETRIES = 3;
 const RETRY_DELAY_MS = 1000;
@@ -493,6 +494,18 @@ export async function callAnthropicNativeViaOpenRouter(request: any): Promise<An
         "openrouter.request",
       );
 
+      // Persist to the cost ledger (fire-and-forget; never blocks).
+      recordCostEvent({
+        model: body.model,
+        inputTokens: usage.input_tokens || 0,
+        outputTokens: usage.output_tokens || 0,
+        cacheReadTokens: usage.cache_read_input_tokens || 0,
+        cacheWriteTokens: usage.cache_creation_input_tokens || 0,
+        cost,
+        costSource,
+        path: "native",
+      });
+
       return {
         id: anthropic.id || "unknown",
         type: "message",
@@ -559,6 +572,17 @@ export async function callAnthropicViaOpenRouter(request: any): Promise<Anthropi
         },
         "openrouter.request",
       );
+      // Persist to cost ledger (fire-and-forget).
+      recordCostEvent({
+        model: openAIReq.model,
+        inputTokens: out.usage.input_tokens,
+        outputTokens: out.usage.output_tokens,
+        cacheReadTokens: (out.usage as any).cache_read_input_tokens || 0,
+        cacheWriteTokens: (out.usage as any).cache_creation_input_tokens || 0,
+        cost: out.mppCost,
+        costSource: out.costSource,
+        path: "openai_shape",
+      });
       return out;
     } catch (err: any) {
       lastError = err;
@@ -726,6 +750,15 @@ export async function callAnthropicStreamingViaOpenRouter(
         },
         "openrouter.stream.request",
       );
+      // Persist to cost ledger (fire-and-forget).
+      recordCostEvent({
+        model: openAIReq.model,
+        inputTokens: out.usage.input_tokens,
+        outputTokens: out.usage.output_tokens,
+        cost: out.mppCost,
+        costSource: out.costSource,
+        path: "streaming",
+      });
 
       return out;
     } catch (err: any) {
